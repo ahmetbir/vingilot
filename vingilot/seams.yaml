@@ -1,0 +1,94 @@
+# ==============================================================================
+# Vingilot seam inventory
+# ==============================================================================
+#
+# Per ADR-001 (docs/adr/ADR-001-product-composition-and-upstream-boundary.md),
+# decision 6: all fork-owned code lives under vingilot/. Any change to a path
+# OUTSIDE vingilot/ is an upstream touch, and is permitted only if it is
+# declared here as a "seam". vingilot/scripts/check-seams.sh enforces this in
+# CI: it fails a branch/working tree that touches a non-vingilot/ path not
+# listed below.
+#
+# This file exists to make every upstream touch a reviewed, explained
+# decision (ADR-001, Consequences) rather than an incidental diff.
+#
+# ------------------------------------------------------------------------------
+# Format (read this before adding an entry)
+# ------------------------------------------------------------------------------
+#
+# schema_version: integer. Bump only if the record shape below changes in a
+#   way check-seams.sh must also understand (it parses this file itself).
+#
+# seams: a YAML list. Each item is one seam and MUST use exactly this shape —
+#   check-seams.sh parses it with grep/sed, not a YAML library, so the format
+#   is deliberately narrow:
+#
+#   - path: "<pattern>"
+#     reason: "<why this upstream path must be touched>"
+#     owner: "<who is responsible for this seam existing>"
+#     removable_when: "<the condition that lets this entry be deleted>"
+#     status: "temporary" | "permanent"
+#     added: "<YYYY-MM-DD>"
+#
+# Hard rules the parser depends on:
+#   1. `path` is always the first key of the entry, on the same line as the
+#      leading `- `, e.g.: `  - path: "desktop/package.json"`.
+#   2. Every field value is a plain double-quoted string on a single line.
+#      No single quotes, no unquoted scalars, no YAML block/flow scalars
+#      (`|`, `>`, `[...]`, `{...}`). If a value needs a literal `"`, this
+#      format cannot express it — reword instead.
+#   3. `path` may be a literal path or a glob. `*` matches any run of
+#      characters INCLUDING `/` (this is bash `[[ == ]]`/`case` pattern
+#      matching, not filesystem globbing) — so `desktop/ds-*` matches both
+#      `desktop/ds-entry.tsx` and, if it existed, `desktop/ds/deep/file.ts`.
+#      Prefer the narrowest pattern that covers the real set of files.
+#   4. Anything already under `vingilot/` is always allowed and never needs
+#      an entry — the checker special-cases that prefix.
+#   5. `status: "temporary"` means this seam is an accommodation we intend to
+#      remove (per `removable_when`), not a designed part of the boundary.
+#      `status: "permanent"` means the seam is expected to persist for as
+#      long as the fork does.
+#
+# Adding an entry is a decision, not a chore (ADR-001, Consequences) — say
+# in `reason` why the touch is unavoidable at this path specifically, not
+# just what the change does.
+#
+# ------------------------------------------------------------------------------
+
+schema_version: 1
+
+seams:
+  - path: ".gitignore"
+    reason: "Adds ignore patterns for the design-sync tool's ephemeral build/cache output (.ds-sync/, ds-bundle/, .design-sync/.cache/, .design-sync/learnings/, .design-sync/node_modules, desktop/ds-compiled.css, desktop/ds-types/) so its generated artifacts never get committed."
+    owner: "design-sync tooling (external design-publishing pipeline; not owned by Vingilot engineering)"
+    removable_when: "The design-sync integration is retired, or its build/cache output is produced under a vingilot/-rooted workspace instead of the repo root."
+    status: "temporary"
+    added: "2026-08-01"
+
+  - path: "desktop/package.json"
+    reason: "Adds a types field (ds-types/index.d.ts) so the design-sync converter can read each shared UI component's real prop types instead of falling back to an empty interface. Inert for the app itself: nothing imports buzz as a package."
+    owner: "design-sync tooling (external design-publishing pipeline; not owned by Vingilot engineering)"
+    removable_when: "Design-sync no longer needs a types entry point on the desktop package (e.g. it reads declarations from a fork-owned adapter instead), or the design-sync integration is retired."
+    status: "temporary"
+    added: "2026-08-01"
+
+  - path: "desktop/ds-*"
+    reason: "Hand-written entry point (ds-entry.tsx), Tailwind entry (ds-styles.css), and their gitignored build output (ds-compiled.css, ds-types/) that the design-sync tool bundles to publish desktop/src/shared/ui components. Must live inside desktop/ today because the tool's package-build.mjs derives its package root by walking up from the entry file to the nearest package.json with a name field (see .design-sync/NOTES.md). Deliberately narrow (not desktop/*ds-*): a broader glob would also match unrelated upstream files like desktop/tests/e2e/needs-restart-screenshots.spec.ts."
+    owner: "design-sync tooling (external design-publishing pipeline; not owned by Vingilot engineering)"
+    removable_when: "These files ideally live under vingilot/ instead. Removable once the design-sync tool no longer requires them to be colocated with desktop/package.json for package-root resolution, or once the design-sync integration is retired."
+    status: "temporary"
+    added: "2026-08-01"
+
+  - path: "desktop/tsconfig.ds-*"
+    reason: "Declaration-emit tsconfig (tsconfig.ds-types.json) the design-sync tool runs to extract real prop types for each component (see desktop/package.json's types entry above). Kept as its own pattern rather than folded into desktop/ds-* because its filename doesn't start with ds- (it starts with tsconfig.)."
+    owner: "design-sync tooling (external design-publishing pipeline; not owned by Vingilot engineering)"
+    removable_when: "This file ideally lives under vingilot/ instead. Removable once the design-sync tool no longer requires it to be colocated with desktop/package.json for package-root resolution, or once the design-sync integration is retired."
+    status: "temporary"
+    added: "2026-08-01"
+
+  - path: ".design-sync/*"
+    reason: "The design-sync tool's own config (config.json), authored preview cards, component doc stubs, conventions doc, and sync notes, at the fixed repo-root path the tool expects."
+    owner: "design-sync tooling (external design-publishing pipeline; not owned by Vingilot engineering)"
+    removable_when: "This directory ideally lives under vingilot/ instead. Removable once the design-sync tool's fixed-path assumption is relaxed (e.g. a configurable root) and the tree is relocated, or once the design-sync integration is retired."
+    status: "temporary"
+    added: "2026-08-01"
