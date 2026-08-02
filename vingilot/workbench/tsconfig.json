@@ -10,10 +10,31 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "ignoreDeprecations": "6.0",
+    "resolveJsonModule": true,
+    // vite/client supplies the ambient `ImportMeta.env` augmentation and the
+    // asset-module declarations (*.css, *.svg, *.png, …) that desktop's own
+    // vite-env.d.ts pulls in the same way. Restricting "types" to just this
+    // keeps @types/node (which vite's own .d.ts files reference, and which
+    // would otherwise leak a conflicting global `setTimeout` return type into
+    // every file in this program) out of the src program's global scope —
+    // see tsconfig.node.json below for why vite.config.ts is compiled apart
+    // from src/ instead.
+    "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../../desktop/src/*"]
+      "@/*": ["../../desktop/src/*"],
+      "@features-manifest": ["../../preview-features.json"]
     }
   },
-  "include": ["src", "vite.config.ts"]
+  // The workbench's own program root only reaches desktop/src via the `@`
+  // alias's import graph, so desktop's ambient .d.ts files (which desktop's
+  // own tsconfig picks up via its "include": ["src"] glob) are never
+  // discovered here unless listed explicitly. They are read, never edited —
+  // see ADR-001 decision 7.
+  "include": [
+    "src",
+    "../../desktop/src/upng-js.d.ts",
+    "../../desktop/src/types/qrcode.d.ts"
+  ],
+  "references": [{ "path": "./tsconfig.node.json" }]
 }
