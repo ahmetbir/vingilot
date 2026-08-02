@@ -9,13 +9,37 @@ import { flatRailOrder, RunRail } from "./shell/RunRail.tsx";
 import { StatusBar } from "./shell/StatusBar.tsx";
 import { StopButton } from "./shell/StopButton.tsx";
 import { TabArea } from "./shell/TabArea.tsx";
+import { Unreachable } from "./system/Unreachable.tsx";
 
 // Hardcoded dev workspace id.
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
+const POLL_INTERVAL_MS = 2000;
 
 export function App() {
-  const { data, reachable, lastOk } = usePolling(() => listRuns(WORKSPACE_ID));
+  const { data, reachable, lastOk, retryNow } = usePolling(() => listRuns(WORKSPACE_ID), POLL_INTERVAL_MS);
   const runs: RunSummary[] = data ?? [];
+
+  // The moment reachability first flipped false — null while reachable.
+  // Unreachable.tsx (and the countdown inside it) is a pure function of
+  // (reachable, unreachableSince, now); this is the one bit of state that
+  // isn't derivable from usePolling's own return.
+  const [unreachableSince, setUnreachableSince] = useState<Date | null>(null);
+  useEffect(() => {
+    if (!reachable) {
+      setUnreachableSince((prev) => prev ?? new Date());
+    } else {
+      setUnreachableSince(null);
+    }
+  }, [reachable]);
+
+  // A ticking clock so the "next retry in Ns" countdown counts down live,
+  // not just on the next poll's data change. Cheap: one re-render/second,
+  // and only meaningfully visible while the unreachable lane is up.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const handle = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(handle);
+  }, []);
 
   const [activeTabId, setActiveTabId] = useState<string>("deck");
   const [openRunIds, setOpenRunIds] = useState<string[]>([]);
@@ -93,7 +117,12 @@ export function App() {
   return (
     <div className="vg-shell">
       <aside className="vg-shell__rail" aria-label="runs">
-        <RunRail runs={runs} activeRunId={activeTabId === "deck" ? null : activeTabId} onSelectRun={openRun} />
+        <RunRail
+          runs={runs}
+          activeRunId={activeTabId === "deck" ? null : activeTabId}
+          onSelectRun={openRun}
+          staleAsOf={reachable ? null : lastOk}
+        />
       </aside>
       <main className="vg-shell__tabs" aria-label="workspace">
         <div className="vg-shell__topbar">
@@ -106,9 +135,16 @@ export function App() {
           activeTabId={activeTabId}
           onSelectTab={setActiveTabId}
           onCloseTab={closeRunTab}
-          deckContent={<Deck workspaceId={WORKSPACE_ID} runs={runs} onOpenRun={openRun} />}
+          deckContent={<Deck workspaceId={WORKSPACE_ID} runs={runs} onOpenRun={openRun} reachable={reachable} />}
         />
       </main>
+      <Unreachable
+        reachable={reachable}
+        since={unreachableSince}
+        now={now}
+        intervalMs={POLL_INTERVAL_MS}
+        onRetryNow={retryNow}
+      />
       <footer className="vg-shell__status" aria-label="status">
         <StatusBar workspaceId={WORKSPACE_ID} activeRun={activeRun} reachable={reachable} lastOk={lastOk} />
       </footer>

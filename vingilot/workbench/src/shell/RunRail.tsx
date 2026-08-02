@@ -5,6 +5,10 @@ interface RunRailProps {
   runs: RunSummary[];
   activeRunId: string | null;
   onSelectRun: (id: string) => void;
+  /** When set, the control plane is unreachable and `runs` is the last-good
+   * poll rather than live data — every row gets stamped "as of <t>" so that
+   * distinction is never silent (design 7c). */
+  staleAsOf?: Date | null;
 }
 
 const GROUP_LABELS = {
@@ -23,7 +27,7 @@ export function flatRailOrder(runs: RunSummary[]): RunSummary[] {
   return [...groups.needsYou, ...groups.live, ...groups.recent];
 }
 
-export function RunRail({ runs, activeRunId, onSelectRun }: RunRailProps) {
+export function RunRail({ runs, activeRunId, onSelectRun, staleAsOf = null }: RunRailProps) {
   if (runs.length === 0) {
     return (
       <div className="vg-rail">
@@ -64,7 +68,10 @@ export function RunRail({ runs, activeRunId, onSelectRun }: RunRailProps) {
                       />
                       <span className="vg-rail__objective">{run.objective}</span>
                       <ModeChip mode={run.mode} />
-                      <span className="vg-rail__meta">{rowMeta(run)}</span>
+                      <span className="vg-rail__meta">
+                        {rowMeta(run)}
+                        {staleAsOf !== null ? ` · as of ${staleAsOf.toLocaleTimeString()}` : ""}
+                      </span>
                     </button>
                   </li>
                 );

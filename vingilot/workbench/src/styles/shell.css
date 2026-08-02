@@ -15,9 +15,10 @@ body {
 .vg-shell {
   display: grid;
   grid-template-columns: 232px 1fr;
-  grid-template-rows: 1fr 28px;
+  grid-template-rows: 1fr auto 28px;
   grid-template-areas:
     "rail tabs"
+    "unreachable unreachable"
     "status status";
   height: 100vh;
   background: linear-gradient(var(--vg-gradient-top), var(--vg-gradient-bottom));
@@ -550,6 +551,40 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* --- unreachable lane (design 7c) --------------------------------------
+   Persistent and non-dismissible: no close button, it only ever goes away
+   because reachability actually recovered. `--vg-sem-attn`, not stop-red —
+   this is a degraded, retrying state, not a failure the user must act on. */
+.vg-unreachable {
+  grid-area: unreachable;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.375rem 0.75rem;
+  background: color-mix(in srgb, var(--vg-sem-attn) 14%, var(--vg-panel-solid));
+  border-top: 1px solid var(--vg-sem-attn);
+  border-bottom: 1px solid var(--vg-sem-attn);
+  color: var(--vg-sem-attn);
+  font-size: var(--vg-text-meta);
+}
+
+.vg-unreachable__glyph {
+  flex: none;
+}
+
+.vg-unreachable__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.vg-unreachable__retry {
+  flex: none;
+  border-color: var(--vg-sem-attn);
+  color: var(--vg-sem-attn);
+  font-size: var(--vg-text-micro);
+  padding: 0.125rem 0.625rem;
 }
 
 /* --- palette ------------------------------------------------------------ */

@@ -2,19 +2,28 @@
 // exponential backoff — this is a local dev tool talking to a coordinator on
 // localhost, not a public API client.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiResult } from "./coordinator.ts";
 
 export interface PollingState<T> {
   data: T | null;
   reachable: boolean;
   lastOk: Date | null;
+  /** Forces an immediate tick and restarts the interval from now — the
+   * unreachable lane's "Retry now" button uses this instead of waiting out
+   * the fixed cadence. */
+  retryNow: () => void;
 }
 
 const DEFAULT_INTERVAL_MS = 2000;
 
 export function usePolling<T>(fn: () => Promise<ApiResult<T>>, ms: number = DEFAULT_INTERVAL_MS): PollingState<T> {
-  const [state, setState] = useState<PollingState<T>>({ data: null, reachable: true, lastOk: null });
+  const [state, setState] = useState<{ data: T | null; reachable: boolean; lastOk: Date | null }>({
+    data: null,
+    reachable: true,
+    lastOk: null,
+  });
+  const [epoch, setEpoch] = useState(0);
   const fnRef = useRef(fn);
   fnRef.current = fn;
 
@@ -44,7 +53,11 @@ export function usePolling<T>(fn: () => Promise<ApiResult<T>>, ms: number = DEFA
       cancelled = true;
       clearInterval(handle);
     };
-  }, [ms]);
+    // `epoch` is bumped by retryNow() purely to re-run this effect (an
+    // immediate tick + a freshly-scheduled interval), not read otherwise.
+  }, [ms, epoch]);
 
-  return state;
+  const retryNow = useCallback(() => setEpoch((e) => e + 1), []);
+
+  return { ...state, retryNow };
 }

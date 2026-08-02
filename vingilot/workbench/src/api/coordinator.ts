@@ -93,11 +93,26 @@ async function request<T>(
   }
 
   let errorBody: ErrorBody = {};
+  let hasJsonBody = false;
   try {
     errorBody = (await res.json()) as ErrorBody;
+    hasJsonBody = true;
   } catch {
     // no/invalid JSON body — fall through with empty error/detail
   }
+
+  // The coordinator's every error path returns {error, detail} JSON (the
+  // contract this whole module trades in). A 502/503/504 with no such body
+  // was never produced by the coordinator itself — it's the Vite dev
+  // proxy answering on the coordinator's behalf because nothing is
+  // listening at its target. That is "control plane unreachable", the same
+  // fact a fetch-level throw reports, just observed one hop later: the
+  // browser's request to the (up) dev server succeeded, but the dev
+  // server's request to the (down) coordinator did not.
+  if (!hasJsonBody && (res.status === 502 || res.status === 503 || res.status === 504)) {
+    return { ok: false, kind: "unreachable" };
+  }
+
   const error = errorBody.error ?? "unknown_error";
   const detail = errorBody.detail ?? res.statusText;
 

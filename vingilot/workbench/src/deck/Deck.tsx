@@ -17,11 +17,15 @@ interface DeckProps {
   workspaceId: string;
   runs: RunSummary[];
   onOpenRun: (runId: string) => void;
+  /** false while the control plane is unreachable — the composer is
+   * disabled rather than queuing a write it cannot honestly promise to
+   * deliver (design 7c: disabled is honest, a fake queue is not). */
+  reachable: boolean;
 }
 
 /** The Deck (design 2e): composer bar creates + provisions a real run, three
  * lanes below mirror the rail's grouping as clickable cards. */
-export function Deck({ workspaceId, runs, onOpenRun }: DeckProps) {
+export function Deck({ workspaceId, runs, onOpenRun, reachable }: DeckProps) {
   const [objective, setObjective] = useState("");
   const [mode, setMode] = useState<RunMode>("delegated");
   const [wallLimitLabel, setWallLimitLabel] = useState<WallLimitLabel>("30m");
@@ -29,10 +33,11 @@ export function Deck({ workspaceId, runs, onOpenRun }: DeckProps) {
   const [error, setError] = useState<string | null>(null);
 
   const groups = railGroups(runs);
+  const composerDisabled = submitting || !reachable;
 
   async function startRun() {
     const trimmed = objective.trim();
-    if (trimmed === "" || submitting) return;
+    if (trimmed === "" || composerDisabled) return;
     setSubmitting(true);
     setError(null);
 
@@ -78,14 +83,14 @@ export function Deck({ workspaceId, runs, onOpenRun }: DeckProps) {
           placeholder="objective"
           value={objective}
           onChange={(e) => setObjective(e.target.value)}
-          disabled={submitting}
+          disabled={composerDisabled}
           aria-label="objective"
         />
         <select
           className="vg-select"
           value={mode}
           onChange={(e) => setMode(e.target.value as RunMode)}
-          disabled={submitting}
+          disabled={composerDisabled}
           aria-label="run mode"
         >
           <option value="delegated">delegated</option>
@@ -95,7 +100,7 @@ export function Deck({ workspaceId, runs, onOpenRun }: DeckProps) {
           className="vg-select"
           value={wallLimitLabel}
           onChange={(e) => setWallLimitLabel(e.target.value as WallLimitLabel)}
-          disabled={submitting}
+          disabled={composerDisabled}
           aria-label="wall-clock limit"
         >
           {WALL_LIMIT_OPTIONS.map((o) => (
@@ -107,11 +112,16 @@ export function Deck({ workspaceId, runs, onOpenRun }: DeckProps) {
         <button
           type="submit"
           className="vg-button vg-button--primary"
-          disabled={submitting || objective.trim() === ""}
+          disabled={composerDisabled || objective.trim() === ""}
         >
           {submitting ? "Starting…" : "Start Run"}
         </button>
       </form>
+      {!reachable && (
+        <p className="vg-deck__error" role="status">
+          control plane unreachable — Start Run disabled
+        </p>
+      )}
       {error !== null && (
         <p className="vg-deck__error" role="alert">
           {error}

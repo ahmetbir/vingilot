@@ -90,7 +90,7 @@ export function RunView({ runId }: RunViewProps) {
             key={to}
             type="button"
             className="vg-button"
-            disabled={pendingTo !== null}
+            disabled={pendingTo !== null || !reachable}
             onClick={() => act(to)}
           >
             {pendingTo === to ? "…" : actionLabel(run.status, to)}

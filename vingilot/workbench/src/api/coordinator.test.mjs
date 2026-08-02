@@ -69,6 +69,40 @@ test("a network failure (unreachable server) maps to kind:unreachable", async ()
   assert.equal(result.kind, "unreachable");
 });
 
+test("a bare 502 with no coordinator-shaped body maps to kind:unreachable (dev-proxy dead-upstream case)", async () => {
+  // The vite dev proxy answers with a plain 502 and no JSON body when its
+  // target (the coordinator process) is down — a real HTTP response, not a
+  // fetch-level throw, but the same "control plane unreachable" fact. The
+  // coordinator itself never returns a bodyless error; every one of its
+  // error paths is {error, detail} JSON.
+  const { server, baseUrl } = await startServer((req, res) => {
+    res.writeHead(502, { "content-type": "text/plain" });
+    res.end("Bad Gateway");
+  });
+  try {
+    const result = await listRuns("ws-1", { baseUrl });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "unreachable");
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("a 502 that DOES carry a coordinator-shaped error body stays kind:api (a real app-level 502)", async () => {
+  const { server, baseUrl } = await startServer((req, res) => {
+    res.writeHead(502, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "upstream_error", detail: "something the coordinator itself reported" }));
+  });
+  try {
+    const result = await listRuns("ws-1", { baseUrl });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "api");
+    assert.equal(result.status, 502);
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test("a 200 with an empty body (provision/transition's real shape) parses as ok:true, value:undefined", async () => {
   const { server, baseUrl } = await startServer((req, res) => {
     res.writeHead(200);
