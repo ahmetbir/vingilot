@@ -37,13 +37,24 @@ COMPOSE_PATH_SEPARATOR=:
 
 [`vingilot/compose.local.yml`](../compose.local.yml) overrides container
 names, published ports (`!override` — compose *merges* port lists by default,
-which would publish both old and new), and redirects the volume **names**
-under upstream's existing volume keys, so this checkout writes to
-`vingilot-postgres-data` / `vingilot-minio-data` and the buzz checkout's data
-is never touched.
+which would publish both old and new), the volume **names** under upstream's
+existing volume keys (`postgres-data`, `minio-data` — the keys, not the
+`buzz-*` names they carry), and the **network name** (upstream pins
+`name: buzz-net`; without the override both stacks join one bridge and the
+service DNS names `minio`/`postgres`/`redis` resolve round-robin across
+stacks — minio-init once created its bucket on the wrong stack's minio
+through exactly that).
 
-Result: `docker compose config` renders project `vingilot`, containers
-`vingilot-*`, and the remapped ports, with zero upstream diff.
+**Verify with `docker inspect`, never with `docker compose config` alone** —
+the config render once looked plausible while the running containers were
+mounting the other stack's volumes:
+
+```bash
+docker inspect vingilot-postgres --format '{{range .Mounts}}{{.Name}}{{end}}'
+#   → vingilot-postgres-data, nothing else
+docker network inspect vingilot-net --format '{{range .Containers}}{{.Name}} {{end}}'
+#   → only vingilot-* containers
+```
 
 ## Keychain (macOS): stop the per-rebuild password prompt
 

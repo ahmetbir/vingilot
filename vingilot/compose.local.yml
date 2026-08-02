@@ -51,8 +51,26 @@ services:
     ports: !override
       - "9091:9090"
 
+# CAUTION — these are upstream's volume KEYS (postgres-data, minio-data), not
+# the docker volume names those keys carry (buzz-postgres-data, ...). An earlier
+# revision of this file overrode the names as if they were keys; compose then
+# silently created two unused volumes and mounted buzz's real ones into BOTH
+# stacks — two postmasters on one datadir. After editing this block, never trust
+# `docker compose config` alone: verify with
+#   docker inspect vingilot-postgres --format '{{range .Mounts}}{{.Name}}{{end}}'
 volumes:
-  buzz-postgres-data:
+  postgres-data:
     name: vingilot-postgres-data
-  buzz-minio-data:
+  minio-data:
     name: vingilot-minio-data
+  prometheus-data:
+    name: vingilot-prometheus-data
+
+# Same trap, network edition: upstream pins `name: buzz-net`, so without this
+# override BOTH stacks join one bridge and the service DNS names (minio,
+# postgres, redis) resolve round-robin across stacks — minio-init created its
+# bucket on the WRONG minio through exactly that. Key is `buzz-net` (what
+# services reference); only the name changes.
+networks:
+  buzz-net:
+    name: vingilot-net
