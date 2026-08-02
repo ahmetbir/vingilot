@@ -1,0 +1,58 @@
+# Vingilot local-dev override for upstream's docker-compose.yml.
+#
+# Activated via COMPOSE_FILE in .env (justfile runs bare `docker compose`, so
+# the env var is honored). Purpose: give this checkout its OWN stack, fully
+# isolated from the buzz checkout's running containers (buzz-postgres on 5434,
+# redis on 6379, minio on 9000/9001) and from unrelated services on this
+# machine (n8n's postgres owns 5432, AdGuard owns 3000).
+#
+# Three kinds of override, and why each works:
+#   - container_name: scalar → replaces upstream's buzz-* names outright.
+#   - ports: lists MERGE by default in compose, which would publish both the
+#     old and new port; `!override` replaces the list instead.
+#   - volumes: we override the *name* under upstream's existing volume keys, so
+#     services keep referencing the same keys but the actual docker volumes are
+#     vingilot-owned — the buzz checkout's data is never touched.
+#
+# Lives under vingilot/ so it needs no seam entry (ADR-001 §6).
+
+services:
+  postgres:
+    container_name: vingilot-postgres
+    ports: !override
+      - "5435:5432"
+
+  redis:
+    container_name: vingilot-redis
+    ports: !override
+      - "6380:6379"
+
+  adminer:
+    container_name: vingilot-adminer
+    ports: !override
+      - "8084:8080"
+
+  keycloak:
+    container_name: vingilot-keycloak
+    ports: !override
+      - "8181:8080"
+
+  minio:
+    container_name: vingilot-minio
+    ports: !override
+      - "9002:9000"
+      - "9003:9001"
+
+  minio-init:
+    container_name: vingilot-minio-init
+
+  prometheus:
+    container_name: vingilot-prometheus
+    ports: !override
+      - "9091:9090"
+
+volumes:
+  buzz-postgres-data:
+    name: vingilot-postgres-data
+  buzz-minio-data:
+    name: vingilot-minio-data
