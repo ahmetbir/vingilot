@@ -10,4 +10,9 @@ if command -v docker >/dev/null && docker ps --format '{{.Names}}' | grep -q '^v
 fi
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+# Single-threaded on purpose: the integration tests share one persistent dev
+# database, and a reconciler sweep started by one test is GLOBAL — run in
+# parallel, it pauses runs belonging to a concurrently-executing test and
+# breaks that test's absolute count assertions. Serial execution makes the
+# suite deterministic against shared state; the cost is a few seconds.
+cargo test --workspace -- --test-threads=1

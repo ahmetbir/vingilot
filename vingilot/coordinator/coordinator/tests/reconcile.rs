@@ -228,3 +228,58 @@ async fn token_observation_keeps_the_monotonic_max() {
 
     cleanup(&pool, workspace_id).await;
 }
+
+/// Audit finding: nothing in production ever wrote `wall_started_at` — only
+/// this file's own raw SQL did — so the "enforceable" wall-clock budget could
+/// never fire outside the test harness. The clock must start when a Run first
+/// enters Running, via the public API alone, and must NOT reset on resume.
+#[tokio::test]
+async fn wall_clock_starts_on_first_running_and_survives_resume() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (workspace_id, run_id) = new_workspace_and_run(&pool, Some(1)).await;
+
+    // Public API only — no raw SQL seeding of wall_started_at.
+    make_running(&pool, run_id).await;
+
+    let started: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT wall_started_at FROM runs WHERE id = $1")
+            .bind(run_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let started = started.expect("transition into Running must start the wall clock");
+
+    // Resume path must keep the original clock, not restart it.
+    run::transition(&pool, run_id, RunStatus::Paused, "operator pause")
+        .await
+        .unwrap();
+    run::transition(&pool, run_id, RunStatus::Running, "resume")
+        .await
+        .unwrap();
+    let after_resume: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT wall_started_at FROM runs WHERE id = $1")
+            .bind(run_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        after_resume,
+        Some(started),
+        "resume must not reset the wall clock"
+    );
+
+    // With a 1s limit and a clock started by production code, the sweep fires.
+    tokio::time::sleep(StdDuration::from_secs(2)).await;
+    let report = sweep_once(&pool).await.unwrap();
+    assert!(report.runs_wall_exceeded >= 1);
+    let status: String = sqlx::query_scalar("SELECT status FROM runs WHERE id = $1")
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "paused");
+
+    cleanup(&pool, workspace_id).await;
+}

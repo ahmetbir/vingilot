@@ -117,6 +117,35 @@ Self-Review:
 - **Capability grants beyond worktree access** — schema-only for now; only
   `run_worktree_grants` (read/write on a `WorktreeBinding`) is implemented and
   enforced. Other capability kinds named in ADR-002 are not yet modeled.
+- **Per-mode token-budget enforcement (audit finding, recorded here so it
+  cannot read as done).** ADR-002's enforceability table splits token spend BY
+  MODE: observable-only for Interactive runs, but *enforceable — metered per
+  call as the frames pass the broker* — for Delegated runs. This service
+  currently treats every run as token-observe-only regardless of `RunMode`,
+  and the schema carries no token cap column (`wall_limit_secs` exists;
+  `tokens_limit` does not). That is not a contradiction the coordinator can
+  resolve alone: the delegated-mode metering point is the **broker**, which
+  does not exist yet. When the executor/broker plan lands, it must (a) add a
+  `tokens_limit` column and a per-frame debit path for delegated runs, and
+  (b) leave interactive runs exactly as they are — `observe_tokens` never
+  pauses, which is tested (`token_observation_never_pauses_the_run`) and
+  correct for that mode.
+
+Two audit findings from the implementation run were fixed in code rather than
+deferred, and are worth knowing about when reading the history:
+
+- **The wall clock never started.** No production path wrote
+  `wall_started_at` — only the test harness's raw SQL did — so the
+  "enforceable" budget component could never fire outside tests.
+  `run::transition` now starts the clock on first entry into `Running`
+  (`COALESCE` keeps the original start across pause/resume, so pausing cannot
+  stretch the budget). Test: `wall_clock_starts_on_first_running_and_survives_resume`.
+- **The sweep was not tolerant of already-paused runs.** A run already
+  `Paused` in the database (operator pause, prior sweep) whose lease then
+  expired made `pause_once` attempt `Paused → Paused` — an illegal domain
+  edge — and one such row poisoned every subsequent sweep. The sweep now
+  skips runs not currently `Running` and treats a lost pause race as
+  already-done.
 
 ## Appendix: full gate output
 

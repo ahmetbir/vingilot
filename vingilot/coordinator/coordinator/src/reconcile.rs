@@ -53,6 +53,14 @@ type ExpiredLeaseRow = (Uuid, Uuid);
 /// paused earlier in this same sweep — a Run can own more than one expired
 /// binding, and re-pausing an already-`Paused` run is an illegal edge, not a
 /// no-op, at the domain layer.
+///
+/// The in-pass HashSet is not enough on its own: a run can already sit in a
+/// non-`Running` state in the DATABASE when the sweep finds its expired lease
+/// (operator paused it; a previous sweep paused it and the binding was left
+/// `ready`; it finished). The sweep's job is to pause running work, not to
+/// fight the state machine — so anything not currently `Running` is skipped,
+/// and a lost `Paused → Paused` race with a concurrent sweep is treated as
+/// already-done rather than as a sweep-fatal error.
 async fn pause_once(
     pool: &PgPool,
     run_id: Uuid,
@@ -62,8 +70,21 @@ async fn pause_once(
     if !already_paused.insert(run_id) {
         return Ok(false);
     }
-    run::transition(pool, run_id, RunStatus::Paused, reason).await?;
-    Ok(true)
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM runs WHERE id = $1")
+        .bind(run_id)
+        .fetch_optional(pool)
+        .await?;
+    if status.as_deref() != Some("running") {
+        return Ok(false);
+    }
+    match run::transition(pool, run_id, RunStatus::Paused, reason).await {
+        Ok(()) => Ok(true),
+        Err(run::RunError::IllegalTransition {
+            from: RunStatus::Paused,
+            ..
+        }) => Ok(false),
+        Err(e) => Err(e.into()),
+    }
 }
 
 async fn sweep_expired_leases(

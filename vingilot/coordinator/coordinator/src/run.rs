@@ -105,11 +105,27 @@ pub async fn transition(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("UPDATE runs SET status = $1, updated_at = now() WHERE id = $2")
+    // Entering Running for the FIRST time starts the wall clock — the budget
+    // component ADR-002 names as enforceable. COALESCE keeps the original
+    // start on resume, so pausing cannot be used to stretch the budget.
+    // (Audit finding: before this, nothing in production ever wrote
+    // `wall_started_at`, so the wall-clock sweep could never fire.)
+    if to == RunStatus::Running {
+        sqlx::query(
+            "UPDATE runs SET status = $1, updated_at = now(), \
+             wall_started_at = COALESCE(wall_started_at, now()) WHERE id = $2",
+        )
         .bind(to.as_str())
         .bind(run_id)
         .execute(&mut *tx)
         .await?;
+    } else {
+        sqlx::query("UPDATE runs SET status = $1, updated_at = now() WHERE id = $2")
+            .bind(to.as_str())
+            .bind(run_id)
+            .execute(&mut *tx)
+            .await?;
+    }
 
     tx.commit().await?;
     Ok(())
