@@ -20,5 +20,18 @@ export default defineConfig({
     // instances make every hook in a mounted upstream component throw.
     dedupe: ["react", "react-dom"],
   },
-  server: { port: 5273 },
+  server: {
+    port: 5273,
+    proxy: {
+      // The coordinator bearer token lives only here, in the dev-server
+      // process's environment — it is never sent to or held by the browser.
+      // The browser only ever talks to same-origin "/coord/...".
+      "/coord": {
+        target: process.env.COORD_URL ?? "http://127.0.0.1:7117",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/coord/, ""),
+        headers: { Authorization: `Bearer ${process.env.COORD_AUTH_TOKEN ?? "vingilot-dev-token"}` },
+      },
+    },
+  },
 });
