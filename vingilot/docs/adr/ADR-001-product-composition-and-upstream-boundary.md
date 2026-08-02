@@ -61,12 +61,19 @@ the product. A component you own as a feature is embedded, not forked.
    diff outside `vingilot/` that is not in the inventory. This converts K2 from an
    intention into a machine-checked rule.
 
-7. **Chat reuse mechanism: alias import is the default; extraction is forbidden.**
-   The Workbench imports upstream slices in place. Moving upstream files into new
-   packages is explicitly rejected — it creates the largest possible merge surface,
-   which is the outcome K1 exists to avoid. When upstream refactors a slice, the
-   breakage appears at build time in our app, which is orders of magnitude cheaper
-   to resolve than a shell-level merge conflict.
+7. **Chat reuse mechanism: the narrow chat adapter, per the Phase 0 spike's
+   fallback clause below.** Alias-import in place was the default hypothesis and
+   was spiked to a decision, not an assumption. The Phase 0 spike (see
+   [`../spike-report.md`](../spike-report.md) and Spike result, below) found
+   `MessageTimeline`'s mount reaches `desktop/src/app/**` two hops deep through
+   `MessageRow` → `shared/ui/markdown`, and drags in 10 of 20 community-scoped
+   singletons — both violations of this ADR's own exit criteria, and neither
+   fixable without upstream editing files this ADR forbids editing. The Workbench
+   therefore consumes chat through a fork-owned adapter that talks to the same
+   relay/SDK APIs and renders its own presentation, accepting duplicated UI
+   rather than the merge/leak surface the spike measured. Extraction (moving
+   upstream files into new packages) remains rejected regardless — it creates
+   the largest possible merge surface, which is the outcome K1 exists to avoid.
 
 8. **Reuse is a Phase 0 spike with a defined fallback, not an assumption.**
 
@@ -84,6 +91,28 @@ Mount a message list and a composer inside the new Workbench shell such that:
 do not force package extraction.** The fallback is a narrow chat adapter: a
 fork-owned component that talks to the same relay/SDK APIs and renders our own
 message view, accepting duplicated presentation rather than a large merge surface.
+
+### Spike result
+
+**Fallback taken.** Executed 2026-08-02 at commit `066e4dd9f2c242d0129ede030bce303f4cf84003`
+on `vingilot/workbench-mount-spike`. Full evidence: [`../spike-report.md`](../spike-report.md).
+
+Criterion 2 (no import edge to `desktop/src/app/**`) failed mechanically:
+`MessageTimeline` reaches `AppShellContext` and `app/navigation/**` two hops
+deep, through `MessageRow` → `shared/ui/markdown` → a config-nudge component —
+invisible to a direct-import read, caught only by the transitive walker built
+for this spike. Criterion 3 (community-scoped singleton reach) showed 10 of 20
+registered singletons reachable, three times the threshold set in the plan
+before the number was known. Criterion 1 additionally failed at runtime
+(missing `QueryClientProvider`, blank page) but was not the deciding factor —
+criterion 2 alone disqualifies the mount, since fixing it would mean upstream
+editing `MessageRow`/`shared/ui/markdown` to drop the app-scoped navigation
+dependency, which decision 7 forbids as an upstream edit that invalidates the
+spike. Churn on the exact mounted surface was 5 files in one day, corroborating
+the plan's stated maintenance concern independent of the pass/fail result.
+
+Decision 7 and the alternatives below are updated accordingly: alias-import is
+no longer the default mechanism; the narrow chat adapter is.
 
 ### Dependency direction
 
@@ -142,6 +171,18 @@ fails it. A rebrand that reaches the platform cannot land quietly.
   `vingilot/seams.yaml` is a decision, not a detail.
 
 ## Alternatives considered and rejected
+
+**A0. Alias-import upstream chat slices in place (the Phase 0 spike hypothesis).**
+Rejected, on spike evidence rather than on taste — see Spike result, above, and
+[`../spike-report.md`](../spike-report.md). Compiling is not the same as
+mounting: `MessageTimeline`'s 22 direct imports never touch `@/app/`, matching
+this ADR's original baseline, but the transitive graph does, two hops down
+through `MessageRow` → `shared/ui/markdown`. The mount also reaches 10 of 20
+community-scoped singletons with no Workbench-owned reset path for any of
+them. Both are structural properties of the upstream component tree, not
+defects in the harness, and both would require upstream edits this ADR's
+decision 7 forbids as invalidating. The accepted mechanism is now the narrow
+chat adapter named in the Phase 0 spike's original fallback clause.
 
 **A. Convert the upstream desktop shell into the Workbench.**
 Rejected. It breaks K2 at the exact point where the product differentiates, and it
