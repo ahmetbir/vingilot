@@ -2,8 +2,24 @@ mod common;
 
 use common::test_pool;
 use serde_json::json;
+use sqlx::PgPool;
 use uuid::Uuid;
 use vingilot_coordinator::workspace::{apply_mutations, ensure_workspace};
+
+/// The coordinator DB is a shared, persistent dev instance (not reset
+/// between test runs), and other suites (e.g. store_smoke) assert absolute
+/// row counts. Every test that writes a workspace must remove exactly what
+/// it created so the table is left as it was found.
+async fn cleanup_workspace(pool: &PgPool, workspace_id: Uuid) {
+    let _ = sqlx::query("DELETE FROM workspace_events WHERE workspace_id = $1")
+        .bind(workspace_id)
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM workspaces WHERE id = $1")
+        .bind(workspace_id)
+        .execute(pool)
+        .await;
+}
 
 #[tokio::test]
 async fn accepts_at_expected_revision() {
@@ -33,6 +49,8 @@ async fn accepts_at_expected_revision() {
     .expect("event count query should succeed");
 
     assert_eq!(event_count.0, 1);
+
+    cleanup_workspace(&pool, workspace_id).await;
 }
 
 #[tokio::test]
@@ -58,6 +76,8 @@ async fn rejects_stale_with_current_state() {
     assert!(!loser.accepted);
     assert_eq!(loser.revision, winner.revision);
     assert_eq!(loser.state_hash, winner.state_hash);
+
+    cleanup_workspace(&pool, workspace_id).await;
 }
 
 #[tokio::test]
@@ -87,4 +107,6 @@ async fn two_racing_writers_one_wins() {
         .count();
 
     assert_eq!(accepted_count, 1);
+
+    cleanup_workspace(&pool, workspace_id).await;
 }
