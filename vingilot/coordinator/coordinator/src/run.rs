@@ -10,6 +10,7 @@
 //! `depth` is always derived by walking the `parent_run_id` chain in the
 //! database — it is never accepted as trusted input from a caller.
 
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -137,4 +138,35 @@ pub async fn depth(pool: &PgPool, run_id: Uuid) -> Result<i64, RunError> {
             }
         }
     }
+}
+
+/// Records an observed cumulative token total for `run_id`. Tokens are
+/// **observed, not enforced** (ADR-002): this never touches `status` and can
+/// never pause a Run — only the wall-clock budget does that (see
+/// `reconcile::sweep_once`). The stored value is a monotonic max: a total
+/// lower than what's already recorded is silently ignored so an
+/// out-of-order/duplicate observation can't roll the counter backward.
+pub async fn observe_tokens(
+    pool: &PgPool,
+    run_id: Uuid,
+    total: i64,
+    observed_at: DateTime<Utc>,
+) -> Result<(), RunError> {
+    let result = sqlx::query(
+        "UPDATE runs \
+         SET tokens_observed = GREATEST(tokens_observed, $2), \
+             tokens_observed_at = $3, \
+             updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(run_id)
+    .bind(total)
+    .bind(observed_at)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(RunError::NotFound(run_id));
+    }
+    Ok(())
 }
