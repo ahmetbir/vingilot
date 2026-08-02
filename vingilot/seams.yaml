@@ -92,3 +92,17 @@ seams:
     removable_when: "This directory ideally lives under vingilot/ instead. Removable once the design-sync tool's fixed-path assumption is relaxed (e.g. a configurable root) and the tree is relocated, or once the design-sync integration is retired."
     status: "temporary"
     added: "2026-08-01"
+
+  - path: "pnpm-workspace.yaml"
+    reason: "Registers vingilot/workbench as a workspace package. The Workbench is a sibling application (ADR-001 decision 3) and pnpm has no out-of-tree package mechanism, so the one-line addition to upstream's workspace list is unavoidable."
+    owner: "vingilot/workbench"
+    removable_when: "Never, while the Workbench ships from this monorepo."
+    status: "permanent"
+    added: "2026-08-02"
+
+  - path: "pnpm-lock.yaml"
+    reason: "pnpm rewrites the lockfile's importers map whenever a workspace package list changes, adding the (currently dependency-free) vingilot/workbench importer entry alongside the pnpm-workspace.yaml edit above. Same unavoidability: no out-of-tree lockfile mechanism exists."
+    owner: "vingilot/workbench"
+    removable_when: "Never, while the Workbench ships from this monorepo."
+    status: "permanent"
+    added: "2026-08-02"
