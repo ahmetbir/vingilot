@@ -35,3 +35,21 @@ const messages: TimelineMessage[] = [
 export const timelineFixture = {
   messages,
 };
+
+// Builds a TimelineMessage from composer `onSend` content so typing has a
+// visible effect in the harness — same required shape as the fixture rows
+// above, timestamped at call time rather than fabricated.
+export function createSentMessage(
+  body: string,
+  index: number,
+): TimelineMessage {
+  const now = new Date();
+  return {
+    id: `workbench-sent-${index}`,
+    createdAt: now.getTime(),
+    author: "you",
+    time: now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    body,
+    depth: 0,
+  };
+}

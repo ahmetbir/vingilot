@@ -13,3 +13,11 @@ test("the harness reaches the upstream message timeline", async () => {
   );
   assert.ok(hit, "harness does not import MessageTimeline — nothing is being spiked");
 });
+
+test("the harness reaches the upstream composer", async () => {
+  const reached = await walk(path.join(here, "SpikeHarness.tsx"));
+  const hit = [...reached].some((f) =>
+    f.endsWith(path.join("features", "messages", "ui", "MessageComposer.tsx")),
+  );
+  assert.ok(hit, "harness does not import MessageComposer");
+});
