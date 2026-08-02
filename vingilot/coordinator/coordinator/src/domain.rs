@@ -135,6 +135,32 @@ impl RunMode {
     }
 }
 
+/// Access level a Run holds over a `WorktreeBinding` grant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Access {
+    Read,
+    Write,
+}
+
+impl Access {
+    /// The exact string stored in `run_worktree_grants.access` — must match
+    /// the SQL `CHECK` constraint verbatim.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Access::Read => "read",
+            Access::Write => "write",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Access> {
+        match s {
+            "read" => Some(Access::Read),
+            "write" => Some(Access::Write),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,5 +278,13 @@ mod tests {
             assert_eq!(RunMode::parse(m.as_str()), Some(m));
         }
         assert_eq!(RunMode::parse("bogus"), None);
+    }
+
+    #[test]
+    fn access_round_trips_through_parse() {
+        for &a in &[Access::Read, Access::Write] {
+            assert_eq!(Access::parse(a.as_str()), Some(a));
+        }
+        assert_eq!(Access::parse("bogus"), None);
     }
 }
