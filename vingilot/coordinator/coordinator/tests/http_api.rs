@@ -244,6 +244,103 @@ async fn wrong_bearer_is_401() {
     cleanup(&pool, workspace_id).await;
 }
 
+#[tokio::test]
+async fn list_runs_for_workspace_orders_newest_first_and_carries_wall_started_at() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let workspace_id = Uuid::new_v4();
+    workspace::ensure_workspace(&pool, workspace_id)
+        .await
+        .unwrap();
+
+    let run_a = run::create(
+        &pool,
+        NewRun {
+            workspace_id,
+            parent_run_id: None,
+            objective: "first run".into(),
+            mode: RunMode::Interactive,
+            wall_limit_secs: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let run_b = run::create(
+        &pool,
+        NewRun {
+            workspace_id,
+            parent_run_id: None,
+            objective: "second run, transitioned to running".into(),
+            mode: RunMode::Delegated,
+            wall_limit_secs: Some(3600),
+        },
+    )
+    .await
+    .unwrap();
+    run::transition(
+        &pool,
+        run_b,
+        vingilot_coordinator::domain::RunStatus::Provisioning,
+        "start",
+    )
+    .await
+    .unwrap();
+    run::transition(
+        &pool,
+        run_b,
+        vingilot_coordinator::domain::RunStatus::Ready,
+        "provisioned",
+    )
+    .await
+    .unwrap();
+    run::transition(
+        &pool,
+        run_b,
+        vingilot_coordinator::domain::RunStatus::Running,
+        "go",
+    )
+    .await
+    .unwrap();
+
+    let base_url = spawn(pool.clone()).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{base_url}/v1/workspaces/{workspace_id}/runs"))
+        .bearer_auth(AUTH_TOKEN)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    let runs = body["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+
+    // most-recent-first: run_b was updated last (via its transitions).
+    assert_eq!(runs[0]["id"], json!(run_b));
+    assert_eq!(runs[1]["id"], json!(run_a));
+
+    assert_eq!(runs[0]["status"], json!("running"));
+    assert!(
+        runs[0]["wall_started_at"].is_string(),
+        "running row must carry a non-null wall_started_at: {:?}",
+        runs[0]["wall_started_at"]
+    );
+    assert!(runs[1]["wall_started_at"].is_null());
+
+    let resp = client
+        .get(format!("{base_url}/v1/workspaces/{workspace_id}/runs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    cleanup(&pool, workspace_id).await;
+}
+
 #[test]
 fn server_refuses_to_boot_without_auth_token() {
     assert!(http::require_auth_token(None).is_err());

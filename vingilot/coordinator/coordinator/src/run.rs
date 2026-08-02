@@ -156,6 +156,84 @@ pub async fn depth(pool: &PgPool, run_id: Uuid) -> Result<i64, RunError> {
     }
 }
 
+/// A single row of the workspace's run list read-model (`GET
+/// /v1/workspaces/{id}/runs`) — the fields the plan's `RunSummary` names.
+pub struct RunSummaryRow {
+    pub id: Uuid,
+    pub parent_run_id: Option<Uuid>,
+    pub objective: String,
+    pub mode: String,
+    pub status: String,
+    pub wall_limit_secs: Option<i64>,
+    pub wall_started_at: Option<DateTime<Utc>>,
+    pub tokens_observed: i64,
+    pub tokens_observed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Lists a workspace's Runs newest-first (`updated_at DESC`), capped at 200
+/// rows — the row backing the rail's NEEDS YOU/LIVE/RECENT groupings.
+pub async fn list_for_workspace(
+    pool: &PgPool,
+    workspace_id: Uuid,
+) -> Result<Vec<RunSummaryRow>, RunError> {
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(
+        Uuid,
+        Option<Uuid>,
+        String,
+        String,
+        String,
+        Option<i64>,
+        Option<DateTime<Utc>>,
+        i64,
+        Option<DateTime<Utc>>,
+        DateTime<Utc>,
+        DateTime<Utc>,
+    )> = sqlx::query_as(
+        "SELECT id, parent_run_id, objective, mode, status, \
+                wall_limit_secs, wall_started_at, tokens_observed, tokens_observed_at, \
+                created_at, updated_at \
+         FROM runs WHERE workspace_id = $1 \
+         ORDER BY updated_at DESC LIMIT 200",
+    )
+    .bind(workspace_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                parent_run_id,
+                objective,
+                mode,
+                status,
+                wall_limit_secs,
+                wall_started_at,
+                tokens_observed,
+                tokens_observed_at,
+                created_at,
+                updated_at,
+            )| RunSummaryRow {
+                id,
+                parent_run_id,
+                objective,
+                mode,
+                status,
+                wall_limit_secs,
+                wall_started_at,
+                tokens_observed,
+                tokens_observed_at,
+                created_at,
+                updated_at,
+            },
+        )
+        .collect())
+}
+
 /// Records an observed cumulative token total for `run_id`. Tokens are
 /// **observed, not enforced** (ADR-002): this never touches `status` and can
 /// never pause a Run — only the wall-clock budget does that (see

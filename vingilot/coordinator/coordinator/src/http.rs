@@ -77,6 +77,7 @@ pub fn router(pool: PgPool, auth_token: String) -> Router {
     Router::new()
         .route("/v1/workspaces/{id}/mutations", post(post_mutations))
         .route("/v1/workspaces/{id}", get(get_workspace))
+        .route("/v1/workspaces/{id}/runs", get(get_workspace_runs))
         .route("/v1/runs", post(post_create_run))
         .route("/v1/runs/{id}", get(get_run))
         .route("/v1/runs/{id}/transition", post(post_transition))
@@ -314,6 +315,44 @@ struct CreateRunRequestDto {
 }
 
 #[derive(Debug, Serialize)]
+struct RunSummaryDto {
+    id: Uuid,
+    parent_run_id: Option<Uuid>,
+    objective: String,
+    mode: String,
+    status: String,
+    wall_limit_secs: Option<i64>,
+    wall_started_at: Option<DateTime<Utc>>,
+    tokens_observed: i64,
+    tokens_observed_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl From<run::RunSummaryRow> for RunSummaryDto {
+    fn from(row: run::RunSummaryRow) -> Self {
+        Self {
+            id: row.id,
+            parent_run_id: row.parent_run_id,
+            objective: row.objective,
+            mode: row.mode,
+            status: row.status,
+            wall_limit_secs: row.wall_limit_secs,
+            wall_started_at: row.wall_started_at,
+            tokens_observed: row.tokens_observed,
+            tokens_observed_at: row.tokens_observed_at,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct RunListDto {
+    runs: Vec<RunSummaryDto>,
+}
+
+#[derive(Debug, Serialize)]
 struct CreateRunResponseDto {
     run_id: Uuid,
 }
@@ -534,6 +573,16 @@ async fn get_workspace(
     Ok(Json(
         fetch_workspace_snapshot(&state.pool, workspace_id).await?,
     ))
+}
+
+async fn get_workspace_runs(
+    State(state): State<AppState>,
+    Path(workspace_id): Path<Uuid>,
+) -> Result<Json<RunListDto>, ApiError> {
+    let rows = run::list_for_workspace(&state.pool, workspace_id).await?;
+    Ok(Json(RunListDto {
+        runs: rows.into_iter().map(RunSummaryDto::from).collect(),
+    }))
 }
 
 async fn post_create_run(
