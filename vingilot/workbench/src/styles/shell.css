@@ -403,6 +403,155 @@ body {
   background: var(--vg-sem-attn);
 }
 
+/* --- run view ------------------------------------------------------------ */
+.vg-runview {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 48rem;
+}
+
+.vg-runview__header {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.vg-runview__status--live {
+  color: var(--vg-sem-live);
+}
+
+.vg-runview__status--ok {
+  color: var(--vg-sem-ok);
+}
+
+.vg-runview__status--attn {
+  color: var(--vg-sem-attn);
+}
+
+.vg-runview__status--stop {
+  color: var(--vg-sem-stop);
+}
+
+.vg-runview__status--muted {
+  color: var(--vg-fg-faint);
+}
+
+.vg-runview__objective {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--vg-text-base);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vg-runview__id {
+  font-size: var(--vg-text-micro);
+  color: var(--vg-fg-faint);
+  font-family: var(--vg-font-mono);
+}
+
+.vg-budget {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.vg-budget__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.vg-budget__kind {
+  flex: none;
+  width: 3rem;
+  font-size: var(--vg-text-micro);
+  color: var(--vg-fg-faint);
+}
+
+.vg-budget__track {
+  flex: 1;
+  height: 0.375rem;
+  border-radius: var(--vg-radius-pill);
+  background: var(--vg-hover);
+  border: 1px solid var(--vg-border);
+  overflow: hidden;
+  max-width: 16rem;
+}
+
+/* Wall clock is the ENFORCEABLE budget — a solid fill (ADR-002 amendments). */
+.vg-budget__fill--wall {
+  display: block;
+  height: 100%;
+  border-radius: var(--vg-radius-pill);
+  background: var(--vg-sem-live);
+}
+
+.vg-budget__label {
+  font-size: var(--vg-text-micro);
+  color: var(--vg-fg-muted);
+  font-family: var(--vg-font-mono);
+}
+
+/* Tokens are OBSERVED, not enforced — the dashed chip form rule carries
+   that distinction instead of a filled bar. */
+.vg-budget__tokens {
+  color: var(--vg-fg-muted);
+}
+
+.vg-runview__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.vg-runview__conflict {
+  font-size: var(--vg-text-meta);
+  color: var(--vg-sem-stop);
+}
+
+.vg-runview__transitions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vg-runview__transitions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.vg-runview__transition-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--vg-border);
+  font-size: var(--vg-text-meta);
+}
+
+.vg-runview__transition-edge {
+  flex: none;
+  font-family: var(--vg-font-mono);
+}
+
+.vg-runview__transition-reason {
+  flex: 1;
+  min-width: 0;
+  color: var(--vg-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* --- palette ------------------------------------------------------------ */
 .vg-palette-overlay {
   position: fixed;

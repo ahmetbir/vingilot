@@ -34,6 +34,16 @@ async fn main() -> Result<(), MainError> {
     let pool = vingilot_coordinator::store::connect(&db_url).await?;
     vingilot_coordinator::store::migrate(&pool).await?;
 
+    // Wall-clock enforcement only happens if this loop is running — the HTTP
+    // side of the server never pauses a Run on its own (ADR-002 §Reconciliation,
+    // reconcile.rs). Detached rather than joined: `main` returns only through
+    // `axum::serve`'s error path or process exit, at which point the whole
+    // process (and this task with it) goes down anyway.
+    tokio::spawn(vingilot_coordinator::reconcile::run_reconciler(
+        pool.clone(),
+        std::time::Duration::from_secs(5),
+    ));
+
     let app = vingilot_coordinator::http::router(pool, auth_token);
 
     let addr = std::env::var("COORD_HTTP_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());

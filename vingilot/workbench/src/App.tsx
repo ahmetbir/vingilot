@@ -107,7 +107,6 @@ export function App() {
           onSelectTab={setActiveTabId}
           onCloseTab={closeRunTab}
           deckContent={<Deck workspaceId={WORKSPACE_ID} runs={runs} onOpenRun={openRun} />}
-          renderRunContent={(id) => <div className="vg-run-stub">Run view for {id} lands in Task 6.</div>}
         />
       </main>
       <footer className="vg-shell__status" aria-label="status">

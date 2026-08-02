@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { RunSummary } from "../model/run.ts";
+import { RunView } from "../run/RunView.tsx";
 
 interface TabAreaProps {
   runs: RunSummary[];
@@ -8,12 +9,13 @@ interface TabAreaProps {
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   deckContent: ReactNode;
-  renderRunContent: (runId: string) => ReactNode;
 }
 
 /** Workspace-level tabs. Deck is fixed first and never closes; every Run
  * that has been opened (via the rail, the palette, or the Deck's own lanes)
- * gets a closable tab next to it. */
+ * gets a closable tab next to it. A Run tab renders the live `RunView` —
+ * it fetches its own detail (grants + transitions) by id, so TabArea only
+ * needs to know which id is active. */
 export function TabArea({
   runs,
   openRunIds,
@@ -21,7 +23,6 @@ export function TabArea({
   onSelectTab,
   onCloseTab,
   deckContent,
-  renderRunContent,
 }: TabAreaProps) {
   const runById = new Map(runs.map((r) => [r.id, r]));
 
@@ -66,7 +67,7 @@ export function TabArea({
         })}
       </div>
       <div className="vg-tabarea__content">
-        {activeTabId === "deck" ? deckContent : renderRunContent(activeTabId)}
+        {activeTabId === "deck" ? deckContent : <RunView key={activeTabId} runId={activeTabId} />}
       </div>
     </div>
   );
