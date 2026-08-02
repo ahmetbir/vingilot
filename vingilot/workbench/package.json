@@ -8,8 +8,7 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.mjs\"",
-    "check:import-edges": "node ./scripts/check-import-edges.mjs",
-    "check:singleton-reach": "node ./scripts/check-singleton-reach.mjs"
+    "check:import-edges": "node ./scripts/check-import-edges.mjs"
   },
   "dependencies": {
     "react": "19.2.8",

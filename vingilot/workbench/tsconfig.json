@@ -22,15 +22,13 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../../desktop/src/*"],
       "@features-manifest": ["../../preview-features.json"]
     }
   },
-  // The workbench's own program root only reaches desktop/src via the `@`
-  // alias's import graph, so desktop's ambient .d.ts files (which desktop's
-  // own tsconfig picks up via its "include": ["src"] glob) are never
-  // discovered here unless listed explicitly. They are read, never edited —
-  // see ADR-001 decision 7.
+  // These two ambient .d.ts files are global augmentations (no import edge
+  // into desktop/src — desktop's own tsconfig picks them up the same way via
+  // its "include": ["src"] glob) needed by transitive deps this program
+  // shares with desktop. They are read, never edited — see ADR-001 decision 7.
   "include": [
     "src",
     "../../desktop/src/upng-js.d.ts",

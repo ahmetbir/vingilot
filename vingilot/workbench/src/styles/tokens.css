@@ -1,0 +1,26 @@
+:root {
+  /* backdrop — the only place chroma lives */
+  --vg-gradient-top: #4a4616;
+  --vg-gradient-bottom: #0a1423;
+  /* achromatic material */
+  --vg-panel: hsl(0 0% 10% / 0.92);
+  --vg-panel-solid: hsl(0 0% 10%);
+  --vg-hover: rgb(255 255 255 / 0.04);
+  --vg-active: rgb(255 255 255 / 0.07);
+  --vg-border: rgb(255 255 255 / 0.09);
+  --vg-fg: rgb(255 255 255 / 0.92);
+  --vg-fg-muted: rgb(255 255 255 / 0.5);
+  --vg-fg-faint: rgb(255 255 255 / 0.35);
+  /* semantic — each hue bound to exactly one state class */
+  --vg-sem-write: #e8944a;   /* write grants, scope chips */
+  --vg-sem-live: #6aa5e8;    /* RUNNING / live execution */
+  --vg-sem-ok: #7dc98f;      /* verified / completed */
+  --vg-sem-attn: #e6c85a;    /* BLOCKED / needs-you / stale / paused */
+  --vg-sem-stop: #e5484d;    /* STOP / revoke / failed — the only red */
+  /* type — rem only */
+  --vg-text-base: 0.875rem;
+  --vg-text-meta: 0.75rem;
+  --vg-text-micro: 0.6875rem;
+  --vg-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --vg-radius: 6px;
+}
