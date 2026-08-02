@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { listRuns, transitionRun } from "./api/coordinator.ts";
+import { applyMutations, getWorkspace, listRuns, transitionRun } from "./api/coordinator.ts";
 import { usePolling } from "./api/poll.ts";
+import { Deck } from "./deck/Deck.tsx";
 import type { RunSummary } from "./model/run.ts";
 import { resolveKey } from "./shell/keys.ts";
 import { Palette } from "./shell/Palette.tsx";
@@ -9,8 +10,7 @@ import { StatusBar } from "./shell/StatusBar.tsx";
 import { StopButton } from "./shell/StopButton.tsx";
 import { TabArea } from "./shell/TabArea.tsx";
 
-// Hardcoded dev workspace id. Task 5 adds the bootstrap flow that creates
-// this workspace via the coordinator if it does not exist yet.
+// Hardcoded dev workspace id.
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 
 export function App() {
@@ -25,6 +25,26 @@ export function App() {
   const openRun = useCallback((id: string) => {
     setOpenRunIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     setActiveTabId(id);
+  }, []);
+
+  // Workspace bootstrap: the dev workspace id is hardcoded above, but the
+  // row may not exist yet on a fresh coordinator DB. GET first; if that
+  // 404s, POST an (empty) mutation — the mutations endpoint has ensure
+  // semantics server-side, so this creates the workspace row as a side
+  // effect of its first write.
+  useEffect(() => {
+    let cancelled = false;
+    async function bootstrap() {
+      const snapshot = await getWorkspace(WORKSPACE_ID);
+      if (cancelled || snapshot.ok) return;
+      if (snapshot.kind === "api" && snapshot.status === 404) {
+        await applyMutations(WORKSPACE_ID, 0, []);
+      }
+    }
+    bootstrap();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const closeRunTab = useCallback((id: string) => {
@@ -86,7 +106,7 @@ export function App() {
           activeTabId={activeTabId}
           onSelectTab={setActiveTabId}
           onCloseTab={closeRunTab}
-          deckContent={<div className="vg-deck-stub">Deck composer lands in Task 5.</div>}
+          deckContent={<Deck workspaceId={WORKSPACE_ID} runs={runs} onOpenRun={openRun} />}
           renderRunContent={(id) => <div className="vg-run-stub">Run view for {id} lands in Task 6.</div>}
         />
       </main>

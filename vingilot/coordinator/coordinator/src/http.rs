@@ -545,6 +545,14 @@ async fn post_mutations(
     Path(workspace_id): Path<Uuid>,
     Json(body): Json<MutationsRequestDto>,
 ) -> Result<Response, ApiError> {
+    // Ensure semantics: the mutations endpoint is the Workbench's workspace
+    // bootstrap path (Deck-shell Task 5) — a client that GETs a workspace,
+    // finds nothing, and POSTs its first mutation expects that write to
+    // create the row, not 404. `ensure_workspace` is idempotent (`ON
+    // CONFLICT DO NOTHING`), so this is a no-op on every subsequent call
+    // against an already-existing workspace.
+    workspace::ensure_workspace(&state.pool, workspace_id).await?;
+
     let outcome = workspace::apply_mutations(
         &state.pool,
         workspace_id,

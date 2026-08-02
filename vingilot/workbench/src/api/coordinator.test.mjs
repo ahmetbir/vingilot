@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { test } from "node:test";
-import { getRun, listRuns, transitionRun } from "./coordinator.ts";
+import { applyMutations, getRun, getWorkspace, listRuns, provisionRun, transitionRun } from "./coordinator.ts";
 
 function startServer(handler) {
   const server = http.createServer(handler);
@@ -67,4 +67,54 @@ test("a network failure (unreachable server) maps to kind:unreachable", async ()
   const result = await listRuns("ws-1", { baseUrl: "http://127.0.0.1:1" });
   assert.equal(result.ok, false);
   assert.equal(result.kind, "unreachable");
+});
+
+test("a 200 with an empty body (provision/transition's real shape) parses as ok:true, value:undefined", async () => {
+  const { server, baseUrl } = await startServer((req, res) => {
+    res.writeHead(200);
+    res.end();
+  });
+  try {
+    const result = await provisionRun("run-1", { worktrees: [] }, { baseUrl });
+    assert.deepEqual(result, { ok: true, value: undefined });
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("getWorkspace parses a missing workspace as kind:api status:404", async () => {
+  const { server, baseUrl } = await startServer((req, res) => {
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "workspace_not_found", detail: "no such workspace" }));
+  });
+  try {
+    const result = await getWorkspace("ws-missing", { baseUrl });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "api");
+    assert.equal(result.status, 404);
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("applyMutations posts expected_revision and mutations, parses the outcome", async () => {
+  let receivedBody = null;
+  const { server, baseUrl } = await startServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+    });
+    req.on("end", () => {
+      receivedBody = JSON.parse(raw);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ accepted: true, revision: 1, state_hash: "abc" }));
+    });
+  });
+  try {
+    const result = await applyMutations("ws-1", 0, [], { baseUrl });
+    assert.deepEqual(result, { ok: true, value: { accepted: true, revision: 1, state_hash: "abc" } });
+    assert.deepEqual(receivedBody, { expected_revision: 0, mutations: [] });
+  } finally {
+    await closeServer(server);
+  }
 });

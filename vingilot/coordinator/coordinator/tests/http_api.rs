@@ -341,6 +341,46 @@ async fn list_runs_for_workspace_orders_newest_first_and_carries_wall_started_at
     cleanup(&pool, workspace_id).await;
 }
 
+#[tokio::test]
+async fn post_mutations_ensures_the_workspace_when_it_does_not_exist_yet() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    // Deliberately no `ensure_workspace` call here — the workspace row does
+    // not exist yet. The Deck's bootstrap flow relies on the mutations
+    // endpoint creating it as a side effect of the first write.
+    let workspace_id = Uuid::new_v4();
+    let base_url = spawn(pool.clone()).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{base_url}/v1/workspaces/{workspace_id}/mutations"))
+        .bearer_auth(AUTH_TOKEN)
+        .json(&json!({ "expected_revision": 0, "mutations": [] }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["accepted"], json!(true));
+    assert_eq!(body["revision"], json!(1));
+
+    // The GET now succeeds — the workspace was created, not just the
+    // mutation accepted against a phantom row.
+    let resp = client
+        .get(format!("{base_url}/v1/workspaces/{workspace_id}"))
+        .bearer_auth(AUTH_TOKEN)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["revision"], json!(1));
+
+    cleanup(&pool, workspace_id).await;
+}
+
 #[test]
 fn server_refuses_to_boot_without_auth_token() {
     assert!(http::require_auth_token(None).is_err());

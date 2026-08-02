@@ -37,6 +37,18 @@ export interface ProvisionSpec {
   worktrees: WorktreeSpec[];
 }
 
+export interface WorkspaceSnapshot {
+  revision: number;
+  state_hash: string;
+  state: unknown;
+}
+
+export interface MutationOutcome {
+  accepted: boolean;
+  revision: number;
+  state_hash: string;
+}
+
 interface RequestOpts {
   baseUrl?: string;
 }
@@ -69,8 +81,14 @@ async function request<T>(
   }
 
   if (res.ok) {
-    if (res.status === 204) return { ok: true, value: undefined as T };
-    const value = (await res.json()) as T;
+    // Success bodies are inconsistent by design across the coordinator's own
+    // endpoints — some ack with 204, some with a bare 200 and no body (e.g.
+    // transition, provision) — so the client keys off the actual body being
+    // empty rather than the status code (a live-tested gap: 200 THIS EMPTY
+    // used to hit `res.json()` and throw on `provisionRun`).
+    const text = await res.text();
+    if (text === "") return { ok: true, value: undefined as T };
+    const value = JSON.parse(text) as T;
     return { ok: true, value };
   }
 
@@ -87,6 +105,28 @@ async function request<T>(
     return { ok: false, kind: "conflict", error, detail };
   }
   return { ok: false, kind: "api", status: res.status, error, detail };
+}
+
+export function getWorkspace(workspaceId: string, opts?: RequestOpts): Promise<ApiResult<WorkspaceSnapshot>> {
+  return request<WorkspaceSnapshot>("GET", `/v1/workspaces/${workspaceId}`, undefined, opts);
+}
+
+/** Applies a (possibly empty) mutation batch to a workspace. The mutations
+ * endpoint has ensure semantics server-side: it creates the workspace row on
+ * first write, so an empty mutation batch at `expected_revision: 0` is the
+ * bootstrap path App.tsx uses when `getWorkspace` first 404s. */
+export function applyMutations(
+  workspaceId: string,
+  expectedRevision: number,
+  mutations: unknown[],
+  opts?: RequestOpts,
+): Promise<ApiResult<MutationOutcome>> {
+  return request<MutationOutcome>(
+    "POST",
+    `/v1/workspaces/${workspaceId}/mutations`,
+    { expected_revision: expectedRevision, mutations },
+    opts,
+  );
 }
 
 export function listRuns(workspaceId: string, opts?: RequestOpts): Promise<ApiResult<RunSummary[]>> {

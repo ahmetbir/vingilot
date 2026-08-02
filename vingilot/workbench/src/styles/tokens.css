@@ -22,5 +22,12 @@
   --vg-text-meta: 0.75rem;
   --vg-text-micro: 0.6875rem;
   --vg-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --vg-radius: 6px;
+  /* radius scale — extracted from the Buzz desktop app so the two UIs read
+     as one product: chips/buttons are pills (rounded-full is Buzz's most-used
+     radius), standard controls 0.625rem (Buzz's --radius), large cards 1rem
+     (Buzz's rounded-2xl). Never invent an in-between value. */
+  --vg-radius: 0.625rem;
+  --vg-radius-card: 1rem;
+  --vg-radius-sm: 0.5rem;
+  --vg-radius-pill: 9999px;
 }
