@@ -37,3 +37,15 @@ export async function reachableSingletons(entryFile) {
   }
   return hits.sort();
 }
+
+// This guard deliberately never asserts emptiness or exits non-zero: the
+// count is the finding, not a pass/fail gate (see Task 4). Direct invocation
+// exists so the number is obtainable without going through the test runner,
+// mirroring check-import-edges.mjs's CLI entry point.
+const invokedDirectly = process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]));
+if (invokedDirectly) {
+  const entry = process.argv[2] ?? path.resolve(DESKTOP_SRC, "../../vingilot/workbench/src/SpikeHarness.tsx");
+  const hits = await reachableSingletons(entry);
+  console.log(`check-singleton-reach: ${hits.length} reachable community singleton(s) from ${entry}`);
+  for (const hit of hits) console.log("  " + hit);
+}
