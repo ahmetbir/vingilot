@@ -79,6 +79,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goRuns = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/runs",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goProfile = React.useCallback(
     (pubkey: string, behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -316,6 +327,7 @@ export function useAppNavigation() {
     goProjects,
     goPulse,
     goProfile,
+    goRuns,
     goSettings,
     goWorkflow,
     goWorkflows,

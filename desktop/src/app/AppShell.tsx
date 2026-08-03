@@ -131,6 +131,7 @@ export function AppShell() {
     goNewMessage,
     goProjects,
     goPulse,
+    goRuns,
     goSettings,
     goWorkflows,
     closeSettings,
@@ -884,11 +885,10 @@ export function AppShell() {
                             onSelectHome={() => void goHome()}
                             onSelectProjects={() => void goProjects()}
                             onSelectPulse={() => void goPulse()}
+                            onSelectRuns={() => void goRuns()}
                             onSelectSettings={handleOpenSettings}
                             onSelectWorkflows={() => void goWorkflows()}
-                            onSetPresenceStatus={(status) =>
-                              presenceSession.setStatus(status)
-                            }
+                            onSetPresenceStatus={presenceSession.setStatus}
                             onSetUserStatus={(text, emoji) =>
                               setUserStatusMutation.mutate({ text, emoji })
                             }

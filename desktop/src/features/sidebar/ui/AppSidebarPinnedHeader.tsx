@@ -1,4 +1,11 @@
-import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  FolderGit2,
+  Inbox,
+  PlayCircle,
+  Zap,
+} from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { FeatureGate } from "@/shared/features";
@@ -17,6 +24,7 @@ type SidebarSelectedView =
   | "channel"
   | "messages"
   | "agents"
+  | "runs"
   | "workflows"
   | "pulse"
   | "projects";
@@ -41,6 +49,7 @@ type AppSidebarPrimaryMenuProps = {
   onSelectHome: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
+  onSelectRuns: () => void;
   onSelectWorkflows: () => void;
   selectedView: SidebarSelectedView;
 };
@@ -86,6 +95,7 @@ export function AppSidebarPrimaryMenu({
   onSelectHome,
   onSelectProjects,
   onSelectPulse,
+  onSelectRuns,
   onSelectWorkflows,
   selectedView,
 }: AppSidebarPrimaryMenuProps) {
@@ -153,6 +163,18 @@ export function AppSidebarPrimaryMenu({
           >
             <Bot className="h-4 w-4" />
             <SidebarMenuLabel>Agents</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            data-testid="open-runs-view"
+            isActive={selectedView === "runs"}
+            onClick={onSelectRuns}
+            tooltip="Runs"
+            type="button"
+          >
+            <PlayCircle className="h-4 w-4" />
+            <SidebarMenuLabel>Runs</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <FeatureGate feature="workflows">
