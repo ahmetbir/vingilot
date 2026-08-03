@@ -53,6 +53,16 @@ pub struct RunDetail {
     pub grants: Vec<GrantEntry>,
 }
 
+/// One row of `GET /v1/workspaces/{id}/runs` — just the fields the worker
+/// loop's claim rule needs. Extra fields on the response are ignored.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RunSummary {
+    pub id: Uuid,
+    pub status: String,
+    pub mode: String,
+    pub created_at: DateTime<Utc>,
+}
+
 /// A held lease: the epoch it was issued at and when it expires.
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Lease {
@@ -92,6 +102,11 @@ struct AppendEvidenceRequest<'a> {
 #[derive(Debug, Deserialize)]
 struct AppendEvidenceResponse {
     seq: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunListResponse {
+    runs: Vec<RunSummary>,
 }
 
 /// Thin client bound to one coordinator base URL and auth token. Cheaply
@@ -223,6 +238,25 @@ impl Client {
             return Err(Self::error_from_response(resp).await);
         }
         Ok(())
+    }
+
+    /// Lists a workspace's runs — the worker loop's polling source for
+    /// runs it might claim.
+    pub async fn list_workspace_runs(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<RunSummary>, ClientError> {
+        let resp = self
+            .http
+            .get(format!("{}/v1/workspaces/{workspace_id}/runs", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Err(Self::error_from_response(resp).await);
+        }
+        let body: RunListResponse = resp.json().await?;
+        Ok(body.runs)
     }
 
     pub async fn append_evidence(

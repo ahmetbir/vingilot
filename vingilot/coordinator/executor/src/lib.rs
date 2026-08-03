@@ -20,7 +20,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use uuid::Uuid;
 
-use client::{Client, ClientError};
+use client::{Client, ClientError, RunSummary};
 
 /// Lease TTL the executor requests on the worktree binding it claims.
 const LEASE_TTL_SECS: i64 = 90;
@@ -340,5 +340,117 @@ pub async fn execute_run(cfg: &ExecutorConfig, run_id: Uuid) -> Result<Outcome, 
             )
             .await?;
         Ok(Outcome::Failed { exit_code })
+    }
+}
+
+/// The worker loop's claim rule (plan §Task 3: "claim the oldest ready
+/// delegated run"): the id of the oldest-created run that is `ready` +
+/// `delegated`, or `None` if there isn't one. Pure — no network — so the
+/// selection policy is unit-testable without a coordinator.
+pub fn select_claim(runs: &[RunSummary]) -> Option<Uuid> {
+    runs.iter()
+        .filter(|r| r.status == "ready" && r.mode == "delegated")
+        .min_by_key(|r| r.created_at)
+        .map(|r| r.id)
+}
+
+/// Parses `VINGILOT_REPOS`-shaped input (`"buzz=/path,test=/path"`) into a
+/// `repo_map`. Empty segments are skipped; a segment without `=` or with an
+/// empty id/path is an error naming the bad segment.
+pub fn parse_repo_map(spec: &str) -> Result<HashMap<String, PathBuf>, String> {
+    let mut map = HashMap::new();
+    for segment in spec.split(',') {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+        let (id, path) = segment
+            .split_once('=')
+            .ok_or_else(|| format!("repo entry {segment:?} is missing '='"))?;
+        let (id, path) = (id.trim(), path.trim());
+        if id.is_empty() || path.is_empty() {
+            return Err(format!("repo entry {segment:?} has an empty id or path"));
+        }
+        map.insert(id.to_string(), PathBuf::from(path));
+    }
+    Ok(map)
+}
+
+#[cfg(test)]
+mod claim_tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+
+    fn run(status: &str, mode: &str, age_secs: i64) -> RunSummary {
+        RunSummary {
+            id: Uuid::new_v4(),
+            status: status.to_string(),
+            mode: mode.to_string(),
+            created_at: Utc::now() - Duration::seconds(age_secs),
+        }
+    }
+
+    #[test]
+    fn picks_oldest_ready_delegated() {
+        let older = run("ready", "delegated", 100);
+        let newer = run("ready", "delegated", 10);
+        let runs = vec![newer.clone(), older.clone()];
+        assert_eq!(select_claim(&runs), Some(older.id));
+    }
+
+    #[test]
+    fn ignores_non_ready_and_non_delegated() {
+        let running = run("running", "delegated", 200);
+        let manual = run("ready", "manual", 200);
+        let eligible = run("ready", "delegated", 5);
+        let runs = vec![running, manual, eligible.clone()];
+        assert_eq!(select_claim(&runs), Some(eligible.id));
+    }
+
+    #[test]
+    fn none_when_nothing_eligible() {
+        let runs = vec![run("running", "delegated", 5), run("ready", "manual", 5)];
+        assert_eq!(select_claim(&runs), None);
+    }
+
+    #[test]
+    fn none_on_empty_list() {
+        let runs: Vec<RunSummary> = vec![];
+        assert_eq!(select_claim(&runs), None);
+    }
+}
+
+#[cfg(test)]
+mod repo_map_tests {
+    use super::*;
+
+    #[test]
+    fn parses_multiple_entries() {
+        let map = parse_repo_map("buzz=/a/b,test=/c/d").unwrap();
+        assert_eq!(map.get("buzz"), Some(&PathBuf::from("/a/b")));
+        assert_eq!(map.get("test"), Some(&PathBuf::from("/c/d")));
+    }
+
+    #[test]
+    fn trims_whitespace_and_skips_empty_segments() {
+        let map = parse_repo_map(" buzz = /a/b , , test=/c/d ").unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get("buzz"), Some(&PathBuf::from("/a/b")));
+    }
+
+    #[test]
+    fn empty_spec_yields_empty_map() {
+        assert!(parse_repo_map("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn missing_equals_is_an_error() {
+        assert!(parse_repo_map("buzz-only").is_err());
+    }
+
+    #[test]
+    fn empty_id_or_path_is_an_error() {
+        assert!(parse_repo_map("=/a/b").is_err());
+        assert!(parse_repo_map("buzz=").is_err());
     }
 }

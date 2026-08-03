@@ -2441,6 +2441,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "vingilot-coordinator",
 ]
