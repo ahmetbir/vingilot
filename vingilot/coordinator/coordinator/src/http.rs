@@ -11,7 +11,7 @@
 //! bind a socket at all.
 
 use axum::body::Body;
-use axum::extract::{Path, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -23,8 +23,9 @@ use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::binding::{self, BindingError, OpDenied};
+use crate::binding::{self, BindingError, Lease, OpDenied};
 use crate::domain::{Access, RunMode, RunStatus};
+use crate::evidence::{self, EvidenceError, EvidenceKind, EvidenceRow};
 use crate::run::{self, NewRun, RunError};
 use crate::saga::{self, ProvisionSpec, SagaError, WorktreeSpec};
 use crate::workspace::{self, WorkspaceError};
@@ -85,6 +86,12 @@ pub fn router(pool: PgPool, auth_token: String) -> Router {
         .route("/v1/runs/{id}/tokens", post(post_tokens))
         .route("/v1/runs/{id}/provision", post(post_provision))
         .route("/v1/bindings/{id}/validate-op", post(post_validate_op))
+        .route("/v1/bindings/{id}/lease", post(post_acquire_lease))
+        .route("/v1/bindings/{id}/lease/renew", post(post_renew_lease))
+        .route(
+            "/v1/runs/{id}/evidence",
+            post(post_append_evidence).get(get_list_evidence),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             require_bearer,
@@ -105,13 +112,18 @@ pub fn router(pool: PgPool, auth_token: String) -> Router {
 /// Origins allowed to call the coordinator from a browser/webview context.
 /// The 1420 pair is the Tauri desktop app's dev origin; `tauri://localhost`
 /// is its production webview origin; the 5273 pair is the Workbench sibling
-/// app's Vite dev server, kept only until that app is deleted.
+/// app's Vite dev server, kept only until that app is deleted; the 4173
+/// pair is the Buzz desktop screenshot harness's Vite preview server
+/// (`just desktop-screenshot`) — needed so the executor V1 evidence proof
+/// can show LIVE coordinator data in the screenshot, not a mock.
 const ALLOWED_ORIGINS: &[&str] = &[
     "http://localhost:1420",
     "http://127.0.0.1:1420",
     "tauri://localhost",
     "http://localhost:5273",
     "http://127.0.0.1:5273",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
 ];
 
 fn cors_headers_for(origin: &str) -> Option<[(header::HeaderName, HeaderValue); 3]> {
@@ -325,6 +337,22 @@ impl From<BindingError> for ApiError {
     }
 }
 
+impl From<EvidenceError> for ApiError {
+    fn from(err: EvidenceError) -> Self {
+        match &err {
+            EvidenceError::RunNotFound(_) => {
+                ApiError::new(StatusCode::NOT_FOUND, "run_not_found", err.to_string())
+            }
+            EvidenceError::ContentTooLarge { .. } => ApiError::bad_request(err.to_string()),
+            EvidenceError::Db(_) => ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                err.to_string(),
+            ),
+        }
+    }
+}
+
 impl From<SagaError> for ApiError {
     fn from(err: SagaError) -> Self {
         match err {
@@ -502,6 +530,73 @@ struct WorktreeSpecDto {
 #[derive(Debug, Deserialize)]
 struct ProvisionRequestDto {
     worktrees: Vec<WorktreeSpecDto>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcquireLeaseRequestDto {
+    ttl_secs: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RenewLeaseRequestDto {
+    epoch: i64,
+    ttl_secs: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct LeaseDto {
+    epoch: i64,
+    expires_at: DateTime<Utc>,
+}
+
+impl From<Lease> for LeaseDto {
+    fn from(lease: Lease) -> Self {
+        Self {
+            epoch: lease.epoch,
+            expires_at: lease.expires_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct AppendEvidenceRequestDto {
+    kind: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AppendEvidenceResponseDto {
+    seq: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListEvidenceQueryDto {
+    #[serde(default)]
+    after: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceRowDto {
+    seq: i64,
+    kind: String,
+    content: String,
+    created_at: DateTime<Utc>,
+}
+
+impl From<EvidenceRow> for EvidenceRowDto {
+    fn from(row: EvidenceRow) -> Self {
+        Self {
+            seq: row.seq,
+            kind: row.kind.as_str().to_string(),
+            content: row.content,
+            created_at: row.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceListDto {
+    evidence: Vec<EvidenceRowDto>,
 }
 
 // ---------------------------------------------------------------------
@@ -758,6 +853,47 @@ async fn post_provision(
 
     saga::provision(&state.pool, &ProvisionSpec { run_id, worktrees }).await?;
     Ok(StatusCode::OK)
+}
+
+async fn post_acquire_lease(
+    State(state): State<AppState>,
+    Path(binding_id): Path<Uuid>,
+    Json(body): Json<AcquireLeaseRequestDto>,
+) -> Result<Json<LeaseDto>, ApiError> {
+    let lease = binding::acquire_lease(&state.pool, binding_id, body.ttl_secs).await?;
+    Ok(Json(lease.into()))
+}
+
+async fn post_renew_lease(
+    State(state): State<AppState>,
+    Path(binding_id): Path<Uuid>,
+    Json(body): Json<RenewLeaseRequestDto>,
+) -> Result<Json<LeaseDto>, ApiError> {
+    let lease = binding::renew_lease(&state.pool, binding_id, body.epoch, body.ttl_secs).await?;
+    Ok(Json(lease.into()))
+}
+
+async fn post_append_evidence(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+    Json(body): Json<AppendEvidenceRequestDto>,
+) -> Result<Response, ApiError> {
+    let kind = EvidenceKind::parse(&body.kind)
+        .ok_or_else(|| ApiError::bad_request(format!("unknown evidence kind: {}", body.kind)))?;
+
+    let seq = evidence::append(&state.pool, run_id, kind, &body.content).await?;
+    Ok((StatusCode::CREATED, Json(AppendEvidenceResponseDto { seq })).into_response())
+}
+
+async fn get_list_evidence(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+    Query(query): Query<ListEvidenceQueryDto>,
+) -> Result<Json<EvidenceListDto>, ApiError> {
+    let rows = evidence::list_after(&state.pool, run_id, query.after).await?;
+    Ok(Json(EvidenceListDto {
+        evidence: rows.into_iter().map(EvidenceRowDto::from).collect(),
+    }))
 }
 
 #[cfg(test)]
