@@ -387,3 +387,100 @@ fn server_refuses_to_boot_without_auth_token() {
     assert!(http::require_auth_token(Some(String::new())).is_err());
     assert!(http::require_auth_token(Some("configured".to_string())).is_ok());
 }
+
+// ---------------------------------------------------------------------
+// CORS contract (vingilot: the webview calls the coordinator directly,
+// with no dev-server proxy to inject the allow-origin header for it).
+// ---------------------------------------------------------------------
+
+const ALLOWED_ORIGIN: &str = "http://localhost:1420";
+const DISALLOWED_ORIGIN: &str = "http://evil.example";
+
+#[tokio::test]
+async fn cors_preflight_from_allowed_origin_gets_204_and_headers() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let base_url = spawn(pool).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .request(reqwest::Method::OPTIONS, format!("{base_url}/v1/runs"))
+        .header("origin", ALLOWED_ORIGIN)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 204);
+    assert_eq!(
+        resp.headers()
+            .get("access-control-allow-origin")
+            .and_then(|v| v.to_str().ok()),
+        Some(ALLOWED_ORIGIN)
+    );
+    let allow_headers = resp
+        .headers()
+        .get("access-control-allow-headers")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+    assert!(allow_headers.contains("authorization"));
+    assert!(allow_headers.contains("content-type"));
+}
+
+#[tokio::test]
+async fn cors_real_get_from_allowed_origin_echoes_allow_origin() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (workspace_id, _run_id) = new_workspace_and_run(&pool).await;
+    let base_url = spawn(pool.clone()).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{base_url}/v1/workspaces/{workspace_id}"))
+        .header("origin", ALLOWED_ORIGIN)
+        .bearer_auth(AUTH_TOKEN)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("access-control-allow-origin")
+            .and_then(|v| v.to_str().ok()),
+        Some(ALLOWED_ORIGIN)
+    );
+
+    cleanup(&pool, workspace_id).await;
+}
+
+#[tokio::test]
+async fn cors_disallowed_origin_gets_no_cors_headers() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let base_url = spawn(pool).await;
+    let client = reqwest::Client::new();
+
+    let preflight = client
+        .request(reqwest::Method::OPTIONS, format!("{base_url}/v1/runs"))
+        .header("origin", DISALLOWED_ORIGIN)
+        .send()
+        .await
+        .unwrap();
+    assert!(preflight
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+
+    let get = client
+        .get(format!("{base_url}/v1/workspaces/{}", Uuid::new_v4()))
+        .header("origin", DISALLOWED_ORIGIN)
+        .bearer_auth(AUTH_TOKEN)
+        .send()
+        .await
+        .unwrap();
+    assert!(get.headers().get("access-control-allow-origin").is_none());
+}

@@ -10,8 +10,9 @@
 //! is the fail-closed gate `main` calls before the server is allowed to
 //! bind a socket at all.
 
+use axum::body::Body;
 use axum::extract::{Path, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -88,7 +89,86 @@ pub fn router(pool: PgPool, auth_token: String) -> Router {
             state.clone(),
             require_bearer,
         ))
+        .layer(middleware::from_fn(cors))
         .with_state(state)
+}
+
+// ---------------------------------------------------------------------
+// CORS — the Buzz desktop webview (Tauri) calls the coordinator directly
+// (no dev-server proxy, unlike the sibling app's Vite setup), so the
+// coordinator itself must answer preflight and echo allow-origin for the
+// handful of dev origins it is willing to talk to. Hand-rolled (no
+// tower-http dependency) since the surface is this small: a fixed
+// allowlist, one preflight short-circuit, one response-header stamp.
+// ---------------------------------------------------------------------
+
+/// Origins allowed to call the coordinator from a browser/webview context.
+/// The 1420 pair is the Tauri desktop app's dev origin; `tauri://localhost`
+/// is its production webview origin; the 5273 pair is the Workbench sibling
+/// app's Vite dev server, kept only until that app is deleted.
+const ALLOWED_ORIGINS: &[&str] = &[
+    "http://localhost:1420",
+    "http://127.0.0.1:1420",
+    "tauri://localhost",
+    "http://localhost:5273",
+    "http://127.0.0.1:5273",
+];
+
+fn cors_headers_for(origin: &str) -> Option<[(header::HeaderName, HeaderValue); 3]> {
+    if !ALLOWED_ORIGINS.contains(&origin) {
+        return None;
+    }
+    Some([
+        (
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_str(origin).ok()?,
+        ),
+        (
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("authorization, content-type"),
+        ),
+        (
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET, POST, OPTIONS"),
+        ),
+    ])
+}
+
+fn request_origin(headers: &HeaderMap) -> Option<&str> {
+    headers.get(header::ORIGIN)?.to_str().ok()
+}
+
+/// Runs outermost (before `require_bearer`, before route matching) so that
+/// an unauthenticated CORS preflight (browsers never attach the bearer
+/// token to an OPTIONS request) is answered directly instead of falling
+/// through to the 401 gate. An origin outside [`ALLOWED_ORIGINS`] gets no
+/// CORS headers at all — the request (if not a preflight) still runs
+/// through the normal handler chain, it just isn't readable by a browser
+/// that sent it, which is the same "no headers, browser enforces" contract
+/// a real CORS layer gives you.
+async fn cors(req: Request, next: Next) -> Response {
+    let origin = request_origin(req.headers()).map(str::to_string);
+
+    if req.method() == Method::OPTIONS {
+        let mut res = Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(Body::empty())
+            .expect("static OPTIONS response is well-formed");
+        if let Some(headers) = origin.as_deref().and_then(cors_headers_for) {
+            for (name, value) in headers {
+                res.headers_mut().insert(name, value);
+            }
+        }
+        return res;
+    }
+
+    let mut res = next.run(req).await;
+    if let Some(headers) = origin.as_deref().and_then(cors_headers_for) {
+        for (name, value) in headers {
+            res.headers_mut().insert(name, value);
+        }
+    }
+    res
 }
 
 /// Compares presented bytes against the configured token without an early
