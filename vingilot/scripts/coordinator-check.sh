@@ -15,4 +15,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 # parallel, it pauses runs belonging to a concurrently-executing test and
 # breaks that test's absolute count assertions. Serial execution makes the
 # suite deterministic against shared state; the cost is a few seconds.
+#
+# This only serializes tests WITHIN this cargo test binary. It does not
+# protect against a separately-running `vingilot-coordinator` server (e.g.
+# from coordinator-run.sh) pointed at the same COORD_DATABASE_URL — its own
+# background reconciler sweeps every 5s and will race tests/reconcile.rs's
+# count assertions. Confirm no such process is running before trusting a
+# reconcile.rs failure as a regression (see the CAVEAT on `cleanup()` there).
 cargo test --workspace -- --test-threads=1

@@ -47,6 +47,23 @@ fn key(label: &str) -> String {
 
 /// The coordinator DB is a shared, persistent dev instance — every test
 /// removes exactly what it created.
+///
+/// CAVEAT (found the hard way): `sweep_once`'s counts (`leases_expired`,
+/// `runs_wall_exceeded`, ...) are GLOBAL, not scoped to this test's own
+/// workspace — see `reconcile.rs`'s module doc. `--test-threads=1`
+/// (`coordinator-check.sh`) keeps tests in this binary from racing each
+/// other, but it does NOT protect against a *separate* process pointed at
+/// the same `COORD_DATABASE_URL` — e.g. a `vingilot-coordinator` server left
+/// running from `coordinator-run.sh`, whose own background
+/// `run_reconciler` sweeps every 5s. If that sweeper fires between this
+/// test's `acquire_lease`/`wall_started_at` setup and its own call to
+/// `sweep_once`, it steals the expiry: the count this test observes drops to
+/// 0 and an assertion like `assert_eq!(report.leases_expired, 1)` fails —
+/// non-deterministically, and with no diff in this file to blame. Before
+/// treating a failure here as a regression, check for a stray coordinator
+/// process (`pgrep -f vingilot-coordinator`) against the same DB and kill
+/// it through its owner, not with a broad `pkill` — a same-shaped pattern
+/// can match a process another session started.
 async fn cleanup(pool: &PgPool, workspace_id: Uuid) {
     let _ = sqlx::query(
         "DELETE FROM run_worktree_grants WHERE run_id IN \
