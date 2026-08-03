@@ -143,7 +143,7 @@ seams:
     added: "2026-08-03"
 
   - path: "desktop/src/app/AppShell.tsx"
-    reason: "Wires the Runs nav callback (onSelectRuns={() => void goRuns()}) into the sidebar, matching onSelectAgents/onSelectWorkflows immediately above it. AppShell.tsx sits at the desktop file-size ratchet's cap (999/1000 lines); the diff is kept to the single added prop line so the file lands at exactly 1000, not over it. It is not grown beyond that for this task."
+    reason: "Wires the Runs nav callback (onSelectRuns={() => void goRuns()}) into the sidebar, matching onSelectAgents/onSelectWorkflows immediately above it — plus one destructuring line pulling goRuns out of useAppNavigation()'s return. AppShell.tsx sits at the desktop file-size ratchet's cap (999 lines, both before and after this change); to add those two lines without growing the file past 999, an existing three-line onSetPresenceStatus={(status) => presenceSession.setStatus(status)} arrow wrapper was collapsed to the equivalent one-line onSetPresenceStatus={presenceSession.setStatus} (presenceSession.setStatus already has the (status) => void signature the prop expects, so this is a behavior-preserving simplification, not a functional change). Net diff: 3 insertions, 3 deletions; file stays at 999 lines. It is not grown beyond that for this task."
     owner: "vingilot/runs"
     removable_when: "Never, while a /runs route exists in Buzz desktop."
     status: "permanent"

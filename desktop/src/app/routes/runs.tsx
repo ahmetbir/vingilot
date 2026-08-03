@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
-import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
+import { RunsLoadingFallback } from "@/features/runs/ui/RunsLoadingFallback";
 
 const RunsScreen = React.lazy(async () => {
   const module = await import("@/features/runs/ui/RunsScreen");
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/runs")({
 
 function RunsRouteComponent() {
   return (
-    <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
+    <React.Suspense fallback={<RunsLoadingFallback />}>
       <RunsScreen />
     </React.Suspense>
   );
