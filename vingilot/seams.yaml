@@ -93,19 +93,7 @@ seams:
     status: "temporary"
     added: "2026-08-01"
 
-  - path: "pnpm-workspace.yaml"
-    reason: "Registers vingilot/workbench as a workspace package. The Workbench is a sibling application (ADR-001 decision 3) and pnpm has no out-of-tree package mechanism, so the one-line addition to upstream's workspace list is unavoidable."
-    owner: "vingilot/workbench"
-    removable_when: "Never, while the Workbench ships from this monorepo."
-    status: "permanent"
-    added: "2026-08-02"
 
-  - path: "pnpm-lock.yaml"
-    reason: "pnpm rewrites the lockfile's importers map whenever a workspace package list changes, adding the (currently dependency-free) vingilot/workbench importer entry alongside the pnpm-workspace.yaml edit above. Same unavoidability: no out-of-tree lockfile mechanism exists."
-    owner: "vingilot/workbench"
-    removable_when: "Never, while the Workbench ships from this monorepo."
-    status: "permanent"
-    added: "2026-08-02"
 
   - path: "desktop/src/features/runs/*"
     reason: "Per ADR-001's 2026-08-03 reversal, the Runs island (coordinator client, ported pure logic, and the Runs screen UI) is a new fork-owned directory inside the upstream desktop tree. Additive only: no upstream file is renamed or deleted, so this cannot merge-conflict."

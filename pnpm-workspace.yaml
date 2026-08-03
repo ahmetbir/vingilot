@@ -2,7 +2,6 @@ packages:
   - "desktop"
   - "web"
   - "admin-web"
-  - "vingilot/workbench"
 allowBuilds:
   esbuild: true
 overrides:
