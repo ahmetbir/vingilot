@@ -52,6 +52,41 @@ export interface RunDetail extends RunSummary {
   transitions: RunTransition[];
 }
 
+export type EvidenceKind = "command" | "output" | "error" | "note";
+
+export interface EvidenceRow {
+  seq: number;
+  kind: EvidenceKind;
+  content: string;
+  created_at: string;
+}
+
+/** Rows shown at once in the Evidence pane before a truncation marker takes
+ * over. Chosen to match the executor's own per-command chunking headroom
+ * (Task 2/3), not any UI constraint. */
+export const EVIDENCE_DISPLAY_CAP = 200;
+
+export interface EvidenceViewModel {
+  /** Display order: oldest first, newest last — matches the executor's
+   * append order (seq ascending), which is also read-time chronological. */
+  rows: EvidenceRow[];
+  /** Count of earlier rows dropped to respect EVIDENCE_DISPLAY_CAP. Zero
+   * means nothing was truncated. */
+  truncatedCount: number;
+}
+
+/** Pure render-model for the Evidence pane: orders rows oldest-to-newest by
+ * seq, then caps the display to the newest EVIDENCE_DISPLAY_CAP rows,
+ * reporting how many earlier rows were dropped. */
+export function evidenceView(rows: EvidenceRow[]): EvidenceViewModel {
+  const sorted = [...rows].sort((a, b) => a.seq - b.seq);
+  if (sorted.length <= EVIDENCE_DISPLAY_CAP) {
+    return { rows: sorted, truncatedCount: 0 };
+  }
+  const truncatedCount = sorted.length - EVIDENCE_DISPLAY_CAP;
+  return { rows: sorted.slice(truncatedCount), truncatedCount };
+}
+
 const NEEDS_YOU: ReadonlySet<RunStatus> = new Set(["paused", "blocked"]);
 const LIVE: ReadonlySet<RunStatus> = new Set([
   "running",

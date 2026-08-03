@@ -10,9 +10,17 @@
 import * as React from "react";
 
 import { legalNext } from "@/features/runs/lib/budget";
-import { getRun, transitionRun } from "@/features/runs/lib/coordinatorClient";
-import { statusClass } from "@/features/runs/lib/runModel";
-import type { RunStatus, SemanticClass } from "@/features/runs/lib/runModel";
+import {
+  getRun,
+  listEvidence,
+  transitionRun,
+} from "@/features/runs/lib/coordinatorClient";
+import { evidenceView, statusClass } from "@/features/runs/lib/runModel";
+import type {
+  EvidenceKind,
+  RunStatus,
+  SemanticClass,
+} from "@/features/runs/lib/runModel";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { BudgetBar } from "@/features/runs/ui/BudgetBar";
 import { ModeChip } from "@/features/runs/ui/RunList";
@@ -58,9 +66,18 @@ function actionLabel(from: RunStatus, to: RunStatus): string {
   }
 }
 
+const EVIDENCE_KIND_CLASS: Record<EvidenceKind, string> = {
+  command: "text-foreground",
+  error: "text-destructive",
+  note: "text-muted-foreground",
+  output: "text-foreground",
+};
+
 export function RunDetail({ runId }: RunDetailProps) {
   const fetchRun = React.useCallback(() => getRun(runId), [runId]);
   const { data: run, reachable } = usePolling(fetchRun, 2000);
+  const fetchEvidence = React.useCallback(() => listEvidence(runId), [runId]);
+  const { data: evidenceRows } = usePolling(fetchEvidence, 2000);
   const [pendingTo, setPendingTo] = React.useState<RunStatus | null>(null);
   const [conflict, setConflict] = React.useState<string | null>(null);
 
@@ -170,6 +187,41 @@ export function RunDetail({ runId }: RunDetailProps) {
             ))}
           </ul>
         )}
+      </section>
+
+      <section data-testid="run-evidence">
+        <h2 className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Evidence
+        </h2>
+        {(() => {
+          const { rows, truncatedCount } = evidenceView(evidenceRows ?? []);
+          if (rows.length === 0) {
+            return (
+              <p className="mt-2 text-sm text-muted-foreground">
+                no evidence yet
+              </p>
+            );
+          }
+          return (
+            <div className="mt-2 flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-xs">
+              {truncatedCount > 0 ? (
+                <p className="text-3xs text-muted-foreground/70">
+                  {truncatedCount} earlier row
+                  {truncatedCount === 1 ? "" : "s"} not shown
+                </p>
+              ) : null}
+              {rows.map((ev) => (
+                <div
+                  className={`whitespace-pre-wrap break-words ${EVIDENCE_KIND_CLASS[ev.kind]}`}
+                  key={ev.seq}
+                >
+                  {ev.kind === "command" ? "$ " : ""}
+                  {ev.content}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </section>
 
       {!reachable ? (

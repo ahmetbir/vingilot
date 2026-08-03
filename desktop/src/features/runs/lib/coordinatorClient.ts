@@ -13,7 +13,13 @@
 // to localhost; the follow-up is a Tauri-side keychain-backed proxy so the
 // token never ships in webview-readable code.
 
-import type { RunDetail, RunMode, RunStatus, RunSummary } from "./runModel.ts";
+import type {
+  EvidenceRow,
+  RunDetail,
+  RunMode,
+  RunStatus,
+  RunSummary,
+} from "./runModel.ts";
 
 export type ApiResult<T> =
   | { ok: true; value: T }
@@ -218,4 +224,20 @@ export function provisionRun(
   opts?: RequestOpts,
 ): Promise<ApiResult<void>> {
   return request<void>("POST", `/v1/runs/${id}/provision`, spec, opts);
+}
+
+/** Lists evidence rows for a run, optionally after a given seq (defaults to
+ * 0 — the full history). A thin passthrough: ordering/capping for display
+ * is `evidenceView`'s job (runModel.ts), not this client's. */
+export function listEvidence(
+  id: string,
+  after = 0,
+  opts?: RequestOpts,
+): Promise<ApiResult<EvidenceRow[]>> {
+  return request<{ evidence: EvidenceRow[] }>(
+    "GET",
+    `/v1/runs/${id}/evidence?after=${after}`,
+    undefined,
+    opts,
+  ).then((r) => (r.ok ? { ok: true, value: r.value.evidence } : r));
 }
