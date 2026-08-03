@@ -469,6 +469,7 @@ struct CreateRunResponseDto {
 struct GrantDto {
     binding_id: Uuid,
     access: String,
+    repo_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -665,11 +666,18 @@ async fn fetch_run_detail(pool: &PgPool, run_id: Uuid) -> Result<RunDetailDto, R
         updated_at,
     ) = row.ok_or(RunError::NotFound(run_id))?;
 
-    let grants: Vec<(Uuid, String)> =
-        sqlx::query_as("SELECT binding_id, access FROM run_worktree_grants WHERE run_id = $1")
-            .bind(run_id)
-            .fetch_all(pool)
-            .await?;
+    // Joins `worktree_bindings` for `repo_id` — the executor (vingilot-executor)
+    // needs it to resolve which local clone (via its `repo_map`) to run `git
+    // worktree add` against; the grants table alone only names the binding.
+    let grants: Vec<(Uuid, String, String)> = sqlx::query_as(
+        "SELECT g.binding_id, g.access, b.repo_id \
+         FROM run_worktree_grants g \
+         JOIN worktree_bindings b ON b.id = g.binding_id \
+         WHERE g.run_id = $1",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
 
     let transitions: Vec<(i64, String, String, String, DateTime<Utc>)> = sqlx::query_as(
         "SELECT seq, from_status, to_status, reason, created_at \
@@ -694,7 +702,11 @@ async fn fetch_run_detail(pool: &PgPool, run_id: Uuid) -> Result<RunDetailDto, R
         updated_at,
         grants: grants
             .into_iter()
-            .map(|(binding_id, access)| GrantDto { binding_id, access })
+            .map(|(binding_id, access, repo_id)| GrantDto {
+                binding_id,
+                access,
+                repo_id,
+            })
             .collect(),
         transitions: transitions
             .into_iter()
