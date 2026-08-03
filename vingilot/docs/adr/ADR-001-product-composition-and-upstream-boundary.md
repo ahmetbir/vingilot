@@ -40,15 +40,47 @@ the product. A component you own as a feature is embedded, not forked.
 
 ## Decision
 
+> ### Reversal — 2026-08-03: the Workbench moves INTO the Buzz desktop app
+>
+> **Owner decision.** The original product brief said it plainly (K4:
+> "the Workbench is the main shell"; the owner's own words: *"we are
+> transforming buzz"*). This ADR chose a sibling application instead, to
+> minimise the upstream merge surface — an engineering priority the owner has
+> now explicitly overruled after seeing both apps side by side: **one
+> application, and it is Buzz desktop, modified in place.** Decisions 2 and 3
+> below are superseded as follows; everything else in this ADR stands.
+>
+> - **Vingilot's UI is the Buzz desktop app.** Run rail, Deck, Run views, and
+>   everything the Workbench built land as new feature islands inside
+>   `desktop/src/` (e.g. `desktop/src/features/runs/**`) plus narrow declared
+>   touches to navigation/routing/shell.
+> - **Two seam classes now exist.** *Islands*: whole new fork-owned
+>   directories inside the upstream tree — additive, cannot merge-conflict,
+>   declared as directory globs in `seams.yaml`. *Touch-points*: edits to
+>   shared upstream files (nav, routing, package.json) — the expensive kind,
+>   kept few, each declared individually.
+> - **The accepted cost is recorded, not hidden:** upstream merges will now
+>   conflict on the touch-point files at upstream's observed velocity
+>   (~850 commits/month), and the desktop file-size ratchet constrains which
+>   shell files can grow (`AppShell.tsx` sits at its limit). This is the
+>   price of one app, knowingly paid.
+> - **What transfers:** the coordinator survives untouched (UI-agnostic by
+>   construction); the mount spike's verdict is NOT invalidated — it measured
+>   pulling chat *out* into a foreign shell, and mounting new views *inside*
+>   the app has none of those failures (providers, QueryClient, and singleton
+>   lifecycles all exist natively there); the sibling app
+>   (`vingilot/workbench`) becomes donor code — its API client, models,
+>   render-model logic, and tests port over — and is deleted once the port
+>   lands.
+
 1. **One physical monorepo; the layer boundary is logical.** The fork is not split
    into multiple repositories.
 
-2. **Upstream Buzz desktop is preserved as an upstream-owned chat client.** Its
-   chrome is not converted into the Workbench. It continues to build and ship as
-   upstream ships it.
+2. ~~**Upstream Buzz desktop is preserved as an upstream-owned chat client.**~~
+   *Superseded by the 2026-08-03 reversal above.*
 
-3. **The Workbench is a new sibling application** in the same monorepo, added to
-   `pnpm-workspace.yaml`. It is a new Tauri app with its own entry point.
+3. ~~**The Workbench is a new sibling application.**~~
+   *Superseded by the 2026-08-03 reversal above.*
 
 4. **Coordinator and executors are new services/modules**, not modifications of
    existing crates.
