@@ -81,6 +81,19 @@ fn current_branch(dir: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+/// Runs `git -C dir <args>` and returns stdout — used by the capture-step
+/// tests to assert real git facts (worktree cleanliness, the capture
+/// commit's presence in `git log`) rather than only evidence strings.
+fn git_output(dir: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
 // ---------------------------------------------------------------------
 // HTTP setup helpers — every Run this suite exercises is created,
 // provisioned, and read back purely through the coordinator's public API.
@@ -294,7 +307,7 @@ async fn full_loop_completes_a_delegated_run_with_a_real_worktree() {
         command_template: vec![
             "sh".to_string(),
             "-c".to_string(),
-            "touch PROOF.txt && echo made-proof".to_string(),
+            "echo hello > PROOF.txt".to_string(),
         ],
     };
 
@@ -334,8 +347,24 @@ async fn full_loop_completes_a_delegated_run_with_a_real_worktree() {
     );
     assert_eq!(current_branch(&worktree_path), format!("run/{id8}"));
 
-    // Evidence rows include the git worktree add command, the made-proof
-    // output, and the outcome note, in seq order.
+    // The worktree is CLEAN after capture — the executor committed its own
+    // changes on the run's branch.
+    let status_after_capture = git_output(&worktree_path, &["status", "--porcelain"]);
+    assert!(
+        status_after_capture.trim().is_empty(),
+        "worktree not clean after capture: {status_after_capture:?}"
+    );
+
+    // `git log --oneline` on the worktree shows the capture commit on
+    // `run/<id8>` — a real git fact, not just an evidence string.
+    let log = git_output(&worktree_path, &["log", "--oneline"]);
+    assert!(
+        log.contains(&format!("run {id8}")),
+        "capture commit not found in git log: {log:?}"
+    );
+
+    // Evidence rows include the git worktree add command, and the outcome
+    // note, in seq order.
     let evidence = list_evidence(&base_url, &http, run_id).await;
     let seqs: Vec<i64> = evidence
         .iter()
@@ -356,12 +385,126 @@ async fn full_loop_completes_a_delegated_run_with_a_real_worktree() {
         "no git worktree add command evidence: {contents:?}"
     );
     assert!(
-        contents.iter().any(|c| c.contains("made-proof")),
-        "no made-proof output evidence: {contents:?}"
-    );
-    assert!(
         contents.iter().any(|c| c.contains("outcome: completed")),
         "no outcome note evidence: {contents:?}"
+    );
+
+    // A `commit` evidence row exists with a real sha.
+    let commit_row = evidence
+        .iter()
+        .find(|e| e["kind"] == json!("commit"))
+        .expect("no commit evidence row");
+    let commit_content = commit_row["content"].as_str().unwrap();
+    let sha = commit_content
+        .split_whitespace()
+        .next()
+        .expect("commit evidence content is empty");
+    assert!(
+        (sha.len() == 40 || sha.len() == 64) && sha.chars().all(|c| c.is_ascii_hexdigit()),
+        "commit evidence's leading token doesn't look like a real sha: {sha:?}"
+    );
+    assert!(
+        commit_content.contains(&format!("run {id8}")),
+        "commit evidence missing the run id: {commit_content:?}"
+    );
+
+    // A `diff` evidence row contains `+hello`.
+    let diff_row = evidence
+        .iter()
+        .find(|e| e["kind"] == json!("diff"))
+        .expect("no diff evidence row");
+    let diff_content = diff_row["content"].as_str().unwrap();
+    assert!(
+        diff_content.contains("+hello"),
+        "diff evidence missing +hello: {diff_content:?}"
+    );
+
+    cleanup(&pool, workspace_id).await;
+}
+
+// ---------------------------------------------------------------------
+// Test 4 — evidence honesty: a diff over the coordinator's per-row cap is
+// truncated with an explicit marker naming the FULL, untruncated byte
+// count — never silently dropped or silently shortened.
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn capture_step_truncates_a_large_diff_with_an_honest_byte_count() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let base_url = spawn_coordinator(pool.clone()).await;
+    let http = reqwest::Client::new();
+
+    let repo_dir = tempfile::tempdir().unwrap();
+    init_repo_with_one_commit(repo_dir.path());
+    let base_commit = git_rev_parse_head(repo_dir.path());
+    let worktree_root = tempfile::tempdir().unwrap();
+
+    let (workspace_id, run_id, _binding_id) = setup_delegated_run(
+        &base_url,
+        &http,
+        "test",
+        &base_commit,
+        "generate a large diff",
+        "truncation",
+    )
+    .await;
+
+    let mut repo_map = HashMap::new();
+    repo_map.insert("test".to_string(), repo_dir.path().to_path_buf());
+
+    let cfg = ExecutorConfig {
+        coord_base: base_url.clone(),
+        auth_token: AUTH_TOKEN.to_string(),
+        repo_map,
+        worktree_root: worktree_root.path().to_path_buf(),
+        // seq 1..50000 is comfortably over 192 KiB once diffed (~280 KiB
+        // of "+<n>\n" lines) — well over any plausible per-row cap.
+        command_template: vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "seq 1 50000 > BIG.txt".to_string(),
+        ],
+    };
+
+    let outcome = execute_run(&cfg, run_id).await.unwrap();
+    assert_eq!(outcome, Outcome::Completed);
+
+    let evidence = list_evidence(&base_url, &http, run_id).await;
+    let diff_row = evidence
+        .iter()
+        .find(|e| e["kind"] == json!("diff"))
+        .expect("no diff evidence row");
+    let content = diff_row["content"].as_str().unwrap();
+
+    assert!(
+        content.contains("truncated"),
+        "diff evidence should carry a truncation marker: {content:?}"
+    );
+
+    let marker_prefix = "truncated, ";
+    let start = content
+        .find(marker_prefix)
+        .expect("truncation marker prefix not found")
+        + marker_prefix.len();
+    let digits: String = content[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let full_bytes: usize = digits
+        .parse()
+        .expect("truncation marker's byte count is not numeric");
+
+    assert!(
+        full_bytes > 192 * 1024,
+        "expected the marker to name the full untruncated byte count (>192 KiB of raw diff), got {full_bytes}"
+    );
+    assert!(
+        content.len() < full_bytes,
+        "evidence content ({} bytes) should be strictly shorter than the full diff it summarizes ({} bytes)",
+        content.len(),
+        full_bytes
     );
 
     cleanup(&pool, workspace_id).await;

@@ -32,6 +32,20 @@ const LEASE_RENEW_INTERVAL: Duration = Duration::from_secs(30);
 /// chunk so evidence streams as the command runs, not only at the end).
 const EVIDENCE_CHUNK_BYTES: usize = 8 * 1024;
 
+/// Bounds `diff`-kind evidence content. The coordinator's per-row cap
+/// (`evidence::MAX_CONTENT_BYTES`) is 64 KiB; this stays comfortably under
+/// it so the truncated diff plus the truncation marker always fits in one
+/// row (the plan's prose cites 192 KiB, but the fixed 64 KiB row contract
+/// predates this task and wasn't changed by it — see the capture step's
+/// module docs).
+const MAX_DIFF_EVIDENCE_BYTES: usize = 48 * 1024;
+
+/// Identity used for the executor's own work-product commits (plan
+/// §Executor capture step) — passed via `-c`, never written to the
+/// worktree's or the user's git config.
+const CAPTURE_COMMIT_NAME: &str = "Vingilot Executor";
+const CAPTURE_COMMIT_EMAIL: &str = "executor@vingilot.local";
+
 /// Everything `execute_run` needs to claim and run one Run.
 pub struct ExecutorConfig {
     /// The coordinator's base URL, e.g. `http://127.0.0.1:7117`.
@@ -141,6 +155,240 @@ async fn run_git_worktree_add(
     let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
     combined.push_str(&String::from_utf8_lossy(&output.stderr));
     Ok((combined, output.status.success()))
+}
+
+/// `git -C <cwd> <args>`, run to completion. Returns stdout and stderr
+/// separately (unlike `run_git_worktree_add`'s combined stream) because the
+/// capture step's callers need clean stdout — e.g. `status --porcelain` and
+/// `diff` output become evidence content verbatim, not mixed with stderr —
+/// and never panics on a nonzero exit; the caller decides what that means.
+async fn run_git(cwd: &Path, args: &[&str]) -> Result<(String, String, bool), std::io::Error> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .await?;
+    Ok((
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        output.status.success(),
+    ))
+}
+
+/// Bounds `diff` evidence content to fit the coordinator's per-row cap
+/// (`MAX_DIFF_EVIDENCE_BYTES`). Content at or under the cap passes through
+/// unchanged; content over it is cut to a `char` boundary and suffixed with
+/// an explicit marker naming the full, untruncated byte count (plan
+/// §Evidence honesty: "truncated diffs carry an explicit truncation marker
+/// with the untruncated byte count ... never silently skipped").
+fn bound_diff(diff: &str) -> String {
+    let total = diff.len();
+    if total <= MAX_DIFF_EVIDENCE_BYTES {
+        return diff.to_string();
+    }
+    let marker = format!("\n... [truncated, {total} bytes total]\n");
+    let budget = MAX_DIFF_EVIDENCE_BYTES.saturating_sub(marker.len());
+    let mut cut = budget.min(diff.len());
+    while cut > 0 && !diff.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}{}", &diff[..cut], marker)
+}
+
+/// The post-command capture step (plan §Executor capture step): fenced
+/// `git status --porcelain` on the Run's own worktree, and — if dirty —
+/// `git add -A && git commit` **inside that worktree, on the Run's own
+/// branch** (the one place `add -A` is correct: the worktree exists solely
+/// for this Run, and the commit IS the artifact; the repo's own
+/// `check-seams.sh`-enforced "never `git add -A`" rule is about THIS repo,
+/// not a Run's disposable worktree), then a bounded `git diff HEAD~1` as
+/// `diff` evidence.
+///
+/// Returns whether capture succeeded. A failure (fencing denial, any git
+/// error) is recorded as `error` evidence and never propagated as an
+/// `ExecError` — capture is reporting on the work product, not verifying
+/// the command's outcome; the RUN's own outcome (`completed`/`failed`)
+/// always reflects the command's exit code alone, never capture's success.
+async fn capture_work_product(
+    client: &Client,
+    binding_id: Uuid,
+    run_id: Uuid,
+    epoch: i64,
+    worktree_path: &Path,
+    objective: &str,
+) -> bool {
+    if let Err(e) = client.validate_op(binding_id, run_id, epoch).await {
+        let _ = client
+            .append_evidence(
+                run_id,
+                "error",
+                &format!("validate-op denied before capture: {e}"),
+            )
+            .await;
+        return false;
+    }
+
+    let (status_out, status_err, status_ok) =
+        match run_git(worktree_path, &["status", "--porcelain"]).await {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = client
+                    .append_evidence(run_id, "error", &format!("git status failed to run: {e}"))
+                    .await;
+                return false;
+            }
+        };
+    if !status_ok {
+        let _ = client
+            .append_evidence(
+                run_id,
+                "error",
+                &format!("git status --porcelain failed: {status_err}"),
+            )
+            .await;
+        return false;
+    }
+
+    if status_out.trim().is_empty() {
+        let _ = client
+            .append_evidence(run_id, "note", "workdir clean")
+            .await;
+        return true;
+    }
+    let _ = client
+        .append_evidence(run_id, "note", &format!("workdir status:\n{status_out}"))
+        .await;
+
+    let (_, add_err, add_ok) = match run_git(worktree_path, &["add", "-A"]).await {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = client
+                .append_evidence(run_id, "error", &format!("git add -A failed to run: {e}"))
+                .await;
+            return false;
+        }
+    };
+    if !add_ok {
+        let _ = client
+            .append_evidence(run_id, "error", &format!("git add -A failed: {add_err}"))
+            .await;
+        return false;
+    }
+
+    let objective_head: String = objective.chars().take(72).collect();
+    let commit_message = format!("run {}: {objective_head}", short_id(run_id));
+    let user_name_arg = format!("user.name={CAPTURE_COMMIT_NAME}");
+    let user_email_arg = format!("user.email={CAPTURE_COMMIT_EMAIL}");
+    let (_, commit_err, commit_ok) = match run_git(
+        worktree_path,
+        &[
+            "-c",
+            &user_name_arg,
+            "-c",
+            &user_email_arg,
+            "commit",
+            "-m",
+            &commit_message,
+        ],
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = client
+                .append_evidence(run_id, "error", &format!("git commit failed to run: {e}"))
+                .await;
+            return false;
+        }
+    };
+    if !commit_ok {
+        let _ = client
+            .append_evidence(run_id, "error", &format!("git commit failed: {commit_err}"))
+            .await;
+        return false;
+    }
+
+    let (sha_out, sha_err, sha_ok) = match run_git(worktree_path, &["rev-parse", "HEAD"]).await {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = client
+                .append_evidence(
+                    run_id,
+                    "error",
+                    &format!("git rev-parse HEAD failed to run: {e}"),
+                )
+                .await;
+            return false;
+        }
+    };
+    if !sha_ok {
+        let _ = client
+            .append_evidence(
+                run_id,
+                "error",
+                &format!("git rev-parse HEAD failed: {sha_err}"),
+            )
+            .await;
+        return false;
+    }
+    let sha = sha_out.trim();
+    let _ = client
+        .append_evidence(run_id, "commit", &format!("{sha} {commit_message}"))
+        .await;
+
+    match run_git(worktree_path, &["diff", "HEAD~1", "--stat"]).await {
+        Ok((stat_out, _, true)) => {
+            let _ = client.append_evidence(run_id, "note", &stat_out).await;
+        }
+        Ok((_, stat_err, false)) => {
+            let _ = client
+                .append_evidence(
+                    run_id,
+                    "error",
+                    &format!("git diff --stat failed: {stat_err}"),
+                )
+                .await;
+        }
+        Err(e) => {
+            let _ = client
+                .append_evidence(
+                    run_id,
+                    "error",
+                    &format!("git diff --stat failed to run: {e}"),
+                )
+                .await;
+        }
+    }
+
+    match run_git(worktree_path, &["diff", "HEAD~1"]).await {
+        Ok((diff_out, _, true)) => {
+            let _ = client
+                .append_evidence(run_id, "diff", &bound_diff(&diff_out))
+                .await;
+            true
+        }
+        Ok((_, diff_err, false)) => {
+            let _ = client
+                .append_evidence(
+                    run_id,
+                    "error",
+                    &format!("git diff HEAD~1 failed: {diff_err}"),
+                )
+                .await;
+            false
+        }
+        Err(e) => {
+            let _ = client
+                .append_evidence(
+                    run_id,
+                    "error",
+                    &format!("git diff HEAD~1 failed to run: {e}"),
+                )
+                .await;
+            false
+        }
+    }
 }
 
 /// Reads `reader` to EOF in `EVIDENCE_CHUNK_BYTES` chunks, appending each
@@ -314,7 +562,24 @@ pub async fn execute_run(cfg: &ExecutorConfig, run_id: Uuid) -> Result<Outcome, 
     let _ = stderr_task.await;
     renewal_task.abort();
 
-    // 6. Exit 0 -> running -> verifying -> completed. Nonzero -> running ->
+    // 6. Capture the work product (plan §Executor capture step): fenced
+    //    status/commit/diff of whatever the command left in the worktree,
+    //    before the RUN's own outcome transition, regardless of the
+    //    command's exit code. Capture is reporting, not verification — its
+    //    success or failure never changes the Outcome below, only the note
+    //    that records it.
+    let capture_ok = capture_work_product(
+        &client,
+        binding_id,
+        run_id,
+        epoch,
+        &worktree_path,
+        &detail.objective,
+    )
+    .await;
+    let capture_suffix = if capture_ok { "" } else { " (capture failed)" };
+
+    // 7. Exit 0 -> running -> verifying -> completed. Nonzero -> running ->
     //    failed. Either way, a `note` evidence row records the outcome.
     let exit_code = status.code().unwrap_or(-1);
     if exit_code == 0 {
@@ -325,7 +590,11 @@ pub async fn execute_run(cfg: &ExecutorConfig, run_id: Uuid) -> Result<Outcome, 
             .transition(run_id, "completed", "executor v1 auto-verify")
             .await?;
         client
-            .append_evidence(run_id, "note", "outcome: completed")
+            .append_evidence(
+                run_id,
+                "note",
+                &format!("outcome: completed{capture_suffix}"),
+            )
             .await?;
         Ok(Outcome::Completed)
     } else {
@@ -336,7 +605,7 @@ pub async fn execute_run(cfg: &ExecutorConfig, run_id: Uuid) -> Result<Outcome, 
             .append_evidence(
                 run_id,
                 "note",
-                &format!("outcome: failed (command exit {exit_code})"),
+                &format!("outcome: failed (command exit {exit_code}){capture_suffix}"),
             )
             .await?;
         Ok(Outcome::Failed { exit_code })
