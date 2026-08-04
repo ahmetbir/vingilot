@@ -52,7 +52,13 @@ export interface RunDetail extends RunSummary {
   transitions: RunTransition[];
 }
 
-export type EvidenceKind = "command" | "output" | "error" | "note";
+export type EvidenceKind =
+  | "command"
+  | "output"
+  | "error"
+  | "note"
+  | "diff"
+  | "commit";
 
 export interface EvidenceRow {
   seq: number;
@@ -148,6 +154,51 @@ export function statusClass(s: RunStatus): SemanticClass {
     case "ready":
       return "muted";
   }
+}
+
+export type DiffLineKind = "add" | "del" | "hunk" | "meta" | "ctx";
+
+export interface DiffLine {
+  kind: DiffLineKind;
+  text: string;
+}
+
+export interface DiffViewModel {
+  lines: DiffLine[];
+  /** True when the executor's own truncation marker (bound_diff in
+   * coordinator/executor/src/lib.rs) is present in the raw diff — the
+   * evidence was cut short and the marker names the real, untruncated byte
+   * count. */
+  truncated: boolean;
+}
+
+const TRUNCATION_MARKER = /^\.\.\. \[truncated, \d+ bytes total\]$/;
+
+/** Classifies a raw unified-diff `kind=diff` evidence body into colorable
+ * lines. `+++`/`---` file headers are `meta` (checked before the single-char
+ * `+`/`-` prefixes, which would otherwise misclassify them as add/del); `@@`
+ * hunk headers are `hunk`; a bare `+`/`-` prefix is add/del; everything else
+ * (context lines, including ones starting with a literal space) is `ctx`.
+ * Detects the executor's truncation marker (bound_diff in
+ * coordinator/executor/src/lib.rs) and reports it via `truncated`. An empty
+ * diff yields no lines. */
+export function diffView(raw: string): DiffViewModel {
+  if (raw === "") return { lines: [], truncated: false };
+  let truncated = false;
+  const lines = raw.split("\n").map((text): DiffLine => {
+    if (TRUNCATION_MARKER.test(text)) {
+      truncated = true;
+      return { kind: "meta", text };
+    }
+    if (text.startsWith("+++") || text.startsWith("---")) {
+      return { kind: "meta", text };
+    }
+    if (text.startsWith("@@")) return { kind: "hunk", text };
+    if (text.startsWith("+")) return { kind: "add", text };
+    if (text.startsWith("-")) return { kind: "del", text };
+    return { kind: "ctx", text };
+  });
+  return { lines, truncated };
 }
 
 export interface WallClock {

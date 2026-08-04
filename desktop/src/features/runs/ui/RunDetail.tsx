@@ -15,8 +15,13 @@ import {
   listEvidence,
   transitionRun,
 } from "@/features/runs/lib/coordinatorClient";
-import { evidenceView, statusClass } from "@/features/runs/lib/runModel";
+import {
+  diffView,
+  evidenceView,
+  statusClass,
+} from "@/features/runs/lib/runModel";
 import type {
+  DiffLineKind,
   EvidenceKind,
   RunStatus,
   SemanticClass,
@@ -68,9 +73,19 @@ function actionLabel(from: RunStatus, to: RunStatus): string {
 
 const EVIDENCE_KIND_CLASS: Record<EvidenceKind, string> = {
   command: "text-foreground",
+  commit: "text-emerald-600 dark:text-emerald-400",
+  diff: "text-muted-foreground",
   error: "text-destructive",
   note: "text-muted-foreground",
   output: "text-foreground",
+};
+
+const DIFF_LINE_CLASS: Record<DiffLineKind, string> = {
+  add: "text-emerald-600 dark:text-emerald-400",
+  ctx: "text-foreground",
+  del: "text-destructive",
+  hunk: "font-bold text-muted-foreground",
+  meta: "text-muted-foreground",
 };
 
 export function RunDetail({ runId }: RunDetailProps) {
@@ -216,9 +231,46 @@ export function RunDetail({ runId }: RunDetailProps) {
                   key={ev.seq}
                 >
                   {ev.kind === "command" ? "$ " : ""}
+                  {ev.kind === "commit" ? "⎘ " : ""}
                   {ev.content}
                 </div>
               ))}
+            </div>
+          );
+        })()}
+      </section>
+
+      <section data-testid="run-diff">
+        <h2 className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Diff
+        </h2>
+        {(() => {
+          const diffRows = (evidenceRows ?? []).filter(
+            (ev) => ev.kind === "diff",
+          );
+          if (diffRows.length === 0) {
+            return (
+              <p className="mt-2 text-sm text-muted-foreground">no diff yet</p>
+            );
+          }
+          const latest = diffRows.reduce((a, b) => (b.seq > a.seq ? b : a));
+          const { lines, truncated } = diffView(latest.content);
+          return (
+            <div className="mt-2 flex flex-col gap-1 overflow-x-auto rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-xs">
+              {lines.map((line, i) => (
+                <div
+                  className={`whitespace-pre ${DIFF_LINE_CLASS[line.kind]}`}
+                  // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are static, positional transcript content
+                  key={i}
+                >
+                  {line.text}
+                </div>
+              ))}
+              {truncated ? (
+                <p className="mt-1 text-3xs text-muted-foreground/70">
+                  diff truncated — see marker above for the full byte count
+                </p>
+              ) : null}
             </div>
           );
         })()}
