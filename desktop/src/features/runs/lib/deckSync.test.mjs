@@ -108,7 +108,10 @@ test("syncPins: a 409 returns a conflict result (via a follow-up GET) without th
     // POST mutations — always rejected, and this handler asserts it is
     // called at most once (no blind retry).
     postCount += 1;
-    await readBody(req);
+    const body = await readBody(req);
+    // Even on the losing write, the request body must still carry
+    // expected_revision verbatim — the bug this plan exists to prevent.
+    assert.equal(body.expected_revision, 3);
     res.writeHead(409, { "content-type": "application/json" });
     res.end(
       JSON.stringify({ accepted: false, revision: 4, state_hash: "stale" }),
