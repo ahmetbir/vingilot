@@ -18,6 +18,7 @@ import { diffView } from "@/features/runs/lib/runModel";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import { ModeChip, StatusDot } from "@/features/runs/ui/RunList";
 import { Button } from "@/shared/ui/button";
+import { isRenderableKind } from "@/features/runs/lib/deckPins";
 
 interface Artifact {
   commitSha: string | null;
@@ -99,6 +100,26 @@ export function PinnedCard({
   unplaced,
 }: PinnedCardProps) {
   const artifact = useRunArtifact(run?.id);
+
+  // A pin whose kind this client cannot render is NOT a tombstone: the pin is
+  // valid and another client shows it. Saying "no longer available" next to an
+  // unpin button would invite the owner to destroy good state on false
+  // information — so it says what is actually true and offers no unpin.
+  if (!isRenderableKind(pin.kind)) {
+    return (
+      <div
+        className="flex flex-col gap-1 rounded-2xl border border-dashed border-border bg-card/50 p-3"
+        data-testid={`pinned-card-${pin.id}`}
+      >
+        <p className="text-sm text-muted-foreground">
+          pinned {pin.kind} — this version can't show it
+        </p>
+        <p className="text-2xs text-muted-foreground/70">
+          kept as-is so another client keeps rendering it
+        </p>
+      </div>
+    );
+  }
 
   if (run === undefined) {
     return (

@@ -11,7 +11,10 @@
 // and the typed `Pin[]` the rest of Deck operates on. Bad shapes become
 // `[]`, never a throw.
 
-export type PinKind = "run";
+/** Kinds this client renders. Other kinds are still *preserved* — see `isPin`. */
+export type KnownPinKind = "run";
+/** Any kind a pin may carry, including ones a future client introduces. */
+export type PinKind = KnownPinKind | (string & {});
 
 export interface Pin {
   id: string;
@@ -19,14 +22,29 @@ export interface Pin {
   pinnedAt: string;
 }
 
+/** Accepts ANY string `kind`, not just the ones this client can render.
+ *
+ * This is load-bearing rather than lenient-for-its-own-sake: `syncPins` writes
+ * the whole `deck.pins` array back (the array is the unit of change), so a kind
+ * dropped on read is a kind DELETED from shared workspace state on the next
+ * pin/unpin. A Phase-3 client must carry a future `pr`/`surface` pin through
+ * untouched, even though it has no UI for it — "nothing is silently
+ * overwritten" (ADR-002) applies to state we don't understand too. */
 function isPin(value: unknown): value is Pin {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
     typeof v.id === "string" &&
-    v.kind === "run" &&
+    typeof v.kind === "string" &&
+    v.kind.length > 0 &&
     typeof v.pinnedAt === "string"
   );
+}
+
+/** True when this client knows how to render a pin's subject. Unknown kinds
+ * are preserved by `readPins` but must not be rendered as if they were runs. */
+export function isRenderableKind(kind: PinKind): kind is KnownPinKind {
+  return kind === "run";
 }
 
 /** Tolerant read of `deck.pins` from arbitrary workspace state. Anything
