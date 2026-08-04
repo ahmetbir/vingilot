@@ -12,15 +12,19 @@ use uuid::Uuid;
 /// misbehaving command can't blow up a row or the response payload.
 pub const MAX_CONTENT_BYTES: usize = 64 * 1024;
 
-/// The four evidence kinds the SQL `CHECK` constraint allows. Kept as a
+/// The six evidence kinds the SQL `CHECK` constraint allows. Kept as a
 /// closed Rust enum (matching `RunStatus`/`RunMode`'s idiom in `domain.rs`)
-/// so `append` can never write a string outside the constraint.
+/// so `append` can never write a string outside the constraint. `Diff` and
+/// `Commit` (migration 0003) carry the executor's post-command work-product
+/// capture — the artifact commit's summary and the bounded unified diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EvidenceKind {
     Command,
     Output,
     Error,
     Note,
+    Diff,
+    Commit,
 }
 
 impl EvidenceKind {
@@ -32,6 +36,8 @@ impl EvidenceKind {
             EvidenceKind::Output => "output",
             EvidenceKind::Error => "error",
             EvidenceKind::Note => "note",
+            EvidenceKind::Diff => "diff",
+            EvidenceKind::Commit => "commit",
         }
     }
 
@@ -41,6 +47,8 @@ impl EvidenceKind {
             "output" => Some(EvidenceKind::Output),
             "error" => Some(EvidenceKind::Error),
             "note" => Some(EvidenceKind::Note),
+            "diff" => Some(EvidenceKind::Diff),
+            "commit" => Some(EvidenceKind::Commit),
             _ => None,
         }
     }
@@ -159,6 +167,8 @@ mod tests {
             EvidenceKind::Output,
             EvidenceKind::Error,
             EvidenceKind::Note,
+            EvidenceKind::Diff,
+            EvidenceKind::Commit,
         ] {
             assert_eq!(EvidenceKind::parse(k.as_str()), Some(k));
         }

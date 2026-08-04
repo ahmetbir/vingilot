@@ -185,6 +185,47 @@ async fn oversize_content_is_400() {
 }
 
 #[tokio::test]
+async fn diff_and_commit_kinds_are_accepted_and_listed_back() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (workspace_id, run_id) = new_workspace_and_run(&pool).await;
+    let base_url = spawn(pool.clone()).await;
+    let client = reqwest::Client::new();
+
+    for (kind, content, expected_seq) in [
+        ("commit", "abc1234 run deadbeef: capture", 1),
+        ("diff", "--- a/x\n+++ b/x\n@@ -0,0 +1 @@\n+hello\n", 2),
+    ] {
+        let resp = client
+            .post(format!("{base_url}/v1/runs/{run_id}/evidence"))
+            .bearer_auth(AUTH_TOKEN)
+            .json(&json!({ "kind": kind, "content": content }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+        let body: Value = resp.json().await.unwrap();
+        assert_eq!(body["seq"], json!(expected_seq));
+    }
+
+    let resp = client
+        .get(format!("{base_url}/v1/runs/{run_id}/evidence"))
+        .bearer_auth(AUTH_TOKEN)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    let rows = body["evidence"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["kind"], json!("commit"));
+    assert_eq!(rows[1]["kind"], json!("diff"));
+
+    cleanup(&pool, workspace_id).await;
+}
+
+#[tokio::test]
 async fn unknown_kind_is_400() {
     let Some(pool) = test_pool().await else {
         return;
