@@ -13,6 +13,7 @@
 // to localhost; the follow-up is a Tauri-side keychain-backed proxy so the
 // token never ships in webview-readable code.
 
+import type { Pin } from "./deckPins.ts";
 import type {
   EvidenceRow,
   RunDetail,
@@ -174,6 +175,24 @@ export function applyMutations(
     "POST",
     `/v1/workspaces/${workspaceId}/mutations`,
     { expected_revision: expectedRevision, mutations },
+    opts,
+  );
+}
+
+/** Writes the whole `deck.pins` array as a single CAS mutation — the array
+ * is the unit of change (see the phase-3 plan's "Contracts fixed here").
+ * `expected_revision` is passed straight to `applyMutations`; a mismatch
+ * comes back as `kind: "conflict"`, never a silent overwrite or a retry. */
+export function putDeckPins(
+  workspaceId: string,
+  expectedRevision: number,
+  pins: Pin[],
+  opts?: RequestOpts,
+): Promise<ApiResult<MutationOutcome>> {
+  return applyMutations(
+    workspaceId,
+    expectedRevision,
+    [{ deck: { pins } }],
     opts,
   );
 }
