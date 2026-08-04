@@ -152,3 +152,71 @@ Commit rows appear in the Evidence timeline with a `⎘` prefix.
 deliberately NOT wired up by default: an autonomous agent loop with approvals
 disabled, inside a worktree ADR-003 declares is a collision boundary and not a
 security boundary, is the owner's call to make explicitly — not a default.
+
+## Deck — membership syncs, layout does not
+
+Deck is the Runs screen's home pane (`ui/DeckPane.tsx`), not a separate
+route or a second Deck identity. It splits what a pin *is* from where it
+*sits*, because those two facts have different owners:
+
+- **What's pinned (the set) syncs.** The pin set lives in Workspace state
+  under `deck.pins` — `{ id, kind, pinnedAt }[]` — written through the
+  coordinator's existing CAS mutation endpoint
+  (`POST /v1/workspaces/{id}/mutations`) with `expected_revision` set to the
+  revision the write was computed against. This is deliberately the *first*
+  UI-driven exercise of ADR-002's mutation protocol; until Deck, only Rust
+  tests wrote through it. `lib/deckSync.ts` is the orchestrator: read the
+  current revision → compute the next `pins` array → write with that
+  revision. It never retries a 409 on its own.
+- **Where it sits (the layout) does not.** Order is `localStorage`, keyed by
+  workspace id **and** a per-device id (`lib/deckLayout.ts`'s `layoutKey`).
+  A laptop cannot scramble a monitor's arrangement, because the two devices
+  never share a layout key — there is no server round-trip for order at all,
+  so there is nothing to race. `deviceId()` is generated once and persisted
+  locally; it never leaves the device (it is not part of any request body
+  `deckSync` sends).
+
+### Arrival on another device
+
+When a pin appears in the synced set but this device's local `order` has
+never seen its id — pinned elsewhere — `applyLayout` puts it in `unplaced`
+rather than guessing a position. `DeckPane` renders unplaced cards with a
+dashed border and the caption "pinned on another device — place it where you
+like." Placing one (move-left/move-right or the `Place` action) inserts its
+id into this device's `order` and persists it locally; it has no effect on
+any other device's arrangement or on the synced set.
+
+### Conflict resolution
+
+A pin write races another device's write at the same revision → the
+coordinator returns 409. `deckSync` surfaces this as
+`{ conflict: true, revision, stateHash }` instead of retrying — nothing is
+silently overwritten. The UI re-reads the winning state via a follow-up
+`GET`, computes `pinsDiff(mine, theirs)`, and shows the conflict banner
+(`data-testid="deck-conflict"`): "your pin didn't apply — `<device/rev>`
+changed the pinned set first," with the added/removed ids listed. The owner
+picks: **Keep theirs** (adopt the winning set, done) or **Re-apply mine on
+top** (re-read the current revision and issue a fresh CAS write naming that
+revision — a rebase, not a blind retry, per ADR-002).
+
+### Tombstones
+
+A pinned id whose Run no longer exists in the API (deleted, or from a
+workspace this device can no longer see) renders a tombstone card — "no
+longer available — unpin" — never a blank slot and never a crash. Unpinning
+a tombstone is a normal CAS write removing that id from `deck.pins`.
+
+### Reachability
+
+While the coordinator is unreachable, pin toggles disable with the inline
+reason inline, matching the rest of the Runs screen's honest-degradation
+pattern — no fake queueing of a pin action that cannot actually be sent.
+
+### Deferred
+
+Drag-and-drop (ordering today is move-left/move-right buttons plus
+keyboard — testable, no new dependency); `pr`/`surface` pin kinds (the
+`Pin`/`PinKind` model already parses them; no UI renders them yet); multiple
+Deck identities; Deck as a route independent of the Runs screen; interactive
+surface actions (the design's action protocol — its own replay-safety work,
+later).
