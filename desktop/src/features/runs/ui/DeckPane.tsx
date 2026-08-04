@@ -302,6 +302,22 @@ export function DeckPane({
         </p>
       ) : null}
 
+      {/* Every pin toggle on this page — PINNED cards and lane rows alike —
+       * disables while the control plane is unreachable (design 7c:
+       * disabled is honest, a fake queue is not). That reason has to render
+       * regardless of whether the PINNED section itself is showing (it's
+       * gated by `pins.length > 0` below), otherwise the lane toggles go
+       * inert with no explanation on a workspace with zero pins. */}
+      {!pinsReachable ? (
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="deck-pins-unreachable"
+          role="status"
+        >
+          control plane unreachable — pin toggles disabled
+        </p>
+      ) : null}
+
       {pins.length > 0 ? (
         <section data-testid="deck-pinned">
           <div className="flex items-center justify-between">
@@ -317,11 +333,6 @@ export function DeckPane({
                   : "unreachable"}
             </span>
           </div>
-          {!pinsReachable ? (
-            <p className="mt-1 text-xs text-muted-foreground" role="status">
-              control plane unreachable — pin toggles disabled
-            </p>
-          ) : null}
           {conflict !== null ? (
             <div className="mt-2">
               <DeckConflict

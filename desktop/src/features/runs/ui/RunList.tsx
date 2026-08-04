@@ -176,6 +176,22 @@ export function RunList({
         + New run
       </button>
 
+      {/* Row pin toggles disable the instant the control plane goes
+       * unreachable (`disabled={!pinsReachable || ...}` below) — before any
+       * write is ever attempted, so `rowError` (set inside `togglePin`'s
+       * result handling) can't be the reason text for that state. This is
+       * the reason: it renders from `pinsReachable` directly, not from a
+       * failed attempt. */}
+      {!pinsReachable ? (
+        <p
+          className="px-2 py-1 text-3xs text-muted-foreground"
+          data-testid="run-list-pins-unreachable"
+          role="status"
+        >
+          control plane unreachable — pin toggles disabled
+        </p>
+      ) : null}
+
       {runs.length === 0 ? (
         <p className="px-2 py-6 text-center text-xs text-muted-foreground">
           no runs — start one from the Deck
