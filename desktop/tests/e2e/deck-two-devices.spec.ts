@@ -10,8 +10,12 @@
 // The coordinator itself is mocked here (page.route) rather than run for
 // real — this spec proves the split's client-side contract (deckLayout.ts +
 // deckPins.ts + DeckPane/PinnedCard), not the coordinator's CAS semantics
-// (that's deckSync.test.mjs, plus the live coordinator pass recorded in the
-// plan's evidence for the conflict screenshot).
+// (that's deckSync.test.mjs's job). The second test below mocks a losing CAS
+// write the same way: the mutations route answers the first POST with a real
+// 409 and, in the same handler, mutates the backing GET state to the
+// winner's — standing in for an out-of-band write landing at the same
+// revision — so DeckConflict renders off the exact `deckSync` result shape
+// the real coordinator would produce, not a hand-built prop.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -209,6 +213,135 @@ test.describe("Deck: two devices, one pin set, two arrangements", () => {
     } finally {
       await contextA.close();
       await contextB.close();
+    }
+  });
+
+  test("a write that loses the CAS race renders an honest conflict, never a silent overwrite", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+    });
+    const page = await context.newPage();
+
+    try {
+      await seedDeviceLayout(page, "device-conflict", ["run-a", "run-b"]);
+      await installMockBridge(page);
+
+      // Backing state the mocked coordinator's GET answers with. The first
+      // mutation POST bumps it to the "winner's" state in the same handler
+      // that returns the 409 — an out-of-band write (a second device, or a
+      // bare `curl`) landing at the same revision this UI read, exactly what
+      // the plan's live-pass narrative describes, made deterministic and
+      // reproducible instead of ad hoc.
+      let revision = 1;
+      let pins = PINS;
+      // Someone else unpinned nothing and pinned a third run first — a real
+      // added/removed diff for DeckConflict to show, not an empty one.
+      const winnerPins = [
+        ...PINS,
+        { id: "run-c", kind: "run", pinnedAt: "2026-08-01T10:10:00.000Z" },
+      ];
+      let mutationAttempts = 0;
+
+      await page.route(`${COORDINATOR_ORIGIN}/**`, async (route) => {
+        const url = new URL(route.request().url());
+        const method = route.request().method();
+
+        if (
+          method === "GET" &&
+          url.pathname === `/v1/workspaces/${WORKSPACE_ID}`
+        ) {
+          return route.fulfill({
+            json: {
+              revision,
+              state_hash: `mock-state-hash-${revision}`,
+              state: { deck: { pins } },
+            },
+          });
+        }
+        if (
+          method === "POST" &&
+          url.pathname === `/v1/workspaces/${WORKSPACE_ID}/mutations`
+        ) {
+          mutationAttempts += 1;
+          if (mutationAttempts === 1) {
+            revision = 2;
+            pins = winnerPins;
+            return route.fulfill({
+              status: 409,
+              json: {
+                error: "conflict",
+                detail: "expected_revision mismatch",
+              },
+            });
+          }
+          revision += 1;
+          return route.fulfill({
+            json: {
+              accepted: true,
+              revision,
+              state_hash: `mock-state-hash-${revision}`,
+            },
+          });
+        }
+        if (
+          method === "GET" &&
+          url.pathname === `/v1/workspaces/${WORKSPACE_ID}/runs`
+        ) {
+          return route.fulfill({ json: { runs: RUNS } });
+        }
+        if (
+          method === "GET" &&
+          /^\/v1\/runs\/[^/]+\/evidence$/.test(url.pathname)
+        ) {
+          return route.fulfill({ json: { evidence: [] } });
+        }
+        return route.fulfill({
+          status: 404,
+          json: {
+            error: "not_found",
+            detail: `unmocked route: ${url.pathname}`,
+          },
+        });
+      });
+
+      await page.goto("/#/runs");
+      await expect(page.getByTestId("runs-screen")).toBeVisible();
+      await expect(page.getByTestId("deck-pinned")).toBeVisible();
+
+      // Unpin run-a from its PINNED card — the write that's about to lose
+      // the race. Scoped to deck-pinned: the same "pin-run-a" testid also
+      // exists on the RunList row and the RECENT lane's chip (plan's UI
+      // contract: every card/row gets one), so an unscoped locator would be
+      // ambiguous.
+      await page.getByTestId("deck-pinned").getByTestId("pin-run-a").click();
+
+      const conflict = page.getByTestId("deck-conflict");
+      await expect(conflict).toBeVisible();
+      expect(mutationAttempts).toBe(1);
+      await expect(
+        conflict.getByText(
+          "your pin didn't apply — rev 2 changed the pinned set first",
+        ),
+      ).toBeVisible();
+      // mine = pins minus run-a = [run-b]; theirs = winnerPins = [run-a,
+      // run-b, run-c] — a real added-there diff (run-c has no matching run
+      // in RUNS, so it renders by id, exercising the same fallback a
+      // tombstoned pin's label would).
+      await expect(conflict.getByText(/added there:.*run-c/)).toBeVisible();
+      await expect(conflict.getByText(/removed there:/)).toHaveCount(0);
+      await expect(
+        conflict.getByRole("button", { name: "Keep theirs" }),
+      ).toBeVisible();
+      await expect(
+        conflict.getByRole("button", { name: "Re-apply mine on top" }),
+      ).toBeVisible();
+
+      await waitForAnimations(page);
+      await page.screenshot({ path: `${SHOT_DIR}/deck-conflict.png` });
+    } finally {
+      await context.close();
     }
   });
 });
