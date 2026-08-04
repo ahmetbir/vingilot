@@ -124,3 +124,31 @@ where `claude -p` slots in later), per-mode token caps, worktree retirement
 multi-run concurrency (the worker claims and runs exactly one Run at a
 time), and an explicit `failed` transition on a fencing denial itself (today
 the reconciler's `paused`/"lease lost" is the observable signal instead).
+
+## Work products — what a Run changed
+
+After the command exits, the executor captures the Run's work product (fenced,
+like every other side effect):
+
+1. `git status --porcelain` in the task worktree → a `note` evidence row.
+2. If dirty: `git add -A && git commit` **inside that worktree, on the Run's own
+   branch** → a `commit` evidence row carrying the real sha. This is the single
+   place `add -A` is correct — the worktree exists solely for this Run and the
+   commit *is* the artifact. The standing "never `git add -A`" rule applies to
+   this repository and is unaffected.
+3. `git diff HEAD~1 --stat` → `note`; the diff itself → a `diff` evidence row,
+   capped at 48 KiB (the coordinator's per-row evidence ceiling is 64 KiB) with
+   a truncation marker naming the real untruncated byte count.
+
+A capture failure becomes `error` evidence; the Run's outcome still reflects the
+command's exit code — capture is reporting, not verification.
+
+RunDetail renders `kind=diff` through a pure `diffView` model: additions in the
+ok colour, deletions in the stop colour, `@@` hunks emphasised, meta lines plain.
+Commit rows appear in the Evidence timeline with a `⎘` prefix.
+
+**Running a real coding agent as the command** is configuration, not code —
+`VINGILOT_CMD` runs anything, so a headless harness slots straight in. That is
+deliberately NOT wired up by default: an autonomous agent loop with approvals
+disabled, inside a worktree ADR-003 declares is a collision boundary and not a
+security boundary, is the owner's call to make explicitly — not a default.
