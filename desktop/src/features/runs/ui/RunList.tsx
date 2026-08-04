@@ -4,9 +4,19 @@
 // both need the identical glyphs — same reason the donor kept `ModeChip`
 // inside `shell/RunRail.tsx` rather than a standalone module.
 //
-// Restyled from vingilot/workbench/src/shell/RunRail.tsx (ADR-001's
-// 2026-08-03 reversal) — the sibling app is donor code once this lands.
+// Phase 3 (vingilot/docs/plans/2026-08-04-deck-phase-3.md) adds a pin toggle
+// per row. RunList polls the workspace's pin set independently of DeckPane —
+// two decoupled readers of the same CAS state rather than state lifted
+// through RunsScreen, so neither view depends on the other's presence. A
+// 409 from a row's toggle is shown inline on that row, never silently
+// retried into an overwrite; DeckPane's PINNED region carries the full
+// conflict UX (`DeckConflict`) for pins toggled there.
 
+import * as React from "react";
+
+import { getWorkspace } from "@/features/runs/lib/coordinatorClient";
+import { readPins, withPin, withoutPin } from "@/features/runs/lib/deckPins";
+import { syncPins } from "@/features/runs/lib/deckSync";
 import {
   railGroups,
   statusClass,
@@ -18,6 +28,7 @@ import type {
   RunSummary,
   SemanticClass,
 } from "@/features/runs/lib/runModel";
+import { usePolling } from "@/features/runs/lib/usePolling";
 
 interface RunListProps {
   runs: RunSummary[];
@@ -28,6 +39,8 @@ interface RunListProps {
    * poll rather than live data — every row gets stamped "as of <t>" so that
    * distinction is never silent (design 7c). */
   staleAsOf: Date | null;
+  /** Workspace whose `deck.pins` this list reads/writes for its row toggles. */
+  workspaceId: string;
 }
 
 const GROUP_LABELS = {
@@ -93,8 +106,57 @@ export function RunList({
   onSelectRun,
   runs,
   staleAsOf,
+  workspaceId,
 }: RunListProps) {
   const groups = railGroups(runs);
+
+  const fetchWorkspace = React.useCallback(
+    () => getWorkspace(workspaceId),
+    [workspaceId],
+  );
+  const { data: snapshot, reachable: pinsReachable } = usePolling(
+    fetchWorkspace,
+    2000,
+  );
+  const pinnedIds = React.useMemo(
+    () => new Set(readPins(snapshot ? snapshot.state : null).map((p) => p.id)),
+    [snapshot],
+  );
+  const [pendingIds, setPendingIds] = React.useState<Set<string>>(new Set());
+  const [rowError, setRowError] = React.useState<{
+    id: string;
+    message: string;
+  } | null>(null);
+
+  async function togglePin(id: string) {
+    const isPinned = pinnedIds.has(id);
+    setPendingIds((prev) => new Set(prev).add(id));
+    setRowError((prev) => (prev?.id === id ? null : prev));
+    const result = await syncPins(workspaceId, (current) =>
+      isPinned
+        ? withoutPin(current, id)
+        : withPin(current, {
+            id,
+            kind: "run",
+            pinnedAt: new Date().toISOString(),
+          }),
+    );
+    setPendingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    if (result.kind === "conflict") {
+      setRowError({
+        id,
+        message: `pin didn't apply — rev ${result.revision} changed first`,
+      });
+    } else if (result.kind === "unreachable") {
+      setRowError({ id, message: "control plane unreachable" });
+    } else if (result.kind === "api") {
+      setRowError({ id, message: result.detail });
+    }
+  }
 
   return (
     <div
@@ -129,32 +191,60 @@ export function RunList({
                 <span className="text-muted-foreground/60">{items.length}</span>
               </h2>
               <ul className="mt-1 flex flex-col gap-0.5">
-                {items.map((run) => (
-                  <li key={run.id}>
-                    <button
-                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                        run.id === activeRunId
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:bg-muted/60"
-                      }`}
-                      data-testid={`run-row-${run.id}`}
-                      onClick={() => onSelectRun(run.id)}
-                      type="button"
-                    >
-                      <StatusDot status={run.status} />
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {run.objective}
-                      </span>
-                      <ModeChip mode={run.mode} />
-                    </button>
-                    <p className="pl-6 pr-2 text-3xs text-muted-foreground/70">
-                      {rowMeta(run)}
-                      {staleAsOf !== null
-                        ? ` · as of ${staleAsOf.toLocaleTimeString()}`
-                        : ""}
-                    </p>
-                  </li>
-                ))}
+                {items.map((run) => {
+                  const isPinned = pinnedIds.has(run.id);
+                  return (
+                    <li key={run.id}>
+                      <div
+                        className={`flex w-full items-center gap-1 rounded-lg pl-2 pr-1 py-1.5 transition-colors ${
+                          run.id === activeRunId
+                            ? "bg-muted text-foreground"
+                            : "text-muted-foreground hover:bg-muted/60"
+                        }`}
+                      >
+                        <button
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          data-testid={`run-row-${run.id}`}
+                          onClick={() => onSelectRun(run.id)}
+                          type="button"
+                        >
+                          <StatusDot status={run.status} />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {run.objective}
+                          </span>
+                          <ModeChip mode={run.mode} />
+                        </button>
+                        <button
+                          className={`shrink-0 rounded-full border px-1.5 py-0.5 text-2xs disabled:opacity-50 ${
+                            isPinned
+                              ? "border-primary/50 bg-primary/10 text-primary"
+                              : "border-border text-muted-foreground"
+                          }`}
+                          data-testid={`pin-${run.id}`}
+                          disabled={!pinsReachable || pendingIds.has(run.id)}
+                          onClick={() => void togglePin(run.id)}
+                          type="button"
+                        >
+                          {isPinned ? "pinned" : "pin"}
+                        </button>
+                      </div>
+                      <p className="pl-6 pr-2 text-3xs text-muted-foreground/70">
+                        {rowMeta(run)}
+                        {staleAsOf !== null
+                          ? ` · as of ${staleAsOf.toLocaleTimeString()}`
+                          : ""}
+                      </p>
+                      {rowError !== null && rowError.id === run.id ? (
+                        <p
+                          className="pl-6 pr-2 text-3xs text-destructive"
+                          role="alert"
+                        >
+                          {rowError.message}
+                        </p>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           );

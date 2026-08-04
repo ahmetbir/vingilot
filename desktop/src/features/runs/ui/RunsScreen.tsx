@@ -131,6 +131,7 @@ export function RunsScreen() {
             onSelectRun={openRun}
             runs={runs}
             staleAsOf={reachable ? null : lastOk}
+            workspaceId={WORKSPACE_ID}
           />
         </aside>
         <main
