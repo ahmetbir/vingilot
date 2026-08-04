@@ -157,3 +157,17 @@ seams:
     removable_when: "Never, while a /runs route exists in Buzz desktop."
     status: "permanent"
     added: "2026-08-03"
+
+  - path: "desktop/tests/e2e/deck-two-devices.spec.ts"
+    reason: "Task 4's E2E proof (vingilot/docs/plans/2026-08-04-deck-phase-3.md) that the pin set syncs across devices while the pin arrangement stays device-local. Lives at the upstream-owned desktop/tests/e2e/ path because that is where every Playwright spec in this repo lives and where playwright.config.ts's testDir points; a fork-owned location would need its own testDir/project wiring for one file."
+    owner: "vingilot/runs"
+    removable_when: "Never, while Deck's two-device split needs an E2E regression spec."
+    status: "permanent"
+    added: "2026-08-04"
+
+  - path: "desktop/playwright.config.ts"
+    reason: "Registers desktop/tests/e2e/deck-two-devices.spec.ts (vingilot/docs/plans/2026-08-04-deck-phase-3.md, Task 4) in the smoke project's testMatch. Checked first per the plan: every existing testMatch entry is a literal per-file basename (no glob like **/*.spec.ts that would pick up a new file automatically), so a new spec has no way to run without this one-line addition. Smallest possible touch: one added array entry, alphabetically/logically appended after the existing list."
+    owner: "vingilot/runs"
+    removable_when: "Never, while deck-two-devices.spec.ts (or any future vingilot desktop e2e spec) needs to run in CI's smoke project."
+    status: "permanent"
+    added: "2026-08-04"
