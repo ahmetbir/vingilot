@@ -195,10 +195,18 @@ pub fn pty_resize(
 /// nothing will ever reattach. That is why it also ends the tmux session,
 /// which a mere client teardown deliberately does not: outliving its client
 /// is the whole point of the tmux backing, and outliving its worktree is not.
+///
+/// A tmux that ran and refused is logged rather than returned: most calls
+/// here are for a shell that never ran under tmux at all, so "no such
+/// session" is the ordinary answer and failing the close on it would make
+/// every non-tmux teardown look broken. Only the outcome tmux has no excuse
+/// for reaches the log, and it names the session so it can be found by hand.
 #[tauri::command]
 pub fn pty_close(sessions: State<'_, PtySessions>, session: String) -> Result<(), String> {
     sessions.close(&session);
-    tmux::kill_session(&session);
+    if let tmux::KillOutcome::Failed(reason) = tmux::kill_session(&session) {
+        eprintln!("buzz-desktop: could not end tmux session for {session}: {reason}");
+    }
     Ok(())
 }
 

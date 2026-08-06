@@ -125,6 +125,90 @@ pub(crate) fn session_name(binding_id: &str) -> String {
     name
 }
 
+/// A tmux `-t` target that only an exactly-named session can satisfy.
+///
+/// **Why the `=` is load-bearing.** A tmux target-session falls back to a
+/// **prefix** match when nothing matches exactly. Session names are injective
+/// but not prefix-free — `vingilot_wt_1` is a prefix of `vingilot_wt_11` —
+/// so an unanchored target ends whichever session happens to start with it.
+/// Measured on the installed tmux 3.6a, on a throwaway socket holding
+/// `vingilot_other` and `vingilot_wt_11`:
+///
+/// ```text
+/// $ tmux kill-session -t vingilot_wt_1     # exit 0, vingilot_wt_11 is gone
+/// $ tmux kill-session -t '=vingilot_wt_1'  # "can't find session", refused
+/// ```
+///
+/// Closing one worktree would end another worktree's shell and everything
+/// running in it. The hazard is not an edge case either: `pty_close` asks to
+/// end a session for **every** id, including shells that never ran under tmux
+/// at all, and those are exactly the names that match nothing exactly.
+///
+/// Every tmux target this app builds is constructed here, so anchoring is a
+/// property of the module rather than of each call site. `new-session -s` is
+/// deliberately not routed through it: `-s` names a session rather than
+/// resolving a target, and takes no `=` — verified on 3.6a, where
+/// `new-session -A -s vingilot_wt_1` beside a live `vingilot_wt_11` creates a
+/// second, separate session rather than attaching to the longer one.
+fn exact_target(binding_id: &str) -> String {
+    format!("={}", session_name(binding_id))
+}
+
+/// The full argument list for ending one worktree's session, so a test can
+/// assert what tmux is actually handed rather than a fragment of it.
+pub(crate) fn kill_args(binding_id: &str) -> [String; 3] {
+    [
+        "kill-session".to_string(),
+        "-t".to_string(),
+        exact_target(binding_id),
+    ]
+}
+
+/// What a `kill-session` did.
+///
+/// Most calls are for a shell that never ran under tmux, where "no such
+/// session" is the correct and expected answer. Reporting that as a fault
+/// would bury the faults that are real, and swallowing every status alike —
+/// which is what this replaced — hides a session that outlived its worktree.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum KillOutcome {
+    /// No tmux on this machine, so nothing was ever created to end.
+    NoTmux,
+    /// The session existed and is gone.
+    Ended,
+    /// Nothing by that exact name: a shell that ran outside tmux, a session
+    /// already ended, or a tmux server that is no longer running.
+    Absent,
+    /// tmux ran and refused, or could not be run at all. The caller reports
+    /// this; nothing else will.
+    Failed(String),
+}
+
+/// What tmux says when the session, or the server holding it, is not there.
+/// It exits non-zero for this and for genuine faults alike, so the message is
+/// the only thing separating them. Measured on 3.6a: a missing session gives
+/// "can't find session: <name>"; a socket with no server behind it gives
+/// "error connecting to <socket> (No such file or directory)", and older
+/// builds phrase that as "no server running on <socket>".
+const ABSENT_PHRASES: &[&str] = &[
+    "can't find session",
+    "no server running",
+    "error connecting to",
+];
+
+/// Read a kill's exit status and stderr as one of the four outcomes.
+/// Separated from the spawn so the reading is testable without a tmux server.
+pub(crate) fn classify_kill(succeeded: bool, stderr: &str) -> KillOutcome {
+    if succeeded {
+        return KillOutcome::Ended;
+    }
+    let lowered = stderr.to_ascii_lowercase();
+    if ABSENT_PHRASES.iter().any(|phrase| lowered.contains(phrase)) {
+        return KillOutcome::Absent;
+    }
+    KillOutcome::Failed(stderr.trim().to_string())
+}
+
 /// How to start a session's shell: the program, its arguments, and what that
 /// choice means for persistence. Separated from the spawn itself so the
 /// decision is testable without a tty.
@@ -178,19 +262,28 @@ pub(crate) fn plan_spawn(
 /// session has to be ended explicitly here or it would outlive the worktree
 /// by the life of the tmux server.
 ///
-/// `kill-session` is the verb. Nothing here touches the filesystem. A session
-/// that is not there (tmux absent, already ended, never created because the
-/// shell ran directly) is not an error.
-pub(crate) fn kill_session(binding_id: &str) {
+/// `kill-session` is the verb, against an anchored target (`exact_target`) so
+/// it can only ever reach the one session named. Nothing here touches the
+/// filesystem. A session that is not there (tmux absent, already ended, never
+/// created because the shell ran directly) is not an error — the outcome says
+/// which, and the caller decides what is worth reporting.
+pub(crate) fn kill_session(binding_id: &str) -> KillOutcome {
     let Some(tmux) = path() else {
-        return;
+        return KillOutcome::NoTmux;
     };
-    let _ = Command::new(tmux)
-        .args(["kill-session", "-t", &session_name(binding_id)])
+    match Command::new(tmux)
+        .args(kill_args(binding_id))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+        .stderr(Stdio::piped())
+        .output()
+    {
+        Ok(output) => classify_kill(
+            output.status.success(),
+            &String::from_utf8_lossy(&output.stderr),
+        ),
+        Err(error) => KillOutcome::Failed(error.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -271,6 +364,80 @@ mod tests {
     fn a_multi_byte_character_escapes_to_one_pair_per_byte() {
         // "é" is two bytes; nothing here may assume one byte per character.
         assert_eq!(session_name("é"), "vingilot_-c3-a9");
+    }
+
+    #[test]
+    fn a_derived_name_can_be_a_strict_prefix_of_another_derived_name() {
+        // The hazard the anchor exists for, pinned: injective is not
+        // prefix-free, and tmux resolves an unmatched target by prefix. The
+        // alphabet tests above all pass while this is true, which is why they
+        // did not catch it.
+        let shorter = session_name("wt_1");
+        let longer = session_name("wt_11");
+        assert_ne!(shorter, longer);
+        assert!(longer.starts_with(&shorter));
+    }
+
+    #[test]
+    fn the_kill_target_is_anchored_to_an_exact_name() {
+        let args = kill_args("wt_1");
+        assert_eq!(args[0], "kill-session");
+        assert_eq!(args[1], "-t");
+        assert_eq!(args[2], "=vingilot_wt_1");
+    }
+
+    #[test]
+    fn no_kill_target_is_left_unanchored() {
+        // Structural, not per-case: an unanchored target is what let
+        // `kill-session -t vingilot_wt_1` end vingilot_wt_11 on tmux 3.6a.
+        for id in ["wt_1", "main:repo-1", "", "üñî", "-"] {
+            let target = &kill_args(id)[2];
+            assert!(
+                target.starts_with('='),
+                "target would prefix-match another session: {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_anchored_target_cannot_name_a_longer_session() {
+        // Anchoring is only worth anything if the two targets stay distinct
+        // once the `=` is on them.
+        assert_ne!(kill_args("wt_1")[2], kill_args("wt_11")[2]);
+    }
+
+    #[test]
+    fn a_kill_that_ended_a_session_says_so() {
+        assert_eq!(classify_kill(true, ""), KillOutcome::Ended);
+    }
+
+    #[test]
+    fn tmuxs_own_words_for_a_missing_session_are_not_a_fault() {
+        // Measured on tmux 3.6a: both of these exit 1, and neither means
+        // anything went wrong — the shell simply never ran under tmux.
+        assert_eq!(
+            classify_kill(false, "can't find session: vingilot_wt_7\n"),
+            KillOutcome::Absent
+        );
+        assert_eq!(
+            classify_kill(
+                false,
+                "error connecting to /private/tmp/tmux-501/default (No such file or directory)\n"
+            ),
+            KillOutcome::Absent
+        );
+        assert_eq!(
+            classify_kill(false, "no server running on /tmp/tmux-501/default\n"),
+            KillOutcome::Absent
+        );
+    }
+
+    #[test]
+    fn a_refusal_tmux_has_no_excuse_for_is_reported_rather_than_swallowed() {
+        assert_eq!(
+            classify_kill(false, "  permission denied\n"),
+            KillOutcome::Failed("permission denied".to_string())
+        );
     }
 
     #[test]
