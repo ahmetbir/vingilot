@@ -1,7 +1,13 @@
 //! Real terminal sessions, one per worktree — the PTY backend for
 //! Vingilot's Terminal tab (vingilot/docs/plans/2026-08-06-projects-and-terminal.md).
 //!
-//! A session id is the worktree binding id: "same worktree ⇒ same session".
+//! A session id is `<worktree binding id>#<tab ordinal>`: "same tab of the
+//! same worktree ⇒ same session". A worktree owns an ordered strip of terminal
+//! tabs (`features/runs/lib/terminalTabs.ts`) the way an iTerm window owns
+//! tabs, and each of them is a separate shell in the same checkout. The id is
+//! opaque on this side — nothing here parses it — but it does have to survive
+//! `tmux::session_name`, which is why that derivation's alphabet is tested
+//! against this shape and not only against a bare binding id.
 //! `pty_open` is idempotent — opening an already-open session returns
 //! immediately without spawning a second shell, and replays that session's
 //! retained screen (session.rs, `scrollback.rs`) so the view attaching to it

@@ -10,13 +10,14 @@
 // unreachable-since clock, the STOP-all action, and the home-dir
 // resolution every terminal's cwd derives from.
 //
-// It also owns the set of open PTY sessions, because it is the only
-// component here that never unmounts: `WorkSurface` disappears the moment
-// the owner goes back to the landing view, so a session list kept there
-// would be forgotten on the way out and every shell left running with
-// nothing tracking it. Sessions are killed only when their worktree leaves
-// the workspace (`lib/terminalSessions.ts`) — never on a switch, a tab
-// change, or a re-render.
+// It also owns the terminal-tab layout — which worktrees have terminals open
+// and which tabs each of them holds — because it is the only component here
+// that never unmounts: `WorkSurface` disappears the moment the owner goes back
+// to the landing view, so a layout kept there would be forgotten on the way
+// out and every shell left running with nothing tracking it. A session is
+// killed only when the owner closes its tab or its worktree leaves the
+// workspace (`lib/terminalTabs.ts`) — never on a switch, a tab change, or a
+// re-render.
 
 import { homeDir } from "@tauri-apps/api/path";
 import * as React from "react";
@@ -28,10 +29,6 @@ import {
   listWorktrees,
   transitionRun,
 } from "@/features/runs/lib/coordinatorClient";
-import {
-  readOpenSessions,
-  writeOpenSessions,
-} from "@/features/runs/lib/openSessions";
 import {
   DEFAULT_WORKTREE_ROOT_SUFFIX,
   groupWorktrees,
@@ -45,9 +42,20 @@ import {
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import {
   openTerminals,
-  sessionsToClose,
   worktreeIndex,
 } from "@/features/runs/lib/terminalSessions";
+import {
+  readTabLayout,
+  writeTabLayout,
+} from "@/features/runs/lib/terminalTabStore";
+import {
+  applyTabCommand,
+  dropWorktrees,
+  ensureWorktree,
+  type TabCommand,
+  type TabLayout,
+  worktreeTabs,
+} from "@/features/runs/lib/terminalTabs";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
@@ -217,39 +225,58 @@ export function RunsScreen() {
     if (first !== undefined) setSelectedWorktreeId(first.binding_id);
   }, [selectedRepoId, selectedWorktreeId, repoWorktrees]);
 
-  // Visiting a worktree opens its terminal; nothing here ever closes one.
+  // Visiting a worktree gives it a terminal; nothing here opens a second one
+  // on its own.
   //
-  // Seeded from, and mirrored back into, the module-level registry
-  // (lib/openSessions.ts): this component unmounts on any route change away
-  // from /runs, and a list that lived only here would be forgotten on the way
-  // out — along with any shell whose worktree disappears while the owner is
-  // elsewhere.
-  const [openedSessionIds, setOpenedSessionIds] =
-    React.useState<readonly string[]>(readOpenSessions);
+  // Seeded from, and mirrored back into, storage (lib/terminalTabStore.ts):
+  // this component unmounts on any route change away from /runs, and a layout
+  // that lived only here would be forgotten on the way out — along with any
+  // shell whose worktree disappears while the owner is elsewhere. The same
+  // write is what carries the strip across an app restart, to meet the tmux
+  // sessions that were already surviving one.
+  const [tabLayout, setTabLayout] = React.useState<TabLayout>(readTabLayout);
   React.useEffect(() => {
-    writeOpenSessions(openedSessionIds);
-  }, [openedSessionIds]);
+    writeTabLayout(tabLayout);
+  }, [tabLayout]);
   React.useEffect(() => {
     if (selectedWorktreeId === null) return;
-    setOpenedSessionIds((prev) =>
-      prev.includes(selectedWorktreeId) ? prev : [...prev, selectedWorktreeId],
-    );
+    setTabLayout((prev) => ensureWorktree(prev, selectedWorktreeId));
   }, [selectedWorktreeId]);
 
-  // The one event that means "really closed": the worktree is gone from the
-  // workspace, so no view can ever reattach and the shell would otherwise
-  // run unreferenced for the app's lifetime.
+  // The one event that means "really closed" for a whole strip at once: the
+  // worktree is gone from the workspace, so no view can ever reattach and its
+  // shells would otherwise run unreferenced for the app's lifetime.
   React.useEffect(() => {
-    const closing = sessionsToClose(openedSessionIds, [...index.keys()]);
-    if (closing.length === 0) return;
-    setOpenedSessionIds((prev) => prev.filter((id) => !closing.includes(id)));
-    for (const sessionId of closing) void ptyClose(sessionId);
-  }, [openedSessionIds, index]);
+    const { closed, layout } = dropWorktrees(tabLayout, [...index.keys()]);
+    if (closed.length === 0) return;
+    setTabLayout(layout);
+    for (const sessionId of closed) void ptyClose(sessionId);
+  }, [tabLayout, index]);
+
+  // The other one: the owner closed a tab. Unlike a worktree switch, that is a
+  // real close — the pty is killed and its tmux session ended.
+  const runTabCommand = React.useCallback(
+    (command: TabCommand) => {
+      if (selectedWorktreeId === null) return;
+      const { closed, layout } = applyTabCommand(
+        tabLayout,
+        selectedWorktreeId,
+        command,
+      );
+      setTabLayout(layout);
+      for (const sessionId of closed) void ptyClose(sessionId);
+    },
+    [tabLayout, selectedWorktreeId],
+  );
 
   const terminals = React.useMemo(
-    () => openTerminals(openedSessionIds, index, worktreeRoot),
-    [openedSessionIds, index, worktreeRoot],
+    () => openTerminals(tabLayout, index, worktreeRoot),
+    [tabLayout, index, worktreeRoot],
   );
+  const selectedTabs =
+    selectedWorktreeId === null
+      ? null
+      : worktreeTabs(tabLayout, selectedWorktreeId);
 
   const selectedWorktree =
     repoWorktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
@@ -336,9 +363,11 @@ export function RunsScreen() {
             ) : (
               <WorkSurface
                 onSelectWorktree={setSelectedWorktreeId}
+                onTabCommand={runTabCommand}
                 reachable={reachable}
                 runs={runs}
                 selectedWorktreeId={selectedWorktreeId}
+                tabs={selectedTabs}
                 terminals={terminals}
                 worktrees={repoWorktrees}
                 workspaceId={WORKSPACE_ID}

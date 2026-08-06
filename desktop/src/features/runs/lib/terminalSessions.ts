@@ -1,16 +1,27 @@
-// Pure model for which PTY sessions the workspace is holding open, and which
-// of them the owner has really closed.
+// Resolving the workspace's open terminal tabs to the pair a `<Terminal>` is
+// rendered from: a PTY session id, and where its shell starts.
 //
-// The distinction this module exists to draw: a terminal that is merely
+// Which tabs are open is `terminalTabs.ts`'s model; which of them the owner
+// has really closed is that module's too. What lives here is the half that
+// needs to know about repos and checkouts — a worktree binding id means
+// nothing to a shell until it has been resolved back to a directory on this
+// machine, and this is the only module that knows how.
+//
+// The distinction both modules exist to draw: a terminal that is merely
 // hidden — a different worktree selected, a different tab, a different
-// project — keeps its shell. Only a worktree that has left the workspace
-// entirely is "really closed", and only then may its shell be killed. React
-// unmounting a `<Terminal>` is not that event and must never be mistaken for
-// it, which is why the decision lives here rather than in a component's
-// cleanup function.
+// project — keeps its shell. Only a tab the owner closed, or a worktree that
+// has left the workspace entirely, is "really closed". React unmounting a
+// `<Terminal>` is neither, and must never be mistaken for either, which is why
+// the decision lives in a pure model rather than in a component's cleanup
+// function.
 
 import type { GroupedWorktrees, Repo, Worktree } from "./projects.ts";
 import { worktreeCwd } from "./projects.ts";
+import {
+  layoutSessions,
+  sessionIdFor,
+  type TabLayout,
+} from "./terminalTabs.ts";
 
 /** One worktree, resolved back to the repo that owns it — the pair a
  * terminal needs before it can derive a cwd. */
@@ -19,12 +30,18 @@ export interface IndexedWorktree {
   worktree: Worktree;
 }
 
-/** What `<Terminal>` is rendered from: the PTY session id (the worktree
- * binding id) and where its shell starts. `cwd: null` is the honest
- * "not derivable yet" — the terminal shows a waiting state instead of
- * opening a session somewhere arbitrary. */
+/** What `<Terminal>` is rendered from: the PTY session id (`<binding id>#<tab
+ * ordinal>`) and where its shell starts. `cwd: null` is the honest "not
+ * derivable yet" — the terminal shows a waiting state instead of opening a
+ * session somewhere arbitrary.
+ *
+ * The binding id and ordinal travel alongside the id they compose so the work
+ * surface can tell which strip a terminal belongs to and which of them is
+ * showing, without parsing the id back apart. */
 export interface TerminalSession {
   sessionId: string;
+  bindingId: string;
+  n: number;
   cwd: string | null;
 }
 
@@ -49,43 +66,30 @@ export function worktreeIndex(
   return index;
 }
 
-/** The open sessions whose worktree no longer exists — the owner really
- * closed them, so their shell should be killed rather than kept warm for a
- * reattach that can never happen.
+/** The terminals to render — every open tab of every open worktree, each tab
+ * of one worktree in its strip's order.
  *
- * An empty `liveWorktreeIds` returns nothing. The worktree list is polled,
- * not pushed, so a single empty read is "the workspace has not answered
- * yet", and acting on it would kill the owner's running shells over a blip.
- * This costs no real coverage: every repo contributes its own checkout to
- * the live set, so the set is only empty when there are no repos at all —
- * in which case nothing could have been opened. */
-export function sessionsToClose(
-  openedSessionIds: readonly string[],
-  liveWorktreeIds: readonly string[],
-): string[] {
-  if (liveWorktreeIds.length === 0) return [];
-  const live = new Set(liveWorktreeIds);
-  return openedSessionIds.filter((id) => !live.has(id));
-}
-
-/** The terminals to render, in the order their worktrees were first visited.
- * An id with no indexed worktree is dropped rather than rendered against a
- * guessed cwd. */
+ * Every tab of a worktree starts in the same directory, because a worktree is
+ * one checkout: the tabs are concurrent shells against it, not different
+ * places. A tab whose worktree is not indexed is dropped rather than rendered
+ * against a guessed cwd. */
 export function openTerminals(
-  openedSessionIds: readonly string[],
+  layout: TabLayout,
   index: ReadonlyMap<string, IndexedWorktree>,
   worktreeRoot: string | null,
 ): TerminalSession[] {
   const sessions: TerminalSession[] = [];
-  for (const sessionId of openedSessionIds) {
-    const entry = index.get(sessionId);
+  for (const { bindingId, n } of layoutSessions(layout)) {
+    const entry = index.get(bindingId);
     if (entry === undefined) continue;
     sessions.push({
+      bindingId,
       cwd:
         worktreeRoot === null
           ? null
           : worktreeCwd(entry.repo, entry.worktree, worktreeRoot),
-      sessionId,
+      n,
+      sessionId: sessionIdFor(bindingId, n),
     });
   }
   return sessions;

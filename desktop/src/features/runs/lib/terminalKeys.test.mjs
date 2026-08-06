@@ -44,13 +44,104 @@ test("shift+primary+digit is not a worktree switch (reserved for other shortcuts
   );
 });
 
-test("alt held short-circuits to null regardless of other flags", () => {
+test("alt held takes every chord except the tab arrows out of this map", () => {
   assert.equal(
     resolveKey({ key: "1", primaryModifier: true, altKey: true }),
     null,
   );
   assert.equal(
     resolveKey({ key: "Escape", primaryModifier: false, altKey: true }),
+    null,
+  );
+  assert.equal(
+    resolveKey({ key: "t", primaryModifier: true, altKey: true }),
+    null,
+  );
+});
+
+test("primary+t opens a new terminal tab", () => {
+  assert.deepEqual(resolveKey({ key: "t", primaryModifier: true }), {
+    type: "new-terminal-tab",
+  });
+});
+
+test("primary+w closes the showing terminal tab", () => {
+  assert.deepEqual(resolveKey({ key: "w", primaryModifier: true }), {
+    type: "close-terminal-tab",
+  });
+});
+
+test("caps lock does not lose the tab chords", () => {
+  // macOS reports "T" for ⌘T with caps lock on, and shift is still not held.
+  assert.deepEqual(resolveKey({ key: "T", primaryModifier: true }), {
+    type: "new-terminal-tab",
+  });
+  assert.deepEqual(resolveKey({ key: "W", primaryModifier: true }), {
+    type: "close-terminal-tab",
+  });
+});
+
+test("shift+primary+t/w are left to whatever else claims them", () => {
+  assert.equal(
+    resolveKey({ key: "T", primaryModifier: true, shiftKey: true }),
+    null,
+  );
+  assert.equal(
+    resolveKey({ key: "W", primaryModifier: true, shiftKey: true }),
+    null,
+  );
+});
+
+test("t and w without the primary modifier are just letters", () => {
+  assert.equal(resolveKey({ key: "t", primaryModifier: false }), null);
+  assert.equal(resolveKey({ key: "w", primaryModifier: false }), null);
+});
+
+test("alt+primary+arrows move between terminal tabs", () => {
+  assert.deepEqual(
+    resolveKey({ altKey: true, key: "ArrowLeft", primaryModifier: true }),
+    { dir: -1, type: "step-terminal-tab" },
+  );
+  assert.deepEqual(
+    resolveKey({ altKey: true, key: "ArrowRight", primaryModifier: true }),
+    { dir: 1, type: "step-terminal-tab" },
+  );
+});
+
+test("shift added to the tab arrows moves the tab itself", () => {
+  assert.deepEqual(
+    resolveKey({
+      altKey: true,
+      key: "ArrowRight",
+      primaryModifier: true,
+      shiftKey: true,
+    }),
+    { dir: 1, type: "move-terminal-tab" },
+  );
+});
+
+test("arrows without both modifiers are left alone", () => {
+  // Alt+arrow alone is the app's own back/forward chord on non-mac
+  // (app/navigation/useBackForwardControls.ts); a bare arrow is text
+  // navigation inside the terminal.
+  assert.equal(
+    resolveKey({ altKey: true, key: "ArrowLeft", primaryModifier: false }),
+    null,
+  );
+  assert.equal(
+    resolveKey({ altKey: false, key: "ArrowLeft", primaryModifier: true }),
+    null,
+  );
+  assert.equal(resolveKey({ key: "ArrowRight", primaryModifier: false }), null);
+});
+
+test("alt+primary with a non-arrow key resolves to nothing", () => {
+  assert.equal(
+    resolveKey({ altKey: true, key: "ArrowUp", primaryModifier: true }),
+    null,
+  );
+  assert.equal(
+    resolveKey({ altKey: true, key: "`", primaryModifier: true }),
     null,
   );
 });

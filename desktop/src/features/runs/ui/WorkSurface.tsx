@@ -1,7 +1,7 @@
 // The selected worktree's tabbed work surface: Terminal (default, per the
 // layout contract — iTerm: the terminal is the work surface, not a
-// drawer), Diff, Evidence, Runs. Owns the ⌘1…9 / ⌘` / Esc key map
-// (`lib/terminalKeys.ts`).
+// drawer), Diff, Evidence, Runs. Owns the ⌘1…9 / ⌘` / Esc key map and the
+// terminal-tab keys ⌘T / ⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`).
 //
 // It renders a `<Terminal>` per open session (hidden, not torn down, when it
 // is not the one showing) but it does not own that list, and must not: this
@@ -29,11 +29,16 @@ import type {
 } from "@/features/runs/lib/runModel";
 import { resolveKey } from "@/features/runs/lib/terminalKeys";
 import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
+import type {
+  TabCommand,
+  WorktreeTabs,
+} from "@/features/runs/lib/terminalTabs";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
 import { RunList } from "@/features/runs/ui/RunList";
 import { Terminal } from "@/features/runs/ui/Terminal";
+import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
 type Tab = "terminal" | "diff" | "evidence" | "runs";
@@ -50,6 +55,10 @@ interface WorkSurfaceProps {
    * selected one is ever visible, and keeping the rest mounted is what
    * makes a project switch cheap. */
   terminals: TerminalSession[];
+  /** The selected worktree's terminal tabs, or `null` before it has any.
+   * Owned by `RunsScreen` for the same reason `terminals` is. */
+  tabs: WorktreeTabs | null;
+  onTabCommand: (command: TabCommand) => void;
   runs: RunSummary[];
   reachable: boolean;
 }
@@ -63,9 +72,11 @@ const TABS: Array<{ key: Tab; label: string }> = [
 
 export function WorkSurface({
   onSelectWorktree,
+  onTabCommand,
   reachable,
   runs,
   selectedWorktreeId,
+  tabs,
   terminals,
   worktrees,
   workspaceId,
@@ -96,15 +107,48 @@ export function WorkSurface({
         setFocusToken((t) => t + 1);
         return;
       }
-      // "leave-terminal": move focus off whatever currently has it (the
-      // terminal's own hidden input, most commonly) — this key map only
-      // owns focus, not tab navigation.
-      (document.activeElement as HTMLElement | null)?.blur();
+      // ⌘T brings the terminal forward as well as adding to it — asking for a
+      // new shell from the Diff tab can only mean "and show it to me", and a
+      // tab that opened somewhere the owner cannot see would be a shell they
+      // have to go looking for.
+      if (action.type === "new-terminal-tab") {
+        event.preventDefault();
+        setActiveTab("terminal");
+        setFocusToken((t) => t + 1);
+        onTabCommand({ type: "new" });
+        return;
+      }
+      if (action.type === "leave-terminal") {
+        // Move focus off whatever currently has it (the terminal's own hidden
+        // input, most commonly) — this key map only owns focus, not tab
+        // navigation.
+        (document.activeElement as HTMLElement | null)?.blur();
+        return;
+      }
+      // The rest act on the strip that is showing, so they are only ours
+      // while it is. Anywhere else the key falls through untouched rather
+      // than closing or reordering something off screen.
+      if (activeTab !== "terminal" || tabs === null) return;
+      if (action.type === "close-terminal-tab") {
+        event.preventDefault();
+        onTabCommand({ n: tabs.active, type: "close" });
+        return;
+      }
+      if (action.type === "step-terminal-tab") {
+        event.preventDefault();
+        onTabCommand({ dir: action.dir, type: "step" });
+        setFocusToken((t) => t + 1);
+        return;
+      }
+      if (action.type === "move-terminal-tab") {
+        event.preventDefault();
+        onTabCommand({ dir: action.dir, type: "move" });
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [worktrees, onSelectWorktree]);
+  }, [worktrees, onSelectWorktree, onTabCommand, activeTab, tabs]);
 
   const selectedWorktree =
     worktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
@@ -138,11 +182,21 @@ export function WorkSurface({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {activeTab === "terminal" && tabs !== null ? (
+          <TerminalTabStrip
+            onClose={(n) => onTabCommand({ n, type: "close" })}
+            onNew={() => onTabCommand({ type: "new" })}
+            onSelect={(n) => onTabCommand({ n, type: "select" })}
+            tabs={tabs}
+          />
+        ) : null}
+
         {terminals.map((terminal) => (
           <Terminal
             active={
               activeTab === "terminal" &&
-              selectedWorktreeId === terminal.sessionId
+              selectedWorktreeId === terminal.bindingId &&
+              tabs?.active === terminal.n
             }
             cwd={terminal.cwd}
             focusToken={focusToken}

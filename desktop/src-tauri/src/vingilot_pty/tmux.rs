@@ -96,7 +96,14 @@ fn responds_to_version(candidate: &str) -> bool {
     )
 }
 
-/// The tmux session name for a worktree binding id.
+/// The tmux session name for a PTY session id.
+///
+/// A session id is `<worktree binding id>#<tab ordinal>` — one shell of a
+/// worktree's strip of terminal tabs — so the alphabet this has to survive is
+/// the binding id's plus `#`. Nothing special is done for it: `#` is outside
+/// `[A-Za-z0-9_]` and is escaped like every other byte, which is exactly what
+/// keeps the derivation injective as the id's shape grows. A separator that
+/// needed its own case here would be the wrong separator.
 ///
 /// **Why this is an escape and not a substitution.** tmux rewrites `.` and `:`
 /// in a session name to `_` and does not tell you — verified against the
@@ -111,10 +118,10 @@ fn responds_to_version(candidate: &str) -> bool {
 /// literally, which makes the mapping reversible and therefore injective —
 /// injectivity being the whole requirement. Same id always the same name;
 /// different ids never the same name.
-pub(crate) fn session_name(binding_id: &str) -> String {
-    let mut name = String::with_capacity(SESSION_PREFIX.len() + binding_id.len());
+pub(crate) fn session_name(session_id: &str) -> String {
+    let mut name = String::with_capacity(SESSION_PREFIX.len() + session_id.len());
     name.push_str(SESSION_PREFIX);
-    for byte in binding_id.bytes() {
+    for byte in session_id.bytes() {
         if byte.is_ascii_alphanumeric() || byte == b'_' {
             name.push(char::from(byte));
         } else {
@@ -150,17 +157,17 @@ pub(crate) fn session_name(binding_id: &str) -> String {
 /// resolving a target, and takes no `=` — verified on 3.6a, where
 /// `new-session -A -s vingilot_wt_1` beside a live `vingilot_wt_11` creates a
 /// second, separate session rather than attaching to the longer one.
-fn exact_target(binding_id: &str) -> String {
-    format!("={}", session_name(binding_id))
+fn exact_target(session_id: &str) -> String {
+    format!("={}", session_name(session_id))
 }
 
-/// The full argument list for ending one worktree's session, so a test can
-/// assert what tmux is actually handed rather than a fragment of it.
-pub(crate) fn kill_args(binding_id: &str) -> [String; 3] {
+/// The full argument list for ending one tab's session, so a test can assert
+/// what tmux is actually handed rather than a fragment of it.
+pub(crate) fn kill_args(session_id: &str) -> [String; 3] {
     [
         "kill-session".to_string(),
         "-t".to_string(),
-        exact_target(binding_id),
+        exact_target(session_id),
     ]
 }
 
@@ -219,7 +226,7 @@ pub(crate) struct SpawnPlan {
     pub(crate) backing: Backing,
 }
 
-/// Plan the spawn for one worktree.
+/// Plan the spawn for one terminal tab.
 ///
 /// `-A` attaches to the named session or creates it, which is what makes this
 /// idempotent across app restarts. `-D` detaches any other client first: two
@@ -229,7 +236,7 @@ pub(crate) struct SpawnPlan {
 pub(crate) fn plan_spawn(
     tmux: Option<&str>,
     shell: &str,
-    binding_id: &str,
+    session_id: &str,
     cwd: &str,
 ) -> SpawnPlan {
     match tmux {
@@ -240,7 +247,7 @@ pub(crate) fn plan_spawn(
                 "-A".to_string(),
                 "-D".to_string(),
                 "-s".to_string(),
-                session_name(binding_id),
+                session_name(session_id),
                 "-c".to_string(),
                 cwd.to_string(),
             ],
@@ -254,25 +261,25 @@ pub(crate) fn plan_spawn(
     }
 }
 
-/// End a worktree's tmux session.
+/// End one terminal tab's tmux session.
 ///
 /// Killing the pty's child ends the tmux *client*, and leaving the session
-/// behind is the point — that is what a restart reattaches to. But a worktree
-/// that has really left the workspace will never be reattached to, so its
-/// session has to be ended explicitly here or it would outlive the worktree
-/// by the life of the tmux server.
+/// behind is the point — that is what a restart reattaches to. But a tab the
+/// owner closed, or one whose worktree has left the workspace, will never be
+/// reattached to, so its session has to be ended explicitly here or it would
+/// outlive the tab by the life of the tmux server.
 ///
 /// `kill-session` is the verb, against an anchored target (`exact_target`) so
 /// it can only ever reach the one session named. Nothing here touches the
 /// filesystem. A session that is not there (tmux absent, already ended, never
 /// created because the shell ran directly) is not an error — the outcome says
 /// which, and the caller decides what is worth reporting.
-pub(crate) fn kill_session(binding_id: &str) -> KillOutcome {
+pub(crate) fn kill_session(session_id: &str) -> KillOutcome {
     let Some(tmux) = path() else {
         return KillOutcome::NoTmux;
     };
     match Command::new(tmux)
-        .args(kill_args(binding_id))
+        .args(kill_args(session_id))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -338,6 +345,15 @@ mod tests {
             "üñî",
             "00000000-0000-0000-0000-000000000001",
             "00000000-0000-0000-0000-000000000002",
+            // The tab ordinals a worktree's strip derives: every tab of one
+            // worktree is a separate shell and so must be a separate session.
+            "main:repo-1#1",
+            "main:repo-1#2",
+            "main:repo-1#11",
+            "main:repo-2#1",
+            // An id that already ends in a separator and digits, so the two
+            // ways of arriving at the same string are pinned apart.
+            "main:repo-1#1#1",
         ];
         let mut names: Vec<String> = ids.iter().map(|id| session_name(id)).collect();
         names.sort();
@@ -350,7 +366,14 @@ mod tests {
     fn a_name_only_uses_characters_tmux_keeps_verbatim() {
         // Verified against the installed tmux: [A-Za-z0-9_-] survives a
         // round trip through new-session/list-sessions unchanged.
-        for id in ["main:repo-1", "wt/7", "üñî ✓", "a.b:c%d+e@f"] {
+        for id in [
+            "main:repo-1",
+            "wt/7",
+            "üñî ✓",
+            "a.b:c%d+e@f",
+            "main:repo-1#3",
+            "wt 7#12",
+        ] {
             let name = session_name(id);
             assert!(
                 name.bytes()
@@ -367,6 +390,25 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_ordinal_is_escaped_like_any_other_byte_rather_than_special_cased() {
+        // The session id a worktree's second terminal tab derives. `#` is
+        // 0x23, so it escapes to "-23" and the ordinal that follows passes
+        // through — no case for it anywhere, which is what keeps the whole
+        // derivation one rule.
+        assert_eq!(session_name("main:a#1"), "vingilot_main-3aa-231");
+        assert_eq!(session_name("wt_7#2"), "vingilot_wt_7-232");
+    }
+
+    #[test]
+    fn two_tabs_of_one_worktree_are_two_sessions() {
+        // Same checkout, different shells. A derivation that collapsed the
+        // ordinal would attach every tab of a worktree to one tmux session,
+        // and the owner would type into all of them at once.
+        assert_ne!(session_name("wt_7#1"), session_name("wt_7#2"));
+        assert_ne!(session_name("wt_7#1"), session_name("wt_7"));
+    }
+
+    #[test]
     fn a_derived_name_can_be_a_strict_prefix_of_another_derived_name() {
         // The hazard the anchor exists for, pinned: injective is not
         // prefix-free, and tmux resolves an unmatched target by prefix. The
@@ -376,6 +418,14 @@ mod tests {
         let longer = session_name("wt_11");
         assert_ne!(shorter, longer);
         assert!(longer.starts_with(&shorter));
+
+        // Tab ordinals put the same hazard inside a single worktree, where it
+        // is far more likely to be hit: a worktree with eleven tabs holds both
+        // of these at once, and closing the first would end the eleventh.
+        let first = session_name("wt_7#1");
+        let eleventh = session_name("wt_7#11");
+        assert_ne!(first, eleventh);
+        assert!(eleventh.starts_with(&first));
     }
 
     #[test]
@@ -390,7 +440,7 @@ mod tests {
     fn no_kill_target_is_left_unanchored() {
         // Structural, not per-case: an unanchored target is what let
         // `kill-session -t vingilot_wt_1` end vingilot_wt_11 on tmux 3.6a.
-        for id in ["wt_1", "main:repo-1", "", "üñî", "-"] {
+        for id in ["wt_1", "main:repo-1", "", "üñî", "-", "wt_7#1", "wt_7#11"] {
             let target = &kill_args(id)[2];
             assert!(
                 target.starts_with('='),
@@ -404,6 +454,7 @@ mod tests {
         // Anchoring is only worth anything if the two targets stay distinct
         // once the `=` is on them.
         assert_ne!(kill_args("wt_1")[2], kill_args("wt_11")[2]);
+        assert_ne!(kill_args("wt_7#1")[2], kill_args("wt_7#11")[2]);
     }
 
     #[test]

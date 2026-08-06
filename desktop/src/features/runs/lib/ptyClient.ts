@@ -11,8 +11,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { PtyChunk } from "@/features/runs/lib/ptyStream";
 
-/** Session id = the worktree binding id (see mod.rs's file header): "same
- * worktree ⇒ same session". */
+/** Session id = `<worktree binding id>#<tab ordinal>` (see mod.rs's file
+ * header): "same tab of the same worktree ⇒ same session". Derived by
+ * `lib/terminalTabs.ts`; opaque everywhere else. */
 export function ptyOpen(
   session: string,
   cwd: string,

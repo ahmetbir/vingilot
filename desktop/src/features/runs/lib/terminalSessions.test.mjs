@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { groupWorktrees } from "./projects.ts";
+import { openTerminals, worktreeIndex } from "./terminalSessions.ts";
 import {
-  openTerminals,
-  sessionsToClose,
-  worktreeIndex,
-} from "./terminalSessions.ts";
+  applyTabCommand,
+  emptyLayout,
+  ensureWorktree,
+} from "./terminalTabs.ts";
+
+/** A layout with one worktree open at `count` tabs. */
+function withTabs(bindingId, count, from = emptyLayout()) {
+  let layout = ensureWorktree(from, bindingId);
+  for (let i = 1; i < count; i++) {
+    layout = applyTabCommand(layout, bindingId, { type: "new" }).layout;
+  }
+  return layout;
+}
 
 const REPO_A = { id: "a", name: "a", path: "/repos/a" };
 const REPO_B = { id: "b", name: "b", path: "/repos/b" };
@@ -53,50 +63,38 @@ test("a worktree whose repo this client has not caught up to is not indexed", ()
   assert.equal(index.has("orphan"), false);
 });
 
-test("a session whose worktree vanished from the workspace is closed", () => {
-  assert.deepEqual(sessionsToClose(["main:a", "bind-1"], ["main:a"]), [
-    "bind-1",
-  ]);
-});
-
-test("a session merely switched away from stays open", () => {
-  assert.deepEqual(
-    sessionsToClose(["main:a", "main:b"], ["main:a", "main:b"]),
-    [],
-  );
-});
-
-test("an empty live set is read as 'the workspace has not answered', not 'everything was removed'", () => {
-  // The worktree list is polled, not pushed. Treating one empty read as a
-  // removal would kill the owner's running shells on a transient blip.
-  assert.deepEqual(sessionsToClose(["main:a"], []), []);
-});
-
-test("closing is idempotent — nothing opened means nothing to close", () => {
-  assert.deepEqual(sessionsToClose([], ["main:a"]), []);
-});
-
-test("opened sessions keep their visit order and resolve their cwd", () => {
+test("every open tab resolves to a session id and a cwd", () => {
   const wt = taskWorktree("bind-1", "a", "run-1");
   const grouped = groupWorktrees([REPO_A], [wt]);
   const index = worktreeIndex([REPO_A], grouped);
+  const layout = withTabs("main:a", 1, withTabs("bind-1", 2));
 
-  assert.deepEqual(openTerminals(["bind-1", "main:a"], index, "/home/w"), [
-    { cwd: "/home/w/run-1", sessionId: "bind-1" },
-    { cwd: "/repos/a", sessionId: "main:a" },
+  assert.deepEqual(openTerminals(layout, index, "/home/w"), [
+    { bindingId: "bind-1", cwd: "/home/w/run-1", n: 1, sessionId: "bind-1#1" },
+    { bindingId: "bind-1", cwd: "/home/w/run-1", n: 2, sessionId: "bind-1#2" },
+    { bindingId: "main:a", cwd: "/repos/a", n: 1, sessionId: "main:a#1" },
   ]);
+});
+
+test("every tab of one worktree starts in the same directory — a worktree is one checkout", () => {
+  const grouped = groupWorktrees([REPO_A], []);
+  const index = worktreeIndex([REPO_A], grouped);
+  const cwds = new Set(
+    openTerminals(withTabs("main:a", 3), index, "/home/w").map((t) => t.cwd),
+  );
+  assert.deepEqual([...cwds], ["/repos/a"]);
 });
 
 test("an unresolved worktree root leaves every cwd null rather than guessing one", () => {
   const grouped = groupWorktrees([REPO_A], []);
   const index = worktreeIndex([REPO_A], grouped);
-  assert.deepEqual(openTerminals(["main:a"], index, null), [
-    { cwd: null, sessionId: "main:a" },
+  assert.deepEqual(openTerminals(withTabs("main:a", 1), index, null), [
+    { bindingId: "main:a", cwd: null, n: 1, sessionId: "main:a#1" },
   ]);
 });
 
-test("an opened session with no indexed worktree is dropped, not rendered against a guessed cwd", () => {
+test("a tab whose worktree is not indexed is dropped, not rendered against a guessed cwd", () => {
   const grouped = groupWorktrees([REPO_A], []);
   const index = worktreeIndex([REPO_A], grouped);
-  assert.deepEqual(openTerminals(["ghost"], index, "/home/w"), []);
+  assert.deepEqual(openTerminals(withTabs("ghost", 2), index, "/home/w"), []);
 });

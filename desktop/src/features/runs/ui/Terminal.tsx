@@ -12,9 +12,9 @@
 // a worktree switch, a project switch, or any re-render is survivable. What
 // the screen held comes back from the session's own scrollback, replayed by
 // `pty_open` on reattach — this component never assumes its xterm outlives
-// anything. The shell is killed only when the worktree itself leaves the
-// workspace (features/runs/lib/terminalSessions.ts), which is the only event
-// that means "really closed".
+// anything. The shell is killed only when the owner closes its tab or the
+// worktree itself leaves the workspace (features/runs/lib/terminalTabs.ts),
+// the two events that mean "really closed".
 //
 // How far that persistence reaches is the backend's answer, not this
 // component's guess: with tmux the shell also outlives the app itself, though
@@ -54,8 +54,9 @@ import {
 } from "@/features/runs/lib/terminalFit";
 
 interface TerminalProps {
-  /** The worktree binding id — the PTY session id (mod.rs: "same worktree
-   * ⇒ same session"). */
+  /** The PTY session id: `<worktree binding id>#<tab ordinal>` (mod.rs: "same
+   * tab of the same worktree ⇒ same session"). Opaque here — this component
+   * neither derives it nor reads anything out of it. */
   sessionId: string;
   /** Where the shell starts. `null` means this worktree's cwd cannot yet be
    * derived (e.g. a task worktree with no owner run) — the terminal shows a
