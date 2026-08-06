@@ -14,6 +14,7 @@
 // token never ships in webview-readable code.
 
 import type { Pin } from "./deckPins.ts";
+import type { Repo, Worktree } from "./projects.ts";
 import type {
   EvidenceRow,
   RunDetail,
@@ -195,6 +196,36 @@ export function putDeckPins(
     [{ deck: { pins } }],
     opts,
   );
+}
+
+/** Writes the whole `repos` array as a single CAS mutation — same shape as
+ * `putDeckPins`: the array is the unit of change, `expected_revision` is
+ * always sent, and a mismatch comes back as `kind: "conflict"` rather than
+ * a silent overwrite. */
+export function putRepos(
+  workspaceId: string,
+  expectedRevision: number,
+  repos: Repo[],
+  opts?: RequestOpts,
+): Promise<ApiResult<MutationOutcome>> {
+  return applyMutations(workspaceId, expectedRevision, [{ repos }], opts);
+}
+
+/** Lists a workspace's worktrees — `worktree_bindings` joined to their
+ * owner run's live status/objective, plus diff counts (see
+ * `run::list_worktrees_for_workspace` on the coordinator side). This is the
+ * read model the worktree column polls; `projects.ts`'s `worktreeSummary`
+ * turns each row into what the column actually renders. */
+export function listWorktrees(
+  workspaceId: string,
+  opts?: RequestOpts,
+): Promise<ApiResult<Worktree[]>> {
+  return request<{ worktrees: Worktree[] }>(
+    "GET",
+    `/v1/workspaces/${workspaceId}/worktrees`,
+    undefined,
+    opts,
+  ).then((r) => (r.ok ? { ok: true, value: r.value.worktrees } : r));
 }
 
 export function listRuns(

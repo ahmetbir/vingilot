@@ -6,7 +6,9 @@ import {
   getRun,
   getWorkspace,
   listRuns,
+  listWorktrees,
   provisionRun,
+  putRepos,
   transitionRun,
 } from "./coordinatorClient.ts";
 
@@ -32,6 +34,64 @@ test("listRuns parses a 200 body into ok:true", async () => {
   try {
     const result = await listRuns("ws-1", { baseUrl });
     assert.deepEqual(result, { ok: true, value: [] });
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("listWorktrees unwraps the worktrees array into ok:true", async () => {
+  const row = {
+    binding_id: "b1",
+    repo_id: "buzz",
+    branch: "run/bz-142",
+    role: "task",
+    lifecycle: "ready",
+    base_commit: "abc123",
+    owner_run_id: "r1",
+    owner_run_status: "running",
+    owner_run_objective: "do the thing",
+    added: 214,
+    removed: 87,
+    commit_sha: "75269de",
+  };
+  const { server, baseUrl } = await startServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ worktrees: [row] }));
+  });
+  try {
+    const result = await listWorktrees("ws-1", { baseUrl });
+    assert.deepEqual(result, { ok: true, value: [row] });
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("putRepos posts the whole repos array under expected_revision, CAS-style", async () => {
+  let receivedBody = null;
+  const { server, baseUrl } = await startServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+    });
+    req.on("end", () => {
+      receivedBody = JSON.parse(raw);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({ accepted: true, revision: 3, state_hash: "def" }),
+      );
+    });
+  });
+  try {
+    const repos = [{ id: "buzz", name: "buzz", path: "/Users/x/buzz" }];
+    const result = await putRepos("ws-1", 2, repos, { baseUrl });
+    assert.deepEqual(result, {
+      ok: true,
+      value: { accepted: true, revision: 3, state_hash: "def" },
+    });
+    assert.deepEqual(receivedBody, {
+      expected_revision: 2,
+      mutations: [{ repos }],
+    });
   } finally {
     await closeServer(server);
   }

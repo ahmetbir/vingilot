@@ -1,0 +1,133 @@
+// Pure model for the Projects/Terminal dashboard (see
+// vingilot/docs/plans/2026-08-06-projects-and-terminal.md's "Contracts fixed
+// here"): repos live in Workspace state under `repos` (CAS, same protocol as
+// `deck.pins`), worktrees come from the coordinator's
+// `GET /v1/workspaces/{id}/worktrees` read model. This module has no
+// coordinator-client or React imports — it is the thing coordinatorClient.ts
+// and every UI component agree on, mirroring runModel.ts's role for runs.
+//
+//   { "repos": [ { "id": "buzz", "name": "buzz", "path": "/Users/…/vingilot" } ] }
+//
+// `readRepos` is deliberately tolerant, for the same reason `readPins` is
+// (deckPins.ts): it is the boundary between "state that arrived over the
+// wire from a coordinator we don't fully trust yet" and the typed `Repo[]`
+// the rest of this feature operates on. Bad shapes become `[]`, never a
+// throw — and because `readRepos` filters rather than reconstructs, a repo
+// object's unknown extra keys survive the read untouched, so a future
+// client's fields aren't silently deleted the next time `putRepos` writes
+// the whole array back (the array is the unit of change, exactly like
+// `deck.pins`).
+
+import type { RunStatus, SemanticClass } from "./runModel.ts";
+import { statusClass } from "./runModel.ts";
+
+export interface Repo {
+  id: string;
+  name: string;
+  path: string;
+}
+
+function isRepo(value: unknown): value is Repo {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === "string" &&
+    typeof v.name === "string" &&
+    typeof v.path === "string"
+  );
+}
+
+/** Tolerant read of `repos` from arbitrary workspace state. Anything that
+ * isn't a well-formed repo is dropped rather than thrown on. A repo object
+ * that IS well-formed is returned by reference, not rebuilt — so any extra
+ * key a future client wrote onto it (and this client doesn't know about)
+ * round-trips through read → write untouched. */
+export function readRepos(state: unknown): Repo[] {
+  if (typeof state !== "object" || state === null) return [];
+  const repos = (state as Record<string, unknown>).repos;
+  if (!Array.isArray(repos)) return [];
+  return repos.filter(isRepo);
+}
+
+/** One row of the coordinator's worktree read model — a `worktree_bindings`
+ * row joined to its owner run's live status/objective, plus the latest
+ * diff/commit evidence for that run. Mirrors `WorktreeSummaryDto`
+ * (vingilot/coordinator/coordinator/src/http.rs) field-for-field.
+ * `owner_run_*`/`added`/`removed`/`commit_sha` are `null` when the binding
+ * has no owner run, or the owner run has not yet produced that evidence —
+ * never coerced to a zero/empty placeholder. */
+export interface Worktree {
+  binding_id: string;
+  repo_id: string;
+  branch: string | null;
+  role: string;
+  lifecycle: string;
+  base_commit: string;
+  owner_run_id: string | null;
+  owner_run_status: RunStatus | null;
+  owner_run_objective: string | null;
+  added: number | null;
+  removed: number | null;
+  commit_sha: string | null;
+}
+
+export interface GroupedWorktrees {
+  /** Every known repo's id maps to its worktrees (possibly `[]` — a repo
+   * with no worktrees yet is still a project, per the plan's contract). */
+  byRepo: Record<string, Worktree[]>;
+  /** Worktrees whose `repo_id` matches no repo in `repos` land here instead
+   * of vanishing — a coordinator can know about a binding before this
+   * client's `repos` state has caught up to it. */
+  unknown: Worktree[];
+}
+
+/** Groups worktrees under their owning repo. Every repo in `repos` gets an
+ * entry (even `[]`); a worktree whose `repo_id` matches no known repo is
+ * bucketed into `unknown` rather than dropped. */
+export function groupWorktrees(
+  repos: Repo[],
+  worktrees: Worktree[],
+): GroupedWorktrees {
+  const byRepo: Record<string, Worktree[]> = {};
+  for (const repo of repos) byRepo[repo.id] = [];
+
+  const unknown: Worktree[] = [];
+  for (const wt of worktrees) {
+    const bucket = byRepo[wt.repo_id];
+    if (bucket === undefined) {
+      unknown.push(wt);
+    } else {
+      bucket.push(wt);
+    }
+  }
+
+  return { byRepo, unknown };
+}
+
+export interface WorktreeSummary {
+  /** What the worktree column shows in place of a branch name: the branch
+   * itself when there is one, else a readable stand-in for the primary/main
+   * checkout (which has no branch in the coordinator's model). */
+  label: string;
+  /** `"clean"` for a worktree with no owner run (nothing running there);
+   * otherwise the owner run's own semantic class (runModel.ts's
+   * `statusClass`), so the worktree column and the Runs list agree on what
+   * each hue means. */
+  stateClass: SemanticClass | "clean";
+  /** `null` when no diff evidence exists yet — never coerced to `{0, 0}`,
+   * which would claim "no changes" instead of "no data". */
+  diff: { added: number; removed: number } | null;
+}
+
+/** Pure render-model for one worktree row. `WorktreeColumn` renders exactly
+ * this shape and nothing else. */
+export function worktreeSummary(wt: Worktree): WorktreeSummary {
+  const label = wt.branch ?? (wt.role === "primary" ? "main" : wt.role);
+  const stateClass =
+    wt.owner_run_status === null ? "clean" : statusClass(wt.owner_run_status);
+  const diff =
+    wt.added !== null && wt.removed !== null
+      ? { added: wt.added, removed: wt.removed }
+      : null;
+  return { label, stateClass, diff };
+}
