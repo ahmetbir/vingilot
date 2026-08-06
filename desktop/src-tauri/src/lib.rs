@@ -35,6 +35,7 @@ mod templates;
 #[cfg(target_os = "macos")]
 mod tray_menu;
 mod util;
+mod vingilot_pty;
 #[cfg(target_os = "linux")]
 pub mod webkit_rendering;
 use app_state::{build_app_state, resolve_persisted_identity, AppState};
@@ -368,6 +369,7 @@ pub fn run() {
         .manage(BuilderlabSession::default())
         .manage(BuilderlabLogin::default())
         .manage(commands::pairing::PairingHandle::new())
+        .manage(vingilot_pty::PtySessions::new())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             #[cfg(target_os = "macos")]
@@ -711,6 +713,10 @@ pub fn run() {
             merge_project_pull_request,
             open_project_terminal,
             open_project_merge_recovery_terminal,
+            vingilot_pty::pty_open,
+            vingilot_pty::pty_write,
+            vingilot_pty::pty_resize,
+            vingilot_pty::pty_close,
             search_users,
             get_presence,
             get_os_idle_seconds,

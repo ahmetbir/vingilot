@@ -136,6 +136,8 @@ audioadapter-buffers = "3.0"
 tempfile = "3"
 strip-ansi-escapes = "0.2"
 tracing = "0.1"
+# Vingilot: spawns/drives the per-worktree terminal PTY (desktop/src-tauri/src/vingilot_pty/).
+portable-pty = "0.9"
 
 [dev-dependencies]
 # `test-util` enables tokio's paused-clock (`start_paused`) so the relay
