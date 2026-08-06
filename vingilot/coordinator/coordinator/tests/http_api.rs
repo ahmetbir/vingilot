@@ -528,7 +528,10 @@ async fn cors_allows_any_loopback_dev_port() {
             .await
             .unwrap();
         assert!(
-            preflight.headers().get("access-control-allow-origin").is_none(),
+            preflight
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none(),
             "non-loopback origin {origin} must NOT get CORS headers"
         );
     }
