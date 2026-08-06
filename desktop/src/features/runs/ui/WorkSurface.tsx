@@ -1,0 +1,354 @@
+// The selected worktree's tabbed work surface: Terminal (default, per the
+// layout contract — iTerm: the terminal is the work surface, not a
+// drawer), Diff, Evidence, Runs. Owns the ⌘1…9 / ⌘` / Esc key map
+// (`lib/terminalKeys.ts`) and keeps every visited worktree's `<Terminal>`
+// mounted (hidden, not torn down) so scrollback survives a worktree switch.
+//
+// The Runs tab is the pre-existing RunList + DeckPane/RunDetail pair,
+// unchanged — "Run rows do not disappear — they become a tab, not the
+// front door" (vingilot/docs/plans/2026-08-06-projects-and-terminal.md).
+
+import * as React from "react";
+
+import { listEvidence } from "@/features/runs/lib/coordinatorClient";
+import type { ApiResult } from "@/features/runs/lib/coordinatorClient";
+import { worktreeCwd } from "@/features/runs/lib/projects";
+import type { Repo, Worktree } from "@/features/runs/lib/projects";
+import { diffView, evidenceView } from "@/features/runs/lib/runModel";
+import type {
+  DiffLineKind,
+  EvidenceKind,
+  EvidenceRow,
+  RunSummary,
+} from "@/features/runs/lib/runModel";
+import { resolveKey } from "@/features/runs/lib/terminalKeys";
+import { usePolling } from "@/features/runs/lib/usePolling";
+import { DeckPane } from "@/features/runs/ui/DeckPane";
+import { RunDetail } from "@/features/runs/ui/RunDetail";
+import { RunList } from "@/features/runs/ui/RunList";
+import { Terminal } from "@/features/runs/ui/Terminal";
+import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
+
+type Tab = "terminal" | "diff" | "evidence" | "runs";
+
+interface WorkSurfaceProps {
+  workspaceId: string;
+  repo: Repo;
+  /** Ordered — index N backs the ⌘(N+1) shortcut for N < 9; the same order
+   * `WorktreeColumn` renders. */
+  worktrees: Worktree[];
+  selectedWorktreeId: string | null;
+  onSelectWorktree: (bindingId: string) => void;
+  /** Resolved once (home dir + the executor's default suffix) — `null`
+   * while resolving, in which case every terminal shows its waiting state. */
+  worktreeRoot: string | null;
+  runs: RunSummary[];
+  reachable: boolean;
+}
+
+const TABS: Array<{ key: Tab; label: string }> = [
+  { key: "terminal", label: "Terminal" },
+  { key: "diff", label: "Diff" },
+  { key: "evidence", label: "Evidence" },
+  { key: "runs", label: "Runs" },
+];
+
+export function WorkSurface({
+  onSelectWorktree,
+  reachable,
+  repo,
+  runs,
+  selectedWorktreeId,
+  worktreeRoot,
+  worktrees,
+  workspaceId,
+}: WorkSurfaceProps) {
+  const [activeTab, setActiveTab] = React.useState<Tab>("terminal");
+  const [focusToken, setFocusToken] = React.useState(0);
+  const [openedWorktreeIds, setOpenedWorktreeIds] = React.useState<
+    ReadonlySet<string>
+  >(() => new Set());
+
+  React.useEffect(() => {
+    if (selectedWorktreeId === null) return;
+    setOpenedWorktreeIds((prev) =>
+      prev.has(selectedWorktreeId)
+        ? prev
+        : new Set(prev).add(selectedWorktreeId),
+    );
+  }, [selectedWorktreeId]);
+
+  React.useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const action = resolveKey({
+        altKey: event.altKey,
+        key: event.key,
+        primaryModifier: hasPrimaryShortcutModifier(event),
+        shiftKey: event.shiftKey,
+      });
+      if (action === null) return;
+
+      if (action.type === "switch-worktree") {
+        const target = worktrees[action.index];
+        if (target === undefined) return;
+        event.preventDefault();
+        onSelectWorktree(target.binding_id);
+        return;
+      }
+      if (action.type === "focus-terminal") {
+        event.preventDefault();
+        setActiveTab("terminal");
+        setFocusToken((t) => t + 1);
+        return;
+      }
+      // "leave-terminal": move focus off whatever currently has it (the
+      // terminal's own hidden input, most commonly) — this key map only
+      // owns focus, not tab navigation.
+      (document.activeElement as HTMLElement | null)?.blur();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [worktrees, onSelectWorktree]);
+
+  const selectedWorktree =
+    worktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
+
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      data-testid="work-surface"
+    >
+      <div
+        className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-1.5"
+        role="tablist"
+      >
+        {TABS.map((tab) => (
+          <button
+            aria-selected={activeTab === tab.key}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+              activeTab === tab.key
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:bg-muted/60"
+            }`}
+            data-testid={`work-surface-tab-${tab.key}`}
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            role="tab"
+            type="button"
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {[...openedWorktreeIds].map((id) => {
+          const wt = worktrees.find((w) => w.binding_id === id);
+          if (wt === undefined) return null;
+          const cwd =
+            worktreeRoot === null ? null : worktreeCwd(repo, wt, worktreeRoot);
+          return (
+            <Terminal
+              active={activeTab === "terminal" && selectedWorktreeId === id}
+              cwd={cwd}
+              focusToken={focusToken}
+              key={id}
+              sessionId={id}
+            />
+          );
+        })}
+
+        {activeTab === "diff" ? (
+          <DiffTab ownerRunId={selectedWorktree?.owner_run_id ?? null} />
+        ) : null}
+        {activeTab === "evidence" ? (
+          <EvidenceTab ownerRunId={selectedWorktree?.owner_run_id ?? null} />
+        ) : null}
+        {activeTab === "runs" ? (
+          <RunsTab
+            initialRunId={selectedWorktree?.owner_run_id ?? null}
+            reachable={reachable}
+            runs={runs}
+            workspaceId={workspaceId}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+async function fetchOwnerEvidence(
+  ownerRunId: string | null,
+): Promise<ApiResult<EvidenceRow[]>> {
+  if (ownerRunId === null) return { ok: true, value: [] };
+  return listEvidence(ownerRunId);
+}
+
+const DIFF_LINE_CLASS: Record<DiffLineKind, string> = {
+  add: "text-emerald-600 dark:text-emerald-400",
+  ctx: "text-foreground",
+  del: "text-destructive",
+  hunk: "font-bold text-muted-foreground",
+  meta: "text-muted-foreground",
+};
+
+function DiffTab({ ownerRunId }: { ownerRunId: string | null }) {
+  const fetchEvidence = React.useCallback(
+    () => fetchOwnerEvidence(ownerRunId),
+    [ownerRunId],
+  );
+  const { data: evidenceRows } = usePolling(fetchEvidence, 2000);
+
+  const diffRows = (evidenceRows ?? []).filter((ev) => ev.kind === "diff");
+
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 py-3"
+      data-testid="work-surface-diff-tab"
+    >
+      {ownerRunId === null ? (
+        <p className="text-sm text-muted-foreground">
+          this worktree has no owner run yet
+        </p>
+      ) : diffRows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">no diff yet</p>
+      ) : (
+        (() => {
+          const latest = diffRows.reduce((a, b) => (b.seq > a.seq ? b : a));
+          const { lines, truncated } = diffView(latest.content);
+          return (
+            <div className="flex flex-col gap-1 overflow-x-auto rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-xs">
+              {lines.map((line, i) => (
+                <div
+                  className={`whitespace-pre ${DIFF_LINE_CLASS[line.kind]}`}
+                  // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are static, positional transcript content
+                  key={i}
+                >
+                  {line.text}
+                </div>
+              ))}
+              {truncated ? (
+                <p className="mt-1 text-3xs text-muted-foreground/70">
+                  diff truncated — see marker above for the full byte count
+                </p>
+              ) : null}
+            </div>
+          );
+        })()
+      )}
+    </div>
+  );
+}
+
+const EVIDENCE_KIND_CLASS: Record<EvidenceKind, string> = {
+  command: "text-foreground",
+  commit: "text-emerald-600 dark:text-emerald-400",
+  diff: "text-muted-foreground",
+  error: "text-destructive",
+  note: "text-muted-foreground",
+  output: "text-foreground",
+};
+
+function EvidenceTab({ ownerRunId }: { ownerRunId: string | null }) {
+  const fetchEvidence = React.useCallback(
+    () => fetchOwnerEvidence(ownerRunId),
+    [ownerRunId],
+  );
+  const { data: evidenceRows } = usePolling(fetchEvidence, 2000);
+  const { rows, truncatedCount } = evidenceView(evidenceRows ?? []);
+
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 py-3"
+      data-testid="work-surface-evidence-tab"
+    >
+      {ownerRunId === null ? (
+        <p className="text-sm text-muted-foreground">
+          this worktree has no owner run yet
+        </p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">no evidence yet</p>
+      ) : (
+        <div className="flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-xs">
+          {truncatedCount > 0 ? (
+            <p className="text-3xs text-muted-foreground/70">
+              {truncatedCount} earlier row{truncatedCount === 1 ? "" : "s"} not
+              shown
+            </p>
+          ) : null}
+          {rows.map((ev) => (
+            <div
+              className={`whitespace-pre-wrap break-words ${EVIDENCE_KIND_CLASS[ev.kind]}`}
+              key={ev.seq}
+            >
+              {ev.kind === "command" ? "$ " : ""}
+              {ev.kind === "commit" ? "⎘ " : ""}
+              {ev.content}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RunsTab({
+  initialRunId,
+  reachable,
+  runs,
+  workspaceId,
+}: {
+  initialRunId: string | null;
+  reachable: boolean;
+  runs: RunSummary[];
+  workspaceId: string;
+}) {
+  const [selectedRunId, setSelectedRunId] = React.useState(initialRunId);
+
+  // The worktree underneath this tab can change (a different worktree
+  // selected while "Runs" stays the active tab) — re-sync to that
+  // worktree's own owner run rather than showing a stale one.
+  React.useEffect(() => {
+    setSelectedRunId(initialRunId);
+  }, [initialRunId]);
+
+  const openRun = React.useCallback((id: string) => setSelectedRunId(id), []);
+  const openDeck = React.useCallback(() => setSelectedRunId(null), []);
+
+  return (
+    <div
+      className="flex min-h-0 flex-1 overflow-hidden"
+      data-testid="work-surface-runs-tab"
+    >
+      <aside
+        aria-label="runs"
+        className="flex w-64 shrink-0 flex-col overflow-hidden border-r border-border/60"
+      >
+        <RunList
+          activeRunId={selectedRunId}
+          onSelectDeck={openDeck}
+          onSelectRun={openRun}
+          runs={runs}
+          staleAsOf={null}
+          workspaceId={workspaceId}
+        />
+      </aside>
+      <main
+        aria-label="workspace"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
+        {selectedRunId === null ? (
+          <DeckPane
+            onOpenRun={openRun}
+            reachable={reachable}
+            runs={runs}
+            workspaceId={workspaceId}
+          />
+        ) : (
+          <RunDetail key={selectedRunId} runId={selectedRunId} />
+        )}
+      </main>
+    </div>
+  );
+}

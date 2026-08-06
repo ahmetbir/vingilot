@@ -131,3 +131,33 @@ export function worktreeSummary(wt: Worktree): WorktreeSummary {
       : null;
   return { label, stateClass, diff };
 }
+
+/** Default root the executor checks task worktrees out under
+ * (`VINGILOT_WORKTREE_ROOT`, see `executor-run.sh`) — `<worktreeRoot>/<run_id>`
+ * (`vingilot-executor`'s `execute_run`, `worktree_path = cfg.worktree_root.join(run_id...)`).
+ * Passed as a parameter to `worktreeCwd` rather than read from an env var
+ * here, because this module has no Tauri/Node imports; the caller resolves
+ * the real value (home dir + this suffix) once, asynchronously. */
+export const DEFAULT_WORKTREE_ROOT_SUFFIX = ".vingilot/worktrees";
+
+/** The terminal's cwd for a worktree, per the coordinator's own naming
+ * convention (see the constant above) — the coordinator's worktree read
+ * model has no `path` column (a Task 1 boundary this task does not cross),
+ * so the path is derived rather than fetched. The primary/main checkout has
+ * no owner run and no separate worktree directory: it *is* the repo, so its
+ * cwd is `repo.path`. A task worktree's cwd is
+ * `<worktreeRoot>/<owner_run_id>` — `null` when the binding has no owner
+ * run yet (nothing to derive from; the caller should not open a terminal
+ * for it). */
+export function worktreeCwd(
+  repo: Repo,
+  wt: Worktree,
+  worktreeRoot: string,
+): string | null {
+  if (wt.role === "primary") return repo.path;
+  if (wt.owner_run_id === null) return null;
+  const root = worktreeRoot.endsWith("/")
+    ? worktreeRoot.slice(0, -1)
+    : worktreeRoot;
+  return `${root}/${wt.owner_run_id}`;
+}

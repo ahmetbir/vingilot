@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readRepos, groupWorktrees, worktreeSummary } from "./projects.ts";
+import {
+  readRepos,
+  groupWorktrees,
+  worktreeSummary,
+  worktreeCwd,
+} from "./projects.ts";
 
 // ---------------------------------------------------------------------
 // readRepos
@@ -194,4 +199,43 @@ test("worktreeSummary: diff counts present → {added, removed}", () => {
 test("worktreeSummary: no diff evidence yet → diff is null, not {0, 0}", () => {
   const summary = worktreeSummary(wt({ added: null, removed: null }));
   assert.equal(summary.diff, null);
+});
+
+// ---------------------------------------------------------------------
+// worktreeCwd
+// ---------------------------------------------------------------------
+
+const repo = { id: "buzz", name: "buzz", path: "/Users/x/buzz" };
+
+test("worktreeCwd: primary role cwd is the repo's own path, ignoring worktreeRoot", () => {
+  const primary = wt({
+    role: "primary",
+    branch: null,
+    owner_run_id: null,
+  });
+  assert.equal(
+    worktreeCwd(repo, primary, "/Users/x/.vingilot/worktrees"),
+    "/Users/x/buzz",
+  );
+});
+
+test("worktreeCwd: a task worktree's cwd is <worktreeRoot>/<owner_run_id>", () => {
+  const task = wt({ role: "task", owner_run_id: "r1" });
+  assert.equal(
+    worktreeCwd(repo, task, "/Users/x/.vingilot/worktrees"),
+    "/Users/x/.vingilot/worktrees/r1",
+  );
+});
+
+test("worktreeCwd: a trailing slash on worktreeRoot doesn't double up", () => {
+  const task = wt({ role: "task", owner_run_id: "r1" });
+  assert.equal(
+    worktreeCwd(repo, task, "/Users/x/.vingilot/worktrees/"),
+    "/Users/x/.vingilot/worktrees/r1",
+  );
+});
+
+test("worktreeCwd: a task worktree with no owner run yet has no derivable cwd", () => {
+  const task = wt({ role: "task", owner_run_id: null });
+  assert.equal(worktreeCwd(repo, task, "/Users/x/.vingilot/worktrees"), null);
 });

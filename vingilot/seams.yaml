@@ -66,11 +66,18 @@ seams:
     added: "2026-08-01"
 
   - path: "desktop/package.json"
-    reason: "Adds a types field (ds-types/index.d.ts) so the design-sync converter can read each shared UI component's real prop types instead of falling back to an empty interface. Inert for the app itself: nothing imports buzz as a package."
+    reason: "Adds a types field (ds-types/index.d.ts) so the design-sync converter can read each shared UI component's real prop types instead of falling back to an empty interface. Inert for the app itself: nothing imports buzz as a package. Also adds @xterm/xterm and @xterm/addon-fit (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 4) -- the plan's second and last named dependency, rendering the PTY's VT output in the Terminal tab; the alternative is writing a terminal emulator by hand."
     owner: "design-sync tooling (external design-publishing pipeline; not owned by Vingilot engineering)"
     removable_when: "Design-sync no longer needs a types entry point on the desktop package (e.g. it reads declarations from a fork-owned adapter instead), or the design-sync integration is retired."
     status: "temporary"
     added: "2026-08-01"
+
+  - path: "pnpm-lock.yaml"
+    reason: "The pnpm workspace lockfile lives at the repo root (pnpm-workspace.yaml lists desktop/web/admin-web as members), not inside desktop/ -- so any dependency change to desktop/package.json necessarily regenerates this file too. Currently reflects @xterm/xterm and @xterm/addon-fit (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 4), the plan's second and last named dependency."
+    owner: "vingilot/runs"
+    removable_when: "Never, while any desktop/package.json dependency change is possible -- the lockfile is regenerated mechanically alongside it."
+    status: "permanent"
+    added: "2026-08-06"
 
   - path: "desktop/ds-*"
     reason: "Hand-written entry point (ds-entry.tsx), Tailwind entry (ds-styles.css), and their gitignored build output (ds-compiled.css, ds-types/) that the design-sync tool bundles to publish desktop/src/shared/ui components. Must live inside desktop/ today because the tool's package-build.mjs derives its package root by walking up from the entry file to the nearest package.json with a name field (see .design-sync/NOTES.md). Deliberately narrow (not desktop/*ds-*): a broader glob would also match unrelated upstream files like desktop/tests/e2e/needs-restart-screenshots.spec.ts."

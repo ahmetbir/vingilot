@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.5.3",
   "type": "module",
+  "types": "ds-types/index.d.ts",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -59,6 +60,8 @@
     "@tiptap/pm": "^3.22.3",
     "@tiptap/react": "^3.22.3",
     "@tiptap/starter-kit": "^3.22.3",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "embla-carousel-react": "^8.6.0",

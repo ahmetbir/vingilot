@@ -1,27 +1,40 @@
-// The Runs screen: RunList on the left, DeckPane (nothing selected) or
-// RunDetail (a run selected) on the right, StopAllButton in the header,
-// UnreachableBanner above the list when the control plane drops. Owns the
-// workspace-level polling, the unreachable-since clock, and the STOP-all
-// action every child view reads from or drives.
+// The Runs screen: three columns per the layout contract
+// (vingilot/docs/plans/2026-08-06-projects-and-terminal.md) — ProjectsNav
+// (pick a project or the project-less landing view), WorktreeColumn (that
+// project's worktrees, live state), WorkSurface (Terminal default, Diff,
+// Evidence, Runs). A persistent ProjectStatusBar names where the owner is.
+// The project-less landing view is the old Deck (composer + lanes),
+// unchanged — nothing is deleted, it just stops being the front door.
 //
-// Restyled from vingilot/workbench/src/App.tsx (ADR-001's 2026-08-03
-// reversal) — the sibling app is donor code once this lands.
+// Owns the workspace-level polling (runs, worktrees, repos), the
+// unreachable-since clock, the STOP-all action, and the home-dir
+// resolution every terminal's cwd derives from.
 
+import { homeDir } from "@tauri-apps/api/path";
 import * as React from "react";
 
 import {
   applyMutations,
   getWorkspace,
   listRuns,
+  listWorktrees,
   transitionRun,
 } from "@/features/runs/lib/coordinatorClient";
+import {
+  DEFAULT_WORKTREE_ROOT_SUFFIX,
+  groupWorktrees,
+  readRepos,
+} from "@/features/runs/lib/projects";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
+import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
+import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
-import { RunList } from "@/features/runs/ui/RunList";
 import { StopAllButton } from "@/features/runs/ui/StopAllButton";
 import { UnreachableBanner } from "@/features/runs/ui/UnreachableBanner";
+import { WorkSurface } from "@/features/runs/ui/WorkSurface";
+import { WorktreeColumn } from "@/features/runs/ui/WorktreeColumn";
 
 // Hardcoded dev workspace id — matches the donor App.tsx. A workspace
 // picker is a later plan; V1 is single-workspace dev use.
@@ -29,16 +42,37 @@ const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 const POLL_INTERVAL_MS = 2000;
 
 export function RunsScreen() {
-  const { data, lastOk, reachable, retryNow } = usePolling(
-    () => listRuns(WORKSPACE_ID),
+  const {
+    data: runsData,
+    reachable,
+    retryNow,
+  } = usePolling(() => listRuns(WORKSPACE_ID), POLL_INTERVAL_MS);
+  const runs: RunSummary[] = runsData ?? [];
+
+  const { data: worktreesData } = usePolling(
+    React.useCallback(() => listWorktrees(WORKSPACE_ID), []),
     POLL_INTERVAL_MS,
   );
-  const runs: RunSummary[] = data ?? [];
+  const worktrees = worktreesData ?? [];
+
+  const fetchWorkspaceSnapshot = React.useCallback(
+    () => getWorkspace(WORKSPACE_ID),
+    [],
+  );
+  const { data: workspaceSnapshot } = usePolling(
+    fetchWorkspaceSnapshot,
+    POLL_INTERVAL_MS,
+  );
+  const repos = React.useMemo(
+    () => readRepos(workspaceSnapshot ? workspaceSnapshot.state : null),
+    [workspaceSnapshot],
+  );
+  const grouped = React.useMemo(
+    () => groupWorktrees(repos, worktrees),
+    [repos, worktrees],
+  );
 
   // The moment reachability first flipped false — null while reachable.
-  // UnreachableBanner (and the countdown inside it) is a pure function of
-  // (reachable, unreachableSince, now); this is the one bit of state that
-  // isn't derivable from usePolling's own return.
   const [unreachableSince, setUnreachableSince] = React.useState<Date | null>(
     null,
   );
@@ -50,9 +84,6 @@ export function RunsScreen() {
     }
   }, [reachable]);
 
-  // A ticking clock so the "next retry in Ns" countdown and the wall-clock
-  // budget meter both count down live, not just on the next poll's data
-  // change.
   const [now, setNow] = React.useState(() => new Date());
   React.useEffect(() => {
     const handle = setInterval(() => setNow(new Date()), 1000);
@@ -79,11 +110,74 @@ export function RunsScreen() {
     };
   }, []);
 
+  // Home-dir resolution for terminal cwds, once. A non-Tauri context (or
+  // any failure) leaves this null — every open terminal shows its waiting
+  // state instead of throwing.
+  const [worktreeRoot, setWorktreeRoot] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    homeDir()
+      .then((home) => {
+        if (cancelled) return;
+        const base = home.endsWith("/") ? home.slice(0, -1) : home;
+        setWorktreeRoot(`${base}/${DEFAULT_WORKTREE_ROOT_SUFFIX}`);
+      })
+      .catch(() => {
+        // Non-Tauri context (e.g. a plain browser preview) — worktreeRoot
+        // stays null, terminals stay in their waiting state.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const [selectedRepoId, setSelectedRepoId] = React.useState<string | null>(
+    null,
+  );
+  const [selectedWorktreeId, setSelectedWorktreeId] = React.useState<
+    string | null
+  >(null);
+  // Landing-mode (project-less) run selection — unchanged from the old
+  // screen's behavior.
   const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
   const [stopEngaged, setStopEngaged] = React.useState(false);
 
+  const selectRepo = React.useCallback((id: string) => {
+    setSelectedRepoId(id);
+    setSelectedWorktreeId(null);
+  }, []);
+  // Also clears any open run detail — clicking "Runs" while already on the
+  // landing view is the way back to the Deck from a RunDetail, since the
+  // old RunList's "+ New run" row (which used to do this) now lives inside
+  // WorkSurface's own Runs tab instead.
+  const selectLanding = React.useCallback(() => {
+    setSelectedRepoId(null);
+    setSelectedWorktreeId(null);
+    setSelectedRunId(null);
+  }, []);
   const openRun = React.useCallback((id: string) => setSelectedRunId(id), []);
-  const openDeck = React.useCallback(() => setSelectedRunId(null), []);
+
+  const selectedRepo = repos.find((r) => r.id === selectedRepoId) ?? null;
+  const repoWorktrees =
+    selectedRepoId !== null ? (grouped.byRepo[selectedRepoId] ?? []) : [];
+
+  // Entering a project with no worktree picked yet lands on its primary
+  // checkout (or the first worktree, if there's no primary) rather than an
+  // empty "select a worktree" state — the terminal that greets you.
+  React.useEffect(() => {
+    if (selectedRepoId === null || selectedWorktreeId !== null) return;
+    const first =
+      repoWorktrees.find((wt) => wt.role === "primary") ?? repoWorktrees[0];
+    if (first !== undefined) setSelectedWorktreeId(first.binding_id);
+  }, [selectedRepoId, selectedWorktreeId, repoWorktrees]);
+
+  const selectedWorktree =
+    repoWorktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
+  const ownerRun =
+    selectedWorktree?.owner_run_id !== null &&
+    selectedWorktree?.owner_run_id !== undefined
+      ? (runs.find((r) => r.id === selectedWorktree.owner_run_id) ?? null)
+      : null;
 
   async function engageStop() {
     setStopEngaged(true);
@@ -114,42 +208,73 @@ export function RunsScreen() {
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside
-          aria-label="runs"
-          className="flex w-64 shrink-0 flex-col overflow-hidden border-r border-border/60"
-        >
-          <UnreachableBanner
-            intervalMs={POLL_INTERVAL_MS}
-            now={now}
-            onRetryNow={retryNow}
-            reachable={reachable}
-            since={unreachableSince}
-          />
-          <RunList
-            activeRunId={selectedRunId}
-            onSelectDeck={openDeck}
-            onSelectRun={openRun}
-            runs={runs}
-            staleAsOf={reachable ? null : lastOk}
-            workspaceId={WORKSPACE_ID}
-          />
-        </aside>
-        <main
-          aria-label="workspace"
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
-        >
-          {selectedRunId === null ? (
-            <DeckPane
-              onOpenRun={openRun}
+        <ProjectsNav
+          onSelectLanding={selectLanding}
+          onSelectRepo={selectRepo}
+          repos={repos}
+          selectedRepoId={selectedRepoId}
+        />
+
+        {selectedRepo === null ? (
+          <main
+            aria-label="workspace"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            <UnreachableBanner
+              intervalMs={POLL_INTERVAL_MS}
+              now={now}
+              onRetryNow={retryNow}
               reachable={reachable}
-              runs={runs}
-              workspaceId={WORKSPACE_ID}
+              since={unreachableSince}
             />
-          ) : (
-            <RunDetail key={selectedRunId} runId={selectedRunId} />
-          )}
-        </main>
+            {selectedRunId === null ? (
+              <DeckPane
+                onOpenRun={openRun}
+                reachable={reachable}
+                runs={runs}
+                workspaceId={WORKSPACE_ID}
+              />
+            ) : (
+              <RunDetail key={selectedRunId} runId={selectedRunId} />
+            )}
+          </main>
+        ) : (
+          <>
+            <WorktreeColumn
+              onSelectWorktree={setSelectedWorktreeId}
+              repo={selectedRepo}
+              selectedWorktreeId={selectedWorktreeId}
+              worktrees={repoWorktrees}
+            />
+            {selectedWorktree === null ? (
+              <main
+                aria-label="workspace"
+                className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+              >
+                select a worktree
+              </main>
+            ) : (
+              <WorkSurface
+                onSelectWorktree={setSelectedWorktreeId}
+                reachable={reachable}
+                repo={selectedRepo}
+                runs={runs}
+                selectedWorktreeId={selectedWorktreeId}
+                worktreeRoot={worktreeRoot}
+                worktrees={repoWorktrees}
+                workspaceId={WORKSPACE_ID}
+              />
+            )}
+          </>
+        )}
       </div>
+
+      <ProjectStatusBar
+        reachable={reachable}
+        repo={selectedRepo}
+        run={ownerRun}
+        worktree={selectedWorktree}
+      />
     </div>
   );
 }
