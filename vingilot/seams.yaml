@@ -206,3 +206,11 @@ seams:
     removable_when: "Never, while portable-pty is a dependency of desktop/src-tauri."
     status: "permanent"
     added: "2026-08-06"
+
+  - path: "desktop/src-tauri/src/initial_window.rs"
+    reason: "Upstream code MOVED out of lib.rs, not fork-owned code added. lib.rs sat at exactly its file-size ratchet limit (1000 lines), so registering the PTY plugin was impossible without freeing room, and the repo's own rule for that is to split the file rather than raise the limit. These four items (initial window reveal, opaque backing, geometry settling) are the most cohesive unit in there and nothing outside depends on their internals. This is the expensive kind of seam: upstream edits to those functions will conflict here."
+    owner: "vingilot/runs"
+    removable_when: "Upstream adopts the split (this is a plausible upstream contribution), or lib.rs drops far enough below the ratchet that the code can move back."
+    status: "permanent"
+    added: "2026-08-07"
+

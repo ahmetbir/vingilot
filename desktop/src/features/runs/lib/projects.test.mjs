@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  readRepos,
   groupWorktrees,
-  worktreeSummary,
+  isMainCheckout,
+  readRepos,
   worktreeCwd,
+  worktreeSummary,
 } from "./projects.ts";
 
 // ---------------------------------------------------------------------
@@ -106,7 +107,9 @@ test("groupWorktrees: every worktree lands under its repo", () => {
   const w1 = wt({ binding_id: "b1", repo_id: "buzz" });
   const w2 = wt({ binding_id: "b2", repo_id: "buzz" });
   const { byRepo, unknown } = groupWorktrees(repos, [w1, w2]);
-  assert.deepEqual(byRepo, { buzz: [w1, w2] });
+  // The repo's own checkout is always row zero; task worktrees follow it.
+  assert.deepEqual(byRepo.buzz.slice(1), [w1, w2]);
+  assert.equal(isMainCheckout(byRepo.buzz[0]), true);
   assert.deepEqual(unknown, []);
 });
 
@@ -117,7 +120,10 @@ test("groupWorktrees: a repo with no worktrees still gets an entry ([])", () => 
   ];
   const w1 = wt({ binding_id: "b1", repo_id: "buzz" });
   const { byRepo } = groupWorktrees(repos, [w1]);
-  assert.deepEqual(byRepo, { buzz: [w1], vingilot: [] });
+  // "No worktrees" now means "only its own checkout" — never an empty column.
+  assert.deepEqual(byRepo.buzz.slice(1), [w1]);
+  assert.deepEqual(byRepo.vingilot.slice(1), []);
+  assert.equal(isMainCheckout(byRepo.vingilot[0]), true);
 });
 
 test("groupWorktrees: a worktree whose repo_id matches no known repo lands in unknown, not dropped", () => {
@@ -125,7 +131,7 @@ test("groupWorktrees: a worktree whose repo_id matches no known repo lands in un
   const known = wt({ binding_id: "b1", repo_id: "buzz" });
   const orphan = wt({ binding_id: "b2", repo_id: "ghost-repo" });
   const { byRepo, unknown } = groupWorktrees(repos, [known, orphan]);
-  assert.deepEqual(byRepo, { buzz: [known] });
+  assert.deepEqual(byRepo.buzz.slice(1), [known]);
   assert.deepEqual(unknown, [orphan]);
 });
 
@@ -238,4 +244,47 @@ test("worktreeCwd: a trailing slash on worktreeRoot doesn't double up", () => {
 test("worktreeCwd: a task worktree with no owner run yet has no derivable cwd", () => {
   const task = wt({ role: "task", owner_run_id: null });
   assert.equal(worktreeCwd(repo, task, "/Users/x/.vingilot/worktrees"), null);
+});
+
+// A project you have not run anything in yet must still open onto something.
+// Before this, groupWorktrees returned an empty bucket and the screen said
+// "no worktrees yet" — no rows, no terminal, the exact emptiness the projects
+// view exists to end.
+test("groupWorktrees always includes the repo's own checkout", () => {
+  const repo = { id: "buzz", name: "vingilot", path: "/repos/vingilot" };
+  const { byRepo } = groupWorktrees([repo], []);
+  assert.equal(byRepo.buzz.length, 1);
+  const main = byRepo.buzz[0];
+  assert.equal(main.role, "primary");
+  assert.equal(isMainCheckout(main), true);
+  assert.equal(main.owner_run_id, null, "nothing runs in the main checkout");
+  assert.equal(
+    worktreeCwd(repo, main, "/root"),
+    "/repos/vingilot",
+    "the main checkout's terminal opens in the repo itself",
+  );
+});
+
+test("task worktrees are listed after the main checkout, never instead of it", () => {
+  const repo = { id: "buzz", name: "vingilot", path: "/repos/vingilot" };
+  const task = {
+    added: 3,
+    base_commit: "abc",
+    binding_id: "b1",
+    branch: "run/aaa",
+    commit_sha: null,
+    lifecycle: "ready",
+    owner_run_id: "r1",
+    owner_run_objective: "do a thing",
+    owner_run_status: "running",
+    removed: 1,
+    repo_id: "buzz",
+    role: "task",
+  };
+  const { byRepo } = groupWorktrees([repo], [task]);
+  assert.deepEqual(
+    byRepo.buzz.map((w) => w.role),
+    ["primary", "task"],
+  );
+  assert.equal(isMainCheckout(byRepo.buzz[1]), false);
 });

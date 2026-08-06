@@ -71,6 +71,38 @@ export interface Worktree {
   commit_sha: string | null;
 }
 
+/** Prefix marking a synthetic binding id — the repo's own checkout, which the
+ * coordinator has no row for. Anything downstream that would call the
+ * coordinator with a binding id must check this first: there is no binding to
+ * lease, fence, or transition here, only a directory to open a shell in. */
+export const MAIN_CHECKOUT_PREFIX = "main:";
+
+/** True when this worktree is a repo's own checkout rather than a
+ * coordinator-managed task worktree. */
+export function isMainCheckout(wt: Worktree): boolean {
+  return wt.binding_id.startsWith(MAIN_CHECKOUT_PREFIX);
+}
+
+/** The repo's own checkout as a `Worktree`, so the column and the terminal can
+ * treat it like any other row. `role: "primary"` and a null owner run are the
+ * honest description: nothing is running there and nobody holds a grant. */
+export function mainCheckout(repo: Repo): Worktree {
+  return {
+    added: null,
+    base_commit: "",
+    binding_id: `${MAIN_CHECKOUT_PREFIX}${repo.id}`,
+    branch: null,
+    commit_sha: null,
+    lifecycle: "ready",
+    owner_run_id: null,
+    owner_run_objective: null,
+    owner_run_status: null,
+    removed: null,
+    repo_id: repo.id,
+    role: "primary",
+  };
+}
+
 export interface GroupedWorktrees {
   /** Every known repo's id maps to its worktrees (possibly `[]` — a repo
    * with no worktrees yet is still a project, per the plan's contract). */
@@ -88,8 +120,14 @@ export function groupWorktrees(
   repos: Repo[],
   worktrees: Worktree[],
 ): GroupedWorktrees {
+  // Every project starts with its own checkout. The coordinator only knows
+  // worktrees a Run created, so without this a project you have not run
+  // anything in yet opens onto "no worktrees yet" — nothing to look at, no
+  // terminal, exactly the emptiness this whole screen exists to end. The main
+  // checkout is not stored anywhere because it needs no storing: it is the
+  // repo's own path, already in Workspace state.
   const byRepo: Record<string, Worktree[]> = {};
-  for (const repo of repos) byRepo[repo.id] = [];
+  for (const repo of repos) byRepo[repo.id] = [mainCheckout(repo)];
 
   const unknown: Worktree[] = [];
   for (const wt of worktrees) {
