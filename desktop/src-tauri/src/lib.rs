@@ -655,6 +655,7 @@ pub fn run() {
             vingilot_pty::pty_write,
             vingilot_pty::pty_resize,
             vingilot_pty::pty_close,
+            vingilot_pty::pty_backing,
             search_users,
             get_presence,
             get_os_idle_seconds,

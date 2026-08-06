@@ -15,6 +15,12 @@
 // anything. The shell is killed only when the worktree itself leaves the
 // workspace (features/runs/lib/terminalSessions.ts), which is the only event
 // that means "really closed".
+//
+// How far that persistence reaches is the backend's answer, not this
+// component's guess: with tmux the shell also outlives the app itself, though
+// not a reboot (vingilot_pty/tmux.rs). The status bar states which mode is
+// live (features/runs/lib/terminalPersistence.ts); nothing here may imply
+// more than it says.
 
 import "@xterm/xterm/css/xterm.css";
 

@@ -20,6 +20,12 @@
 //! emits exactly one replay event, including for a shell it just spawned
 //! (empty, mark 0) — a view has no other signal that the mark has arrived.
 //!
+//! **Persistence:** where tmux is available the shell runs inside a tmux
+//! session, so it survives quitting the app — but not a reboot, a
+//! `tmux kill-server`, or a crash (`tmux.rs`). Where it is not, the shell is
+//! a child of this app and dies with it. `pty_backing` reports which, and the
+//! UI must never claim more than it says.
+//!
 //! **Trust boundary:** the PTY runs the owner's own shell in the owner's own
 //! worktree — the same risk class as them typing in Terminal.app (ADR-003's
 //! V1 trust model). Nothing here isolates or sandboxes the shell; UI copy
@@ -27,10 +33,12 @@
 
 mod scrollback;
 mod session;
+mod tmux;
 mod utf8_stream;
 
 pub(crate) use session::PtySessions;
 use session::{kill_and_reap, PtySession};
+use tmux::Backing;
 use utf8_stream::decode_stream;
 
 use std::io::Read;
@@ -106,8 +114,17 @@ pub fn pty_open(
         })
         .map_err(|e| format!("open pty: {e}"))?;
 
-    let mut cmd = CommandBuilder::new(default_shell());
+    let plan = tmux::plan_spawn(tmux::path(), &default_shell(), &session, &cwd);
+    let mut cmd = CommandBuilder::new(&plan.program);
+    for arg in &plan.args {
+        cmd.arg(arg);
+    }
     cmd.cwd(&cwd);
+    // If the app itself was launched from inside tmux, this variable makes
+    // the new session refuse to start ("sessions should be nested with
+    // care"). Our session is not nested inside the launching one and must not
+    // be told it is.
+    cmd.env_remove("TMUX");
 
     let child = pair
         .slave
@@ -173,10 +190,25 @@ pub fn pty_resize(
 
 /// Close a session and kill its shell. Idempotent: closing an unknown or
 /// already-closed session id is not an error.
+///
+/// This is the "really closed" path — the worktree left the workspace, so
+/// nothing will ever reattach. That is why it also ends the tmux session,
+/// which a mere client teardown deliberately does not: outliving its client
+/// is the whole point of the tmux backing, and outliving its worktree is not.
 #[tauri::command]
 pub fn pty_close(sessions: State<'_, PtySessions>, session: String) -> Result<(), String> {
     sessions.close(&session);
+    tmux::kill_session(&session);
     Ok(())
+}
+
+/// What is keeping terminals alive, so the UI can say so and claim no more.
+///
+/// One answer for the whole app run: tmux is probed once and cached
+/// (`tmux.rs`), so every session opened in this run has the same backing.
+#[tauri::command]
+pub fn pty_backing() -> Backing {
+    tmux::backing(tmux::path())
 }
 
 /// Stream a session's pty output to the webview — recording it into the

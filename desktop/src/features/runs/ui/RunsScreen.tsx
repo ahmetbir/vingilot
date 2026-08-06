@@ -37,7 +37,11 @@ import {
   groupWorktrees,
   readRepos,
 } from "@/features/runs/lib/projects";
-import { ptyClose } from "@/features/runs/lib/ptyClient";
+import {
+  ptyBacking,
+  ptyClose,
+  type PtyBacking,
+} from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import {
   openTerminals,
@@ -147,6 +151,26 @@ export function RunsScreen() {
       .catch(() => {
         // Non-Tauri context (e.g. a plain browser preview) — worktreeRoot
         // stays null, terminals stay in their waiting state.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // What is keeping terminals alive, asked once — the backend probes tmux
+  // once per app run, so the answer cannot change under us. Stays null if the
+  // call fails (a non-Tauri preview), and the status bar then says nothing
+  // about persistence rather than guessing at it.
+  const [terminalBacking, setTerminalBacking] =
+    React.useState<PtyBacking | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    ptyBacking()
+      .then((backing) => {
+        if (!cancelled) setTerminalBacking(backing);
+      })
+      .catch(() => {
+        // No backend to ask. Claiming either mode would be a guess.
       });
     return () => {
       cancelled = true;
@@ -328,6 +352,7 @@ export function RunsScreen() {
         reachable={reachable}
         repo={selectedRepo}
         run={ownerRun}
+        terminalBacking={terminalBacking}
         worktree={selectedWorktree}
       />
     </div>

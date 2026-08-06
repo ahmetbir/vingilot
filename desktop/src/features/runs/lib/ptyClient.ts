@@ -38,6 +38,16 @@ export function ptyClose(session: string): Promise<void> {
   return invoke("pty_close", { session });
 }
 
+/** What is keeping terminals alive — `tmux` for a session that outlives the
+ * app, `app-process` for one that does not. One answer for the whole app run
+ * (desktop/src-tauri/src/vingilot_pty/tmux.rs probes tmux once), and the only
+ * thing the UI is allowed to base a persistence claim on. */
+export type PtyBacking = "app-process" | "tmux";
+
+export function ptyBacking(): Promise<PtyBacking> {
+  return invoke("pty_backing");
+}
+
 /** Subscribes to a session's output event (`vingilot://pty/<session>`).
  * Returns the unlisten function — callers tear it down on unmount.
  *
