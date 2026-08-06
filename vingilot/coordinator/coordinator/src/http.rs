@@ -116,18 +116,38 @@ pub fn router(pool: PgPool, auth_token: String) -> Router {
 /// pair is the Buzz desktop screenshot harness's Vite preview server
 /// (`just desktop-screenshot`) — needed so the executor V1 evidence proof
 /// can show LIVE coordinator data in the screenshot, not a mock.
-const ALLOWED_ORIGINS: &[&str] = &[
-    "http://localhost:1420",
-    "http://127.0.0.1:1420",
-    "tauri://localhost",
-    "http://localhost:5273",
-    "http://127.0.0.1:5273",
-    "http://localhost:4173",
-    "http://127.0.0.1:4173",
-];
+const ALLOWED_ORIGINS: &[&str] = &["tauri://localhost"];
+
+/// True for `http://localhost:<port>` and `http://127.0.0.1:<port>`, any port.
+///
+/// A fixed port list was wrong: `just dev` assigns the Vite dev server a
+/// **per-worktree** port (the `deck` worktree gets 60118), so every new
+/// worktree silently fell outside the allowlist and the Runs screen showed
+/// "control plane unreachable" while the coordinator was in fact healthy —
+/// an honest banner firing for a dishonest reason.
+///
+/// This widens the origin check to loopback only, which is the actual
+/// boundary that matters here: the coordinator binds 127.0.0.1, so anything
+/// that can reach it is already on this machine. Bearer auth remains the
+/// access control; CORS is not doing security work it was never able to do.
+/// A remote origin still gets no CORS headers.
+fn is_loopback_dev_origin(origin: &str) -> bool {
+    let rest = match origin.strip_prefix("http://") {
+        Some(r) => r,
+        None => return false,
+    };
+    let (host, port) = match rest.rsplit_once(':') {
+        Some((h, p)) => (h, p),
+        None => (rest, ""),
+    };
+    if host != "localhost" && host != "127.0.0.1" {
+        return false;
+    }
+    port.is_empty() || port.chars().all(|c| c.is_ascii_digit())
+}
 
 fn cors_headers_for(origin: &str) -> Option<[(header::HeaderName, HeaderValue); 3]> {
-    if !ALLOWED_ORIGINS.contains(&origin) {
+    if !ALLOWED_ORIGINS.contains(&origin) && !is_loopback_dev_origin(origin) {
         return None;
     }
     Some([

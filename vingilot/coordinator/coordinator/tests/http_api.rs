@@ -484,3 +484,52 @@ async fn cors_disallowed_origin_gets_no_cors_headers() {
         .unwrap();
     assert!(get.headers().get("access-control-allow-origin").is_none());
 }
+
+/// Regression: `just dev` gives each worktree its own Vite port, so a fixed
+/// port allowlist made the Runs screen report "control plane unreachable"
+/// against a perfectly healthy coordinator. Any loopback origin is allowed;
+/// anything else still is not.
+#[tokio::test]
+async fn cors_allows_any_loopback_dev_port() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let base_url = spawn(pool).await;
+    let client = reqwest::Client::new();
+
+    for origin in [
+        "http://localhost:60118",
+        "http://127.0.0.1:60118",
+        "http://localhost:1420",
+    ] {
+        let preflight = client
+            .request(reqwest::Method::OPTIONS, format!("{base_url}/v1/runs"))
+            .header("origin", origin)
+            .header("access-control-request-method", "POST")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            preflight
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|v| v.to_str().ok()),
+            Some(origin),
+            "loopback origin {origin} must be allowed on any port"
+        );
+    }
+
+    for origin in ["http://evil.example", "https://localhost:60118"] {
+        let preflight = client
+            .request(reqwest::Method::OPTIONS, format!("{base_url}/v1/runs"))
+            .header("origin", origin)
+            .header("access-control-request-method", "POST")
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            preflight.headers().get("access-control-allow-origin").is_none(),
+            "non-loopback origin {origin} must NOT get CORS headers"
+        );
+    }
+}

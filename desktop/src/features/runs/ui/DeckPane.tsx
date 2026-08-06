@@ -242,6 +242,16 @@ export function DeckPane({
       className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-5"
       data-testid="deck-pane"
     >
+      {/* The pane had no name on screen, so the feature was unfindable by the
+       * word people use for it — the owner asked "where is the Deck?" while
+       * looking straight at it. Naming it is the whole fix. */}
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-sm font-medium">Deck</h2>
+        <span className="text-2xs text-muted-foreground">
+          workspace home — start a run, pin what matters
+        </span>
+      </div>
+
       <form
         className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3"
         onSubmit={(event) => {
