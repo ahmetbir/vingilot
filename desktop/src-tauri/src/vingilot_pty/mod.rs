@@ -3,17 +3,24 @@
 //!
 //! A session id is the worktree binding id: "same worktree ⇒ same session".
 //! `pty_open` is idempotent — opening an already-open session returns
-//! immediately without spawning a second shell. Output streams to the
-//! webview as a Tauri event named `vingilot://pty/<session>` carrying
-//! `{ data: string }`.
+//! immediately without spawning a second shell, and replays that session's
+//! retained screen (session.rs, `scrollback.rs`) so the view attaching to it
+//! is not blank. Output streams to the webview as a Tauri event named
+//! `vingilot://pty/<session>` carrying `{ data: string }`.
+//!
+//! Callers must subscribe to that event *before* calling `pty_open`: both
+//! the replay above and a fresh shell's first prompt are emitted from inside
+//! the command, so a listener attached after it returns misses them.
 //!
 //! **Trust boundary:** the PTY runs the owner's own shell in the owner's own
 //! worktree — the same risk class as them typing in Terminal.app (ADR-003's
 //! V1 trust model). Nothing here isolates or sandboxes the shell; UI copy
 //! that surfaces a worktree chip must say only where the shell starts.
 
+mod scrollback;
 mod session;
 
+use scrollback::Scrollback;
 use session::PtySession;
 pub(crate) use session::PtySessions;
 
@@ -38,8 +45,10 @@ fn default_shell() -> String {
 }
 
 /// Open a PTY session rooted at `cwd`, running the owner's shell. Idempotent:
-/// when `session` is already open, this returns immediately and the existing
-/// session — and its scrollback — keeps running; no second shell is spawned.
+/// when `session` is already open, no second shell is spawned — instead the
+/// running session's retained screen is replayed to the view that just
+/// attached, which is otherwise blank until the shell happens to print again
+/// (at an idle prompt: never).
 #[tauri::command]
 pub fn pty_open(
     app: AppHandle,
@@ -49,7 +58,19 @@ pub fn pty_open(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    if sessions.contains(&session) {
+    if let Some(retained) = sessions.replay(&session) {
+        // Deliberately no resize here. The `cols`/`rows` a reattaching view
+        // reports may be its pre-layout defaults, and adopting them would
+        // reflow the live shell to a geometry nobody is looking at — the
+        // exact way the previous version destroyed scrollback. The view
+        // resizes the pty itself once it is on screen and measured
+        // (features/runs/lib/terminalFit.ts).
+        if !retained.is_empty() {
+            let _ = app.emit(
+                &pty_event_name(&session),
+                PtyOutputPayload { data: retained },
+            );
+        }
         return Ok(());
     }
 
@@ -87,6 +108,7 @@ pub fn pty_open(
         writer,
         master: pair.master,
         child,
+        scrollback: Scrollback::default(),
     };
 
     if let Err(mut losing_session) = sessions.insert_if_absent(session.clone(), pty_session) {
@@ -132,24 +154,31 @@ pub fn pty_close(sessions: State<'_, PtySessions>, session: String) -> Result<()
     Ok(())
 }
 
-/// Stream a session's pty output to the webview until the shell exits (EOF)
-/// or the read errors, then remove the session so the next `pty_open` for
-/// this worktree spawns a fresh shell instead of silently doing nothing
-/// against a dead one.
+/// Stream a session's pty output to the webview — recording it into the
+/// session's scrollback on the way past, so a view that attaches later can
+/// be shown the same screen — until the shell exits (EOF) or the read
+/// errors, then remove the session so the next `pty_open` for this worktree
+/// spawns a fresh shell instead of silently doing nothing against a dead one.
 fn spawn_reader_thread(app: AppHandle, session_id: String, mut reader: Box<dyn Read + Send>) {
     std::thread::spawn(move || {
         let event_name = pty_event_name(&session_id);
+        let sessions = app.state::<PtySessions>();
         let mut buf = [0u8; 4096];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    // Record the raw bytes, emit the decoded ones. A read can
+                    // end mid-character, so only the buffer — which keeps the
+                    // halves and decodes the whole span at replay time — can
+                    // put such a character back together.
+                    sessions.record_output(&session_id, &buf[..n]);
                     let data = String::from_utf8_lossy(&buf[..n]).into_owned();
                     let _ = app.emit(&event_name, PtyOutputPayload { data });
                 }
                 Err(_) => break,
             }
         }
-        app.state::<PtySessions>().close(&session_id);
+        sessions.close(&session_id);
     });
 }

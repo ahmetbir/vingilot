@@ -8,13 +8,17 @@ use std::sync::{Mutex, MutexGuard};
 
 use portable_pty::{Child, MasterPty, PtySize};
 
+use super::scrollback::Scrollback;
+
 /// One live PTY session: the write half of the master pty (keystrokes go
-/// in), the master itself (for resize), and the spawned shell's child handle
-/// (for kill on close).
+/// in), the master itself (for resize), the spawned shell's child handle
+/// (for kill on close), and the bounded record of what the shell has printed
+/// (for replay to a view that attaches after the fact).
 pub(crate) struct PtySession {
     pub(crate) writer: Box<dyn Write + Send>,
     pub(crate) master: Box<dyn MasterPty + Send>,
     pub(crate) child: Box<dyn Child + Send + Sync>,
+    pub(crate) scrollback: Scrollback,
 }
 
 /// Thread-safe registry of live PTY sessions, keyed by session id — the
@@ -37,11 +41,6 @@ impl PtySessions {
         self.0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// True if a session with this id is already open.
-    pub(crate) fn contains(&self, session_id: &str) -> bool {
-        self.lock().contains_key(session_id)
     }
 
     /// Insert a freshly spawned session, unless one already exists for this
@@ -87,6 +86,27 @@ impl PtySessions {
                 pixel_height: 0,
             })
             .map_err(|e| e.to_string())
+    }
+
+    /// Record output a session's shell just produced, so a view attaching
+    /// later can be shown what it missed. Output for a session that is no
+    /// longer registered is dropped — the shell is gone and nothing will
+    /// ever reattach to it.
+    pub(crate) fn record_output(&self, session_id: &str, bytes: &[u8]) {
+        let mut sessions = self.lock();
+        if let Some(session) = sessions.get_mut(session_id) {
+            session.scrollback.push(bytes);
+        }
+    }
+
+    /// What a session's screen holds right now, for replay to a freshly
+    /// attached view. `None` when no session is open for this id — the
+    /// caller is about to spawn a shell, and a fresh shell has nothing to
+    /// replay.
+    pub(crate) fn replay(&self, session_id: &str) -> Option<String> {
+        self.lock()
+            .get(session_id)
+            .map(|session| session.scrollback.replay())
     }
 
     /// Remove and kill a session. Idempotent: closing an unknown or
@@ -216,24 +236,32 @@ mod tests {
             child: Box::new(FakeChild {
                 killed: Arc::clone(&killed),
             }),
+            scrollback: Scrollback::default(),
         };
         (session, killed)
+    }
+
+    /// Presence, asked the way production asks it: `replay` answers `None`
+    /// for a session that is not open, which is exactly the signal `pty_open`
+    /// uses to decide between replaying and spawning.
+    fn is_open(sessions: &PtySessions, session_id: &str) -> bool {
+        sessions.replay(session_id).is_some()
     }
 
     #[test]
     fn a_session_is_not_present_until_inserted() {
         let sessions = PtySessions::new();
-        assert!(!sessions.contains("wt-1"));
+        assert!(!is_open(&sessions, "wt-1"));
     }
 
     #[test]
-    fn insert_then_contains() {
+    fn insert_then_the_session_is_open() {
         let sessions = PtySessions::new();
         let (session, _killed) = fake_session();
         assert!(sessions
             .insert_if_absent("wt-1".to_string(), session)
             .is_ok());
-        assert!(sessions.contains("wt-1"));
+        assert!(is_open(&sessions, "wt-1"));
     }
 
     #[test]
@@ -243,16 +271,16 @@ mod tests {
         assert!(sessions.insert_if_absent("wt-1".to_string(), first).is_ok());
 
         // A second "open" for the same worktree must not replace the
-        // running session — the caller is expected to check `contains`
-        // first, but even a raced `insert_if_absent` hands the loser back
-        // instead of silently overwriting the winner.
+        // running session — the caller is expected to check for an existing
+        // one first, but even a raced `insert_if_absent` hands the loser
+        // back instead of silently overwriting the winner.
         let (second, _second_killed) = fake_session();
         let result = sessions.insert_if_absent("wt-1".to_string(), second);
         assert!(result.is_err(), "second insert for the same id must lose");
 
         // The original session is untouched.
         assert!(!first_killed.load(Ordering::SeqCst));
-        assert!(sessions.contains("wt-1"));
+        assert!(is_open(&sessions, "wt-1"));
     }
 
     #[test]
@@ -265,7 +293,7 @@ mod tests {
 
         sessions.close("wt-1");
 
-        assert!(!sessions.contains("wt-1"));
+        assert!(!is_open(&sessions, "wt-1"));
         assert!(killed.load(Ordering::SeqCst));
     }
 
@@ -273,7 +301,7 @@ mod tests {
     fn closing_an_unknown_session_is_a_no_op_not_an_error() {
         let sessions = PtySessions::new();
         sessions.close("never-opened");
-        assert!(!sessions.contains("never-opened"));
+        assert!(!is_open(&sessions, "never-opened"));
     }
 
     #[test]
@@ -300,6 +328,67 @@ mod tests {
     }
 
     #[test]
+    fn reattaching_to_a_live_session_returns_the_bytes_it_retained() {
+        // The whole point of the ring: `pty_open` against a live session must
+        // not spawn a second shell, and until this existed it also had
+        // nothing to hand the newly attached view, which rendered blank.
+        let sessions = PtySessions::new();
+        let (session, _killed) = fake_session();
+        assert!(sessions
+            .insert_if_absent("wt-1".to_string(), session)
+            .is_ok());
+
+        sessions.record_output("wt-1", b"$ cargo test\r\n");
+        sessions.record_output("wt-1", b"test result: ok\r\n");
+
+        assert_eq!(
+            sessions.replay("wt-1").as_deref(),
+            Some("$ cargo test\r\ntest result: ok\r\n")
+        );
+    }
+
+    #[test]
+    fn a_session_that_has_printed_nothing_replays_an_empty_screen_not_none() {
+        let sessions = PtySessions::new();
+        let (session, _killed) = fake_session();
+        assert!(sessions
+            .insert_if_absent("wt-1".to_string(), session)
+            .is_ok());
+
+        assert_eq!(sessions.replay("wt-1").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn an_unopened_session_has_no_replay_so_the_caller_spawns_a_shell() {
+        let sessions = PtySessions::new();
+        assert_eq!(sessions.replay("never-opened"), None);
+    }
+
+    #[test]
+    fn output_recorded_against_an_unknown_session_is_dropped_not_panicked_on() {
+        // The reader thread races `close`: the shell can exit (or the owner
+        // can close the worktree) between a read and the record that follows.
+        let sessions = PtySessions::new();
+        sessions.record_output("gone", b"late output");
+        assert_eq!(sessions.replay("gone"), None);
+    }
+
+    #[test]
+    fn a_closed_and_reopened_session_does_not_replay_the_dead_shells_screen() {
+        let sessions = PtySessions::new();
+        let (first, _first_killed) = fake_session();
+        assert!(sessions.insert_if_absent("wt-1".to_string(), first).is_ok());
+        sessions.record_output("wt-1", b"from the first shell");
+        sessions.close("wt-1");
+
+        let (second, _second_killed) = fake_session();
+        assert!(sessions
+            .insert_if_absent("wt-1".to_string(), second)
+            .is_ok());
+        assert_eq!(sessions.replay("wt-1").as_deref(), Some(""));
+    }
+
+    #[test]
     fn a_poisoned_lock_is_recovered_not_surfaced_as_an_error() {
         let sessions = Arc::new(PtySessions::new());
         let (session, _killed) = fake_session();
@@ -322,8 +411,8 @@ mod tests {
         // than propagate the poison as an error — this is the exact bug
         // class `agent_config.rs` shipped (an OOM turned a page permanently
         // into an error screen).
-        assert!(sessions.contains("wt-1"));
+        assert!(is_open(&sessions, "wt-1"));
         sessions.close("wt-1");
-        assert!(!sessions.contains("wt-1"));
+        assert!(!is_open(&sessions, "wt-1"));
     }
 }

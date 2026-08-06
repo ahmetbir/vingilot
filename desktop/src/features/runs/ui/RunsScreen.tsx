@@ -9,6 +9,14 @@
 // Owns the workspace-level polling (runs, worktrees, repos), the
 // unreachable-since clock, the STOP-all action, and the home-dir
 // resolution every terminal's cwd derives from.
+//
+// It also owns the set of open PTY sessions, because it is the only
+// component here that never unmounts: `WorkSurface` disappears the moment
+// the owner goes back to the landing view, so a session list kept there
+// would be forgotten on the way out and every shell left running with
+// nothing tracking it. Sessions are killed only when their worktree leaves
+// the workspace (`lib/terminalSessions.ts`) — never on a switch, a tab
+// change, or a re-render.
 
 import { homeDir } from "@tauri-apps/api/path";
 import * as React from "react";
@@ -25,7 +33,13 @@ import {
   groupWorktrees,
   readRepos,
 } from "@/features/runs/lib/projects";
+import { ptyClose } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
+import {
+  openTerminals,
+  sessionsToClose,
+  worktreeIndex,
+} from "@/features/runs/lib/terminalSessions";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
@@ -70,6 +84,10 @@ export function RunsScreen() {
   const grouped = React.useMemo(
     () => groupWorktrees(repos, worktrees),
     [repos, worktrees],
+  );
+  const index = React.useMemo(
+    () => worktreeIndex(repos, grouped),
+    [repos, grouped],
   );
 
   // The moment reachability first flipped false — null while reachable.
@@ -171,6 +189,32 @@ export function RunsScreen() {
     if (first !== undefined) setSelectedWorktreeId(first.binding_id);
   }, [selectedRepoId, selectedWorktreeId, repoWorktrees]);
 
+  // Visiting a worktree opens its terminal; nothing here ever closes one.
+  const [openedSessionIds, setOpenedSessionIds] = React.useState<
+    readonly string[]
+  >([]);
+  React.useEffect(() => {
+    if (selectedWorktreeId === null) return;
+    setOpenedSessionIds((prev) =>
+      prev.includes(selectedWorktreeId) ? prev : [...prev, selectedWorktreeId],
+    );
+  }, [selectedWorktreeId]);
+
+  // The one event that means "really closed": the worktree is gone from the
+  // workspace, so no view can ever reattach and the shell would otherwise
+  // run unreferenced for the app's lifetime.
+  React.useEffect(() => {
+    const closing = sessionsToClose(openedSessionIds, [...index.keys()]);
+    if (closing.length === 0) return;
+    setOpenedSessionIds((prev) => prev.filter((id) => !closing.includes(id)));
+    for (const sessionId of closing) void ptyClose(sessionId);
+  }, [openedSessionIds, index]);
+
+  const terminals = React.useMemo(
+    () => openTerminals(openedSessionIds, index, worktreeRoot),
+    [openedSessionIds, index, worktreeRoot],
+  );
+
   const selectedWorktree =
     repoWorktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
   const ownerRun =
@@ -257,10 +301,9 @@ export function RunsScreen() {
               <WorkSurface
                 onSelectWorktree={setSelectedWorktreeId}
                 reachable={reachable}
-                repo={selectedRepo}
                 runs={runs}
                 selectedWorktreeId={selectedWorktreeId}
-                worktreeRoot={worktreeRoot}
+                terminals={terminals}
                 worktrees={repoWorktrees}
                 workspaceId={WORKSPACE_ID}
               />

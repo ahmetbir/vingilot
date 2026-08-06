@@ -1,8 +1,15 @@
 // The selected worktree's tabbed work surface: Terminal (default, per the
 // layout contract — iTerm: the terminal is the work surface, not a
 // drawer), Diff, Evidence, Runs. Owns the ⌘1…9 / ⌘` / Esc key map
-// (`lib/terminalKeys.ts`) and keeps every visited worktree's `<Terminal>`
-// mounted (hidden, not torn down) so scrollback survives a worktree switch.
+// (`lib/terminalKeys.ts`).
+//
+// It renders a `<Terminal>` per open session (hidden, not torn down, when it
+// is not the one showing) but it does not own that list, and must not: this
+// component unmounts whenever the owner leaves a project for the landing
+// view, so anything it owned would be lost on the way. `RunsScreen` — which
+// stays mounted — owns which sessions are open and when one is really
+// closed. What survives an unmount here is the pty session itself, whose
+// screen `pty_open` replays on reattach.
 //
 // The Runs tab is the pre-existing RunList + DeckPane/RunDetail pair,
 // unchanged — "Run rows do not disappear — they become a tab, not the
@@ -12,8 +19,7 @@ import * as React from "react";
 
 import { listEvidence } from "@/features/runs/lib/coordinatorClient";
 import type { ApiResult } from "@/features/runs/lib/coordinatorClient";
-import { worktreeCwd } from "@/features/runs/lib/projects";
-import type { Repo, Worktree } from "@/features/runs/lib/projects";
+import type { Worktree } from "@/features/runs/lib/projects";
 import { diffView, evidenceView } from "@/features/runs/lib/runModel";
 import type {
   DiffLineKind,
@@ -22,6 +28,7 @@ import type {
   RunSummary,
 } from "@/features/runs/lib/runModel";
 import { resolveKey } from "@/features/runs/lib/terminalKeys";
+import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
@@ -33,15 +40,16 @@ type Tab = "terminal" | "diff" | "evidence" | "runs";
 
 interface WorkSurfaceProps {
   workspaceId: string;
-  repo: Repo;
   /** Ordered — index N backs the ⌘(N+1) shortcut for N < 9; the same order
    * `WorktreeColumn` renders. */
   worktrees: Worktree[];
   selectedWorktreeId: string | null;
   onSelectWorktree: (bindingId: string) => void;
-  /** Resolved once (home dir + the executor's default suffix) — `null`
-   * while resolving, in which case every terminal shows its waiting state. */
-  worktreeRoot: string | null;
+  /** Every open PTY session, in visit order, with its resolved cwd — owned
+   * by `RunsScreen`. Includes sessions from other projects; only the
+   * selected one is ever visible, and keeping the rest mounted is what
+   * makes a project switch cheap. */
+  terminals: TerminalSession[];
   runs: RunSummary[];
   reachable: boolean;
 }
@@ -56,27 +64,14 @@ const TABS: Array<{ key: Tab; label: string }> = [
 export function WorkSurface({
   onSelectWorktree,
   reachable,
-  repo,
   runs,
   selectedWorktreeId,
-  worktreeRoot,
+  terminals,
   worktrees,
   workspaceId,
 }: WorkSurfaceProps) {
   const [activeTab, setActiveTab] = React.useState<Tab>("terminal");
   const [focusToken, setFocusToken] = React.useState(0);
-  const [openedWorktreeIds, setOpenedWorktreeIds] = React.useState<
-    ReadonlySet<string>
-  >(() => new Set());
-
-  React.useEffect(() => {
-    if (selectedWorktreeId === null) return;
-    setOpenedWorktreeIds((prev) =>
-      prev.has(selectedWorktreeId)
-        ? prev
-        : new Set(prev).add(selectedWorktreeId),
-    );
-  }, [selectedWorktreeId]);
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -143,21 +138,18 @@ export function WorkSurface({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {[...openedWorktreeIds].map((id) => {
-          const wt = worktrees.find((w) => w.binding_id === id);
-          if (wt === undefined) return null;
-          const cwd =
-            worktreeRoot === null ? null : worktreeCwd(repo, wt, worktreeRoot);
-          return (
-            <Terminal
-              active={activeTab === "terminal" && selectedWorktreeId === id}
-              cwd={cwd}
-              focusToken={focusToken}
-              key={id}
-              sessionId={id}
-            />
-          );
-        })}
+        {terminals.map((terminal) => (
+          <Terminal
+            active={
+              activeTab === "terminal" &&
+              selectedWorktreeId === terminal.sessionId
+            }
+            cwd={terminal.cwd}
+            focusToken={focusToken}
+            key={terminal.sessionId}
+            sessionId={terminal.sessionId}
+          />
+        ))}
 
         {activeTab === "diff" ? (
           <DiffTab ownerRunId={selectedWorktree?.owner_run_id ?? null} />
