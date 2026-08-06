@@ -80,6 +80,10 @@ pub fn router(pool: PgPool, auth_token: String) -> Router {
         .route("/v1/workspaces/{id}/mutations", post(post_mutations))
         .route("/v1/workspaces/{id}", get(get_workspace))
         .route("/v1/workspaces/{id}/runs", get(get_workspace_runs))
+        .route(
+            "/v1/workspaces/{id}/worktrees",
+            get(get_workspace_worktrees),
+        )
         .route("/v1/runs", post(post_create_run))
         .route("/v1/runs/{id}", get(get_run))
         .route("/v1/runs/{id}/transition", post(post_transition))
@@ -481,6 +485,46 @@ struct RunListDto {
 }
 
 #[derive(Debug, Serialize)]
+struct WorktreeSummaryDto {
+    binding_id: Uuid,
+    repo_id: String,
+    branch: Option<String>,
+    role: String,
+    lifecycle: String,
+    base_commit: String,
+    owner_run_id: Option<Uuid>,
+    owner_run_status: Option<String>,
+    owner_run_objective: Option<String>,
+    added: Option<i64>,
+    removed: Option<i64>,
+    commit_sha: Option<String>,
+}
+
+impl From<run::WorktreeSummaryRow> for WorktreeSummaryDto {
+    fn from(row: run::WorktreeSummaryRow) -> Self {
+        Self {
+            binding_id: row.binding_id,
+            repo_id: row.repo_id,
+            branch: row.branch,
+            role: row.role,
+            lifecycle: row.lifecycle,
+            base_commit: row.base_commit,
+            owner_run_id: row.owner_run_id,
+            owner_run_status: row.owner_run_status,
+            owner_run_objective: row.owner_run_objective,
+            added: row.added,
+            removed: row.removed,
+            commit_sha: row.commit_sha,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct WorktreeListDto {
+    worktrees: Vec<WorktreeSummaryDto>,
+}
+
+#[derive(Debug, Serialize)]
 struct CreateRunResponseDto {
     run_id: Uuid,
 }
@@ -797,6 +841,16 @@ async fn get_workspace_runs(
     let rows = run::list_for_workspace(&state.pool, workspace_id).await?;
     Ok(Json(RunListDto {
         runs: rows.into_iter().map(RunSummaryDto::from).collect(),
+    }))
+}
+
+async fn get_workspace_worktrees(
+    State(state): State<AppState>,
+    Path(workspace_id): Path<Uuid>,
+) -> Result<Json<WorktreeListDto>, ApiError> {
+    let rows = run::list_worktrees_for_workspace(&state.pool, workspace_id).await?;
+    Ok(Json(WorktreeListDto {
+        worktrees: rows.into_iter().map(WorktreeSummaryDto::from).collect(),
     }))
 }
 

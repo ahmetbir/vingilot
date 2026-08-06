@@ -234,6 +234,147 @@ pub async fn list_for_workspace(
         .collect())
 }
 
+/// One row of the workspace's worktree list read-model (`GET
+/// /v1/workspaces/{id}/worktrees`) — a `worktree_bindings` row joined to its
+/// owner run's live status/objective, plus the latest diff/commit evidence
+/// for that run. `owner_run_*` and `added`/`removed`/`commit_sha` are `None`
+/// when the binding has no owner run or the owner run has not yet produced
+/// that evidence — never coerced to a zero/empty placeholder.
+pub struct WorktreeSummaryRow {
+    pub binding_id: Uuid,
+    pub repo_id: String,
+    pub branch: Option<String>,
+    pub role: String,
+    pub lifecycle: String,
+    pub base_commit: String,
+    pub owner_run_id: Option<Uuid>,
+    pub owner_run_status: Option<String>,
+    pub owner_run_objective: Option<String>,
+    pub added: Option<i64>,
+    pub removed: Option<i64>,
+    pub commit_sha: Option<String>,
+}
+
+/// Counts added/removed lines in a unified diff body: a line starting with
+/// `+`/`-` counts, except the `+++`/`---` file-header lines unified diff
+/// always emits. Pure and unit-tested below — the HTTP layer never re-derives
+/// this by hand.
+fn count_diff_lines(diff: &str) -> (i64, i64) {
+    let mut added = 0i64;
+    let mut removed = 0i64;
+    for line in diff.lines() {
+        if line.starts_with("+++") || line.starts_with("---") {
+            continue;
+        }
+        if line.starts_with('+') {
+            added += 1;
+        } else if line.starts_with('-') {
+            removed += 1;
+        }
+    }
+    (added, removed)
+}
+
+/// The commit sha is the first whitespace-separated token of a `commit`
+/// evidence row's content (the executor writes `"{sha} {commit_message}"` —
+/// see `vingilot-executor`'s capture step). `None` for empty content.
+fn commit_sha_from_content(content: &str) -> Option<String> {
+    content.split_whitespace().next().map(str::to_string)
+}
+
+/// Lists every `worktree_bindings` row visible to `workspace_id`: bindings
+/// owned by a Run that belongs to this workspace, plus any binding with no
+/// owner run at all (a `main`/primary checkout is not scoped to a workspace
+/// by the schema — `owner_run_id` is nullable and there is no
+/// `worktree_bindings.workspace_id` column — so an ownerless binding cannot
+/// be excluded without inventing a workspace it doesn't actually belong to;
+/// it is surfaced everywhere instead of silently dropped, matching the "a
+/// worktree with no owner run still appears" contract). One query: a
+/// `LEFT JOIN` to `runs` for the owner's live state, plus a `LEFT JOIN
+/// LATERAL` per evidence kind for the latest `diff`/`commit` row.
+pub async fn list_worktrees_for_workspace(
+    pool: &PgPool,
+    workspace_id: Uuid,
+) -> Result<Vec<WorktreeSummaryRow>, RunError> {
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(
+        Uuid,
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        Option<Uuid>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        "SELECT b.id, b.repo_id, b.branch, b.role, b.lifecycle, b.base_commit, \
+                b.owner_run_id, r.status, r.objective, \
+                diff_ev.content, commit_ev.content \
+         FROM worktree_bindings b \
+         LEFT JOIN runs r ON r.id = b.owner_run_id \
+         LEFT JOIN LATERAL ( \
+             SELECT content FROM run_evidence \
+             WHERE run_id = b.owner_run_id AND kind = 'diff' \
+             ORDER BY seq DESC LIMIT 1 \
+         ) diff_ev ON b.owner_run_id IS NOT NULL \
+         LEFT JOIN LATERAL ( \
+             SELECT content FROM run_evidence \
+             WHERE run_id = b.owner_run_id AND kind = 'commit' \
+             ORDER BY seq DESC LIMIT 1 \
+         ) commit_ev ON b.owner_run_id IS NOT NULL \
+         WHERE r.workspace_id = $1 OR b.owner_run_id IS NULL \
+         ORDER BY b.created_at",
+    )
+    .bind(workspace_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(
+                binding_id,
+                repo_id,
+                branch,
+                role,
+                lifecycle,
+                base_commit,
+                owner_run_id,
+                owner_run_status,
+                owner_run_objective,
+                diff_content,
+                commit_content,
+            )| {
+                let (added, removed) = match diff_content {
+                    Some(content) => {
+                        let (a, r) = count_diff_lines(&content);
+                        (Some(a), Some(r))
+                    }
+                    None => (None, None),
+                };
+                let commit_sha = commit_content.and_then(|c| commit_sha_from_content(&c));
+                WorktreeSummaryRow {
+                    binding_id,
+                    repo_id,
+                    branch,
+                    role,
+                    lifecycle,
+                    base_commit,
+                    owner_run_id,
+                    owner_run_status,
+                    owner_run_objective,
+                    added,
+                    removed,
+                    commit_sha,
+                }
+            },
+        )
+        .collect())
+}
+
 /// Records an observed cumulative token total for `run_id`. Tokens are
 /// **observed, not enforced** (ADR-002): this never touches `status` and can
 /// never pause a Run — only the wall-clock budget does that (see
@@ -263,4 +404,34 @@ pub async fn observe_tokens(
         return Err(RunError::NotFound(run_id));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn count_diff_lines_ignores_file_header_but_counts_content_lines() {
+        let diff = "--- a/x\n+++ b/x\n+one\n+two\n+three\n-old one\n-old two\n";
+        assert_eq!(count_diff_lines(diff), (3, 2));
+    }
+
+    #[test]
+    fn count_diff_lines_on_empty_diff_is_zero_zero() {
+        assert_eq!(count_diff_lines(""), (0, 0));
+    }
+
+    #[test]
+    fn commit_sha_from_content_takes_the_first_token() {
+        assert_eq!(
+            commit_sha_from_content("75269de latest commit message"),
+            Some("75269de".to_string())
+        );
+    }
+
+    #[test]
+    fn commit_sha_from_content_is_none_for_empty_string() {
+        assert_eq!(commit_sha_from_content(""), None);
+        assert_eq!(commit_sha_from_content("   "), None);
+    }
 }

@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 use vingilot_coordinator::domain::RunMode;
+use vingilot_coordinator::evidence::{self, EvidenceKind};
 use vingilot_coordinator::run::{self, NewRun};
 use vingilot_coordinator::{binding, http, workspace};
 
@@ -379,6 +380,237 @@ async fn post_mutations_ensures_the_workspace_when_it_does_not_exist_yet() {
     assert_eq!(body["revision"], json!(1));
 
     cleanup(&pool, workspace_id).await;
+}
+
+// ---------------------------------------------------------------------
+// GET /v1/workspaces/{id}/worktrees — Task 1 of the projects-and-terminal
+// plan: a workspace's worktree bindings joined to their owner run's live
+// state, plus the latest diff/commit evidence per owner run.
+// ---------------------------------------------------------------------
+
+/// Directly inserts a `worktree_bindings` row with no `owner_run_id` —
+/// `binding::create_binding` always requires a run, so a binding with no
+/// owner has to be written by hand here, exactly like a `main`/primary
+/// checkout that was never provisioned by a Run.
+async fn insert_ownerless_binding(pool: &PgPool, repo_id: &str, idempotency_key: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO worktree_bindings \
+         (id, repo_id, target_id, role, base_commit, branch, lifecycle, owner_run_id, idempotency_key) \
+         VALUES ($1, $2, 'main', 'primary', 'deadbeef', NULL, 'ready', NULL, $3)",
+    )
+    .bind(id)
+    .bind(repo_id)
+    .bind(idempotency_key)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+async fn cleanup_binding(pool: &PgPool, binding_id: Uuid) {
+    let _ = sqlx::query("DELETE FROM worktree_bindings WHERE id = $1")
+        .bind(binding_id)
+        .execute(pool)
+        .await;
+}
+
+#[tokio::test]
+async fn worktree_list_joins_owner_run_status_and_objective() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (workspace_id, run_id) = new_workspace_and_run(&pool).await;
+    let binding_id = binding::create_binding(
+        &pool,
+        run_id,
+        "buzz",
+        "target",
+        "task",
+        "abc123",
+        Some("run/bz-142"),
+        &key("worktree-list"),
+    )
+    .await
+    .unwrap();
+
+    let base_url = spawn(pool.clone()).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{base_url}/v1/workspaces/{workspace_id}/worktrees"))
+        .bearer_auth(AUTH_TOKEN)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    let worktrees = body["worktrees"].as_array().unwrap();
+    let row = worktrees
+        .iter()
+        .find(|w| w["binding_id"] == json!(binding_id))
+        .expect("created binding must appear in the list");
+
+    assert_eq!(row["repo_id"], json!("buzz"));
+    assert_eq!(row["branch"], json!("run/bz-142"));
+    assert_eq!(row["role"], json!("task"));
+    assert_eq!(row["lifecycle"], json!("ready"));
+    assert_eq!(row["base_commit"], json!("abc123"));
+    assert_eq!(row["owner_run_id"], json!(run_id));
+    assert_eq!(row["owner_run_status"], json!("draft"));
+    assert_eq!(row["owner_run_objective"], json!("http api test"));
+    // No diff/commit evidence appended yet — counts are null, not zero.
+    assert!(row["added"].is_null());
+    assert!(row["removed"].is_null());
+    assert!(row["commit_sha"].is_null());
+
+    cleanup(&pool, workspace_id).await;
+}
+
+#[tokio::test]
+async fn worktree_with_no_owner_run_still_appears() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let workspace_id = Uuid::new_v4();
+    workspace::ensure_workspace(&pool, workspace_id)
+        .await
+        .unwrap();
+    let binding_id = insert_ownerless_binding(&pool, "buzz", &key("worktree-ownerless")).await;
+
+    let base_url = spawn(pool.clone()).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{base_url}/v1/workspaces/{workspace_id}/worktrees"))
+        .bearer_auth(AUTH_TOKEN)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    let worktrees = body["worktrees"].as_array().unwrap();
+    let row = worktrees
+        .iter()
+        .find(|w| w["binding_id"] == json!(binding_id))
+        .expect("ownerless binding must still appear");
+
+    assert_eq!(row["role"], json!("primary"));
+    assert!(row["owner_run_id"].is_null());
+    assert!(row["owner_run_status"].is_null());
+    assert!(row["owner_run_objective"].is_null());
+    assert!(row["added"].is_null());
+    assert!(row["removed"].is_null());
+    assert!(row["commit_sha"].is_null());
+
+    cleanup_binding(&pool, binding_id).await;
+    let _ = sqlx::query("DELETE FROM workspaces WHERE id = $1")
+        .bind(workspace_id)
+        .execute(&pool)
+        .await;
+}
+
+#[tokio::test]
+async fn worktree_diff_counts_come_from_the_latest_diff_evidence() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (workspace_id, run_id) = new_workspace_and_run(&pool).await;
+    let binding_id = binding::create_binding(
+        &pool,
+        run_id,
+        "buzz",
+        "target",
+        "task",
+        "abc123",
+        Some("run/bz-142"),
+        &key("worktree-diff"),
+    )
+    .await
+    .unwrap();
+
+    // An earlier, smaller diff — must be superseded by the later one below.
+    evidence::append(
+        &pool,
+        run_id,
+        EvidenceKind::Diff,
+        "--- a/x\n+++ b/x\n+one\n",
+    )
+    .await
+    .unwrap();
+    evidence::append(&pool, run_id, EvidenceKind::Commit, "aaa111 stale commit")
+        .await
+        .unwrap();
+
+    // The latest diff/commit — this is what the endpoint must report.
+    evidence::append(
+        &pool,
+        run_id,
+        EvidenceKind::Diff,
+        "--- a/x\n+++ b/x\n+one\n+two\n+three\n-old one\n-old two\n",
+    )
+    .await
+    .unwrap();
+    evidence::append(
+        &pool,
+        run_id,
+        EvidenceKind::Commit,
+        "75269de latest commit message",
+    )
+    .await
+    .unwrap();
+
+    let base_url = spawn(pool.clone()).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{base_url}/v1/workspaces/{workspace_id}/worktrees"))
+        .bearer_auth(AUTH_TOKEN)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    let worktrees = body["worktrees"].as_array().unwrap();
+    let row = worktrees
+        .iter()
+        .find(|w| w["binding_id"] == json!(binding_id))
+        .expect("created binding must appear in the list");
+
+    assert_eq!(row["added"], json!(3));
+    assert_eq!(row["removed"], json!(2));
+    assert_eq!(row["commit_sha"], json!("75269de"));
+
+    cleanup(&pool, workspace_id).await;
+}
+
+#[tokio::test]
+async fn worktree_list_401_without_bearer() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let workspace_id = Uuid::new_v4();
+    workspace::ensure_workspace(&pool, workspace_id)
+        .await
+        .unwrap();
+    let base_url = spawn(pool.clone()).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{base_url}/v1/workspaces/{workspace_id}/worktrees"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 401);
+
+    let _ = sqlx::query("DELETE FROM workspaces WHERE id = $1")
+        .bind(workspace_id)
+        .execute(&pool)
+        .await;
 }
 
 #[test]
