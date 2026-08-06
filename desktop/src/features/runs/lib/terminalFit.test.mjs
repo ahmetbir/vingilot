@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveFit, shouldFit, shouldResizePty } from "./terminalFit.ts";
+import {
+  resolveFit,
+  resolveFitAction,
+  shouldFit,
+  shouldResizePty,
+} from "./terminalFit.ts";
 
 test("a laid-out container is fittable", () => {
   assert.equal(shouldFit(800, 600), true);
@@ -110,4 +115,61 @@ test("a fractional proposal never reaches the pty", () => {
   assert.deepEqual(resolveFit(1400, 760, { cols: 213.5, rows: 51 }), {
     type: "refuse",
   });
+});
+
+const hidden = resolveFit(0, 0, null);
+const unmeasured = resolveFit(1400, 760, null);
+const measured = resolveFit(1400, 760, { cols: 213, rows: 51 });
+
+test("a measured terminal with no session opens at the size it measured", () => {
+  assert.deepEqual(resolveFitAction("unopened", measured), {
+    cols: 213,
+    rows: 51,
+    type: "open",
+  });
+});
+
+test("a measured terminal with a live session resizes it", () => {
+  assert.deepEqual(resolveFitAction("open", measured), {
+    cols: 213,
+    rows: 51,
+    type: "resize",
+  });
+});
+
+test("a hidden terminal never opens a session", () => {
+  // The defect this rule exists for: the version it replaced spawned a shell
+  // at a placeholder 80x24 here, and under tmux that reshapes a session
+  // restored from a previous app run — 213x51 down to 80x23 on tmux 3.6a,
+  // re-wrapping the scrollback the owner came back for.
+  assert.deepEqual(resolveFitAction("unopened", hidden), { type: "idle" });
+});
+
+test("a terminal whose cell box is unmeasured waits rather than opening", () => {
+  assert.deepEqual(resolveFitAction("unopened", unmeasured), { type: "retry" });
+});
+
+test("no decision short of a measurement can open a session", () => {
+  // Structural: `open` is reachable from exactly one decision type, so no
+  // future branch can reintroduce an invented geometry.
+  for (const phase of ["unopened", "opening", "open"]) {
+    for (const decision of [hidden, unmeasured]) {
+      assert.notEqual(resolveFitAction(phase, decision).type, "open");
+    }
+  }
+});
+
+test("an open already in flight is left alone", () => {
+  // A second pty_open would race the first, and the geometry it would carry
+  // is the one the first is already applying.
+  assert.deepEqual(resolveFitAction("opening", measured), { type: "idle" });
+  assert.deepEqual(resolveFitAction("opening", unmeasured), { type: "idle" });
+});
+
+test("a collapsed but measured pane is left alone rather than retried", () => {
+  // Measured and decided: retrying would spin frames on a geometry that is
+  // not going to improve on its own.
+  const collapsed = resolveFit(1400, 6, { cols: 213, rows: 1 });
+  assert.deepEqual(resolveFitAction("unopened", collapsed), { type: "idle" });
+  assert.deepEqual(resolveFitAction("open", collapsed), { type: "idle" });
 });

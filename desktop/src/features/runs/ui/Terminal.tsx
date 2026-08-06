@@ -21,6 +21,15 @@
 // not a reboot (vingilot_pty/tmux.rs). The status bar states which mode is
 // live (features/runs/lib/terminalPersistence.ts); nothing here may imply
 // more than it says.
+//
+// **A session is opened by a measurement, not by mounting.** Terminals for
+// every worktree mount at once, all but one of them inside a hidden subtree
+// that measures 0×0. Opening those at a placeholder size does not merely
+// start a shell small: under tmux the sole attached client's size *is* the
+// session's size, so it reshapes a session restored from a previous app run
+// and re-wraps its scrollback. So this waits — being shown is what measures
+// it, and being measured is what opens it (features/runs/lib/terminalFit.ts).
+// A worktree the owner never looks at costs no shell at all.
 
 import "@xterm/xterm/css/xterm.css";
 
@@ -38,7 +47,11 @@ import {
   acceptPtyChunk,
   initialPtyStreamState,
 } from "@/features/runs/lib/ptyStream";
-import { type FitDecision, resolveFit } from "@/features/runs/lib/terminalFit";
+import {
+  resolveFit,
+  resolveFitAction,
+  type SessionPhase,
+} from "@/features/runs/lib/terminalFit";
 
 interface TerminalProps {
   /** The worktree binding id — the PTY session id (mod.rs: "same worktree
@@ -60,20 +73,16 @@ const XTERM_THEME = {
   background: "transparent",
 } as const;
 
-/** Geometry a session is spawned with when nothing has been measured yet — a
- * terminal mounted inside a hidden subtree, which is the ordinary case when
- * the owner returns to a project and every worktree's view remounts at once.
- * It is a placeholder, not a claim: the fit loop below replaces it with the
- * real one the first time this terminal is actually shown. */
-const UNMEASURED_COLS = 80;
-const UNMEASURED_ROWS = 24;
-
 /** How many frames to keep re-asking for a measurement before giving up.
  * xterm re-measures its cell box from its own IntersectionObserver once a
  * hidden subtree is shown, which lands a frame or more after the React effect
  * that noticed the change; ~2s is far past that and still terminates. A
  * terminal that somehow exhausts it keeps its last good geometry and is
- * re-fitted by the next ResizeObserver callback. */
+ * re-fitted by the next ResizeObserver callback.
+ *
+ * Exhausting it is not a deadline for opening the session, only for this
+ * burst of frames. A terminal that is never shown is never measured and so
+ * never opened — which is the point — and being shown starts a fresh burst. */
 const MAX_FIT_FRAMES = 120;
 
 export function Terminal({
@@ -84,145 +93,147 @@ export function Terminal({
 }: TerminalProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const termRef = React.useRef<XTerm | null>(null);
-  const fitRef = React.useRef<FitAddon | null>(null);
-  /** False until `pty_open` has returned for this attachment. Resizing before
-   * then would either race the spawn or reach a session that does not exist
-   * yet. */
-  const openedRef = React.useRef(false);
-  const fitFrameRef = React.useRef<number | null>(null);
-
-  /** One fit attempt. Answers with the decision so the caller can tell
-   * "measured and refused" (stop) apart from "not measured yet" (ask again on
-   * a later frame) — conflating them is how a hidden-born terminal ended up
-   * pushing its unmeasured 80×24 to a live shell. */
-  const fitOnce = React.useCallback((): FitDecision["type"] => {
-    const container = containerRef.current;
-    const fit = fitRef.current;
-    if (container === null || fit === null) return "refuse";
-    if (!openedRef.current) return "wait";
-
-    const { height, width } = container.getBoundingClientRect();
-    const decision = resolveFit(width, height, fit.proposeDimensions() ?? null);
-    if (decision.type !== "apply") return decision.type;
-
-    // Both halves or neither: fitting the xterm without pushing the same
-    // geometry to the pty leaves the shell writing for a shape the view is
-    // not rendering.
-    fit.fit();
-    void ptyResize(sessionId, decision.cols, decision.rows).catch(() => {
-      // The session can close under a resize (the shell exited, the worktree
-      // left the workspace). Nothing to render for it either way.
-    });
-    return "apply";
-  }, [sessionId]);
-
-  const scheduleFit = React.useCallback(() => {
-    if (fitFrameRef.current !== null) {
-      cancelAnimationFrame(fitFrameRef.current);
-      fitFrameRef.current = null;
-    }
-    let frames = 0;
-    function attempt() {
-      fitFrameRef.current = null;
-      if (fitOnce() !== "wait") return;
-      frames += 1;
-      if (frames > MAX_FIT_FRAMES) return;
-      fitFrameRef.current = requestAnimationFrame(attempt);
-    }
-    attempt();
-  }, [fitOnce]);
+  /** Re-runs the live attachment's measure step. Held in a ref because the
+   * attachment owns it: it closes over that attachment's xterm, phase, and
+   * frame handle, and is null between attachments. */
+  const remeasureRef = React.useRef<(() => void) | null>(null);
 
   // One xterm instance per attachment. Tearing this down detaches a view; it
   // does not end the session, and re-running it reattaches to the same live
   // shell — `pty_open` replays what the screen held rather than spawning a
   // second one.
   React.useEffect(() => {
-    if (cwd === null || containerRef.current === null) return;
+    const mounted = containerRef.current;
+    if (cwd === null || mounted === null) return;
+    // Re-bound as non-nullable: the hoisted helpers below are function
+    // declarations, which do not inherit the narrowing from the guard.
+    const container: HTMLDivElement = mounted;
+    const shellCwd: string = cwd;
 
     const term = new XTerm({ cursorBlink: true, theme: XTERM_THEME });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(containerRef.current);
+    term.open(container);
     termRef.current = term;
-    fitRef.current = fit;
-    openedRef.current = false;
 
-    // Spawn geometry comes from the addon's own proposal or not at all. A
-    // terminal built inside a hidden subtree proposes nothing, and reading
-    // `term.cols`/`term.rows` there would spawn the shell at the constructor
-    // default while claiming it was measured — `pty_open`'s reattach branch
-    // deliberately never resizes, so that geometry would stick.
-    const { height, width } = containerRef.current.getBoundingClientRect();
-    const spawn = resolveFit(width, height, fit.proposeDimensions() ?? null);
-    if (spawn.type === "apply") fit.fit();
-    const cols = spawn.type === "apply" ? spawn.cols : UNMEASURED_COLS;
-    const rows = spawn.type === "apply" ? spawn.rows : UNMEASURED_ROWS;
-
-    let unlisten: (() => void) | undefined;
     let detached = false;
+    let phase: SessionPhase = "unopened";
+    let frame: number | null = null;
     let stream = initialPtyStreamState();
+    let unlisten: (() => void) | undefined;
 
-    async function attach() {
-      // Subscribe before opening, never after: `pty_open` emits the
-      // reattach replay — and a fresh shell emits its first prompt —
-      // from inside the command, so a listener attached afterwards misses
-      // the screen it exists to render. The overlap that ordering creates
-      // (a live chunk emitted between the subscribe and the snapshot, and
-      // therefore present in both) is resolved by `ptyStream`.
-      const stop = await onPtyOutput(sessionId, (chunk) => {
-        const accepted = acceptPtyChunk(stream, chunk);
-        stream = accepted.state;
-        for (const text of accepted.write) term.write(text);
-      });
-      if (detached) {
-        stop();
-        return;
-      }
-      unlisten = stop;
+    // Subscribed once per attachment, and always before any `pty_open`: that
+    // command emits the reattach replay — and a fresh shell its first prompt
+    // — from inside itself, so a listener attached afterwards misses the
+    // screen it exists to render. The overlap that ordering creates (a live
+    // chunk emitted between the subscribe and the snapshot, and so present in
+    // both) is resolved by `ptyStream`. Subscribing here rather than inside
+    // `open` also means a retried open cannot stack a second listener.
+    const subscribed = onPtyOutput(sessionId, (chunk) => {
+      const accepted = acceptPtyChunk(stream, chunk);
+      stream = accepted.state;
+      for (const text of accepted.write) term.write(text);
+    }).then((stop) => {
+      if (detached) stop();
+      else unlisten = stop;
+    });
+
+    async function open(cols: number, rows: number) {
+      phase = "opening";
+      await subscribed;
+      if (detached) return;
       try {
-        await ptyOpen(sessionId, cwd as string, cols, rows);
+        await ptyOpen(sessionId, shellCwd, cols, rows);
       } catch (error) {
+        // Back to unopened, so being shown again retries rather than
+        // stranding the pane with no shell and no explanation but this line.
+        phase = "unopened";
         if (!detached) term.write(`\r\n[terminal: ${String(error)}]\r\n`);
         return;
       }
       if (detached) return;
-      openedRef.current = true;
-      // Corrects the placeholder geometry above once this terminal is on
-      // screen and xterm has measured a cell.
-      scheduleFit();
+      phase = "open";
+      // The container can have been resized while the open was in flight, and
+      // nothing else is watching for that.
+      remeasure();
     }
-    void attach();
+
+    /** One measurement, and whatever it licenses. Answers whether to ask
+     * again on a later frame. */
+    function step(): "retry" | "settled" {
+      if (detached) return "settled";
+      const { height, width } = container.getBoundingClientRect();
+      const action = resolveFitAction(
+        phase,
+        resolveFit(width, height, fit.proposeDimensions() ?? null),
+      );
+      if (action.type === "retry") return "retry";
+      if (action.type === "idle") return "settled";
+
+      // Both halves or neither: sizing the xterm without handing the pty the
+      // same geometry leaves the shell writing for a shape the view is not
+      // rendering.
+      fit.fit();
+      if (action.type === "open") {
+        void open(action.cols, action.rows);
+      } else {
+        void ptyResize(sessionId, action.cols, action.rows).catch(() => {
+          // The session can close under a resize (the shell exited, the
+          // worktree left the workspace). Nothing to render for it either way.
+        });
+      }
+      return "settled";
+    }
+
+    function remeasure() {
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+        frame = null;
+      }
+      let frames = 0;
+      function attempt() {
+        frame = null;
+        if (step() !== "retry") return;
+        frames += 1;
+        if (frames > MAX_FIT_FRAMES) return;
+        frame = requestAnimationFrame(attempt);
+      }
+      attempt();
+    }
+
+    remeasureRef.current = remeasure;
+    remeasure();
 
     const dataDisposable = term.onData((data) => {
       void ptyWrite(sessionId, data);
     });
 
-    const resizeObserver = new ResizeObserver(() => scheduleFit());
-    resizeObserver.observe(containerRef.current);
+    const resizeObserver = new ResizeObserver(() => remeasure());
+    resizeObserver.observe(container);
 
     return () => {
       detached = true;
-      openedRef.current = false;
-      if (fitFrameRef.current !== null) {
-        cancelAnimationFrame(fitFrameRef.current);
-        fitFrameRef.current = null;
+      remeasureRef.current = null;
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+        frame = null;
       }
       unlisten?.();
       dataDisposable.dispose();
       resizeObserver.disconnect();
       term.dispose();
       termRef.current = null;
-      fitRef.current = null;
     };
-  }, [sessionId, cwd, scheduleFit]);
+  }, [sessionId, cwd]);
 
-  // Re-fit whenever this terminal becomes the visible one — while hidden its
-  // container had no box, so every resize since the last visit was refused,
-  // and its cell box may never have been measured at all.
+  // Being shown is what measures this terminal, and a measurement is the only
+  // thing that opens its session — so for a terminal that mounted hidden this
+  // is the open, not merely a re-fit. For one already open it is still the
+  // re-fit: every resize while it was hidden measured 0×0 and was refused.
   React.useEffect(() => {
     if (!active) return;
-    scheduleFit();
-  }, [active, scheduleFit]);
+    remeasureRef.current?.();
+  }, [active]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: focusToken is a pure trigger, its value is never read
   React.useEffect(() => {

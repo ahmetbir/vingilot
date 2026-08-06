@@ -84,6 +84,17 @@ fn default_shell() -> String {
 /// running session's retained screen is replayed to the view that just
 /// attached, which is otherwise blank until the shell happens to print again
 /// (at an idle prompt: never).
+///
+/// **`cols`/`rows` must be a geometry the caller actually measured.** The
+/// spawn below adopts them, and under tmux the pty's size becomes the
+/// *session's* size — `-D` having detached every other client, the one
+/// attaching is the only one left to size it. A placeholder therefore does
+/// not merely start a shell small: measured on tmux 3.6a, a session restored
+/// at 213×51 becomes 80×23 the moment an 80×24 client attaches, re-wrapping
+/// the scrollback it was restored for. There is no way to tell a placeholder
+/// from a real 80×24 here, so the refusal lives with the caller, which is the
+/// only side that knows whether anything was laid out
+/// (`features/runs/lib/terminalFit.ts`).
 #[tauri::command]
 pub fn pty_open(
     app: AppHandle,

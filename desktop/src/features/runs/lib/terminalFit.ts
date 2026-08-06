@@ -99,3 +99,60 @@ export function resolveFit(
   if (!shouldResizePty(proposal.cols, proposal.rows)) return { type: "refuse" };
   return { cols: proposal.cols, rows: proposal.rows, type: "apply" };
 }
+
+/** How far a view has got in attaching to a PTY session.
+ *
+ * - `unopened`: nothing has been opened for this view. It has no geometry to
+ *   preserve and no session to resize.
+ * - `opening`: `pty_open` is in flight. A second call would race the first.
+ * - `open`: the session is live and this view is streaming it. */
+export type SessionPhase = "opening" | "open" | "unopened";
+
+/** What a fit opportunity means for a view in a given phase.
+ *
+ * - `open`: open the session **at this measured geometry**.
+ * - `resize`: push this measured geometry to the session already open.
+ * - `retry`: nothing is measured yet; ask again on a later frame.
+ * - `idle`: nothing to do now. A later ResizeObserver callback, or this
+ *   terminal being shown, is what brings it back. */
+export type FitAction =
+  | ({ type: "open" } & TerminalGeometry)
+  | ({ type: "resize" } & TerminalGeometry)
+  | { type: "idle" }
+  | { type: "retry" };
+
+/** The one rule that decides when a session may be opened at all.
+ *
+ * **Why an open waits for a measurement.** `pty_open`'s reattach branch
+ * refuses to resize, precisely because the geometry a reattaching view reports
+ * may be its pre-layout default — adopting it would reflow a live shell to a
+ * shape nobody is looking at. Its *spawn* branch had no such scruple: it took
+ * whatever it was handed, and the caller handed it a placeholder 80×24 for
+ * every terminal born inside a hidden subtree, which is every worktree's
+ * terminal but one each time a project opens.
+ *
+ * Under tmux that placeholder does not merely start a shell small — it
+ * reshapes a session restored from a previous app run, because the sole
+ * attached client's size *is* the session's size (`-D` having detached any
+ * other). Measured on tmux 3.6a: a session created 213×51 becomes 80×23 the
+ * moment an 80×24 client attaches, re-wrapping every line of the scrollback
+ * the owner came back for. That is the same failure the reattach branch
+ * refuses to commit, arriving by the other branch.
+ *
+ * So there is no action here that opens without an `apply`: a terminal that
+ * has not been measured waits to be shown, and opens at the size it is
+ * actually given. Nothing invents a geometry. */
+export function resolveFitAction(
+  phase: SessionPhase,
+  decision: FitDecision,
+): FitAction {
+  // An open already in flight owns the session's geometry until it lands, and
+  // signals for itself when it does.
+  if (phase === "opening") return { type: "idle" };
+  if (decision.type === "wait") return { type: "retry" };
+  if (decision.type === "refuse") return { type: "idle" };
+  const { cols, rows } = decision;
+  return phase === "unopened"
+    ? { cols, rows, type: "open" }
+    : { cols, rows, type: "resize" };
+}
