@@ -19,6 +19,40 @@ pub(crate) struct PtySession {
     pub(crate) master: Box<dyn MasterPty + Send>,
     pub(crate) child: Box<dyn Child + Send + Sync>,
     pub(crate) scrollback: Scrollback,
+    /// Position the next recorded chunk takes in this session's output
+    /// stream. A reattaching view is told where the replay stops so it can
+    /// discard the live chunks the replay already contains — the two are
+    /// emitted from different threads and otherwise overlap. See
+    /// `desktop/src/features/runs/lib/ptyStream.ts`.
+    next_seq: u64,
+}
+
+impl PtySession {
+    pub(crate) fn new(
+        writer: Box<dyn Write + Send>,
+        master: Box<dyn MasterPty + Send>,
+        child: Box<dyn Child + Send + Sync>,
+    ) -> Self {
+        Self {
+            writer,
+            master,
+            child,
+            scrollback: Scrollback::default(),
+            next_seq: 0,
+        }
+    }
+}
+
+/// Kill a shell and reap it.
+///
+/// The reap is not optional: `std::process::Child`'s `Drop` does not wait, so
+/// a kill on its own leaves a zombie for as long as the app runs — one per
+/// terminal the owner ever closed. The wait follows a signal the process
+/// cannot decline and is called with no lock held, so it does not hold up
+/// anything else in the registry.
+pub(crate) fn kill_and_reap(child: &mut (dyn Child + Send + Sync)) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Thread-safe registry of live PTY sessions, keyed by session id — the
@@ -89,24 +123,31 @@ impl PtySessions {
     }
 
     /// Record output a session's shell just produced, so a view attaching
-    /// later can be shown what it missed. Output for a session that is no
-    /// longer registered is dropped — the shell is gone and nothing will
-    /// ever reattach to it.
-    pub(crate) fn record_output(&self, session_id: &str, bytes: &[u8]) {
+    /// later can be shown what it missed, and answer with the position this
+    /// chunk takes in the session's output stream. `None` when the session is
+    /// no longer registered — the shell is gone and nothing will ever
+    /// reattach to it, so the output is dropped.
+    ///
+    /// Callers must record whole characters: the position returned here is
+    /// what a reattaching view compares against, so the recorded bytes and
+    /// the emitted text have to describe the same span exactly.
+    pub(crate) fn record_output(&self, session_id: &str, bytes: &[u8]) -> Option<u64> {
         let mut sessions = self.lock();
-        if let Some(session) = sessions.get_mut(session_id) {
-            session.scrollback.push(bytes);
-        }
+        let session = sessions.get_mut(session_id)?;
+        session.scrollback.push(bytes);
+        let seq = session.next_seq;
+        session.next_seq = session.next_seq.saturating_add(1);
+        Some(seq)
     }
 
-    /// What a session's screen holds right now, for replay to a freshly
-    /// attached view. `None` when no session is open for this id — the
-    /// caller is about to spawn a shell, and a fresh shell has nothing to
-    /// replay.
-    pub(crate) fn replay(&self, session_id: &str) -> Option<String> {
+    /// What a session's screen holds right now and the stream position that
+    /// screen stops short of, for replay to a freshly attached view. `None`
+    /// when no session is open for this id — the caller is about to spawn a
+    /// shell, and a fresh shell has nothing to replay.
+    pub(crate) fn replay(&self, session_id: &str) -> Option<(String, u64)> {
         self.lock()
             .get(session_id)
-            .map(|session| session.scrollback.replay())
+            .map(|session| (session.scrollback.replay(), session.next_seq))
     }
 
     /// Remove and kill a session. Idempotent: closing an unknown or
@@ -114,7 +155,7 @@ impl PtySessions {
     pub(crate) fn close(&self, session_id: &str) {
         let removed = self.lock().remove(session_id);
         if let Some(mut session) = removed {
-            let _ = session.child.kill();
+            kill_and_reap(session.child.as_mut());
         }
     }
 }
@@ -189,9 +230,11 @@ mod tests {
         }
     }
 
-    /// A `Child` that records whether it was killed.
+    /// A `Child` that records whether it was killed and whether it was
+    /// waited on — a kill without the wait is what leaves a zombie behind.
     struct FakeChild {
         killed: Arc<AtomicBool>,
+        waited: Arc<AtomicBool>,
     }
 
     impl std::fmt::Debug for FakeChild {
@@ -208,6 +251,7 @@ mod tests {
         fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
             Box::new(FakeChild {
                 killed: Arc::clone(&self.killed),
+                waited: Arc::clone(&self.waited),
             })
         }
     }
@@ -217,6 +261,7 @@ mod tests {
             Ok(None)
         }
         fn wait(&mut self) -> io::Result<ExitStatus> {
+            self.waited.store(true, Ordering::SeqCst);
             Ok(ExitStatus::with_exit_code(0))
         }
         fn process_id(&self) -> Option<u32> {
@@ -228,17 +273,27 @@ mod tests {
         }
     }
 
-    fn fake_session() -> (PtySession, Arc<AtomicBool>) {
-        let killed = Arc::new(AtomicBool::new(false));
-        let session = PtySession {
-            writer: Box::new(FakeWriter::default()),
-            master: Box::new(FakeMaster::new()),
-            child: Box::new(FakeChild {
-                killed: Arc::clone(&killed),
-            }),
-            scrollback: Scrollback::default(),
+    /// What a fake session's shell recorded about its own teardown.
+    #[derive(Clone)]
+    struct Teardown {
+        killed: Arc<AtomicBool>,
+        waited: Arc<AtomicBool>,
+    }
+
+    fn fake_session() -> (PtySession, Teardown) {
+        let teardown = Teardown {
+            killed: Arc::new(AtomicBool::new(false)),
+            waited: Arc::new(AtomicBool::new(false)),
         };
-        (session, killed)
+        let session = PtySession::new(
+            Box::new(FakeWriter::default()),
+            Box::new(FakeMaster::new()),
+            Box::new(FakeChild {
+                killed: Arc::clone(&teardown.killed),
+                waited: Arc::clone(&teardown.waited),
+            }),
+        );
+        (session, teardown)
     }
 
     /// Presence, asked the way production asks it: `replay` answers `None`
@@ -246,6 +301,12 @@ mod tests {
     /// uses to decide between replaying and spawning.
     fn is_open(sessions: &PtySessions, session_id: &str) -> bool {
         sessions.replay(session_id).is_some()
+    }
+
+    /// Just the retained screen, for the assertions that do not care where
+    /// the stream position sits.
+    fn replayed_screen(sessions: &PtySessions, session_id: &str) -> Option<String> {
+        sessions.replay(session_id).map(|(screen, _)| screen)
     }
 
     #[test]
@@ -257,7 +318,7 @@ mod tests {
     #[test]
     fn insert_then_the_session_is_open() {
         let sessions = PtySessions::new();
-        let (session, _killed) = fake_session();
+        let (session, _teardown) = fake_session();
         assert!(sessions
             .insert_if_absent("wt-1".to_string(), session)
             .is_ok());
@@ -267,26 +328,26 @@ mod tests {
     #[test]
     fn opening_an_already_open_session_id_is_idempotent() {
         let sessions = PtySessions::new();
-        let (first, first_killed) = fake_session();
+        let (first, first_teardown) = fake_session();
         assert!(sessions.insert_if_absent("wt-1".to_string(), first).is_ok());
 
         // A second "open" for the same worktree must not replace the
         // running session — the caller is expected to check for an existing
         // one first, but even a raced `insert_if_absent` hands the loser
         // back instead of silently overwriting the winner.
-        let (second, _second_killed) = fake_session();
+        let (second, _second_teardown) = fake_session();
         let result = sessions.insert_if_absent("wt-1".to_string(), second);
         assert!(result.is_err(), "second insert for the same id must lose");
 
         // The original session is untouched.
-        assert!(!first_killed.load(Ordering::SeqCst));
+        assert!(!first_teardown.killed.load(Ordering::SeqCst));
         assert!(is_open(&sessions, "wt-1"));
     }
 
     #[test]
     fn close_removes_the_session_and_kills_the_child() {
         let sessions = PtySessions::new();
-        let (session, killed) = fake_session();
+        let (session, teardown) = fake_session();
         assert!(sessions
             .insert_if_absent("wt-1".to_string(), session)
             .is_ok());
@@ -294,7 +355,32 @@ mod tests {
         sessions.close("wt-1");
 
         assert!(!is_open(&sessions, "wt-1"));
-        assert!(killed.load(Ordering::SeqCst));
+        assert!(teardown.killed.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn close_reaps_the_shell_it_killed_instead_of_leaving_a_zombie() {
+        // A kill without a wait leaves one zombie per terminal the owner ever
+        // closed, for as long as the app runs — Child's Drop does not reap.
+        let sessions = PtySessions::new();
+        let (session, teardown) = fake_session();
+        assert!(sessions
+            .insert_if_absent("wt-1".to_string(), session)
+            .is_ok());
+
+        sessions.close("wt-1");
+
+        assert!(teardown.waited.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_session_torn_down_before_it_was_registered_is_also_reaped() {
+        // The raced-open path: the loser was spawned and never inserted, so
+        // nothing else will ever reap it.
+        let (mut session, teardown) = fake_session();
+        kill_and_reap(session.child.as_mut());
+        assert!(teardown.killed.load(Ordering::SeqCst));
+        assert!(teardown.waited.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -319,7 +405,7 @@ mod tests {
     #[test]
     fn resize_reaches_the_sessions_master() {
         let sessions = PtySessions::new();
-        let (session, _killed) = fake_session();
+        let (session, _teardown) = fake_session();
         assert!(sessions
             .insert_if_absent("wt-1".to_string(), session)
             .is_ok());
@@ -333,7 +419,7 @@ mod tests {
         // not spawn a second shell, and until this existed it also had
         // nothing to hand the newly attached view, which rendered blank.
         let sessions = PtySessions::new();
-        let (session, _killed) = fake_session();
+        let (session, _teardown) = fake_session();
         assert!(sessions
             .insert_if_absent("wt-1".to_string(), session)
             .is_ok());
@@ -342,7 +428,7 @@ mod tests {
         sessions.record_output("wt-1", b"test result: ok\r\n");
 
         assert_eq!(
-            sessions.replay("wt-1").as_deref(),
+            replayed_screen(&sessions, "wt-1").as_deref(),
             Some("$ cargo test\r\ntest result: ok\r\n")
         );
     }
@@ -350,12 +436,12 @@ mod tests {
     #[test]
     fn a_session_that_has_printed_nothing_replays_an_empty_screen_not_none() {
         let sessions = PtySessions::new();
-        let (session, _killed) = fake_session();
+        let (session, _teardown) = fake_session();
         assert!(sessions
             .insert_if_absent("wt-1".to_string(), session)
             .is_ok());
 
-        assert_eq!(sessions.replay("wt-1").as_deref(), Some(""));
+        assert_eq!(replayed_screen(&sessions, "wt-1").as_deref(), Some(""));
     }
 
     #[test]
@@ -369,29 +455,75 @@ mod tests {
         // The reader thread races `close`: the shell can exit (or the owner
         // can close the worktree) between a read and the record that follows.
         let sessions = PtySessions::new();
-        sessions.record_output("gone", b"late output");
+        assert_eq!(sessions.record_output("gone", b"late output"), None);
         assert_eq!(sessions.replay("gone"), None);
+    }
+
+    #[test]
+    fn each_recorded_chunk_takes_the_next_position_in_the_stream() {
+        let sessions = PtySessions::new();
+        let (session, _teardown) = fake_session();
+        assert!(sessions
+            .insert_if_absent("wt-1".to_string(), session)
+            .is_ok());
+
+        assert_eq!(sessions.record_output("wt-1", b"a"), Some(0));
+        assert_eq!(sessions.record_output("wt-1", b"b"), Some(1));
+        assert_eq!(sessions.record_output("wt-1", b"c"), Some(2));
+    }
+
+    #[test]
+    fn a_replay_stops_short_of_the_next_chunk_the_reader_will_emit() {
+        // The mark a reattaching view compares against: everything below it
+        // is already in the replayed screen, everything at or above it is
+        // not. Off by one here and the pane shows a chunk twice.
+        let sessions = PtySessions::new();
+        let (session, _teardown) = fake_session();
+        assert!(sessions
+            .insert_if_absent("wt-1".to_string(), session)
+            .is_ok());
+
+        sessions.record_output("wt-1", b"first\r\n");
+        sessions.record_output("wt-1", b"second\r\n");
+
+        assert_eq!(
+            sessions.replay("wt-1"),
+            Some(("first\r\nsecond\r\n".to_string(), 2))
+        );
+    }
+
+    #[test]
+    fn a_session_that_has_printed_nothing_replays_from_the_start_of_its_stream() {
+        let sessions = PtySessions::new();
+        let (session, _teardown) = fake_session();
+        assert!(sessions
+            .insert_if_absent("wt-1".to_string(), session)
+            .is_ok());
+
+        assert_eq!(sessions.replay("wt-1"), Some((String::new(), 0)));
     }
 
     #[test]
     fn a_closed_and_reopened_session_does_not_replay_the_dead_shells_screen() {
         let sessions = PtySessions::new();
-        let (first, _first_killed) = fake_session();
+        let (first, _first_teardown) = fake_session();
         assert!(sessions.insert_if_absent("wt-1".to_string(), first).is_ok());
         sessions.record_output("wt-1", b"from the first shell");
         sessions.close("wt-1");
 
-        let (second, _second_killed) = fake_session();
+        let (second, _second_teardown) = fake_session();
         assert!(sessions
             .insert_if_absent("wt-1".to_string(), second)
             .is_ok());
-        assert_eq!(sessions.replay("wt-1").as_deref(), Some(""));
+        // The stream position restarts with the shell: a view attaching to
+        // the new session must not discard its output as "already replayed".
+        assert_eq!(sessions.replay("wt-1"), Some((String::new(), 0)));
     }
 
     #[test]
     fn a_poisoned_lock_is_recovered_not_surfaced_as_an_error() {
         let sessions = Arc::new(PtySessions::new());
-        let (session, _killed) = fake_session();
+        let (session, _teardown) = fake_session();
         assert!(sessions
             .insert_if_absent("wt-1".to_string(), session)
             .is_ok());

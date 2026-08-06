@@ -1,7 +1,6 @@
-// Pure guards for the Terminal surface's two resize paths: "may this
-// container be fitted?" and "may this proposed geometry be pushed to the
-// real pty?". Both live here rather than in Terminal.tsx so the rule is
-// testable without a DOM, an xterm instance, or a Tauri bridge.
+// Pure guards for the Terminal surface's resize paths: "may this container be
+// fitted, and to what?". They live here rather than in Terminal.tsx so the
+// rule is testable without a DOM, an xterm instance, or a Tauri bridge.
 //
 // Why a guard at all: a background terminal is `display: none`, so its
 // container measures 0×0 while its ResizeObserver still fires. Fitting and
@@ -9,11 +8,16 @@
 // shell, which reflows its output to match — the scrollback the owner
 // switched away from is gone before they switch back.
 //
-// @xterm/addon-fit 0.10.0 already refuses to *fit* a container whose
-// computed height/width parse to NaN (fit() bails on isNaN), but it does not
-// refuse the clamp floor it applies to a real-but-empty box, and it has no
-// say over what its caller then sends to the pty. These two functions close
-// both.
+// The container's box is only half of it. @xterm/addon-fit 0.10.0 declines to
+// fit at all when the terminal's *cell* box has not been measured
+// (`proposeDimensions` returns undefined on a 0×0 css cell), which is exactly
+// the state of an XTerm constructed inside a hidden subtree — xterm only
+// re-measures asynchronously, from its own IntersectionObserver, on a later
+// frame. A caller that fits and then reads `term.cols`/`term.rows` reads the
+// constructor default 80×24 and cannot tell it apart from a real 80×24, so
+// checking the container alone still sends 80×24 to a live 213×51 shell.
+// Hence: decide from the addon's own proposal, never from the terminal's
+// current geometry, and treat "nothing proposed yet" as its own answer.
 
 /** The floor @xterm/addon-fit 0.10.0 clamps its proposal to
  * (`Math.max(2, …)` columns, `Math.max(1, …)` rows). A container with a box
@@ -27,6 +31,27 @@ const FIT_CLAMP_FLOOR_ROWS = 1;
  * so does the `TIOCSWINSZ` ioctl underneath it. A larger number would wrap
  * to a small one on the way across rather than fail loudly. */
 const MAX_PTY_DIMENSION = 65_535;
+
+/** A terminal geometry, in whole cells — the shape @xterm/addon-fit's
+ * `proposeDimensions()` returns. */
+export interface TerminalGeometry {
+  cols: number;
+  rows: number;
+}
+
+/** What to do with a fit opportunity.
+ *
+ * - `apply`: fit the terminal to these cells and push them to the pty. Both
+ *   halves, together — fitting without resizing leaves the xterm rendering a
+ *   different shape than the shell is writing for.
+ * - `wait`: the container is on screen but nothing has been measured yet.
+ *   Try again on a later frame; do **not** fall back to the terminal's
+ *   current geometry, which is where the 80×24 came from.
+ * - `refuse`: measured, and not a geometry worth having. Change nothing. */
+export type FitDecision =
+  | ({ type: "apply" } & TerminalGeometry)
+  | { type: "refuse" }
+  | { type: "wait" };
 
 /** True when a container's measured box is real enough to fit a terminal
  * into. Callers pass the ResizeObserver's `contentRect` (or a
@@ -55,4 +80,22 @@ export function shouldResizePty(cols: number, rows: number): boolean {
     cols <= MAX_PTY_DIMENSION &&
     rows <= MAX_PTY_DIMENSION
   );
+}
+
+/** The whole decision, from the container's measured box and whatever
+ * @xterm/addon-fit proposes for it (`null` when it proposes nothing).
+ *
+ * `proposal === null` from a container that *does* have a box is the
+ * hidden-construction case: the terminal exists but its cell size is
+ * unmeasured, so nothing can be concluded yet. That is `wait`, not a licence
+ * to use the terminal's current cols/rows. */
+export function resolveFit(
+  width: number,
+  height: number,
+  proposal: TerminalGeometry | null,
+): FitDecision {
+  if (!shouldFit(width, height)) return { type: "refuse" };
+  if (proposal === null) return { type: "wait" };
+  if (!shouldResizePty(proposal.cols, proposal.rows)) return { type: "refuse" };
+  return { cols: proposal.cols, rows: proposal.rows, type: "apply" };
 }

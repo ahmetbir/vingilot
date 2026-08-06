@@ -9,6 +9,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { PtyChunk } from "@/features/runs/lib/ptyStream";
+
 /** Session id = the worktree binding id (see mod.rs's file header): "same
  * worktree ⇒ same session". */
 export function ptyOpen(
@@ -36,17 +38,18 @@ export function ptyClose(session: string): Promise<void> {
   return invoke("pty_close", { session });
 }
 
-interface PtyOutputPayload {
-  data: string;
-}
-
 /** Subscribes to a session's output event (`vingilot://pty/<session>`).
- * Returns the unlisten function — callers tear it down on unmount. */
+ * Returns the unlisten function — callers tear it down on unmount.
+ *
+ * Chunks are handed over as they arrive, which is not necessarily the order
+ * they were sent: the reattach replay and the live stream are emitted from
+ * different threads. Ordering (and de-duplicating the overlap between them)
+ * is `lib/ptyStream.ts`'s job, not this wrapper's. */
 export function onPtyOutput(
   session: string,
-  onData: (data: string) => void,
+  onChunk: (chunk: PtyChunk) => void,
 ): Promise<UnlistenFn> {
-  return listen<PtyOutputPayload>(`vingilot://pty/${session}`, (event) => {
-    onData(event.payload.data);
+  return listen<PtyChunk>(`vingilot://pty/${session}`, (event) => {
+    onChunk(event.payload);
   });
 }

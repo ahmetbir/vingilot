@@ -29,6 +29,10 @@ import {
   transitionRun,
 } from "@/features/runs/lib/coordinatorClient";
 import {
+  readOpenSessions,
+  writeOpenSessions,
+} from "@/features/runs/lib/openSessions";
+import {
   DEFAULT_WORKTREE_ROOT_SUFFIX,
   groupWorktrees,
   readRepos,
@@ -190,9 +194,17 @@ export function RunsScreen() {
   }, [selectedRepoId, selectedWorktreeId, repoWorktrees]);
 
   // Visiting a worktree opens its terminal; nothing here ever closes one.
-  const [openedSessionIds, setOpenedSessionIds] = React.useState<
-    readonly string[]
-  >([]);
+  //
+  // Seeded from, and mirrored back into, the module-level registry
+  // (lib/openSessions.ts): this component unmounts on any route change away
+  // from /runs, and a list that lived only here would be forgotten on the way
+  // out — along with any shell whose worktree disappears while the owner is
+  // elsewhere.
+  const [openedSessionIds, setOpenedSessionIds] =
+    React.useState<readonly string[]>(readOpenSessions);
+  React.useEffect(() => {
+    writeOpenSessions(openedSessionIds);
+  }, [openedSessionIds]);
   React.useEffect(() => {
     if (selectedWorktreeId === null) return;
     setOpenedSessionIds((prev) =>

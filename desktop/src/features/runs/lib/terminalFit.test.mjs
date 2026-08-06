@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { shouldFit, shouldResizePty } from "./terminalFit.ts";
+import { resolveFit, shouldFit, shouldResizePty } from "./terminalFit.ts";
 
 test("a laid-out container is fittable", () => {
   assert.equal(shouldFit(800, 600), true);
@@ -64,4 +64,50 @@ test("a dimension past the pty's u16 window size is refused, not truncated", () 
   assert.equal(shouldResizePty(65_536, 24), false);
   assert.equal(shouldResizePty(80, 65_536), false);
   assert.equal(shouldResizePty(65_535, 65_535), true);
+});
+
+test("a laid-out container with a real proposal is applied to both halves", () => {
+  assert.deepEqual(resolveFit(1400, 760, { cols: 213, rows: 51 }), {
+    cols: 213,
+    rows: 51,
+    type: "apply",
+  });
+});
+
+test("a hidden container is refused whatever it proposes", () => {
+  assert.deepEqual(resolveFit(0, 0, { cols: 213, rows: 51 }), {
+    type: "refuse",
+  });
+  assert.deepEqual(resolveFit(0, 0, null), { type: "refuse" });
+});
+
+test("an on-screen container that has proposed nothing is a wait, not 80x24", () => {
+  // The bug this exists for: an XTerm constructed inside a display:none
+  // subtree has an unmeasured cell box, so addon-fit proposes nothing and
+  // fit() silently no-ops — while term.cols/rows still read the constructor
+  // default 80x24. Adopting those shrinks a live 213x51 shell.
+  assert.deepEqual(resolveFit(1400, 760, null), { type: "wait" });
+});
+
+test("a proposal at the fit addon's clamp floor is refused, not waited on", () => {
+  // A real-but-collapsed pane: measured, decided, and not worth having. The
+  // caller must stop rather than spin on frames waiting for it to improve.
+  assert.deepEqual(resolveFit(1400, 6, { cols: 213, rows: 1 }), {
+    type: "refuse",
+  });
+  assert.deepEqual(resolveFit(4, 760, { cols: 2, rows: 51 }), {
+    type: "refuse",
+  });
+});
+
+test("a proposal past the pty's u16 window is refused", () => {
+  assert.deepEqual(resolveFit(1400, 760, { cols: 65_536, rows: 51 }), {
+    type: "refuse",
+  });
+});
+
+test("a fractional proposal never reaches the pty", () => {
+  assert.deepEqual(resolveFit(1400, 760, { cols: 213.5, rows: 51 }), {
+    type: "refuse",
+  });
 });
