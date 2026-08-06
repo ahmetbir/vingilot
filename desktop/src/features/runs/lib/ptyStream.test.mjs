@@ -89,6 +89,27 @@ test("a replay that never arrives cannot retain output without bound", () => {
   assert.equal(state.held[state.held.length - 1].seq, 999);
 });
 
+test("overflow keeps the positions no earlier mark could cover", () => {
+  // Which end to evict is the whole question. The mark only ever rises, so
+  // the lowest position held is the likeliest to fall below it and already be
+  // in the replay — the safest to lose. Keeping the tail keeps the chunks a
+  // replay cannot have carried.
+  const chunks = [];
+  for (let seq = 0; seq < 1000; seq += 1) chunks.push(live(seq, `${seq}\r\n`));
+  const { state } = run(chunks);
+  assert.equal(state.held.length, 256);
+  assert.equal(state.held[0].seq, 744);
+  assert.equal(state.held[state.held.length - 1].seq, 999);
+});
+
+test("what survived an overflow is still released in stream order", () => {
+  const chunks = [];
+  for (let seq = 0; seq < 300; seq += 1) chunks.push(live(seq, `${seq};`));
+  chunks.push(replay(298, "screen;"));
+  const { written } = run(chunks);
+  assert.deepEqual(written, ["screen;", "298;", "299;"]);
+});
+
 test("accepting a chunk does not mutate the state it was given", () => {
   const before = initialPtyStreamState();
   acceptPtyChunk(before, live(0, "x"));

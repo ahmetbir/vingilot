@@ -171,6 +171,12 @@ pub fn pty_open(
 
     // Before the reader thread, so this view's mark is in flight ahead of the
     // first byte the shell prints.
+    //
+    // Empty by construction, not by choice: the session was registered a
+    // moment ago and has recorded nothing. That is what keeps the scrollback
+    // ring and tmux's own attach redraw from ever competing — this is the
+    // only branch on which tmux attaches and redraws, and it is the only
+    // branch that replays no screen (`scrollback.rs`).
     emit_replay(&app, &session, String::new(), 0);
     spawn_reader_thread(app, session, reader);
 

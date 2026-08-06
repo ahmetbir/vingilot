@@ -8,6 +8,18 @@
 //!
 //! Raw bytes, not `String`: a pty read can end mid-character, so decoding is
 //! deferred to `replay()` where the whole retained span is available.
+//!
+//! **It is not made redundant by tmux, and it never competes with tmux's own
+//! redraw.** The two cannot coincide: tmux redraws on *attach*, which happens
+//! only on `pty_open`'s spawn branch, and a session on that branch was
+//! registered a moment earlier with an empty ring — the replay it emits
+//! carries a mark and no screen. The ring is replayed only on the *reattach*
+//! branch, which is reached only while a `PtySession` is already registered,
+//! which means the tmux client never detached and tmux will not redraw
+//! anything. Skipping the ring for tmux-backed sessions would therefore not
+//! remove duplicated work; it would restore the blank pane, for every remount
+//! that keeps its session — leaving a project and coming back, a `cwd`
+//! change, a development remount.
 
 use std::collections::VecDeque;
 
@@ -20,11 +32,11 @@ use std::collections::VecDeque;
 /// event, and it is held per open worktree, so a dozen live terminals cost
 /// ~3 MiB of resident memory and no single replay stalls the IPC channel.
 ///
-/// It is deliberately not "as much as the shell would keep". Task 2 of
-/// vingilot/docs/plans/2026-08-07-workspace-v1.md moves persistence to tmux,
-/// which redraws the visible screen on attach; this buffer is the fallback
-/// for when tmux is absent, and a fallback that tried to be a full
-/// scrollback store would be reimplementing tmux badly.
+/// It is deliberately not "as much as the shell would keep". Persistence
+/// across an app restart is tmux's job, and a ring that tried to be a full
+/// scrollback store would be reimplementing tmux badly. This one covers the
+/// gap tmux does not: a view remounting onto a session whose tmux client
+/// never detached, and so is never going to be redrawn for it.
 const DEFAULT_SCROLLBACK_BYTES: usize = 256 * 1024;
 
 /// A fixed-capacity byte ring. Writes past capacity evict from the front, so
@@ -49,14 +61,21 @@ impl Scrollback {
     }
 
     /// Append output, evicting the oldest bytes to stay within capacity.
+    ///
+    /// The re-opening below runs only for a push that actually evicted. A
+    /// standing rule instead of a per-eviction one would trim a line off
+    /// every push and eat the ring a line at a time.
     pub(crate) fn push(&mut self, bytes: &[u8]) {
         if self.cap == 0 {
             return;
         }
 
+        let mut evicted = false;
+
         // A single write larger than the ring keeps only its tail — the same
         // bytes that would have survived had it arrived in pieces.
         let tail = if bytes.len() > self.cap {
+            evicted = true;
             &bytes[bytes.len() - self.cap..]
         } else {
             bytes
@@ -65,8 +84,13 @@ impl Scrollback {
         self.buf.extend(tail);
         while self.buf.len() > self.cap {
             self.buf.pop_front();
+            evicted = true;
         }
-        self.drop_orphaned_continuation_bytes();
+
+        if evicted {
+            self.open_on_a_line_boundary();
+            self.drop_orphaned_continuation_bytes();
+        }
     }
 
     /// The retained span, decoded for the webview.
@@ -78,13 +102,36 @@ impl Scrollback {
         String::from_utf8_lossy(&bytes).into_owned()
     }
 
-    /// Eviction can land inside a multi-byte character, leaving the buffer
-    /// starting on continuation bytes (`0b10xx_xxxx`) that would decode to a
-    /// leading replacement character. Drop them.
+    /// Resume the retained span just after a newline, so the replay cannot
+    /// open in the middle of an escape sequence.
     ///
-    /// An ANSI escape sequence cut the same way is left as it falls: there
-    /// is no cheap way to find a sequence's start from its middle, and
-    /// xterm discards an incomplete sequence rather than printing it.
+    /// Eviction cuts at a byte offset the terminal knows nothing about, and
+    /// what it cuts through is usually not text — a pty stream, especially
+    /// tmux's, is mostly escape sequences. Half of one is not a smaller
+    /// version of itself: the tail of `ESC [ 2 J` replays as the literal text
+    /// "J" instead of clearing anything, and a truncated mode-set leaves the
+    /// terminal in a mode every byte after it assumes it left. xterm discards
+    /// a sequence whose start it saw and whose end it did not; nothing
+    /// protects the other half.
+    ///
+    /// A newline is the one byte that cannot appear among a CSI sequence's
+    /// parameters or its final byte, so resuming after one guarantees the
+    /// replay opens outside any sequence. The cost is at most one partial
+    /// line. A span holding no newline at all — one very long line — has no
+    /// boundary to find, and is left as it falls rather than dropped whole.
+    fn open_on_a_line_boundary(&mut self) {
+        let Some(newline) = self.buf.iter().position(|&byte| byte == b'\n') else {
+            return;
+        };
+        self.buf.drain(..=newline);
+    }
+
+    /// Eviction can also land inside a multi-byte character, leaving the
+    /// buffer starting on continuation bytes (`0b10xx_xxxx`) that would
+    /// decode to a leading replacement character. Drop them.
+    ///
+    /// Still needed after the line-boundary trim above, which finds nothing
+    /// to do in a span with no newline in it.
     fn drop_orphaned_continuation_bytes(&mut self) {
         while let Some(&first) = self.buf.front() {
             if first & 0b1100_0000 == 0b1000_0000 {
@@ -164,6 +211,45 @@ mod tests {
         let mut sb = Scrollback::default();
         sb.push("✓ ünïcode ✗".as_bytes());
         assert_eq!(sb.replay(), "✓ ünïcode ✗");
+    }
+
+    #[test]
+    fn a_replay_never_opens_inside_an_escape_sequence() {
+        // Cutting `ESC [ 2 J` in half does not clear a smaller screen — its
+        // tail replays as the literal text "J". Resuming after a newline is
+        // what stops that reaching the pane.
+        let mut sb = Scrollback::with_capacity(14);
+        sb.push(b"\x1b[2Jalpha\r\nbeta\r\n");
+        assert_eq!(sb.replay(), "beta\r\n");
+    }
+
+    #[test]
+    fn a_span_that_never_evicted_keeps_its_very_first_line() {
+        // The trim is a repair for an arbitrary cut. With no cut there is
+        // nothing to repair, and the first line the shell printed is real.
+        let mut sb = Scrollback::default();
+        sb.push(b"first\r\nsecond\r\n");
+        assert_eq!(sb.replay(), "first\r\nsecond\r\n");
+    }
+
+    #[test]
+    fn a_push_that_evicted_nothing_does_not_cost_a_line() {
+        // Applying the trim on every push rather than on every eviction would
+        // eat the ring one line at a time.
+        let mut sb = Scrollback::with_capacity(64);
+        sb.push(b"aaa\r\n");
+        sb.push(b"bbb\r\n");
+        sb.push(b"ccc\r\n");
+        assert_eq!(sb.replay(), "aaa\r\nbbb\r\nccc\r\n");
+    }
+
+    #[test]
+    fn a_span_with_no_line_boundary_at_all_is_left_as_it_falls() {
+        // One very long line: there is nowhere to resume from, and replaying
+        // an imperfect span beats replaying nothing.
+        let mut sb = Scrollback::with_capacity(4);
+        sb.push(b"abcdefghij");
+        assert_eq!(sb.replay(), "ghij");
     }
 
     #[test]

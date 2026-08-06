@@ -74,6 +74,24 @@ export function acceptPtyChunk(
   return { state, write: [chunk.data] };
 }
 
+/** Retain a chunk that arrived before the mark, dropping the **lowest**
+ * position first if that runs past the cap.
+ *
+ * Which end to evict from is the whole question here, and the code cannot
+ * show the answer. Held chunks are the ones whose fate is not yet decided:
+ * everything below the mark the replay already carries, everything at or
+ * above it the replay does not. The mark only ever rises, so the held chunk
+ * with the lowest position is the one most likely to fall below it and be
+ * redundant — the safest to lose. Evicting the newest would drop precisely
+ * the chunks no earlier mark can cover, which is backwards.
+ *
+ * The overflow is not reachable from either path the backend takes, which is
+ * why the cap is a backstop rather than a policy: a freshly spawned shell has
+ * its replay emitted *before* the reader thread starts (vingilot_pty/mod.rs),
+ * so no live chunk can precede it; and a reattach takes its mark at or above
+ * every position already emitted, so a chunk the replay does not cover must
+ * have been emitted after the replay was. Overflowing needs 256 of those to
+ * overtake the replay across the one channel both cross. */
 function hold(held: readonly PtyChunk[], chunk: PtyChunk): readonly PtyChunk[] {
   const next = [...held, chunk];
   return next.length > MAX_HELD_CHUNKS
