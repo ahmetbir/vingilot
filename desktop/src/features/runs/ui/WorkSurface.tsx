@@ -105,6 +105,12 @@ export function WorkSurface({
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const toggleRightPane = panes.toggleCollapsed;
 
+  // The right pane's box, the divider, and the rail that brings the pane back.
+  // All three are read from effects, never during a render.
+  const rightPaneRef = React.useRef<HTMLElement | null>(null);
+  const dividerRef = React.useRef<HTMLDivElement | null>(null);
+  const expandRef = React.useRef<HTMLButtonElement | null>(null);
+
   // How wide the row the two panes share actually is, because the floors that
   // keep the terminal above 80 columns are in pixels and cannot be applied to
   // a ratio without one (`clampRatioAt`). 0 until it has been measured, which
@@ -173,11 +179,26 @@ export function WorkSurface({
         (document.activeElement as HTMLElement | null)?.blur();
         return;
       }
-      // The rest act on the terminal's tab strip, which is on screen whenever
-      // this surface is: the terminal is a pane now, not a tab, so there is no
-      // longer a state in which these keys would close or reorder something
-      // the owner cannot see.
+      // The rest act on the terminal's tab strip, and must not fire from
+      // inside the other pane.
+      //
+      // The guard this replaces was `activeTab !== "terminal"`, and dropping
+      // it read as being about *visibility* — the terminal is a pane now, so
+      // there is no state in which these keys act on something the owner
+      // cannot see. But the hazard was always *focus*, and the split is the
+      // first time a text field and the terminal have been on screen at once:
+      // with the cursor in the Deck's objective field, ⌥⌘→ stepped the tabs
+      // and yanked focus into the xterm, and ⇧⌘W closed a tab, which under
+      // tmux ends its session.
       if (tabs === null) return;
+      const pane = rightPaneRef.current;
+      if (
+        pane !== null &&
+        event.target instanceof Node &&
+        pane.contains(event.target)
+      ) {
+        return;
+      }
       if (action.type === "close-terminal-tab") {
         event.preventDefault();
         onTabCommand({ n: tabs.active, type: "close" });
@@ -207,6 +228,25 @@ export function WorkSurface({
   // ratio stays his — a window too narrow to keep the terminal at 80 columns
   // does not rewrite it, it only declines to draw it.
   const ratio = clampRatioAt(layout.ratio, surfaceWidth);
+
+  // Collapsing the right pane unmounts the control that collapsed it — the
+  // divider, or the × in its header — and focus lands on `<body>`, which
+  // means a keyboard owner has to Tab from the top of the document to get
+  // anywhere. So focus follows the surface: to the rail on the way out, to the
+  // divider on the way back.
+  //
+  // Only when the act left focus nowhere. ⌥⌘B pressed while typing in the
+  // terminal collapses the pane too, and moving focus off the terminal then
+  // would be the theft this is meant to prevent.
+  const wasCollapsed = React.useRef(layout.collapsed);
+  React.useEffect(() => {
+    const moved = layout.collapsed !== wasCollapsed.current;
+    wasCollapsed.current = layout.collapsed;
+    if (!moved) return;
+    const held = document.activeElement;
+    if (held !== null && held !== document.body) return;
+    (layout.collapsed ? expandRef.current : dividerRef.current)?.focus();
+  }, [layout.collapsed]);
 
   return (
     <div
@@ -247,12 +287,14 @@ export function WorkSurface({
 
         {layout.collapsed ? (
           <CollapsedRail
+            expandRef={expandRef}
             onExpand={toggleRightPane}
             title={paneEntry(layout.right).title}
           />
         ) : (
           <>
             <PaneDivider
+              focusRef={dividerRef}
               onNudge={panes.nudgeRatio}
               onRatio={panes.setRatio}
               onReset={panes.resetRatio}
@@ -262,6 +304,7 @@ export function WorkSurface({
             />
             <RightPane
               context={paneContext}
+              frameRef={rightPaneRef}
               onCollapse={toggleRightPane}
               onChoose={panes.choose}
               reachable={reachable}
@@ -280,6 +323,7 @@ export function WorkSurface({
 
 function RightPane({
   context,
+  frameRef,
   onChoose,
   onCollapse,
   reachable,
@@ -290,6 +334,7 @@ function RightPane({
   workspaceId,
 }: {
   context: PaneContext;
+  frameRef: React.RefObject<HTMLElement | null>;
   onChoose: Panes["choose"];
   onCollapse: () => void;
   reachable: boolean;
@@ -326,6 +371,7 @@ function RightPane({
         <PanePicker choices={choices} current={entry} onChoose={onChoose} />
       }
       entry={entry}
+      frameRef={frameRef}
       share={share}
       side="right"
     >
@@ -353,11 +399,14 @@ function RightPane({
 /** The right side when it is hidden: a rail whose only job is to be the way
  * back. A collapsed pane plus a shortcut the owner has to remember is a trap —
  * the same reason `WorktreeColumn` keeps a rail — and it is what makes ⌥⌘B
- * safe to have at all. */
+ * safe to have at all. For a keyboard owner it is only not a trap if focus
+ * arrives here when the pane goes; the work surface sees to that. */
 function CollapsedRail({
+  expandRef,
   onExpand,
   title,
 }: {
+  expandRef: React.RefObject<HTMLButtonElement | null>;
   onExpand: () => void;
   title: string;
 }) {
@@ -371,6 +420,7 @@ function CollapsedRail({
         className="rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
         data-testid="pane-right-expand"
         onClick={onExpand}
+        ref={expandRef}
         title={`${title} — show the right pane (⌥⌘B)`}
         type="button"
       >

@@ -52,9 +52,27 @@ const PANES: Array<{ key: string; ready: string }> = [
   { key: "runs", ready: '[data-testid="pane-runs"]' },
 ];
 
+/** A second worktree nobody's run made — the common case the reviewer's
+ * failure used: the main checkout plus one the owner created by hand. It is
+ * what makes a worktree *switch* possible at all in this workspace. */
+const SECOND_WORKTREE = {
+  added: null,
+  base_commit: "0".repeat(40),
+  binding_id: "wt-hand-made",
+  branch: "spike",
+  commit_sha: null,
+  lifecycle: "active",
+  owner_run_id: null,
+  owner_run_objective: null,
+  owner_run_status: null,
+  removed: null,
+  repo_id: REPO.id,
+  role: "task",
+};
+
 /** The coordinator reads RunsScreen issues, answered with one project and no
  * runs — the smallest workspace that still reaches the work surface. */
-async function mockCoordinator(page: Page) {
+async function mockCoordinator(page: Page, worktrees: unknown[] = []) {
   await page.route(`${COORDINATOR_ORIGIN}/**`, async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
@@ -78,7 +96,7 @@ async function mockCoordinator(page: Page) {
       method === "GET" &&
       url.pathname === `/v1/workspaces/${WORKSPACE_ID}/worktrees`
     ) {
-      return route.fulfill({ json: { worktrees: [] } });
+      return route.fulfill({ json: { worktrees } });
     }
     return route.fulfill({
       json: { detail: `unmocked route: ${url.pathname}`, error: "not_found" },
@@ -108,6 +126,19 @@ async function stubTerminalBackend(page: Page) {
       return passThrough(cmd, args, opts);
     };
   });
+}
+
+/** Put a pane in the right slot, waiting out the menu on both sides of the
+ * click — Radix animates it in and out, and a choice clicked mid-animation is
+ * a click on a moving target. */
+async function choosePane(page: Page, key: string) {
+  const picker = page.getByTestId("pane-picker");
+  await picker.click();
+  await expect(picker).toHaveAttribute("data-state", "open");
+  await waitForAnimations(page);
+  await page.getByTestId(`pane-choice-${key}`).click();
+  await expect(picker).toHaveAttribute("data-state", "closed");
+  await waitForAnimations(page);
 }
 
 /** Both readings over whatever the work surface currently shows. Returns one
@@ -240,7 +271,63 @@ test.describe("the work surface carries nothing from another feature", () => {
     await page.getByTestId("pane-right-collapse").click();
     await expect(page.getByTestId("pane-right-rail")).toBeVisible();
     expect(await auditSurface(page), "collapsed").toEqual([]);
-    await page.getByTestId("pane-right-expand").click();
+    // And focus came with it. Collapsing unmounts the control that did the
+    // collapsing, which drops focus to <body> — from there a keyboard owner
+    // has to Tab from the top of the document to reach anything at all, which
+    // makes the rail exactly the trap it exists to prevent.
+    await expect(page.getByTestId("pane-right-expand")).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(page.getByTestId("pane-divider")).toBeVisible();
+    await expect(page.getByTestId("pane-divider")).toBeFocused();
+  });
+
+  test("work in the right pane survives the terminal's shortcuts and a worktree switch", async ({
+    page,
+  }) => {
+    await installMockBridge(page);
+    await mockCoordinator(page, [SECOND_WORKTREE]);
+    await page.goto("/#/workspace");
+    await expect(page.getByTestId("runs-screen")).toBeVisible();
+    await stubTerminalBackend(page);
+    await page.goto("/#/");
+    await page.goto("/#/workspace");
+
+    await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
+    await expect(page.getByTestId("work-surface")).toBeVisible();
+
+    const runsPane = page.getByTestId("pane-runs");
+    // Runs on the right in *both* worktrees. The arrangement is per worktree,
+    // so a switch that changed which pane is showing would prove nothing about
+    // what a switch costs the pane that stays.
+    const second = page.getByTestId(
+      `worktree-row-${SECOND_WORKTREE.binding_id}`,
+    );
+    await second.click();
+    await choosePane(page, "runs");
+    await expect(runsPane).toBeVisible();
+    await page.getByTestId(`worktree-row-main:${REPO.id}`).click();
+    await choosePane(page, "runs");
+    await expect(runsPane).toBeVisible();
+
+    const objective = runsPane.getByLabel("objective");
+    await objective.click();
+    await objective.fill("fix the login redirect");
+
+    // The two sides are co-visible, so a text field and the terminal are on
+    // screen at once for the first time. ⌥⌘→ with the cursor here used to step
+    // the terminal's tabs and yank focus into the xterm; ⇧⌘W closed a tab,
+    // which under tmux ends its session.
+    await page.keyboard.press("Alt+Meta+ArrowRight");
+    await expect(objective).toBeFocused();
+    await page.keyboard.press("Shift+Meta+KeyW");
+    await expect(objective).toBeFocused();
+    await expect(objective).toHaveValue("fix the login redirect");
+
+    // And the pane is not re-taken on a worktree switch: the Runs pane reads
+    // the workspace, not the worktree under it, and its registry row says so.
+    // Keyed by the worktree, this field came back empty.
+    await second.click();
+    await expect(runsPane).toBeVisible();
+    await expect(objective).toHaveValue("fix the login redirect");
   });
 });

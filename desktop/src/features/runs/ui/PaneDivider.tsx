@@ -39,6 +39,10 @@ interface PaneDividerProps {
   onNudge: (delta: number) => void;
   onReset: () => void;
   onToggle: () => void;
+  /** The splitter's own element, so the work surface can put focus back on it
+   * when the right pane is restored from the rail — the control that was
+   * focused a moment ago is gone by then. */
+  focusRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 function percent(ratio: number): number {
@@ -46,6 +50,7 @@ function percent(ratio: number): number {
 }
 
 export function PaneDivider({
+  focusRef,
   onNudge,
   onRatio,
   onReset,
@@ -114,6 +119,7 @@ export function PaneDivider({
         event.currentTarget.releasePointerCapture(event.pointerId);
         setDragging(false);
       }}
+      ref={focusRef}
       role="separator"
       tabIndex={0}
       title="Drag to resize, double-click to reset, ← → to adjust, Enter to hide the right pane"

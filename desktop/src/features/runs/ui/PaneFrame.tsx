@@ -34,6 +34,10 @@ interface PaneFrameProps {
   header?: React.ReactNode;
   /** The button that hides this side, for the side that can be hidden. */
   action?: React.ReactNode;
+  /** This side's own box, for a caller that has to ask whether something is
+   * inside it — the work surface's key map does, since the terminal's tab
+   * shortcuts must not fire while the owner is typing in the other pane. */
+  frameRef?: React.RefObject<HTMLElement | null>;
   children: React.ReactNode;
 }
 
@@ -43,6 +47,7 @@ export function PaneFrame({
   chooser,
   children,
   entry,
+  frameRef,
   header,
   share,
   side,
@@ -53,6 +58,7 @@ export function PaneFrame({
       className="flex min-h-0 min-w-0 basis-0 flex-col overflow-hidden"
       data-pane={entry.id}
       data-testid={`pane-${side}`}
+      ref={frameRef}
       style={{ flexGrow: share }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1">
