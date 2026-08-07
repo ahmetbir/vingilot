@@ -1,6 +1,7 @@
-// Suspense fallback for the /workspace route. Shaped like RunsScreen itself
-// (header + RunList-shaped aside + DeckPane-shaped main pane) rather than
-// reusing ViewLoadingFallback's "agents" kind, which renders the
+// Suspense fallback for the /workspace route. Shaped like RunsScreen's first
+// paint — header + ProjectsNav-shaped aside + DeckPane-shaped main pane,
+// because `selectedRepoId` starts null and the landing view is the Deck —
+// rather than reusing ViewLoadingFallback's "agents" kind, which renders the
 // Agents-list skeleton (library + teams sections) — a shape that belongs
 // to that screen, not this one. Kept island-local (no new kind added to
 // the shared ViewLoadingFallback) so this stays inside the already-declared
@@ -9,35 +10,11 @@
 
 import { Skeleton } from "@/shared/ui/skeleton";
 
-function RailRowSkeleton({ rowKey }: { rowKey: string }) {
+function ProjectRowSkeleton({ rowKey }: { rowKey: string }) {
   return (
-    <div className="pl-6 pr-2" key={rowKey}>
-      <div className="flex items-center gap-2 py-1.5">
-        <Skeleton className="h-2 w-2 shrink-0 rounded-full" />
-        <Skeleton className="h-4 w-32 max-w-full" />
-      </div>
+    <div className="px-2 py-1.5" key={rowKey}>
+      <Skeleton className="h-4 w-24 max-w-full" />
     </div>
-  );
-}
-
-function RailGroupSkeleton({
-  rowKeys,
-  titleWidth,
-}: {
-  rowKeys: readonly string[];
-  titleWidth: string;
-}) {
-  return (
-    <section className="mt-2">
-      <div className="px-2">
-        <Skeleton className={`h-3 ${titleWidth}`} />
-      </div>
-      <div className="mt-1 flex flex-col gap-0.5">
-        {rowKeys.map((rowKey) => (
-          <RailRowSkeleton key={rowKey} rowKey={rowKey} />
-        ))}
-      </div>
-    </section>
   );
 }
 
@@ -87,15 +64,18 @@ export function RunsLoadingFallback() {
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-64 shrink-0 flex-col overflow-hidden border-r border-border/60 px-2 py-3">
+        <aside className="flex w-48 shrink-0 flex-col overflow-hidden border-r border-border/60 px-2 py-3">
           <div className="px-2 py-1.5">
-            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-10" />
           </div>
-          <RailGroupSkeleton
-            rowKeys={["needs-you-a", "needs-you-b"]}
-            titleWidth="w-16"
-          />
-          <RailGroupSkeleton rowKeys={["live-a"]} titleWidth="w-10" />
+          <div className="mt-2 px-2">
+            <Skeleton className="h-3 w-14" />
+          </div>
+          <div className="mt-1 flex flex-col gap-0.5">
+            {["project-a", "project-b"].map((rowKey) => (
+              <ProjectRowSkeleton key={rowKey} rowKey={rowKey} />
+            ))}
+          </div>
         </aside>
 
         <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 py-5">

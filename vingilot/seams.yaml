@@ -242,6 +242,13 @@ seams:
     status: "permanent"
     added: "2026-08-06"
 
+  - path: "scripts/instance-env.sh"
+    reason: "Renames the dev app from Buzz Dev to Vingilot Dev (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 2). This file is the only place that can say it: every dev recipe in the Justfile passes its BUZZ_TAURI_CONFIG to tauri dev via --config, which overrides productName wholesale, so desktop/src-tauri/tauri.dev.conf.json is never read and editing it would change nothing on screen. Two string literals, both productName; the identifier is deliberately left alone because app data, the dev keyring service and the single-instance lock all key off it."
+    owner: "vingilot/runs"
+    removable_when: "The fork stops shipping its own dev app name, or the dev launcher moves under vingilot/."
+    status: "permanent"
+    added: "2026-08-07"
+
   - path: "desktop/src-tauri/src/initial_window.rs"
     reason: "Upstream code MOVED out of lib.rs, not fork-owned code added. lib.rs sat at exactly its file-size ratchet limit (1000 lines), so registering the PTY plugin was impossible without freeing room, and the repo's own rule for that is to split the file rather than raise the limit. These four items (initial window reveal, opaque backing, geometry settling) are the most cohesive unit in there and nothing outside depends on their internals. This is the expensive kind of seam: upstream edits to those functions will conflict here."
     owner: "vingilot/runs"

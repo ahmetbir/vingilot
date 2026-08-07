@@ -199,7 +199,7 @@ export function RunsScreen() {
     setSelectedRepoId(id);
     setSelectedWorktreeId(null);
   }, []);
-  // Also clears any open run detail — clicking "All runs" while already on the
+  // Also clears any open run detail — clicking "Deck" while already on the
   // landing view is the way back to the Deck from a RunDetail, since the
   // old RunList's "+ New run" row (which used to do this) now lives inside
   // WorkSurface's own Runs tab instead.
@@ -396,11 +396,17 @@ export function RunsScreen() {
     >
       <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
         <h1 className="text-lg font-semibold">Projects</h1>
-        <StopAllButton
-          engaged={stopEngaged}
-          onEngage={() => void engageStop()}
-          onRelease={releaseStop}
-        />
+        {/* STOP pauses every live run in the workspace, so it belongs beside
+         * the surface that lists them. A project view shows one worktree's
+         * work and no run rows at all; a workspace-wide kill in its corner
+         * names nothing the owner can see. */}
+        {selectedRepo === null ? (
+          <StopAllButton
+            engaged={stopEngaged}
+            onEngage={() => void engageStop()}
+            onRelease={releaseStop}
+          />
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

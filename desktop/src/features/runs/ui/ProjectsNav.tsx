@@ -32,6 +32,9 @@ interface ProjectsNavProps {
   /** `null` when on the project-less landing view. */
   selectedRepoId: string | null;
   onSelectRepo: (id: string) => void;
+  /** The only route back to the project-less home once a project is
+   * selected — `selectedRepoId` has no other path to `null` short of
+   * forgetting the project you are standing in. */
   onSelectLanding: () => void;
   onAddProject: () => void;
   onRemoveProject: (repo: Repo) => void;
@@ -71,7 +74,7 @@ export function ProjectsNav({
         onClick={onSelectLanding}
         type="button"
       >
-        All runs
+        Deck
       </button>
 
       <h2 className="mt-2 flex items-center gap-1.5 px-2 text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">

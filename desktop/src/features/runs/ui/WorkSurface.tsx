@@ -342,7 +342,6 @@ function RunsTab({
           onSelectDeck={openDeck}
           onSelectRun={openRun}
           runs={runs}
-          staleAsOf={null}
           workspaceId={workspaceId}
         />
       </aside>

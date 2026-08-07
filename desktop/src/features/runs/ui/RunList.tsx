@@ -1,5 +1,7 @@
-// The Projects screen's left rail: NEEDS YOU / LIVE / RECENT groups (design 7c),
-// plus the "+ New run" row that opens the Deck. `ModeChip` and `StatusDot`
+// The rail of WorkSurface's Runs tab: NEEDS YOU / LIVE / RECENT groups
+// (design 7c), plus the "+ New run" row that opens the Deck beside it. It was
+// the Projects screen's own left rail until that column became the project
+// list. `ModeChip` and `StatusDot`
 // are exported here (not a separate file) because DeckPane and RunDetail
 // both need the identical glyphs — same reason the donor kept `ModeChip`
 // inside `shell/RunRail.tsx` rather than a standalone module.
@@ -35,10 +37,6 @@ interface RunListProps {
   activeRunId: string | null;
   onSelectRun: (id: string) => void;
   onSelectDeck: () => void;
-  /** When set, the control plane is unreachable and `runs` is the last-good
-   * poll rather than live data — every row gets stamped "as of <t>" so that
-   * distinction is never silent (design 7c). */
-  staleAsOf: Date | null;
   /** Workspace whose `deck.pins` this list reads/writes for its row toggles. */
   workspaceId: string;
 }
@@ -105,7 +103,6 @@ export function RunList({
   onSelectDeck,
   onSelectRun,
   runs,
-  staleAsOf,
   workspaceId,
 }: RunListProps) {
   const groups = railGroups(runs);
@@ -246,9 +243,6 @@ export function RunList({
                       </div>
                       <p className="pl-6 pr-2 text-3xs text-muted-foreground/70">
                         {rowMeta(run)}
-                        {staleAsOf !== null
-                          ? ` · as of ${staleAsOf.toLocaleTimeString()}`
-                          : ""}
                       </p>
                       {rowError !== null && rowError.id === run.id ? (
                         <p
