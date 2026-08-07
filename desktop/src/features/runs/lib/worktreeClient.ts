@@ -1,7 +1,8 @@
-// The three `vingilot_worktree` Tauri commands
-// (desktop/src-tauri/src/vingilot_worktree/mod.rs). No logic lives here:
+// The `vingilot_worktree` Tauri commands
+// (desktop/src-tauri/src/vingilot_worktree/). No logic lives here:
 // `worktreeGit.ts` decides what a listing means, `worktreePlan.ts` decides
-// what a refusal says, and both are tested without a backend.
+// what a refusal says, `worktreeDiff.ts` decides what a diff shows, and all
+// three are tested without a backend.
 //
 // Every call answers rather than throws. A refusal is the ordinary outcome of
 // two of these three commands — a dirty worktree, a branch name already taken
@@ -10,6 +11,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import {
+  readWorktreeDiff,
+  type WorktreeDiff,
+} from "@/features/runs/lib/worktreeDiff";
 import {
   type GitWorktree,
   readGitWorktrees,
@@ -67,6 +72,38 @@ export async function gitWorktreeAdd(
   // renders the whole list, and a second call here is cheaper than a merge
   // rule that has to be right about ordering.
   return gitWorktrees(plan.repoPath);
+}
+
+/** One worktree's changes against `base`, working tree included.
+ *
+ * `path` is the worktree's own directory rather than the project's: a linked
+ * worktree has its own working files and its own HEAD, and that directory is
+ * what git has to be asked in.
+ *
+ * A shape this build cannot read comes back as a refusal rather than as an
+ * empty diff — "no changes" is a claim about the owner's work, and this is not
+ * a place to make it on a guess. */
+export async function gitWorktreeDiff(
+  path: string,
+  base: string,
+): Promise<WorktreeResult<WorktreeDiff>> {
+  try {
+    const answered = await invoke<unknown>("worktree_diff", { base, path });
+    const diff = readWorktreeDiff(answered);
+    if (diff === null) {
+      return {
+        error: {
+          command: "git diff",
+          kind: "git-failed",
+          stderr: "the diff came back in a shape this build cannot read.",
+        },
+        ok: false,
+      };
+    }
+    return { ok: true, value: diff };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
 }
 
 /** `target` is a `RemovableWorktree`, which cannot be constructed for the

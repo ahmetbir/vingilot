@@ -1,6 +1,7 @@
 // The selected worktree's tabbed work surface: Terminal (default, per the
 // layout contract — iTerm: the terminal is the work surface, not a
-// drawer), Diff, Evidence, Runs. Owns the ⌘1…9 / ⌘` / Esc key map and the
+// drawer), Diff (this worktree's real changes, `WorktreeDiffPanel`), Evidence
+// (the owner run's transcript, its committed diffs included), Runs. Owns the ⌘1…9 / ⌘` / Esc key map and the
 // terminal-tab keys ⌘T / ⇧⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`).
 //
 // It renders a `<Terminal>` per open session (hidden, not torn down, when it
@@ -20,9 +21,8 @@ import * as React from "react";
 import { listEvidence } from "@/features/runs/lib/coordinatorClient";
 import type { ApiResult } from "@/features/runs/lib/coordinatorClient";
 import type { Worktree } from "@/features/runs/lib/projects";
-import { diffView, evidenceView } from "@/features/runs/lib/runModel";
+import { evidenceView } from "@/features/runs/lib/runModel";
 import type {
-  DiffLineKind,
   EvidenceKind,
   EvidenceRow,
   RunSummary,
@@ -39,6 +39,7 @@ import { RunDetail } from "@/features/runs/ui/RunDetail";
 import { RunList } from "@/features/runs/ui/RunList";
 import { Terminal } from "@/features/runs/ui/Terminal";
 import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
+import { WorktreeDiffPanel } from "@/features/runs/ui/WorktreeDiffPanel";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
 type Tab = "terminal" | "diff" | "evidence" | "runs";
@@ -61,6 +62,10 @@ interface WorkSurfaceProps {
   onTabCommand: (command: TabCommand) => void;
   runs: RunSummary[];
   reachable: boolean;
+  /** The selected worktree's own directory, resolved by `RunsScreen` (it owns
+   * the repo/worktree-root pair the derivation needs). `null` when it cannot
+   * be derived — the Diff panel then says so rather than reading somewhere. */
+  worktreeCwd: string | null;
 }
 
 const TABS: Array<{ key: Tab; label: string }> = [
@@ -78,6 +83,7 @@ export function WorkSurface({
   selectedWorktreeId,
   tabs,
   terminals,
+  worktreeCwd,
   worktrees,
   workspaceId,
 }: WorkSurfaceProps) {
@@ -206,8 +212,12 @@ export function WorkSurface({
           />
         ))}
 
-        {activeTab === "diff" ? (
-          <DiffTab ownerRunId={selectedWorktree?.owner_run_id ?? null} />
+        {activeTab === "diff" && selectedWorktree !== null ? (
+          <WorktreeDiffPanel
+            cwd={worktreeCwd}
+            key={selectedWorktree.binding_id}
+            worktree={selectedWorktree}
+          />
         ) : null}
         {activeTab === "evidence" ? (
           <EvidenceTab ownerRunId={selectedWorktree?.owner_run_id ?? null} />
@@ -230,62 +240,6 @@ async function fetchOwnerEvidence(
 ): Promise<ApiResult<EvidenceRow[]>> {
   if (ownerRunId === null) return { ok: true, value: [] };
   return listEvidence(ownerRunId);
-}
-
-const DIFF_LINE_CLASS: Record<DiffLineKind, string> = {
-  add: "text-emerald-600 dark:text-emerald-400",
-  ctx: "text-foreground",
-  del: "text-destructive",
-  hunk: "font-bold text-muted-foreground",
-  meta: "text-muted-foreground",
-};
-
-function DiffTab({ ownerRunId }: { ownerRunId: string | null }) {
-  const fetchEvidence = React.useCallback(
-    () => fetchOwnerEvidence(ownerRunId),
-    [ownerRunId],
-  );
-  const { data: evidenceRows } = usePolling(fetchEvidence, 2000);
-
-  const diffRows = (evidenceRows ?? []).filter((ev) => ev.kind === "diff");
-
-  return (
-    <div
-      className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 py-3"
-      data-testid="work-surface-diff-tab"
-    >
-      {ownerRunId === null ? (
-        <p className="text-sm text-muted-foreground">
-          this worktree has no owner run yet
-        </p>
-      ) : diffRows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">no diff yet</p>
-      ) : (
-        (() => {
-          const latest = diffRows.reduce((a, b) => (b.seq > a.seq ? b : a));
-          const { lines, truncated } = diffView(latest.content);
-          return (
-            <div className="flex flex-col gap-1 overflow-x-auto rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-xs">
-              {lines.map((line, i) => (
-                <div
-                  className={`whitespace-pre ${DIFF_LINE_CLASS[line.kind]}`}
-                  // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are static, positional transcript content
-                  key={i}
-                >
-                  {line.text}
-                </div>
-              ))}
-              {truncated ? (
-                <p className="mt-1 text-3xs text-muted-foreground/70">
-                  diff truncated — see marker above for the full byte count
-                </p>
-              ) : null}
-            </div>
-          );
-        })()
-      )}
-    </div>
-  );
 }
 
 const EVIDENCE_KIND_CLASS: Record<EvidenceKind, string> = {

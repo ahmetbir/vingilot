@@ -662,6 +662,7 @@ pub fn run() {
             vingilot_worktree::worktree_list,
             vingilot_worktree::worktree_add,
             vingilot_worktree::worktree_remove,
+            vingilot_worktree::diff::worktree_diff,
             search_users,
             get_presence,
             get_os_idle_seconds,

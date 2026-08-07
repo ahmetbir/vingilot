@@ -33,6 +33,7 @@ import {
   DEFAULT_WORKTREE_ROOT_SUFFIX,
   groupWorktrees,
   readRepos,
+  worktreeCwd,
 } from "@/features/runs/lib/projects";
 import {
   ptyBacking,
@@ -361,6 +362,13 @@ export function RunsScreen() {
 
   const selectedWorktree =
     repoWorktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
+  // Where the selected worktree is on disk — the Diff panel asks git in this
+  // directory, and only this screen holds the repo and the worktree root the
+  // derivation needs.
+  const selectedWorktreeCwd =
+    selectedRepo === null || selectedWorktree === null || worktreeRoot === null
+      ? null
+      : worktreeCwd(selectedRepo, selectedWorktree, worktreeRoot);
   const ownerRun =
     selectedWorktree?.owner_run_id !== null &&
     selectedWorktree?.owner_run_id !== undefined
@@ -457,6 +465,7 @@ export function RunsScreen() {
                 selectedWorktreeId={selectedWorktreeId}
                 tabs={selectedTabs}
                 terminals={terminals}
+                worktreeCwd={selectedWorktreeCwd}
                 worktrees={repoWorktrees}
                 workspaceId={WORKSPACE_ID}
               />
