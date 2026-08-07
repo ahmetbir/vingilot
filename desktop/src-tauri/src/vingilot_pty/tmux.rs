@@ -272,6 +272,37 @@ fn quiet_status_args(session_id: &str) -> [String; 5] {
     ]
 }
 
+/// Let the wheel scroll — for one named session, and no other.
+///
+/// **Why scrolling did not work at all.** Under tmux the scrollback is tmux's,
+/// not xterm's: what leaves the top of the screen goes into tmux's history, and
+/// xterm's own viewport holds only what is currently drawn. So there is nothing
+/// for xterm to scroll, and the wheel reaches tmux, which ignores it unless
+/// `mouse` is on. The owner saw a terminal whose scrollback was intact and
+/// unreachable.
+///
+/// **What this costs, stated because it is a real trade.** With `mouse on`,
+/// tmux captures click-drag too, so a plain drag selects into tmux's buffer
+/// rather than the system clipboard. Holding **Shift** bypasses mouse reporting
+/// and gives back an ordinary local selection — xterm.js implements that
+/// bypass, and it is the same reflex iTerm users already have. Wheel-scrolling
+/// is the thing done constantly and copying is the thing done occasionally, so
+/// the constant one gets the unmodified gesture.
+///
+/// Scoped exactly like `quiet_status_args`, for the same reason and by the same
+/// mechanism: `mouse` is a session option, the server is shared with sessions
+/// the owner started by hand, and an anchored per-session target with no `-g`
+/// is what keeps the blast radius at one session.
+fn mouse_on_args(session_id: &str) -> [String; 5] {
+    [
+        "set-option".to_string(),
+        "-t".to_string(),
+        exact_target(session_id),
+        "mouse".to_string(),
+        "on".to_string(),
+    ]
+}
+
 /// Plan the spawn for one terminal tab.
 ///
 /// `-A` attaches to the named session or creates it, which is what makes this
@@ -298,6 +329,8 @@ pub(crate) fn plan_spawn(
                 THEN.to_string(),
             ];
             args.extend(quiet_status_args(session_id));
+            args.push(THEN.to_string());
+            args.extend(mouse_on_args(session_id));
             SpawnPlan {
                 program: tmux.to_string(),
                 args,
@@ -569,9 +602,34 @@ mod tests {
                 "=vingilot_wt_7:",
                 "status",
                 "off",
+                ";",
+                "set-option",
+                "-t",
+                "=vingilot_wt_7:",
+                "mouse",
+                "on",
             ]
         );
         assert_eq!(plan.backing, Backing::Tmux);
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_session_being_spawned_and_no_other() {
+        // Under tmux the scrollback is tmux's, not xterm's, so without this the
+        // wheel reaches a tmux that ignores it and the history is intact but
+        // unreachable. Same anchored per-session target as `status`: the server
+        // is shared with sessions the owner started by hand.
+        let plan = plan_spawn(Some("tmux"), "/bin/zsh", "wt_7", "/tmp/w");
+        let mouse = plan
+            .args
+            .iter()
+            .position(|arg| arg == "mouse")
+            .expect("the spawn plan turns the mouse on");
+        assert_eq!(plan.args[mouse + 1], "on");
+        // The option immediately follows its own anchored target, not some
+        // earlier command's — the two set-options are otherwise identical.
+        assert_eq!(plan.args[mouse - 1], "=vingilot_wt_7:");
+        assert_eq!(plan.args[mouse - 2], "-t");
     }
 
     #[test]
