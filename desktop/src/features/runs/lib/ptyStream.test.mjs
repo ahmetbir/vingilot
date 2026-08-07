@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { acceptPtyChunk, initialPtyStreamState } from "./ptyStream.ts";
+import {
+  acceptPtyChunk,
+  initialPtyStreamState,
+  PTY_OUTPUT_EVENT,
+} from "./ptyStream.ts";
 
 /** Fold a whole sequence of events, returning everything written in order. */
 function run(chunks) {
@@ -114,4 +118,25 @@ test("accepting a chunk does not mutate the state it was given", () => {
   const before = initialPtyStreamState();
   acceptPtyChunk(before, live(0, "x"));
   assert.deepEqual(before, { held: [], replayThrough: null });
+});
+
+/** `is_event_name_valid`, tauri 2.11.5 `src/event/event_name.rs` — the
+ * private predicate `Emitter::emit` and the webview's `listen` both gate on.
+ * `\p{L}\p{N}` stands in for Rust's `char::is_alphanumeric`. */
+function isTauriEventNameValid(name) {
+  return /^[\p{L}\p{N}\-/:_]*$/u.test(name);
+}
+
+test("the output event is a name Tauri will carry", () => {
+  assert.equal(isTauriEventNameValid(PTY_OUTPUT_EVENT), true);
+});
+
+test("a session id is not a legal event name, which is why it rides in the payload", () => {
+  // The regression this constant exists to prevent: the event used to be
+  // named after the session, which put every id through the alphabet above.
+  // `#` joins a tab ordinal to a binding id (terminalTabs.ts) and is outside
+  // it, so `emit` failed and `listen` rejected — a terminal with no output,
+  // no error line, and no retry.
+  assert.equal(isTauriEventNameValid("main:repo-1#1"), false);
+  assert.equal(isTauriEventNameValid("wt 7"), false);
 });

@@ -11,8 +11,9 @@
 //! `pty_open` is idempotent — opening an already-open session returns
 //! immediately without spawning a second shell, and replays that session's
 //! retained screen (session.rs, `scrollback.rs`) so the view attaching to it
-//! is not blank. Output streams to the webview as a Tauri event named
-//! `vingilot://pty/<session>` carrying `{ data, seq, replay }`.
+//! is not blank. Output streams to the webview as one Tauri event,
+//! `vingilot://pty`, carrying `{ session, data, seq, replay }` — the session
+//! id is in the payload, not in the name (see `PTY_OUTPUT_EVENT`).
 //!
 //! Callers must subscribe to that event *before* calling `pty_open`: both
 //! the replay and a fresh shell's first prompt are emitted from inside the
@@ -53,8 +54,34 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+/// The one event every session's output arrives on.
+///
+/// **One name for all sessions, with the id in the payload.** A Tauri event
+/// name is not a free string: `EventName::new` (tauri 2.11.5,
+/// `src/event/event_name.rs`) admits only `[A-Za-z0-9]`, `-`, `/`, `:` and
+/// `_`, and rejects anything else at *both* ends of the channel — `emit`
+/// returns `Err(IllegalEventName)` and the webview's `listen` rejects. An
+/// illegal name therefore does not degrade a terminal, it deletes it: no
+/// output, no error, and no signal that anything was ever wrong.
+///
+/// A session id cannot meet that alphabet by construction. It is composed
+/// from a coordinator binding id and, for a repo's own checkout, an id
+/// derived from a directory the owner picked — neither authored here. Naming
+/// the event after the session made the transport's alphabet a silent
+/// precondition on every id the app has ever held; carrying the id in the
+/// payload removes the precondition rather than narrowing the ids to it.
+///
+/// The cost is one comparison per chunk per attached view. Tauri collects all
+/// listeners of a name and emits to the webview once
+/// (`Listeners::emit_js_filter`), so a shared name is still one IPC message
+/// however many terminals are open.
+const PTY_OUTPUT_EVENT: &str = "vingilot://pty";
+
 #[derive(Clone, Serialize)]
 struct PtyOutputPayload {
+    /// Which session this belongs to — the only thing separating one
+    /// terminal's output from another's on this channel.
+    session: String,
     data: String,
     /// For a live chunk, its own position in the session's output stream.
     /// For a replay, the position the replayed screen stops short of.
@@ -62,17 +89,14 @@ struct PtyOutputPayload {
     replay: bool,
 }
 
-fn pty_event_name(session_id: &str) -> String {
-    format!("vingilot://pty/{session_id}")
-}
-
 /// Hand a newly attached view the session's screen and the mark it filters
 /// live output against. Emitted for a reattach and for a fresh spawn alike:
 /// the mark is what unblocks the view, not the screen.
 fn emit_replay(app: &AppHandle, session_id: &str, screen: String, next_seq: u64) {
     let _ = app.emit(
-        &pty_event_name(session_id),
+        PTY_OUTPUT_EVENT,
         PtyOutputPayload {
+            session: session_id.to_string(),
             data: screen,
             seq: next_seq,
             replay: true,
@@ -255,7 +279,6 @@ pub fn pty_backing() -> Backing {
 /// it (`utf8_stream.rs`).
 fn spawn_reader_thread(app: AppHandle, session_id: String, mut reader: Box<dyn Read + Send>) {
     std::thread::spawn(move || {
-        let event_name = pty_event_name(&session_id);
         let sessions = app.state::<PtySessions>();
         let mut buf = [0u8; 4096];
         let mut partial: Vec<u8> = Vec::new();
@@ -275,8 +298,9 @@ fn spawn_reader_thread(app: AppHandle, session_id: String, mut reader: Box<dyn R
                         break;
                     };
                     let _ = app.emit(
-                        &event_name,
+                        PTY_OUTPUT_EVENT,
                         PtyOutputPayload {
+                            session: session_id.clone(),
                             data,
                             seq,
                             replay: false,
@@ -288,4 +312,37 @@ fn spawn_reader_thread(app: AppHandle, session_id: String, mut reader: Box<dyn R
         }
         sessions.close(&session_id);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PTY_OUTPUT_EVENT;
+
+    /// Copied verbatim from `is_event_name_valid`
+    /// (tauri 2.11.5, `src/event/event_name.rs`), the private predicate both
+    /// `Emitter::emit` and the webview's `listen` gate on. Duplicated because
+    /// it is not public; pinned here so a name this app cannot actually use
+    /// fails a test instead of silently emitting nothing.
+    fn is_event_name_valid(event: &str) -> bool {
+        event
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '/' || c == ':' || c == '_')
+    }
+
+    #[test]
+    fn the_output_event_is_a_name_tauri_will_carry() {
+        assert!(is_event_name_valid(PTY_OUTPUT_EVENT));
+    }
+
+    #[test]
+    fn a_session_id_is_not_a_legal_event_name_which_is_why_it_travels_in_the_payload() {
+        // The regression this design removes: naming the event after the
+        // session put every id through the alphabet above. A worktree's tab
+        // ordinal is joined on with `#` (features/runs/lib/terminalTabs.ts),
+        // which is outside it — so every terminal was unconstructible at both
+        // ends at once, with no error anywhere.
+        assert!(!is_event_name_valid("main:repo-1#1"));
+        assert!(!is_event_name_valid("wt 7"));
+        assert!(is_event_name_valid(PTY_OUTPUT_EVENT));
+    }
 }

@@ -65,10 +65,19 @@ test("primary+t opens a new terminal tab", () => {
   });
 });
 
-test("primary+w closes the showing terminal tab", () => {
-  assert.deepEqual(resolveKey({ key: "w", primaryModifier: true }), {
-    type: "close-terminal-tab",
-  });
+test("shift+primary+w closes the showing terminal tab", () => {
+  assert.deepEqual(
+    resolveKey({ key: "W", primaryModifier: true, shiftKey: true }),
+    { type: "close-terminal-tab" },
+  );
+});
+
+test("primary+w is left to the macOS menu, which resolves it before we ever see it", () => {
+  // Tauri's default application menu binds ⌘W to Close Window and macOS
+  // dispatches menu key equivalents ahead of the webview. Claiming it here
+  // would not close a tab; it would close the owner's window.
+  assert.equal(resolveKey({ key: "w", primaryModifier: true }), null);
+  assert.equal(resolveKey({ key: "W", primaryModifier: true }), null);
 });
 
 test("caps lock does not lose the tab chords", () => {
@@ -76,18 +85,48 @@ test("caps lock does not lose the tab chords", () => {
   assert.deepEqual(resolveKey({ key: "T", primaryModifier: true }), {
     type: "new-terminal-tab",
   });
-  assert.deepEqual(resolveKey({ key: "W", primaryModifier: true }), {
-    type: "close-terminal-tab",
-  });
+  // …and "w" for ⇧⌘W with caps lock on, where shift IS held.
+  assert.deepEqual(
+    resolveKey({ key: "w", primaryModifier: true, shiftKey: true }),
+    { type: "close-terminal-tab" },
+  );
 });
 
-test("shift+primary+t/w are left to whatever else claims them", () => {
+test("shift+primary+t is left to whatever else claims it", () => {
   assert.equal(
     resolveKey({ key: "T", primaryModifier: true, shiftKey: true }),
     null,
   );
+});
+
+test("a held-down chord resolves once, not once per auto-repeat", () => {
+  // ⌘T spawns a shell and, under tmux, a session. ~15-30 keydowns a second
+  // from a leaned-on key would leave dozens of them running, closable one
+  // click at a time.
   assert.equal(
-    resolveKey({ key: "W", primaryModifier: true, shiftKey: true }),
+    resolveKey({ key: "t", primaryModifier: true, repeat: true }),
+    null,
+  );
+  assert.equal(
+    resolveKey({
+      key: "W",
+      primaryModifier: true,
+      repeat: true,
+      shiftKey: true,
+    }),
+    null,
+  );
+  assert.equal(
+    resolveKey({ key: "1", primaryModifier: true, repeat: true }),
+    null,
+  );
+  assert.equal(
+    resolveKey({
+      altKey: true,
+      key: "ArrowRight",
+      primaryModifier: true,
+      repeat: true,
+    }),
     null,
   );
 });

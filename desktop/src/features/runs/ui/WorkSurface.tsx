@@ -1,7 +1,7 @@
 // The selected worktree's tabbed work surface: Terminal (default, per the
 // layout contract — iTerm: the terminal is the work surface, not a
 // drawer), Diff, Evidence, Runs. Owns the ⌘1…9 / ⌘` / Esc key map and the
-// terminal-tab keys ⌘T / ⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`).
+// terminal-tab keys ⌘T / ⇧⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`).
 //
 // It renders a `<Terminal>` per open session (hidden, not torn down, when it
 // is not the one showing) but it does not own that list, and must not: this
@@ -90,6 +90,7 @@ export function WorkSurface({
         altKey: event.altKey,
         key: event.key,
         primaryModifier: hasPrimaryShortcutModifier(event),
+        repeat: event.repeat,
         shiftKey: event.shiftKey,
       });
       if (action === null) return;

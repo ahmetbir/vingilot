@@ -1,7 +1,7 @@
 // Pure keyboard-resolution for the Projects/Terminal work surface (see
 // vingilot/docs/plans/2026-08-06-projects-and-terminal.md's layout contract):
 // ⌘1…9 switches worktrees (iTerm tab muscle memory), ⌘` focuses the
-// terminal, Esc leaves it, and ⌘T/⌘W/⌥⌘←→ work the worktree's own terminal
+// terminal, Esc leaves it, and ⌘T/⇧⌘W/⌥⌘←→ work the worktree's own terminal
 // tabs. A pure `resolveKey`-style function so the key map is unit-testable
 // without mounting React or a real keyboard event — the caller
 // (RunsScreen/WorkSurface) wires it to a `keydown` listener and the platform's
@@ -39,6 +39,8 @@ export interface KeyInput {
   primaryModifier: boolean;
   shiftKey?: boolean;
   altKey?: boolean;
+  /** True for the auto-repeat keydowns a held-down chord delivers. */
+  repeat?: boolean;
 }
 
 /** Digit 1-9 → worktree index 0-8 (⌘1 selects the first worktree row).
@@ -56,6 +58,14 @@ function digitIndex(key: string): number | null {
  * to whatever else handles it — text input, other shortcuts, etc). Never
  * throws; a KeyInput with unexpected values just resolves to `null`. */
 export function resolveKey(input: KeyInput): TerminalKeyAction | null {
+  // Auto-repeat is not a second press. Every chord here is a discrete act —
+  // ⌘T in particular spawns a shell and, under tmux, a session — and a held
+  // key delivers 15-30 keydowns a second, so without this a leaned-on ⌘T
+  // leaves the owner with dozens of live shells removable one click at a
+  // time. Nothing in this map is worth holding down; the window-level handler
+  // upstream guards the same way (app/AppShell.tsx).
+  if (input.repeat === true) return null;
+
   // ⌥⌘←/→ moves between a worktree's terminal tabs, ⇧ added moves the tab
   // itself. These are the only chords here that use ⌥ — everything below is
   // resolved only with it released, which is why the short-circuit that used
@@ -67,6 +77,30 @@ export function resolveKey(input: KeyInput): TerminalKeyAction | null {
     return input.shiftKey
       ? { dir, type: "move-terminal-tab" }
       : { dir, type: "step-terminal-tab" };
+  }
+
+  // ⇧⌘W closes a terminal tab, and ⌘W deliberately does not.
+  //
+  // ⌘W never reaches this app on macOS. Tauri installs its default
+  // application menu when the builder sets none (tauri 2.11.5 app.rs:2245;
+  // desktop/src-tauri/src/lib.rs calls neither `.menu(…)` nor
+  // `.enable_macos_default_menu(false)`), and that menu's Window submenu
+  // holds `close_window` at ⌘W (menu/menu.rs:163). macOS resolves menu key
+  // equivalents in `performKeyEquivalent:` before the webview sees the event,
+  // so a handler here never runs and `preventDefault()` never happens: the
+  // owner's window closes instead of their tab.
+  //
+  // Taking ⌘W back would mean replacing the whole default menu, which is also
+  // where ⌘Q, ⌘C, ⌘V and ⌘A live for a WKWebView — trading a tab shortcut for
+  // copy and paste, in an upstream file, for the whole app. ⇧⌘W is free (the
+  // default menu binds no ⇧⌘ chord, and upstream's own window handler claims
+  // ⇧⌘K/N/O/A only) and costs nothing but one modifier.
+  if (input.primaryModifier && input.shiftKey === true) {
+    // Case-insensitive for the same reason ⌘T is below: ⇧ reports "W", caps
+    // lock can report it for the unshifted chord too.
+    return input.key.toLowerCase() === "w"
+      ? { type: "close-terminal-tab" }
+      : null;
   }
 
   if (input.primaryModifier && !input.shiftKey) {
@@ -83,9 +117,6 @@ export function resolveKey(input: KeyInput): TerminalKeyAction | null {
     const letter = input.key.toLowerCase();
     if (letter === "t") {
       return { type: "new-terminal-tab" };
-    }
-    if (letter === "w") {
-      return { type: "close-terminal-tab" };
     }
     return null;
   }

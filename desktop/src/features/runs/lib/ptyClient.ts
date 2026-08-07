@@ -9,7 +9,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import type { PtyChunk } from "@/features/runs/lib/ptyStream";
+import {
+  PTY_OUTPUT_EVENT,
+  type PtyChunk,
+  type PtyOutputEvent,
+} from "@/features/runs/lib/ptyStream";
 
 /** Session id = `<worktree binding id>#<tab ordinal>` (see mod.rs's file
  * header): "same tab of the same worktree ⇒ same session". Derived by
@@ -49,8 +53,13 @@ export function ptyBacking(): Promise<PtyBacking> {
   return invoke("pty_backing");
 }
 
-/** Subscribes to a session's output event (`vingilot://pty/<session>`).
- * Returns the unlisten function — callers tear it down on unmount.
+/** Subscribes to one session's output. Returns the unlisten function —
+ * callers tear it down on unmount.
+ *
+ * Every session shares one event name and is told apart by the id in the
+ * payload (`PTY_OUTPUT_EVENT`), so this filters before handing anything over:
+ * a caller sees only its own session's chunks and never learns that the
+ * others crossed the same channel.
  *
  * Chunks are handed over as they arrive, which is not necessarily the order
  * they were sent: the reattach replay and the live stream are emitted from
@@ -60,7 +69,8 @@ export function onPtyOutput(
   session: string,
   onChunk: (chunk: PtyChunk) => void,
 ): Promise<UnlistenFn> {
-  return listen<PtyChunk>(`vingilot://pty/${session}`, (event) => {
+  return listen<PtyOutputEvent>(PTY_OUTPUT_EVENT, (event) => {
+    if (event.payload.session !== session) return;
     onChunk(event.payload);
   });
 }

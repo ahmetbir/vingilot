@@ -4,11 +4,14 @@
 // It renders a strip, and nothing else: which tabs exist, which is showing,
 // and what the owner just asked for. The layout it displays lives in
 // `RunsScreen` (which never unmounts) and the rules that change it live in
-// `lib/terminalTabs.ts`. Every affordance here also has a key
-// (`lib/terminalKeys.ts`); the buttons exist because ⌘W is not reliably ours
-// to take on macOS — the default application menu claims it for "Close
-// Window" — and a close the owner cannot perform is worse than one they have
-// to click.
+// `lib/terminalTabs.ts`.
+//
+// Every affordance here also has a key (`lib/terminalKeys.ts`), and the close
+// key is ⇧⌘W rather than the ⌘W an iTerm tab would use: macOS's default
+// application menu claims ⌘W for "Close Window" and resolves it before the
+// webview sees the event, so binding it here would not close a tab, it would
+// close the owner's window. The `×` is what makes that a preference rather
+// than a limitation.
 //
 // A tab is labelled by its ordinal, not its position. The ordinal is what
 // names the shell (and, under tmux, the session), so it stays with the tab
@@ -62,6 +65,7 @@ export function TerminalTabStrip({
               className="rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
               data-testid={`terminal-tab-close-${n}`}
               onClick={() => onClose(n)}
+              title={`Close terminal ${n} (⇧⌘W)`}
               type="button"
             >
               ×

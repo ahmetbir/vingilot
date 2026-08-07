@@ -18,13 +18,38 @@
 // until the mark is known there is no way to tell which of them the replay
 // will repeat.
 
-/** One `vingilot://pty/<session>` event. `replay: true` marks the reattach
- * snapshot, whose `seq` is the exclusive upper bound of the stream positions
- * its `data` already contains — not a position of its own. */
+/** The one Tauri event every session's output arrives on, named here rather
+ * than in `ptyClient.ts` so the name and the payload it carries are one
+ * contract — and so this side of it is testable without importing Tauri.
+ *
+ * **One name for all sessions, with the id in the payload.** A Tauri event
+ * name is not a free string: `EventName::new` (tauri 2.11.5,
+ * `src/event/event_name.rs`) admits only `[A-Za-z0-9]`, `-`, `/`, `:` and
+ * `_`. An illegal name is rejected at *both* ends — `emit` fails on the Rust
+ * side and `listen` rejects on this one — so it does not degrade a terminal,
+ * it deletes it: no output, no error line, no retry.
+ *
+ * Session ids cannot meet that alphabet by construction (a binding id joined
+ * to a tab ordinal by `terminalTabs.ts`, over ids this app does not author),
+ * so the id travels in the payload and the name is a constant. Must stay
+ * byte-identical to `PTY_OUTPUT_EVENT` in
+ * desktop/src-tauri/src/vingilot_pty/mod.rs. */
+export const PTY_OUTPUT_EVENT = "vingilot://pty";
+
+/** One `PTY_OUTPUT_EVENT` event. `replay: true` marks the reattach snapshot,
+ * whose `seq` is the exclusive upper bound of the stream positions its `data`
+ * already contains — not a position of its own. */
 export interface PtyChunk {
   data: string;
   replay: boolean;
   seq: number;
+}
+
+/** A chunk as it arrives on the wire: which session it belongs to is the only
+ * thing separating one terminal's output from another's on the shared event,
+ * so every view filters on it before folding the chunk into its own stream. */
+export interface PtyOutputEvent extends PtyChunk {
+  session: string;
 }
 
 /** Held chunks, capped. `pty_open` always emits a replay (empty, `seq: 0`,

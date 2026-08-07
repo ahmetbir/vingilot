@@ -20,13 +20,21 @@
 
 /** Joins a worktree's binding id to a tab's ordinal.
  *
- * `#` is deliberate rather than incidental. The derived session id crosses into
- * Rust and is turned into a tmux session name by `vingilot_pty/tmux.rs`, which
- * passes `[A-Za-z0-9_]` through and escapes every other byte as `-<hex>` — so
- * `#` needs no special handling there and cannot collide with an escape (it
- * becomes `-23`). Any separator would have worked; what matters is that the
- * derivation stays injective, which the escape guarantees for this one exactly
- * as it does for the `:` and `.` already in binding ids. */
+ * What matters about the separator is that the derivation stays injective;
+ * what matters about the *id* is that nothing downstream may quietly require
+ * an alphabet of it. Two things consume it, and only one of them constrains
+ * it:
+ *
+ * - `vingilot_pty/tmux.rs` turns it into a tmux session name, passing
+ *   `[A-Za-z0-9_]` through and escaping every other byte as `-<hex>`. `#`
+ *   becomes `-23`, cannot collide with an escape, and needs no case there —
+ *   the same way the `:` and `.` already inside binding ids need none.
+ * - The Tauri output event does **not** consume it. It used to: the event was
+ *   named after the session, and a Tauri event name admits only
+ *   `[A-Za-z0-9-/:_]`, so `#` made the channel unconstructible at both ends
+ *   with no error on either. The id now rides in the payload
+ *   (`ptyStream.ts`'s `PTY_OUTPUT_EVENT`), which is why this is once again a
+ *   free choice. Nothing may put it back into a name. */
 const SESSION_SEPARATOR = "#";
 
 /** The PTY session id for one worktree tab.
