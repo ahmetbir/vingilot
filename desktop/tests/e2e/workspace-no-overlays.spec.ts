@@ -122,15 +122,22 @@ test.describe("the work surface carries nothing from another feature", () => {
       const box = surface.getBoundingClientRect();
       const problems: string[] = [];
 
+      // `className` is a plain string only on HTML elements; on an SVG it is
+      // an SVGAnimatedString, which stringifies to "[object
+      // SVGAnimatedString]" and names nothing. The attribute reads the same
+      // on both.
       function describe(el: Element): string {
         const testId = el.getAttribute("data-testid");
+        const cls = el.getAttribute("class") ?? "";
         const rect = el.getBoundingClientRect();
-        return `<${el.tagName.toLowerCase()}${testId ? ` data-testid="${testId}"` : ""} class="${String(el.className).slice(0, 80)}"> at ${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`;
+        return `<${el.tagName.toLowerCase()}${testId ? ` data-testid="${testId}"` : ""} class="${cls.slice(0, 80)}"> at ${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`;
       }
 
-      // 1. Hit testing, on a grid dense enough that a 20px badge cannot slip
-      // between samples.
-      const step = 16;
+      // 1. Hit testing. A box is only guaranteed a sample when it is larger
+      // than the step in both axes, so the step has to sit below the smallest
+      // thing worth catching: lucide's default icon is `h-4 w-4` — 16px — and
+      // the app renders it in 264 places.
+      const step = 8;
       for (let x = box.left + 4; x < box.right - 4; x += step) {
         for (let y = box.top + 4; y < box.bottom - 4; y += step) {
           const top = document.elementFromPoint(x, y);
@@ -144,8 +151,10 @@ test.describe("the work surface carries nothing from another feature", () => {
         }
       }
 
-      // 2. Geometry.
-      const VISUAL_TAGS = new Set(["IMG", "SVG", "CANVAS", "VIDEO"]);
+      // 2. Geometry. `tagName` uppercases for HTML elements only — an SVG
+      // reports lowercase "svg", so an uppercase set silently excluded every
+      // icon in the app, which is the exact shape a stray badge has.
+      const VISUAL_TAGS = new Set(["IMG", "IMAGE", "SVG", "CANVAS", "VIDEO"]);
       for (const el of document.querySelectorAll("body *")) {
         if (surface.contains(el) || el.contains(surface)) continue;
         const rect = el.getBoundingClientRect();
@@ -168,7 +177,7 @@ test.describe("the work surface carries nothing from another feature", () => {
 
         const ownText =
           el.childElementCount === 0 && (el.textContent ?? "").trim() !== "";
-        const ownGraphic = VISUAL_TAGS.has(el.tagName);
+        const ownGraphic = VISUAL_TAGS.has(el.tagName.toUpperCase());
         if (!ownText && !ownGraphic) continue;
 
         problems.push(
