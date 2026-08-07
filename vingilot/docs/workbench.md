@@ -1,4 +1,4 @@
-# Runs — the Vingilot surface inside Buzz desktop
+# The workspace — the Vingilot surface inside Buzz desktop
 
 Per ADR-001's 2026-08-03 Reversal, Vingilot's UI lives **inside the Buzz
 desktop app**, not in a sibling application. The former standalone Workbench
@@ -6,18 +6,165 @@ desktop app**, not in a sibling application. The former standalone Workbench
 into the island and its history remains on the `vingilot/workbench-shell`
 branch.
 
+Since workspace-v1 (2026-08-07) **Projects is the front door and Runs is a
+tab**. The sidebar item reads *Projects*; upstream's own relay-hosted repo
+screen was relabelled *Repos*, which is literally what it lists (ADR-001,
+naming decision). Nothing was deleted on either side.
+
+---
+
+## The workspace, in one screen
+
+Three columns, left to right (`ui/RunsScreen.tsx`):
+
+| column | what it holds | what it is for |
+|---|---|---|
+| **Projects** (`ProjectsNav`) | the local checkouts the owner has added, plus a project-less landing view | pick what you are working on. `+ Add project` opens the native folder picker; the choice is validated as a git repository *before* any workspace state is written. **Removing a project forgets the path — it never touches the directory on disk.** |
+| **Worktrees** (`WorktreeColumn`) | that project's worktrees: its own checkout plus every `git worktree` | pick where you are working. New worktrees are `git worktree add`; closing one is `git worktree remove`, never a recursive delete. If git refuses because the tree is dirty, what is dirty is shown and nothing happens — that refusal is the feature. |
+| **Work surface** (`WorkSurface`) | four tabs: **Terminal** (default), **Diff**, **Evidence**, **Runs** | do the work. Terminal is the default because in iTerm the terminal *is* the work surface, not a drawer. |
+
+A persistent `ProjectStatusBar` names where the owner is and what is backing
+the terminals.
+
+## Key map
+
+Worktree and terminal chords (`lib/terminalKeys.ts`, `resolveKey`):
+
+| chord | does |
+|---|---|
+| `⌘1`…`⌘9` | switch to the Nth worktree — iTerm tab muscle memory |
+| `` ⌘` `` | focus the terminal |
+| `Esc` | leave the terminal |
+| `⌘T` | new terminal tab in this worktree |
+| `⇧⌘W` | close the terminal tab |
+| `⌥⌘←` / `⌥⌘→` | move between this worktree's terminal tabs |
+| `⇧⌥⌘←` / `⇧⌥⌘→` | move the tab itself |
+
+**`⌘W` is deliberately not bound.** It never reaches this app on macOS: Tauri
+installs its default application menu, whose Window submenu holds
+`close_window` at `⌘W`, and macOS resolves menu key equivalents before the
+webview sees the event. Binding it here would close the owner's *window*
+while looking like it closed a tab. Taking it back would mean replacing the
+whole default menu — where `⌘Q`, `⌘C`, `⌘V` and `⌘A` also live for a
+WKWebView. One extra modifier is the cheaper trade.
+
+Auto-repeat is not a second press: a leaned-on `⌘T` would otherwise leave
+dozens of live shells, removable one click at a time.
+
+Diff panel (`lib/diffKeys.ts`): `j` / `k` move the cursor through the changed
+files, `Enter` opens the one under it. A cursor is not a selection — opening
+every file you pass over would mean rendering 300 patches to reach the one you
+wanted. `Enter` on a focused control (a tab button, a file row, a link)
+belongs to that control, not to this list; `j`/`k` do not, because every file
+row is itself a button.
+
+## The terminal, and exactly what it does not promise
+
+A real PTY per tab, running **the owner's own login shell** in the worktree's
+directory (`desktop/src-tauri/src/vingilot_pty/`).
+
+- **No isolation.** The shell has whatever the owner has: their `$PATH`, their
+  keys, their whole filesystem. This is the same risk class as typing into
+  Terminal.app (ADR-003's V1 trust model). Nothing here sandboxes anything,
+  and no UI copy may imply otherwise — a worktree chip says only where the
+  shell *starts*.
+- **Persistence is tmux's, and it is bounded.** Where tmux is installed, each
+  tab runs under `tmux new-session -A -D -s vingilot_<derived>`, so the shell
+  survives quitting the app. It does **not** survive a reboot, a
+  `tmux kill-server`, or a crash — the session lives exactly as long as the
+  tmux *server*, which is not this app's child. The status bar says
+  "persistent (tmux) — survive quitting the app, not a reboot".
+- **Without tmux there is no persistence at all.** The shell is a child of
+  this app and dies with it. The status bar then says "this session only —
+  they end when the app quits". It never implies more than is true.
+- **Reattach replays a bounded screen**, not a full scrollback: 256 KiB per
+  session, oldest bytes dropped first (`scrollback.rs`). That is roughly 25
+  screenfuls — enough that a remount lands on real history. Keeping more is
+  tmux's job, and a ring that tried to be a scrollback store would be
+  reimplementing tmux badly.
+- **A tab's shell is killed when the owner closes the tab or its worktree
+  leaves the workspace** — never on a re-render, a project switch, or a tab
+  change. `pty_close` also ends the tmux session, because nothing will
+  reattach to it.
+
+Proven, not asserted: `vingilot_pty/live.rs` opens sessions against a real
+PTY in `cargo test` and checks that the shell's own `pwd` is the worktree,
+that a reattach replays what the view missed, that a tmux session outlives
+the client attached to it, and that closing a terminal leaves neither a
+running shell nor a zombie.
+
+## The diff viewer, and where it stops
+
+Working tree versus a base ref — "what have I changed", including untracked
+files, which `git diff` alone would never mention. It is git's own output:
+`--numstat`/`--name-status` for the list and counts, a per-file `git diff` for
+each patch, `--no-index` against `/dev/null` for untracked ones. Nothing is
+reconstructed or inferred, and **nothing here writes** — no `add`, no
+`add -N`, no stash, no index touch of any kind.
+
+Every limit is reported on screen, next to the numbers it applies to:
+
+| limit | value | what happens past it |
+|---|---|---|
+| files listed | 400 | the amber banner names how many more changed |
+| untracked files listed | 100 | same, counted separately |
+| patch lines per file | 2 000 | "patch cut off", with the real limits named |
+| patch bytes per file | 256 KiB | same — for the file that is 40 lines and 8 MB |
+
+The byte cap is applied **at the pipe, not to the answer**: a patch is read up
+to the cap and git is then cut off, so an agent's 191 MB `run.log` in a
+worktree costs the cap, not 404 MB of resident memory. The whole read runs off
+the thread the webview talks on, because one read is up to ~500 `git`
+subprocesses and the terminal in the next tab has to keep taking keystrokes.
+
+A file the read could not produce is a **refusal**, never an empty patch: an
+empty patch beside `+3 −1` renders as "no textual change to show", which is a
+statement about the owner's work that no failed subprocess is entitled to
+make. Binary files say they are binary rather than rendering nothing.
+
+The panel reads when it opens, when the base changes, and when *Read* is
+pressed. It is never polled — a `git diff` over a real worktree every two
+seconds is a permanent load on the machine to answer a question nobody asked
+twice.
+
+## What this workspace deliberately does not do
+
+- **No editor.** VS Code's real value in the owner's screenshots is *reading a
+  diff*, which the Diff tab covers. A text editor is a much larger commitment
+  and he did not ask for one.
+- **No Xcode.** A native iOS toolchain is not reproducible here, and a bad
+  imitation of one is worse than alt-tabbing to the real thing.
+- **No notes.** Obsidian is a different product; a notes vault is not this
+  app's business.
+- **No `rm -rf`, anywhere, for any path.** Worktrees are removed with
+  `git worktree remove`, which refuses a dirty tree. Named files go with
+  `rm <file>`, empty directories with `rmdir`. This binds generated code and
+  agent prompts too — anything that appears to need a recursive force-delete
+  is a stop-and-ask.
+- **No agent runs by default.** Running a real coding agent as a Run's command
+  is configuration (`VINGILOT_CMD`), not code — and deliberately not wired up:
+  see the note under *Work products* below.
+
 ## Where things live
 
 - **Island (fork-owned, additive):** `desktop/src/features/runs/**`
   - `lib/` — coordinator client, polling, run model, budget/legalNext,
-    provision spec, reachability. All pure modules carry their `.test.mjs`
+    provision spec, reachability, projects/worktrees, the terminal tab model
+    and key maps, the diff model. All pure modules carry their `.test.mjs`
     next to them; desktop's own `pnpm test` glob runs them.
-  - `ui/` — `RunsScreen` (list pane + Deck pane / Run detail), `RunList`,
+  - `ui/` — `RunsScreen` (the three columns), `ProjectsNav`, `WorktreeColumn`,
+    `WorkSurface`, `Terminal`, `TerminalTabStrip`, `WorktreeDiffPanel`,
+    `NewWorktreeDialog`, `ProjectStatusBar`, plus the pre-existing `RunList`,
     `DeckPane`, `RunDetail`, `BudgetBar`, `StopAllButton` (hold-to-engage),
     `UnreachableBanner`, `RunsLoadingFallback`.
-- **Touch-points (declared in `vingilot/seams.yaml`):** the sidebar nav entry
-  and the `/runs` route registration. Kept to a few lines each — these are
-  the files upstream merges can conflict on.
+- **Island (fork-owned, Rust):** `desktop/src-tauri/src/vingilot_pty/**` (the
+  PTY sessions, their scrollback, tmux backing, and the live proof),
+  `vingilot_repo/**` (read-only probe of a picked directory),
+  `vingilot_worktree/**` (worktree add/list/remove and the diff read).
+- **Touch-points (declared in `vingilot/seams.yaml`):** the sidebar nav entry,
+  the `/workspace` route registration, and the command registry in
+  `src-tauri/src/lib.rs`. Kept to a few lines each — these are the files
+  upstream merges can conflict on.
 - **Coordinator:** unchanged except a localhost-allowlist CORS layer so the
   webview can call `http://127.0.0.1:7117` directly.
 
@@ -26,10 +173,10 @@ branch.
 ```bash
 docker compose up -d                     # postgres/redis/minio (vingilot-isolated stack)
 ./vingilot/scripts/coordinator-run.sh    # control plane on 127.0.0.1:7117
-just dev                                 # Buzz desktop — "Runs" in the sidebar
+just dev                                 # Buzz desktop — "Projects" in the sidebar
 ```
 
-The Runs screen polls the coordinator; killing the coordinator surfaces the
+The workspace polls the coordinator; killing the coordinator surfaces the
 persistent unreachable banner (read-only, `as of <t>` stamps, disabled
 composer with the reason inline) and recovers on its own when it returns.
 
@@ -45,10 +192,15 @@ composer with the reason inline) and recovers on its own when it returns.
 
 ## Deferred
 
-Chat adapter tie-in (Runs ↔ channels), terminal/PTY surface for interactive
-Runs, multibuffer diff review, Tauri-proxied coordinator auth, per-mode token
-budget enforcement (needs the executor/broker — see `coordinator.md`'s
-deferred gaps).
+Chat adapter tie-in (Runs ↔ channels), attaching a terminal to a *Run's* own
+process rather than to a worktree, side-by-side diff rendering, Tauri-proxied
+coordinator auth, per-mode token budget enforcement (needs the
+executor/broker — see `coordinator.md`'s deferred gaps).
+
+Delivered since this list was written: the per-worktree PTY surface with
+multiple tabs and tmux-backed persistence, worktree create/remove from the UI,
+adding and removing projects through the folder picker, and worktree diff
+review.
 
 ## Executor
 
