@@ -25,10 +25,20 @@
 //! travels back with the answer (`DiffLimits`) alongside what it actually cut
 //! (`omitted_files`, `omitted_untracked`, per-file `truncated`), and
 //! `features/runs/ui/WorktreeDiffPanel.tsx` puts those numbers on screen.
+//!
+//! **And every cap is applied to the read, not to the answer.** A patch is cut
+//! at the pipe (`run_capped`), because a cap applied after `Command::output()`
+//! has already buffered the whole thing bounds only what is displayed — an
+//! agent's 191 MB `run.log` in a worktree cost ~404 MB resident before the
+//! first byte was cut. The whole read then runs on a blocking thread
+//! (`off_thread`): it is up to ~500 `git` subprocesses, and a
+//! `#[tauri::command] fn` would run all of them on the thread the webview's
+//! IPC arrives on — the macOS main thread — with every keystroke bound for a
+//! terminal queued behind them.
 
 use serde::Serialize;
 
-use super::{answers_yes, commit, describe, ensure_repo, run, WorktreeError};
+use super::{answers_yes, commit, describe, ensure_repo, run, run_capped, WorktreeError};
 
 /// Files rendered before the list is cut. 400 is far past the point a human
 /// reads file-by-field, and far below the point the DOM struggles.
@@ -47,6 +57,13 @@ const MAX_PATCH_LINES: usize = 2_000;
 /// minified bundle is one line per file, so a line cap alone does not bound
 /// anything.
 const MAX_PATCH_BYTES: usize = 256 * 1024;
+
+/// Patch bytes *read* per file. One past the cap on purpose: a read that
+/// stopped here has produced more than `MAX_PATCH_BYTES`, which is exactly the
+/// condition `truncate_patch` cuts on — so a read cut short at the pipe and a
+/// patch cut short in memory are reported as the same thing, by the same code,
+/// and there is no second truncation flag to keep in step with the first.
+const READ_PATCH_BYTES: usize = MAX_PATCH_BYTES + 1;
 
 /// What happened to a file, in the vocabulary `git diff --name-status` uses,
 /// plus the one status git has no letter for because it is not in the diff at
@@ -248,11 +265,17 @@ fn says_binary(patch: &str) -> bool {
 
 /// Lines a `--no-index` patch adds — the additions count for an untracked
 /// file, since `--numstat` would have to be a second subprocess to learn the
-/// same thing. `+++` is the header, not an added line.
+/// same thing.
+///
+/// Counted from the first hunk header rather than by excluding `+++`: this is
+/// a single-file patch, so everything before the first `@@` is header and
+/// everything after it is content. Excluding the prefix instead would drop a
+/// real added line whose own text begins `++`, which a diff of a diff does.
 fn added_lines(patch: &str) -> usize {
     patch
         .lines()
-        .filter(|line| line.starts_with('+') && !line.starts_with("+++"))
+        .skip_while(|line| !line.starts_with("@@"))
+        .filter(|line| line.starts_with('+'))
         .count()
 }
 
@@ -270,38 +293,90 @@ fn diff_args<'a>(base: &'a str, paths: &[&'a str]) -> Vec<&'a str> {
     args
 }
 
-fn patch_for(worktree: &str, base: &str, file: &NumStat) -> String {
+/// One file's patch.
+///
+/// **A patch that could not be read is a refusal, not an empty string.** An
+/// empty patch beside `+3 −1` renders as "no textual change to show — an empty
+/// file, or a mode change" (`worktreeDiff.ts`), which is a positive claim about
+/// the owner's work; making it on the strength of a git that did not run is the
+/// failure mode this module's header rules out.
+fn patch_for(worktree: &str, base: &str, file: &NumStat) -> Result<String, WorktreeError> {
     let mut paths = vec![file.path.as_str()];
     if let Some(old) = file.old_path.as_deref() {
         paths.push(old);
     }
-    run(worktree, &diff_args(base, &paths))
-        .map(|ran| ran.stdout)
-        .unwrap_or_default()
+    let args = diff_args(base, &paths);
+    let ran = run_capped(worktree, &args, READ_PATCH_BYTES)?;
+    if !ran.ok {
+        return Err(WorktreeError::GitFailed {
+            command: describe(&args),
+            stderr: ran.stderr,
+        });
+    }
+    Ok(ran.stdout)
+}
+
+fn no_index_args<'a>(path: &'a str) -> [&'a str; 8] {
+    [
+        "diff",
+        "--no-ext-diff",
+        "--no-color",
+        "--no-index",
+        "--unified=3",
+        "--",
+        "/dev/null",
+        path,
+    ]
+}
+
+/// Read a `--no-index` run, which cannot be judged by its exit status.
+///
+/// It exits 1 both for "these two files differ" — the normal outcome here —
+/// and for "could not access this path", measured on the installed git:
+///
+/// ```text
+/// $ git diff --no-index -- /dev/null not-on-disk.txt
+/// error: Could not access 'not-on-disk.txt'
+/// $ echo $?
+/// 1
+/// ```
+///
+/// What separates them is what came back. A difference is a patch on stdout; a
+/// fault is a sentence on stderr and nothing else. Two files that are the same
+/// (an empty new file against `/dev/null`) produce neither, and that is the
+/// zero-addition file it says it is — not a fault, and not silence about one.
+fn no_index_answer(args: &[&str], stdout: String, stderr: String) -> Result<String, WorktreeError> {
+    if stdout.is_empty() && !stderr.trim().is_empty() {
+        return Err(WorktreeError::GitFailed {
+            command: describe(args),
+            stderr,
+        });
+    }
+    Ok(stdout)
 }
 
 /// The patch for a file git has never seen, against nothing.
+fn untracked_patch(worktree: &str, path: &str) -> Result<String, WorktreeError> {
+    let args = no_index_args(path);
+    let ran = run_capped(worktree, &args, READ_PATCH_BYTES)?;
+    no_index_answer(&args, ran.stdout, ran.stderr)
+}
+
+/// git's own addition count for one untracked file.
 ///
-/// `--no-index` puts git in "compare two paths" mode, where it exits 1 to mean
-/// "they differ" — the normal outcome here — so this reads stdout rather than
-/// the status. An empty new file legitimately produces no patch at all, and is
-/// reported as the zero-addition file it is.
-fn untracked_patch(worktree: &str, path: &str) -> String {
-    run(
-        worktree,
-        &[
-            "diff",
-            "--no-ext-diff",
-            "--no-color",
-            "--no-index",
-            "--unified=3",
-            "--",
-            "/dev/null",
-            path,
-        ],
-    )
-    .map(|ran| ran.stdout)
-    .unwrap_or_default()
+/// Only asked for a file whose patch was cut at the byte cap, where counting
+/// `+` lines in what was read would report a number smaller than the truth
+/// with nothing saying so. Costs a second read of that one file — which is
+/// what `added_lines` exists to avoid for the other ninety-nine.
+fn untracked_additions(worktree: &str, path: &str) -> Result<usize, WorktreeError> {
+    let mut args = vec!["diff", "--numstat", "-z"];
+    args.extend_from_slice(&no_index_args(path)[1..]);
+    let ran = run(worktree, &args)?;
+    let counted = no_index_answer(&args, ran.stdout, ran.stderr)?;
+    Ok(parse_numstat_z(&counted)
+        .first()
+        .and_then(|record| record.additions)
+        .unwrap_or(0))
 }
 
 fn tracked_changes(worktree: &str, base: &str) -> Result<Vec<DiffFile>, WorktreeError> {
@@ -315,12 +390,19 @@ fn tracked_changes(worktree: &str, base: &str) -> Result<Vec<DiffFile>, Worktree
     }
     let counted = parse_numstat_z(&ran.stdout);
 
+    // Not `unwrap_or_default()`: an empty status list makes every file
+    // "Modified", so an added file would be shown as one the owner edited.
     let status_args = ["diff", "--name-status", "-z", "--find-renames", base, "--"];
-    let statuses = run(worktree, &status_args)
-        .map(|ran| parse_name_status_z(&ran.stdout))
-        .unwrap_or_default();
+    let statuses = run(worktree, &status_args)?;
+    if !statuses.ok {
+        return Err(WorktreeError::GitFailed {
+            command: describe(&status_args),
+            stderr: statuses.stderr,
+        });
+    }
+    let statuses = parse_name_status_z(&statuses.stdout);
 
-    Ok(counted
+    counted
         .into_iter()
         .take(MAX_FILES)
         .map(|file| {
@@ -333,9 +415,9 @@ fn tracked_changes(worktree: &str, base: &str) -> Result<Vec<DiffFile>, Worktree
             let (patch, truncated) = if binary {
                 (String::new(), false)
             } else {
-                truncate_patch(patch_for(worktree, base, &file))
+                truncate_patch(patch_for(worktree, base, &file)?)
             };
-            DiffFile {
+            Ok(DiffFile {
                 additions: file.additions.unwrap_or(0),
                 binary,
                 change,
@@ -344,38 +426,46 @@ fn tracked_changes(worktree: &str, base: &str) -> Result<Vec<DiffFile>, Worktree
                 patch,
                 path: file.path,
                 truncated,
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
-fn untracked_changes(worktree: &str) -> (Vec<DiffFile>, usize) {
-    let listed = run(
-        worktree,
-        &["ls-files", "--others", "--exclude-standard", "-z"],
-    )
-    .map(|ran| {
-        nul_fields(&ran.stdout)
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>()
-    })
-    .unwrap_or_default();
+fn untracked_changes(worktree: &str) -> Result<(Vec<DiffFile>, usize), WorktreeError> {
+    let list_args = ["ls-files", "--others", "--exclude-standard", "-z"];
+    let ran = run(worktree, &list_args)?;
+    if !ran.ok {
+        return Err(WorktreeError::GitFailed {
+            command: describe(&list_args),
+            stderr: ran.stderr,
+        });
+    }
+    let listed: Vec<String> = nul_fields(&ran.stdout)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
 
     let omitted = listed.len().saturating_sub(MAX_UNTRACKED);
     let files = listed
         .into_iter()
         .take(MAX_UNTRACKED)
         .map(|path| {
-            let raw = untracked_patch(worktree, &path);
+            let raw = untracked_patch(worktree, &path)?;
             let binary = says_binary(&raw);
-            let additions = if binary { 0 } else { added_lines(&raw) };
+            let counted = if binary { 0 } else { added_lines(&raw) };
             let (patch, truncated) = if binary {
                 (String::new(), false)
             } else {
                 truncate_patch(raw)
             };
-            DiffFile {
+            // Counting `+` lines in a patch that was cut would under-report
+            // the file's additions while the total beside it read as complete.
+            let additions = if truncated && !binary {
+                untracked_additions(worktree, &path)?
+            } else {
+                counted
+            };
+            Ok(DiffFile {
                 additions,
                 binary,
                 change: FileChange::Untracked,
@@ -384,10 +474,10 @@ fn untracked_changes(worktree: &str) -> (Vec<DiffFile>, usize) {
                 patch,
                 path,
                 truncated,
-            }
+            })
         })
-        .collect();
-    (files, omitted)
+        .collect::<Result<Vec<_>, WorktreeError>>()?;
+    Ok((files, omitted))
 }
 
 fn diff(worktree: &str, base: &str) -> Result<WorktreeDiff, WorktreeError> {
@@ -404,8 +494,8 @@ fn diff(worktree: &str, base: &str) -> Result<WorktreeDiff, WorktreeError> {
     let tracked = tracked_changes(worktree, base)?;
     // Only the listed files are summed. The count of what was left out rides
     // alongside so the total is never read as "everything".
-    let omitted_files = count_beyond_cap(worktree, base, tracked.len());
-    let (untracked, omitted_untracked) = untracked_changes(worktree);
+    let omitted_files = count_beyond_cap(worktree, base, tracked.len())?;
+    let (untracked, omitted_untracked) = untracked_changes(worktree)?;
 
     let mut files = tracked;
     files.extend(untracked);
@@ -428,16 +518,23 @@ fn diff(worktree: &str, base: &str) -> Result<WorktreeDiff, WorktreeError> {
 /// How many changed files were not listed. Asked separately, and cheaply
 /// (`--name-only`), because `tracked_changes` stops reading at the cap and so
 /// cannot know how far past it the real list went.
-fn count_beyond_cap(worktree: &str, base: &str, listed: usize) -> usize {
+///
+/// A failure here is returned, not counted as zero: zero omitted files is what
+/// **suppresses** the omission banner, so swallowing this failure would hide
+/// exactly the truncation the banner exists to announce.
+fn count_beyond_cap(worktree: &str, base: &str, listed: usize) -> Result<usize, WorktreeError> {
     if listed < MAX_FILES {
-        return 0;
+        return Ok(0);
     }
-    run(
-        worktree,
-        &["diff", "--name-only", "-z", "--find-renames", base, "--"],
-    )
-    .map(|ran| nul_fields(&ran.stdout).len().saturating_sub(listed))
-    .unwrap_or(0)
+    let args = ["diff", "--name-only", "-z", "--find-renames", base, "--"];
+    let ran = run(worktree, &args)?;
+    if !ran.ok {
+        return Err(WorktreeError::GitFailed {
+            command: describe(&args),
+            stderr: ran.stderr,
+        });
+    }
+    Ok(nul_fields(&ran.stdout).len().saturating_sub(listed))
 }
 
 /// One worktree's changes against `base`, working tree included.
@@ -445,9 +542,14 @@ fn count_beyond_cap(worktree: &str, base: &str, listed: usize) -> usize {
 /// `path` is the worktree, not the repository: a linked worktree has its own
 /// working files and its own `HEAD`, and `git -C <worktree>` is how you ask
 /// about them.
+///
+/// `async`, and the whole read on a blocking thread: this is the command that
+/// spawns the most subprocesses in the app — up to two probes, three list
+/// passes and one `git diff` per file — and a `fn` command would run every one
+/// of them on the thread the webview's IPC arrives on. See `off_thread`.
 #[tauri::command]
-pub fn worktree_diff(path: String, base: String) -> Result<WorktreeDiff, WorktreeError> {
-    diff(&path, &base)
+pub async fn worktree_diff(path: String, base: String) -> Result<WorktreeDiff, WorktreeError> {
+    super::off_thread("worktree diff", move || diff(&path, &base)).await
 }
 
 #[cfg(test)]
@@ -571,6 +673,21 @@ mod tests {
             "@@ -0,0 +1,2 @@\n",
             "+one\n",
             "+two\n",
+        );
+        assert_eq!(added_lines(patch), 2);
+    }
+
+    #[test]
+    fn an_added_line_that_looks_like_a_header_is_still_a_line() {
+        // A file containing "++ a line" — a diff pasted into a document, a
+        // markdown snippet — makes the patch line "+++ a line".
+        let patch = concat!(
+            "diff --git a/dev/null b/notes.md\n",
+            "--- /dev/null\n",
+            "+++ b/notes.md\n",
+            "@@ -0,0 +1,2 @@\n",
+            "+++ a line that begins with two pluses\n",
+            "+ordinary\n",
         );
         assert_eq!(added_lines(patch), 2);
     }
@@ -780,6 +897,78 @@ mod tests {
         let readme = file(&answer, "README.md");
         assert_eq!((readme.additions, readme.deletions), (2, 0));
         assert_eq!(answer.base, "main");
+    }
+
+    // ---------------------------------------------------------------------
+    // what a read costs, and what it does when it cannot answer
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn a_huge_untracked_file_is_cut_at_the_cap_and_still_counted_by_git() {
+        // The failure this pins: the caps used to be display caps. The whole
+        // patch was materialised — twice, by `Command::output()` and then by
+        // `from_utf8_lossy` — before a byte was cut, so an agent's `run.log`
+        // in a worktree cost hundreds of MB to look at. The cut is now at the
+        // pipe, which means the `+` lines in what was read are no longer the
+        // file's real count, which is why the count comes from git instead.
+        let repo = Repo::new();
+        let lines = (MAX_PATCH_BYTES / 16) + 500;
+        repo.write("run.log", &"0123456789abcde\n".repeat(lines));
+
+        let answer = read(&repo.path(), "HEAD");
+        let log = file(&answer, "run.log");
+        assert!(log.truncated, "a patch past the cap must say it was cut");
+        assert!(
+            log.patch.len() <= MAX_PATCH_BYTES,
+            "kept {} bytes, cap is {MAX_PATCH_BYTES}",
+            log.patch.len()
+        );
+        assert_eq!(
+            log.additions, lines,
+            "the count must be the file's, not the shown part's"
+        );
+        assert_eq!(answer.additions, lines);
+    }
+
+    #[test]
+    fn a_patch_git_would_not_produce_is_a_refusal_not_an_empty_patch() {
+        // An empty patch beside "+3 −1" renders as "no textual change to
+        // show", which is a claim about the owner's work. It may only be made
+        // when git actually said so.
+        let repo = Repo::new();
+        let missing = NumStat {
+            additions: Some(3),
+            deletions: Some(1),
+            old_path: None,
+            path: "keep.txt".to_string(),
+        };
+        assert!(patch_for(&repo.path(), "no-such-ref", &missing).is_err());
+        assert!(untracked_patch(&repo.path(), "not-on-disk.txt").is_err());
+    }
+
+    #[test]
+    fn a_failed_count_of_the_omitted_files_does_not_read_as_nothing_omitted() {
+        // Zero omitted files is what suppresses the amber banner, so this
+        // failure path is the one that hides a truncation.
+        let repo = Repo::new();
+        assert!(count_beyond_cap(&repo.path(), "no-such-ref", MAX_FILES).is_err());
+        // Below the cap nothing is asked at all, which is not a failure.
+        assert_eq!(count_beyond_cap(&repo.path(), "no-such-ref", 3), Ok(0));
+    }
+
+    #[test]
+    fn the_command_is_async_so_the_read_never_runs_on_the_ipc_thread() {
+        // `#[tauri::command] fn` is generated with ExecutionContext::Blocking
+        // (tauri-macros 2.6.3, command/wrapper.rs), which inlines the call
+        // into the IPC scheme handler — the main thread on macOS/WKWebView —
+        // for the whole of a read that is up to ~500 git subprocesses. Only an
+        // `async fn` gets `respond_async_serialized`. The thread is not
+        // observable from here; the shape that decides it is.
+        fn accepts_only_a_future<F: std::future::Future>(_: F) {}
+        accepts_only_a_future(worktree_diff(
+            "/nonexistent".to_string(),
+            "HEAD".to_string(),
+        ));
     }
 
     #[test]

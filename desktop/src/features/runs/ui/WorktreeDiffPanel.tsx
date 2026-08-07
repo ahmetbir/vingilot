@@ -21,7 +21,13 @@
 
 import * as React from "react";
 
-import { nextFileIndex, resolveDiffKey } from "@/features/runs/lib/diffKeys";
+import {
+  activatesOnEnter,
+  type FocusedElement,
+  isTypingTarget,
+  nextFileIndex,
+  resolveDiffKey,
+} from "@/features/runs/lib/diffKeys";
 import type { Worktree } from "@/features/runs/lib/projects";
 import { diffView } from "@/features/runs/lib/runModel";
 import type { DiffLineKind } from "@/features/runs/lib/runModel";
@@ -58,15 +64,17 @@ interface Props {
   worktree: Worktree;
 }
 
-/** True when the caret is somewhere a letter is a letter. */
-function inField(): boolean {
+/** What has focus right now, in the terms `diffKeys.ts` decides on. The
+ * listener below is on `window`, so this is the whole app's focus, not the
+ * panel's. */
+function focused(): FocusedElement | null {
   const active = document.activeElement;
-  if (!(active instanceof HTMLElement)) return false;
-  return (
-    active.tagName === "INPUT" ||
-    active.tagName === "TEXTAREA" ||
-    active.isContentEditable
-  );
+  if (!(active instanceof HTMLElement)) return null;
+  return {
+    contentEditable: active.isContentEditable,
+    role: active.getAttribute("role"),
+    tagName: active.tagName,
+  };
 }
 
 export function WorktreeDiffPanel({ cwd, worktree }: Props) {
@@ -115,9 +123,11 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      const focus = focused();
       const action = resolveDiffKey({
         altKey: event.altKey,
-        inField: inField(),
+        focusActivates: activatesOnEnter(focus),
+        inField: isTypingTarget(focus),
         key: event.key,
         primaryModifier: event.metaKey || event.ctrlKey,
         repeat: event.repeat,

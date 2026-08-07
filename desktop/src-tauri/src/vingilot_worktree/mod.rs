@@ -37,6 +37,7 @@ mod porcelain;
 #[cfg(test)]
 mod testrepo;
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -132,7 +133,14 @@ fn responds_to_version(candidate: &str) -> bool {
     )
 }
 
+/// Stderr kept from any one git command. git's diagnostics are a line or two;
+/// this is only here so a command that decides to narrate cannot cost memory.
+const MAX_STDERR_BYTES: usize = 8 * 1024;
+
 struct Ran {
+    /// Whether git is reporting an answer rather than a refusal. For a read
+    /// this side cut short (`run_capped`) it is always true: closing the pipe
+    /// is what ended git, and that is not a fault to report.
     ok: bool,
     stdout: String,
     stderr: String,
@@ -144,6 +152,11 @@ struct Ran {
 /// credential prompt on: without it a repository with an authenticating remote
 /// could hang this call forever with nothing on screen to explain it.
 /// `stdin` is closed for the same reason.
+///
+/// **Unbounded, so only for output whose size is the repository's shape rather
+/// than a file's contents** — a path list, a `--numstat` table, a `status
+/// --porcelain`. Anything that can carry the bytes of a file the owner wrote
+/// goes through `run_capped`.
 fn run(cwd: &str, args: &[&str]) -> Result<Ran, WorktreeError> {
     let git = git().ok_or(WorktreeError::GitMissing)?;
     let output = Command::new(git)
@@ -161,6 +174,65 @@ fn run(cwd: &str, args: &[&str]) -> Result<Ran, WorktreeError> {
         ok: output.status.success(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+    })
+}
+
+/// Read at most `limit` bytes, then drop the pipe.
+///
+/// Dropping it is the point: the writer at the other end gets `EPIPE` on its
+/// next write and stops, instead of producing output this side would allocate
+/// and immediately discard.
+fn read_capped(source: Option<impl Read>, limit: usize) -> Vec<u8> {
+    let mut buf = Vec::new();
+    if let Some(source) = source {
+        let _ = source.take(limit as u64).read_to_end(&mut buf);
+    }
+    buf
+}
+
+/// Run git, reading at most `limit` bytes of its stdout.
+///
+/// **Why this exists.** `Command::output()` buffers all of stdout into a
+/// `Vec<u8>` and hands back a second full copy as a `String`, so a cap applied
+/// to the result is a cap on what is *displayed*, not on what is *read*: an
+/// untracked 191 MB log in a worktree costs ~404 MB of resident memory before
+/// the first byte is cut. A per-file patch is exactly that kind of output —
+/// its size is a file the owner (or an agent) wrote, not anything about the
+/// repository — so the cut has to happen at the pipe.
+///
+/// stderr is drained on its own thread. Reading it after stdout would deadlock
+/// against a git that fills the stderr pipe while this side is still reading
+/// stdout, and closing it would turn git's own diagnostics into `EPIPE`.
+fn run_capped(cwd: &str, args: &[&str], limit: usize) -> Result<Ran, WorktreeError> {
+    let git = git().ok_or(WorktreeError::GitMissing)?;
+    let failed = |stderr: String| WorktreeError::GitFailed {
+        command: describe(args),
+        stderr,
+    };
+    let mut child = Command::new(git)
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| failed(error.to_string()))?;
+
+    let errors = child.stderr.take();
+    let draining = std::thread::spawn(move || read_capped(errors, MAX_STDERR_BYTES));
+    let out = read_capped(child.stdout.take(), limit);
+    let status = child.wait().map_err(|error| failed(error.to_string()))?;
+    let err = draining.join().unwrap_or_default();
+
+    // A command this side cut short cannot be judged by how it ended: git took
+    // SIGPIPE on its next write, which is this module's doing.
+    let capped = out.len() >= limit;
+    Ok(Ran {
+        ok: status.success() || capped,
+        stderr: String::from_utf8_lossy(&err).into_owned(),
+        stdout: String::from_utf8_lossy(&out).into_owned(),
     })
 }
 
@@ -357,10 +429,35 @@ fn remove(repo: &str, path: &str) -> Result<(), WorktreeError> {
     Ok(())
 }
 
+/// Run one of this module's git operations off the thread the webview talks
+/// on, and report a runtime that could not run it rather than swallowing it.
+///
+/// **Every command below is `async` for this one reason.** A `#[tauri::command]`
+/// declared `fn` is generated with `ExecutionContext::Blocking`
+/// (tauri-macros 2.6.3, `command/wrapper.rs`), which inlines the call into the
+/// IPC scheme handler — on macOS/WKWebView, the main thread. Each of these
+/// operations is one or more `git` subprocesses against a real checkout, and
+/// while one runs, nothing else the app is asked to do can start: not the next
+/// IPC, not a keystroke on its way to a terminal. The terminal staying
+/// responsive is the product.
+async fn off_thread<T, F>(command: &str, work: F) -> Result<T, WorktreeError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, WorktreeError> + Send + 'static,
+{
+    match tauri::async_runtime::spawn_blocking(work).await {
+        Ok(answer) => answer,
+        Err(error) => Err(WorktreeError::GitFailed {
+            command: command.to_string(),
+            stderr: error.to_string(),
+        }),
+    }
+}
+
 /// Every worktree of a project, git's answer verbatim.
 #[tauri::command]
-pub fn worktree_list(repo: String) -> Result<Vec<GitWorktree>, WorktreeError> {
-    list(&repo)
+pub async fn worktree_list(repo: String) -> Result<Vec<GitWorktree>, WorktreeError> {
+    off_thread("worktree list", move || list(&repo)).await
 }
 
 /// A new branch on a new working tree. `path` is chosen by the caller
@@ -368,19 +465,19 @@ pub fn worktree_list(repo: String) -> Result<Vec<GitWorktree>, WorktreeError> {
 /// the executor uses) because only the frontend can resolve the home
 /// directory it hangs off.
 #[tauri::command]
-pub fn worktree_add(
+pub async fn worktree_add(
     repo: String,
     branch: String,
     base: String,
     path: String,
 ) -> Result<GitWorktree, WorktreeError> {
-    add(&repo, &branch, &base, &path)
+    off_thread("worktree add", move || add(&repo, &branch, &base, &path)).await
 }
 
 /// Close a worktree, if git will. See this module's rule 2: no force, ever.
 #[tauri::command]
-pub fn worktree_remove(repo: String, path: String) -> Result<(), WorktreeError> {
-    remove(&repo, &path)
+pub async fn worktree_remove(repo: String, path: String) -> Result<(), WorktreeError> {
+    off_thread("worktree remove", move || remove(&repo, &path)).await
 }
 
 #[cfg(test)]
@@ -569,6 +666,67 @@ mod tests {
             Err(not_a_repo.clone())
         );
         assert_eq!(remove(&path, &path), Err(not_a_repo));
+    }
+
+    #[test]
+    fn a_capped_read_stops_at_the_pipe_rather_than_after_the_allocation() {
+        // Measured before this existed: `git diff --no-index` against a 191 MB
+        // untracked file returned 202,000,125 bytes, which `Command::output()`
+        // held as a Vec and `from_utf8_lossy` copied into a String — ~404 MB
+        // resident, per file, before any cap was applied. A file an agent
+        // wrote is not bounded by anything about the repository, so the read
+        // has to be.
+        let repo = Repo::new();
+        repo.write("big.txt", &"x".repeat(400_000));
+        let args = [
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--no-index",
+            "--",
+            "/dev/null",
+            "big.txt",
+        ];
+
+        let capped = match run_capped(&repo.path(), &args, 4096) {
+            Ok(ran) => ran,
+            Err(error) => panic!("expected a capped read, got {error:?}"),
+        };
+        assert_eq!(capped.stdout.len(), 4096);
+        // git died of SIGPIPE because this side stopped reading. That is this
+        // module's doing and must not surface as a failed command.
+        assert!(capped.ok);
+
+        let whole = match run(&repo.path(), &args) {
+            Ok(ran) => ran,
+            Err(error) => panic!("expected a full read, got {error:?}"),
+        };
+        assert!(whole.stdout.len() > 400_000);
+    }
+
+    #[test]
+    fn a_read_that_fits_under_its_cap_is_not_reported_as_cut() {
+        let repo = Repo::new();
+        let ran = match run_capped(&repo.path(), &["rev-parse", "--abbrev-ref", "HEAD"], 4096) {
+            Ok(ran) => ran,
+            Err(error) => panic!("expected an answer, got {error:?}"),
+        };
+        assert_eq!(ran.stdout.trim(), "main");
+        assert!(ran.ok);
+    }
+
+    #[test]
+    fn a_capped_read_of_a_command_that_refuses_still_reports_the_refusal() {
+        let repo = Repo::new();
+        let ran = match run_capped(&repo.path(), &["diff", "no-such-ref"], 4096) {
+            Ok(ran) => ran,
+            Err(error) => panic!("expected a refusal to be readable, got {error:?}"),
+        };
+        assert!(!ran.ok);
+        assert!(
+            !ran.stderr.is_empty(),
+            "git's own words are the useful ones"
+        );
     }
 
     #[test]
