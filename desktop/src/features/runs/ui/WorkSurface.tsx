@@ -40,6 +40,7 @@ import * as React from "react";
 import type { Worktree } from "@/features/runs/lib/projects";
 import { resolvePaneKey } from "@/features/runs/lib/paneKeys";
 import {
+  clampRatioAt,
   LEFT_PANE,
   type PaneContext,
   type PaneState,
@@ -103,6 +104,28 @@ export function WorkSurface({
   const [focusToken, setFocusToken] = React.useState(0);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const toggleRightPane = panes.toggleCollapsed;
+
+  // How wide the row the two panes share actually is, because the floors that
+  // keep the terminal above 80 columns are in pixels and cannot be applied to
+  // a ratio without one (`clampRatioAt`). 0 until it has been measured, which
+  // reads as "no floor to apply" rather than as a floor of zero.
+  //
+  // A layout effect rather than a passive one: the first measurement has to
+  // land before `Terminal`'s own effect runs, because being measured is what
+  // opens its session and the geometry it opens at is the one tmux adopts for
+  // a session restored from a previous app run.
+  const [surfaceWidth, setSurfaceWidth] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (surface === null) return;
+    setSurfaceWidth(surface.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      const measured = entries[0]?.contentRect.width;
+      if (measured !== undefined) setSurfaceWidth(measured);
+    });
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, []);
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -180,6 +203,10 @@ export function WorkSurface({
     worktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
   const leftEntry = paneEntry(LEFT_PANE);
   const layout: PaneState = panes.state;
+  // What the owner asked for, honoured as far as this surface can. The stored
+  // ratio stays his — a window too narrow to keep the terminal at 80 columns
+  // does not rewrite it, it only declines to draw it.
+  const ratio = clampRatioAt(layout.ratio, surfaceWidth);
 
   return (
     <div
@@ -201,7 +228,7 @@ export function WorkSurface({
               />
             )
           }
-          share={layout.collapsed ? 1 : layout.ratio}
+          share={layout.collapsed ? 1 : ratio}
           side="left"
         >
           {terminals.map((terminal) => (
@@ -230,7 +257,7 @@ export function WorkSurface({
               onRatio={panes.setRatio}
               onReset={panes.resetRatio}
               onToggle={toggleRightPane}
-              ratio={layout.ratio}
+              ratio={ratio}
               surfaceRef={surfaceRef}
             />
             <RightPane
@@ -240,7 +267,7 @@ export function WorkSurface({
               reachable={reachable}
               right={layout.right}
               runs={runs}
-              share={1 - layout.ratio}
+              share={1 - ratio}
               worktree={selectedWorktree}
               workspaceId={workspaceId}
             />

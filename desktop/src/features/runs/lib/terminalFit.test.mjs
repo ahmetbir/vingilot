@@ -166,6 +166,51 @@ test("an open already in flight is left alone", () => {
   assert.deepEqual(resolveFitAction("opening", unmeasured), { type: "idle" });
 });
 
+test("a measurement that lands on the geometry the shell already has is not a resize", () => {
+  // A drag of the pane divider remeasures on every pointermove; roughly half
+  // of those land on the same column count as the frame before, and each one
+  // that got through was a TIOCSWINSZ, a SIGWINCH and a full tmux redraw for
+  // a shape that did not change.
+  assert.deepEqual(
+    resolveFitAction("open", measured, { cols: 213, rows: 51 }),
+    {
+      type: "idle",
+    },
+  );
+  assert.deepEqual(
+    resolveFitAction("open", measured, { cols: 212, rows: 51 }),
+    {
+      cols: 213,
+      rows: 51,
+      type: "resize",
+    },
+  );
+  assert.deepEqual(
+    resolveFitAction("open", measured, { cols: 213, rows: 50 }),
+    {
+      cols: 213,
+      rows: 51,
+      type: "resize",
+    },
+  );
+  // Nothing has been given to this session yet, so nothing can be said to
+  // match it — the first measurement after an open always reaches the shell.
+  assert.deepEqual(resolveFitAction("open", measured, null), {
+    cols: 213,
+    rows: 51,
+    type: "resize",
+  });
+});
+
+test("a matching geometry never suppresses an open", () => {
+  // The open is what tells the backend the session exists at all; a session
+  // that has not been opened has no geometry to match against.
+  assert.deepEqual(
+    resolveFitAction("unopened", measured, { cols: 213, rows: 51 }),
+    { cols: 213, rows: 51, type: "open" },
+  );
+});
+
 test("a collapsed but measured pane is left alone rather than retried", () => {
   // Measured and decided: retrying would spin frames on a geometry that is
   // not going to improve on its own.

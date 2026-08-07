@@ -5,13 +5,16 @@ import {
   AGENT_HARNESS_PROBE,
   agentAvailability,
   clampRatio,
+  clampRatioAt,
   DEFAULT_RATIO,
   defaultPaneState,
   diffAvailability,
   evidenceAvailability,
   LEFT_PANE,
   MAX_RATIO,
+  MIN_LEFT_PX,
   MIN_RATIO,
+  MIN_RIGHT_PX,
   noProbes,
   nudgeRatio,
   PANE_IDS,
@@ -122,9 +125,48 @@ test("a no-op returns the same layout object, so no write is provoked", () => {
 });
 
 test("a drag reads as a ratio of the surface it is inside", () => {
-  assert.equal(ratioFromPointer(100, 1000, 600), 0.5);
-  assert.equal(ratioFromPointer(0, 1000, 999), MAX_RATIO);
-  assert.equal(ratioFromPointer(0, 1000, -50), MIN_RATIO);
+  assert.equal(ratioFromPointer(100, 2000, 1100), 0.5);
+  assert.equal(ratioFromPointer(0, 2000, 1999), MAX_RATIO);
+});
+
+test("no drag can take the terminal under 80 columns while the surface can hold it", () => {
+  // The measured defect: on a 549px surface the ratio clamp let a drag reach
+  // 12 columns, and under tmux the attached client's size is the session's
+  // size — every line of the scrollback re-wraps and dragging back does not
+  // un-wrap it.
+  const wide = 2000;
+  assert.equal(ratioFromPointer(0, wide, 10) * wide, MIN_LEFT_PX);
+  assert.equal(clampRatioAt(0.01, wide) * wide, MIN_LEFT_PX);
+  assert.equal(clampRatioAt(MIN_RATIO, wide) * wide, MIN_LEFT_PX);
+  // And the right pane keeps a floor of its own at the other end, wherever
+  // that bites before the taste clamp does.
+  const mid = 1000;
+  assert.ok(MAX_RATIO * mid > mid - MIN_RIGHT_PX);
+  assert.equal(clampRatioAt(0.99, mid) * mid, mid - MIN_RIGHT_PX);
+});
+
+test("a surface too narrow for both floors gives the terminal the room", () => {
+  // 549px is the real measurement: sidebar plus worktree column on a 1280
+  // window. Nothing here is a good layout — what it must not be is the one
+  // that destroys the scrollback, and ⌥⌘B is the way out.
+  const narrow = 549;
+  assert.ok(MIN_LEFT_PX + MIN_RIGHT_PX > narrow);
+  assert.equal(clampRatioAt(0.01, narrow), MAX_RATIO);
+  assert.equal(clampRatioAt(0.99, narrow), MAX_RATIO);
+  assert.ok(clampRatioAt(DEFAULT_RATIO, narrow) * narrow > 400);
+});
+
+test("a wide surface leaves the ratio alone — the floors are floors, not a layout", () => {
+  assert.equal(clampRatioAt(DEFAULT_RATIO, 2000), DEFAULT_RATIO);
+  assert.equal(clampRatioAt(0.5, 2000), 0.5);
+});
+
+test("an unmeasured surface invents no floor", () => {
+  // Reading a width nobody has measured as a real one is how a terminal gets
+  // resized to a shape nobody laid out.
+  assert.equal(clampRatioAt(DEFAULT_RATIO, 0), DEFAULT_RATIO);
+  assert.equal(clampRatioAt(DEFAULT_RATIO, Number.NaN), DEFAULT_RATIO);
+  assert.equal(clampRatioAt(0.99, 0), MAX_RATIO);
 });
 
 test("a surface with no width to divide answers nothing, not a floor", () => {

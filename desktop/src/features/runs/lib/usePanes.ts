@@ -41,11 +41,36 @@ export interface Panes {
   toggleCollapsed: () => void;
 }
 
+/** How long the layout has to stop changing before it is written down.
+ *
+ * A drag of the divider changes the ratio on every pointermove — measured at
+ * 40 for one short gesture — and each write is a synchronous `JSON.stringify`
+ * plus a `localStorage.setItem` on the same frame that is resizing a pty.
+ * Short enough that any pause in a gesture commits, and nothing is riding on
+ * the write landing promptly: what it protects is the next app start. */
+const SETTLE_MS = 200;
+
 export function usePanes(worktreeId: string | null): Panes {
   const [layout, setLayout] = React.useState<PaneLayout>(readPaneLayout);
+
+  // The layout that has changed but not yet been written. Held so leaving the
+  // screen mid-drag writes the arrangement rather than dropping it — a
+  // debounce whose last change can be cancelled is a debounce that loses work.
+  const unwritten = React.useRef<PaneLayout | null>(null);
   React.useEffect(() => {
-    writePaneLayout(layout);
+    unwritten.current = layout;
+    const handle = setTimeout(() => {
+      unwritten.current = null;
+      writePaneLayout(layout);
+    }, SETTLE_MS);
+    return () => clearTimeout(handle);
   }, [layout]);
+  React.useEffect(
+    () => () => {
+      if (unwritten.current !== null) writePaneLayout(unwritten.current);
+    },
+    [],
+  );
 
   // Held in a ref so every callback below can be stable: they are props of a
   // component that renders a terminal, and a new identity each render would

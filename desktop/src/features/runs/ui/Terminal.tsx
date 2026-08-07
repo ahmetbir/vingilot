@@ -51,6 +51,7 @@ import {
   resolveFit,
   resolveFitAction,
   type SessionPhase,
+  type TerminalGeometry,
 } from "@/features/runs/lib/terminalFit";
 
 interface TerminalProps {
@@ -119,6 +120,10 @@ export function Terminal({
 
     let detached = false;
     let phase: SessionPhase = "unopened";
+    /** The geometry this session was last given, so a measurement landing on
+     * the same cells costs nothing. Reset with the attachment, because a
+     * reattach makes no claim about what the session's size is. */
+    let given: TerminalGeometry | null = null;
     let frame: number | null = null;
     let stream = initialPtyStreamState();
     let unlisten: (() => void) | undefined;
@@ -167,6 +172,7 @@ export function Terminal({
       const action = resolveFitAction(
         phase,
         resolveFit(width, height, fit.proposeDimensions() ?? null),
+        given,
       );
       if (action.type === "retry") return "retry";
       if (action.type === "idle") return "settled";
@@ -178,9 +184,16 @@ export function Terminal({
       if (action.type === "open") {
         void open(action.cols, action.rows);
       } else {
+        // Recorded before the call rather than after it: what matters is that
+        // this geometry has been sent, and a later frame proposing the same
+        // cells must not send it a second time while the first is in flight.
+        // A resize that fails leaves the session's size unknown to this view,
+        // so the record is dropped and the next measurement reaches the shell.
+        given = { cols: action.cols, rows: action.rows };
         void ptyResize(sessionId, action.cols, action.rows).catch(() => {
           // The session can close under a resize (the shell exited, the
           // worktree left the workspace). Nothing to render for it either way.
+          given = null;
         });
       }
       return "settled";

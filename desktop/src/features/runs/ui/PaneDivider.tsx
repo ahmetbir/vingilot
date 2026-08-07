@@ -10,12 +10,15 @@
 //
 // **The drag is live, and clamped rather than throttled.** A pty's width is
 // its shell's width, so every step of a drag reaches the shell — that is what
-// makes the drag feel like resizing a terminal rather than previewing one. It
-// is safe because it cannot reach a degenerate width: the model's clamp keeps
-// both sides above a fifth of the surface, and `terminalFit.ts` refuses any
-// geometry at or under the fit addon's own floor. What must never happen is a
-// resize to a shape nobody laid out, and neither of those paths can produce
-// one.
+// makes the drag feel like resizing a terminal rather than previewing one.
+//
+// What makes that safe is a floor in *pixels*, not in ratio: `clampRatioAt`
+// keeps the terminal at 80 columns wherever the surface can hold them
+// (`paneModel.ts` says why a ratio cannot). Two other things keep the cost of
+// a live drag down to what it is worth: `terminalFit.ts` refuses any geometry
+// at or under the fit addon's own floor, and it declines a resize whose column
+// count has not changed since the last one — pixels move on every pointermove,
+// cells do not.
 
 import * as React from "react";
 

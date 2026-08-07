@@ -141,10 +141,19 @@ export type FitAction =
  *
  * So there is no action here that opens without an `apply`: a terminal that
  * has not been measured waits to be shown, and opens at the size it is
- * actually given. Nothing invents a geometry. */
+ * actually given. Nothing invents a geometry.
+ *
+ * **`current` is what this session was last given**, or `null` for one that
+ * has been given nothing. A measurement that lands on the geometry the shell
+ * already has is not a resize: pixels move far more often than cells do, so a
+ * drag of the pane divider remeasures on every pointermove and about half of
+ * those propose the same column count as the frame before. Each one it does
+ * not short-circuit is a `TIOCSWINSZ`, a `SIGWINCH`, and a full tmux pane
+ * redraw for a shape that did not change. */
 export function resolveFitAction(
   phase: SessionPhase,
   decision: FitDecision,
+  current: TerminalGeometry | null = null,
 ): FitAction {
   // An open already in flight owns the session's geometry until it lands, and
   // signals for itself when it does.
@@ -152,7 +161,9 @@ export function resolveFitAction(
   if (decision.type === "wait") return { type: "retry" };
   if (decision.type === "refuse") return { type: "idle" };
   const { cols, rows } = decision;
-  return phase === "unopened"
-    ? { cols, rows, type: "open" }
-    : { cols, rows, type: "resize" };
+  if (phase === "unopened") return { cols, rows, type: "open" };
+  if (current !== null && current.cols === cols && current.rows === rows) {
+    return { type: "idle" };
+  }
+  return { cols, rows, type: "resize" };
 }
