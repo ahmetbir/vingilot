@@ -17,6 +17,14 @@
 // client's fields aren't silently deleted the next time `putRepos` writes
 // the whole array back (the array is the unit of change, exactly like
 // `deck.pins`).
+//
+// Tolerance in a read becomes destruction in a read-modify-write, though:
+// `putRepos` sends the whole array, so an entry `readRepos` DROPPED would be
+// erased from workspace state by the next add or remove — no error, no
+// confirm. Whoever writes the array back must therefore use
+// `readRepoEntries`/`mergeForeignRepos` instead, which keep the unparseable
+// entries aside and put them back where they were. `readRepos` remains the
+// right read for anything that only renders.
 
 import type { RunStatus, SemanticClass } from "./runModel.ts";
 import { statusClass } from "./runModel.ts";
@@ -43,10 +51,52 @@ function isRepo(value: unknown): value is Repo {
  * key a future client wrote onto it (and this client doesn't know about)
  * round-trips through read → write untouched. */
 export function readRepos(state: unknown): Repo[] {
-  if (typeof state !== "object" || state === null) return [];
-  const repos = (state as Record<string, unknown>).repos;
-  if (!Array.isArray(repos)) return [];
-  return repos.filter(isRepo);
+  return readRepoEntries(state).repos;
+}
+
+/** An element of workspace `repos` this client cannot read as a `Repo` — a
+ * malformed seed, or an entry a future client writes in a shape this build
+ * predates. `index` is where it sat in the raw array, so it can go back
+ * roughly where it was rather than being pushed to one end. */
+export interface ForeignRepoEntry {
+  index: number;
+  value: unknown;
+}
+
+/** The same tolerant read as `readRepos`, keeping what it dropped. Callers
+ * that write the array back use this; callers that only render use
+ * `readRepos`. */
+export function readRepoEntries(state: unknown): {
+  repos: Repo[];
+  foreign: ForeignRepoEntry[];
+} {
+  if (typeof state !== "object" || state === null)
+    return { foreign: [], repos: [] };
+  const raw = (state as Record<string, unknown>).repos;
+  if (!Array.isArray(raw)) return { foreign: [], repos: [] };
+
+  const repos: Repo[] = [];
+  const foreign: ForeignRepoEntry[] = [];
+  raw.forEach((value, index) => {
+    if (isRepo(value)) repos.push(value);
+    else foreign.push({ index, value });
+  });
+  return { foreign, repos };
+}
+
+/** The array to send back: the planned repos with every foreign entry spliced
+ * back in at the index it held. Clamped to the end when the plan produced a
+ * shorter list, which is the only case where the original index is no longer
+ * reachable. Nothing is ever dropped — that is the entire point. */
+export function mergeForeignRepos(
+  repos: readonly Repo[],
+  foreign: readonly ForeignRepoEntry[],
+): unknown[] {
+  const merged: unknown[] = [...repos];
+  for (const entry of [...foreign].sort((a, b) => a.index - b.index)) {
+    merged.splice(Math.min(entry.index, merged.length), 0, entry.value);
+  }
+  return merged;
 }
 
 /** One row of the coordinator's worktree read model — a `worktree_bindings`

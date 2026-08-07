@@ -18,6 +18,13 @@
 // client that always eventually wins, which is precisely the clobbering this
 // exists to prevent.
 //
+// **The write is lossless, not just CAS-safe.** Sending the whole array means
+// an entry this build cannot parse would be erased by any add or remove, so
+// the plan runs over the parseable repos while the rest are held aside and
+// spliced back at their old positions (`projects.ts`'s `readRepoEntries` /
+// `mergeForeignRepos`). A revision guard stops another client's write from
+// being overwritten; this stops another client's *entries* from being.
+//
 // The coordinator I/O is a parameter rather than an import so the retry
 // path, the refusal path, and the give-up path are ordinary unit tests
 // against a scripted client instead of a live coordinator.
@@ -27,16 +34,19 @@ import type {
   MutationOutcome,
   WorkspaceSnapshot,
 } from "./coordinatorClient.ts";
-import { readRepos, type Repo } from "./projects.ts";
+import { mergeForeignRepos, readRepoEntries, type Repo } from "./projects.ts";
 import { chooseRepo, type RepoProbe } from "./repoChoice.ts";
 
 export interface WorkspaceRepoIo {
   /** The workspace as it is now, including the revision the next write must
    * quote. */
   read(): Promise<ApiResult<WorkspaceSnapshot>>;
+  /** `repos` is `unknown[]`, not `Repo[]`, because the array that goes back
+   * carries the entries this client could not parse alongside the ones it
+   * could — see `mergeForeignRepos`. */
   write(
     expectedRevision: number,
-    repos: Repo[],
+    repos: readonly unknown[],
   ): Promise<ApiResult<MutationOutcome>>;
 }
 
@@ -83,12 +93,16 @@ async function attempt(io: WorkspaceRepoIo, plan: RepoPlan): Promise<Attempt> {
     };
   }
 
-  const planned = plan(readRepos(snapshot.value.state));
+  const { foreign, repos } = readRepoEntries(snapshot.value.state);
+  const planned = plan(repos);
   if (!planned.ok) {
     return { conflicted: false, result: { ok: false, reason: planned.reason } };
   }
 
-  const written = await io.write(snapshot.value.revision, planned.repos);
+  const written = await io.write(
+    snapshot.value.revision,
+    mergeForeignRepos(planned.repos, foreign),
+  );
   if (written.ok) {
     return { conflicted: false, result: { ok: true, repos: planned.repos } };
   }

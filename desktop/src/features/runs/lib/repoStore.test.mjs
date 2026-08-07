@@ -215,3 +215,86 @@ test("a repo entry's unknown keys survive a remove untouched", async () => {
 
   assert.deepEqual(io.writes[0].repos, [withExtra]);
 });
+
+// The other half of that promise, and the one that actually lost data: an
+// entry this client cannot parse at all (a curl-seeded row with no `name`)
+// was filtered out by the read and then not written back — erased from
+// workspace state by an unrelated add or remove, with no error and no
+// confirm.
+
+test("an unparseable entry survives an add, at its original position", async () => {
+  const seeded = { id: "buzz", path: "/o/buzz" };
+  const io = fakeIo(
+    [
+      {
+        revision: 7,
+        state: { repos: [seeded, repo("vingilot", "/o/vingilot")] },
+      },
+    ],
+    [ok],
+  );
+  const result = await commitRepos(io, addRepoPlan("/o/nano", repository));
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(io.writes[0].repos, [
+    seeded,
+    repo("vingilot", "/o/vingilot"),
+    repo("nano", "/o/nano"),
+  ]);
+});
+
+test("an unparseable entry survives a remove", async () => {
+  const seeded = { id: "buzz", path: "/o/buzz" };
+  const io = fakeIo(
+    [
+      {
+        revision: 7,
+        state: { repos: [seeded, repo("vingilot", "/o/vingilot")] },
+      },
+    ],
+    [ok],
+  );
+  await commitRepos(io, removeRepoPlan("vingilot"));
+
+  assert.deepEqual(io.writes[0].repos, [seeded]);
+});
+
+test("the retry carries the winner's unparseable entries too", async () => {
+  const seeded = { id: "buzz", path: "/o/buzz" };
+  const io = fakeIo(
+    [
+      { revision: 3, state: { repos: [] } },
+      { revision: 4, state: { repos: [seeded] } },
+    ],
+    [conflict, ok],
+  );
+  await commitRepos(io, addRepoPlan("/o/vingilot", repository));
+
+  assert.deepEqual(io.writes[1].repos, [
+    seeded,
+    repo("vingilot", "/o/vingilot"),
+  ]);
+});
+
+test("the plan only ever sees entries it can read", async () => {
+  const seen = [];
+  const io = fakeIo(
+    [
+      {
+        revision: 7,
+        state: { repos: ["junk", repo("vingilot", "/o/vingilot")] },
+      },
+    ],
+    [ok],
+  );
+  await commitRepos(io, (repos) => {
+    seen.push([...repos]);
+    return { ok: true, repos: [...repos] };
+  });
+
+  assert.deepEqual(seen, [[repo("vingilot", "/o/vingilot")]]);
+  assert.deepEqual(io.writes[0].repos, [
+    "junk",
+    repo("vingilot", "/o/vingilot"),
+  ]);
+});

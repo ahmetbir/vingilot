@@ -14,7 +14,7 @@
 // token never ships in webview-readable code.
 
 import type { Pin } from "./deckPins.ts";
-import type { Repo, Worktree } from "./projects.ts";
+import type { Worktree } from "./projects.ts";
 import type {
   EvidenceRow,
   RunDetail,
@@ -201,11 +201,16 @@ export function putDeckPins(
 /** Writes the whole `repos` array as a single CAS mutation — same shape as
  * `putDeckPins`: the array is the unit of change, `expected_revision` is
  * always sent, and a mismatch comes back as `kind: "conflict"` rather than
- * a silent overwrite. */
+ * a silent overwrite.
+ *
+ * `repos` is `unknown[]` rather than `Repo[]` on purpose: because the whole
+ * array is replaced, the caller must send back every element it read,
+ * including any it could not parse as a `Repo` (`repoStore.ts`). Narrowing
+ * this parameter would make dropping those elements the easy path. */
 export function putRepos(
   workspaceId: string,
   expectedRevision: number,
-  repos: Repo[],
+  repos: readonly unknown[],
   opts?: RequestOpts,
 ): Promise<ApiResult<MutationOutcome>> {
   return applyMutations(workspaceId, expectedRevision, [{ repos }], opts);

@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   groupWorktrees,
   isMainCheckout,
+  mergeForeignRepos,
+  readRepoEntries,
   readRepos,
   worktreeCwd,
   worktreeSummary,
@@ -78,6 +80,85 @@ test("readRepos preserves unknown extra keys on an otherwise-valid repo", () => 
   const repos = readRepos(state);
   assert.equal(repos.length, 1);
   assert.equal(repos[0].futureField, "some-future-client-wrote-this");
+});
+
+// ---------------------------------------------------------------------
+// readRepoEntries / mergeForeignRepos
+//
+// The other half of that round-trip, and the one that bites: an entry
+// `readRepos` DROPS (a missing `name`, say, or a shape a later client
+// introduces) must not be erased by the next write of the whole array.
+// ---------------------------------------------------------------------
+
+test("readRepoEntries keeps what readRepos drops, with its index", () => {
+  const state = {
+    repos: [
+      { id: "buzz", path: "/Users/x/buzz" },
+      { id: "vingilot", name: "vingilot", path: "/Users/x/vingilot" },
+      "junk",
+    ],
+  };
+  const { foreign, repos } = readRepoEntries(state);
+
+  assert.deepEqual(repos, [
+    { id: "vingilot", name: "vingilot", path: "/Users/x/vingilot" },
+  ]);
+  assert.deepEqual(foreign, [
+    { index: 0, value: { id: "buzz", path: "/Users/x/buzz" } },
+    { index: 2, value: "junk" },
+  ]);
+});
+
+test("readRepoEntries on garbage state yields nothing of either kind", () => {
+  for (const state of [null, undefined, 42, "s", {}, { repos: "nope" }]) {
+    assert.deepEqual(readRepoEntries(state), { foreign: [], repos: [] });
+  }
+});
+
+test("mergeForeignRepos puts each foreign entry back at its old index", () => {
+  const merged = mergeForeignRepos(
+    [
+      { id: "vingilot", name: "vingilot", path: "/o/vingilot" },
+      { id: "nano", name: "nano", path: "/o/nano" },
+    ],
+    [{ index: 0, value: { id: "buzz", path: "/o/buzz" } }],
+  );
+
+  assert.deepEqual(merged, [
+    { id: "buzz", path: "/o/buzz" },
+    { id: "vingilot", name: "vingilot", path: "/o/vingilot" },
+    { id: "nano", name: "nano", path: "/o/nano" },
+  ]);
+});
+
+test("mergeForeignRepos clamps an index the shortened list no longer has", () => {
+  const merged = mergeForeignRepos([], [{ index: 4, value: "junk" }]);
+  assert.deepEqual(merged, ["junk"]);
+});
+
+test("mergeForeignRepos restores several entries in index order", () => {
+  const merged = mergeForeignRepos(
+    [{ id: "a", name: "a", path: "/a" }],
+    [
+      { index: 2, value: "second" },
+      { index: 0, value: "first" },
+    ],
+  );
+  assert.deepEqual(merged, [
+    "first",
+    { id: "a", name: "a", path: "/a" },
+    "second",
+  ]);
+});
+
+test("read then merge with an unchanged plan reproduces the array exactly", () => {
+  const raw = [
+    { id: "buzz", path: "/o/buzz" },
+    { id: "vingilot", name: "vingilot", path: "/o/vingilot" },
+    { extra: true },
+  ];
+  const { foreign, repos } = readRepoEntries({ repos: raw });
+  assert.deepEqual(mergeForeignRepos(repos, foreign), raw);
 });
 
 // ---------------------------------------------------------------------
