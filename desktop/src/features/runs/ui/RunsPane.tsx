@@ -33,7 +33,11 @@ export function RunsPane({
 
   // The worktree underneath this pane can change (a different worktree
   // selected while Runs stays on the right) — re-sync to that worktree's own
-  // owner run rather than showing a stale one.
+  // owner run rather than showing a stale one. This is the *whole* of what a
+  // worktree switch costs this pane, and it is why its registry row says the
+  // pane is a reading of the workspace: the run list is the same from every
+  // worktree, and remounting to re-take it would throw away everything the
+  // owner had typed into the Deck underneath.
   React.useEffect(() => {
     setSelectedRunId(ownerRunId);
   }, [ownerRunId]);

@@ -11,6 +11,15 @@
 // would have taught us the shape. It becomes an API when a pane nobody here
 // wrote needs one.
 //
+// **A row has to be able to say everything a pane knows about itself**, or the
+// sixth pane is an edit to the host rather than an edit to this table. Two of
+// the columns are here because the first four panes could not say it: a pane
+// declares what it is a *reading* of (`identity`, which is what the host
+// remounts on) and what it needs to *ask the world* before it can say whether
+// it can work here (`probe`, because `availability` is synchronous and "is
+// there a docker daemon?" is not). Both were the host's answers before, given
+// on every pane's behalf and right for some of them.
+//
 // **What a pane is allowed to be.** Everything except the terminal is a plain
 // component of `PaneProps` — construct it, hand it the worktree under it, and
 // it renders. The terminal is not, and its row says so: its instances are
@@ -26,14 +35,20 @@
 
 import type * as React from "react";
 
+import { probeAgent } from "@/features/runs/lib/agentClient";
+import { explainAvailability } from "@/features/runs/lib/agentTurn";
 import type { Worktree } from "@/features/runs/lib/projects";
 import {
+  AGENT_HARNESS_PROBE,
   agentAvailability,
   diffAvailability,
   evidenceAvailability,
   type PaneAvailability,
   type PaneContext,
+  type PaneFacts,
   type PaneId,
+  PANE_IDS,
+  type PaneProbe,
   runsAvailability,
   terminalAvailability,
 } from "@/features/runs/lib/paneModel";
@@ -56,6 +71,12 @@ export interface PaneProps {
   runs: RunSummary[];
   reachable: boolean;
   workspaceId: string;
+  /** Put another pane in this slot. The one thing a pane can ask of the host,
+   * and it is here because a pane that wanted it had no way to say so: a
+   * source-control pane's "show this file in Diff" ends in this call. What it
+   * cannot yet do is hand the next pane an argument — no pane needs that, and
+   * inventing the channel before one does would fix its shape blind. */
+  onChoosePane: (pane: PaneId) => void;
 }
 
 export type PaneComponent = (props: PaneProps) => React.ReactElement | null;
@@ -72,6 +93,30 @@ export interface PaneEntry {
    * that is fixed to the left. */
   component: PaneComponent | null;
   availability: (ctx: PaneContext) => PaneAvailability;
+  /** **What this pane is a reading of.** The host remounts the pane when this
+   * string changes and leaves it alone when it does not, so the pane — not the
+   * host — decides what a worktree switch costs it. Diff and Evidence are
+   * readings of one worktree and are re-taken when it changes; Runs is a
+   * reading of the workspace and survives, which is what a half-typed
+   * objective in it needs. The host used to answer this for everyone with the
+   * worktree's binding id, which is only right for some panes and silently
+   * wrong for the rest. */
+  identity: (facts: PaneFacts) => string;
+  /** The question this pane needs the world to answer before `availability`
+   * can decide (`PaneProbe`). Omitted by a pane whose answer is in the facts. */
+  probe?: PaneProbe;
+}
+
+/** A pane whose content is one worktree's: switching worktree means taking the
+ * reading again. */
+function ofWorktree(facts: PaneFacts): string {
+  return facts.worktreeId ?? "none";
+}
+
+/** A pane that is not about the worktree under it at all. It stays mounted
+ * across a switch, and re-syncs from its props if it has anything to re-sync. */
+function ofWorkspace(): string {
+  return "workspace";
 }
 
 function DiffPane({ cwd, worktree }: PaneProps) {
@@ -82,6 +127,23 @@ function DiffPane({ cwd, worktree }: PaneProps) {
 function AgentPane({ cwd }: PaneProps) {
   return <AgentPanel cwd={cwd} />;
 }
+
+/** Is there a harness on this machine to hand a worktree to? A question about
+ * the machine, so it carries no `keyOf` and is asked once per app run — the
+ * answer changes when the owner edits his shell profile, which is not
+ * something to watch for.
+ *
+ * A probe that cannot be put answers `null`, never `{ present: false }`: this
+ * build running outside Tauri has not been told there is no agent. */
+const agentHarnessProbe: PaneProbe = {
+  ask: async () => {
+    const answered = await probeAgent();
+    if (answered === null) return null;
+    const explained = explainAvailability(answered);
+    return { detail: explained.message, present: explained.ready };
+  },
+  id: AGENT_HARNESS_PROBE,
+};
 
 /** Keyed by id rather than listed, so the lookup below is total by
  * construction: `Record<PaneId, …>` cannot compile with a pane missing, and a
@@ -94,6 +156,8 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     component: AgentPane,
     icon: "◆",
     id: "agent",
+    identity: ofWorktree,
+    probe: agentHarnessProbe,
     title: "Agent",
   },
   diff: {
@@ -101,6 +165,7 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     component: DiffPane,
     icon: "±",
     id: "diff",
+    identity: ofWorktree,
     title: "Diff",
   },
   evidence: {
@@ -108,13 +173,18 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     component: EvidencePane,
     icon: "☰",
     id: "evidence",
+    identity: ofWorktree,
     title: "Evidence",
   },
   runs: {
     availability: runsAvailability,
+    // The workspace's runs are the same list from every worktree, so this pane
+    // is not a reading of the one underneath it and must not be re-taken when
+    // it changes — a half-typed objective in the Deck is the owner's work.
     component: RunsPane,
     icon: "◎",
     id: "runs",
+    identity: ofWorkspace,
     title: "Runs",
   },
   terminal: {
@@ -122,6 +192,10 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     component: null,
     icon: "❯",
     id: "terminal",
+    // Never read: the terminal is rendered in place and its instances are
+    // keyed by session id, which is the identity that matters for a pane
+    // holding a live external process.
+    identity: ofWorkspace,
     title: "Terminal",
   },
 };
@@ -132,4 +206,13 @@ export function paneEntry(id: PaneId): PaneEntry {
 
 export function paneEntries(ids: PaneId[]): PaneEntry[] {
   return ids.map(paneEntry);
+}
+
+/** Every question the registry needs answered, for the host to run. It does
+ * not know what any of them asks — that is the point. */
+export function paneProbes(): PaneProbe[] {
+  return PANE_IDS.flatMap((id) => {
+    const probe = ENTRIES[id].probe;
+    return probe === undefined ? [] : [probe];
+  });
 }

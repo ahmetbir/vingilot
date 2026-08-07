@@ -303,12 +303,15 @@ function RightPane({
       side="right"
     >
       {Pane === null ? null : (
-        // Keyed by both, because a pane holds a reading of one worktree: the
-        // Diff pane's patch and the Runs pane's open run are answers about the
-        // worktree that was selected when they were asked for.
+        // Keyed by what the pane says it is a reading of, not by the worktree.
+        // The host cannot answer that for a pane it knows nothing about: Diff
+        // is a reading of one worktree and must be re-taken when it changes,
+        // Runs is a reading of the workspace and would lose a half-typed
+        // objective every time the owner pressed ⌘2.
         <Pane
           cwd={context.cwd}
-          key={`${right}:${worktree?.binding_id ?? "none"}`}
+          key={`${right}:${entry.identity(context)}`}
+          onChoosePane={onChoose}
           ownerRunId={context.ownerRunId}
           reachable={reachable}
           runs={runs}

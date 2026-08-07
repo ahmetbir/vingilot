@@ -72,8 +72,9 @@ import {
   type TabLayout,
   worktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
-import type { PaneContext } from "@/features/runs/lib/paneModel";
+import type { PaneContext, PaneFacts } from "@/features/runs/lib/paneModel";
 import { useColumns } from "@/features/runs/lib/useColumns";
+import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
@@ -92,6 +93,7 @@ import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
 import { UnreachableBanner } from "@/features/runs/ui/UnreachableBanner";
+import { paneProbes } from "@/features/runs/ui/paneRegistry";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
 import { WorktreeColumn } from "@/features/runs/ui/WorktreeColumn";
 
@@ -168,6 +170,11 @@ export function RunsScreen() {
   // any failure) leaves this null — every open terminal shows its waiting
   // state instead of throwing.
   const [worktreeRoot, setWorktreeRoot] = React.useState<string | null>(null);
+  // Whether the lookup above has *finished*, however it finished. A failure is
+  // an answer, and one that never arrives is not: without this, a rejected
+  // homeDir() reads for the rest of the session as "still waiting", and the
+  // panes tell the owner to wait for a checkout nothing is going to name.
+  const [rootSettled, setRootSettled] = React.useState(false);
   React.useEffect(() => {
     let cancelled = false;
     homeDir()
@@ -179,6 +186,9 @@ export function RunsScreen() {
       .catch(() => {
         // Non-Tauri context (e.g. a plain browser preview) — worktreeRoot
         // stays null, terminals stay in their waiting state.
+      })
+      .finally(() => {
+        if (!cancelled) setRootSettled(true);
       });
     return () => {
       cancelled = true;
@@ -424,12 +434,21 @@ export function RunsScreen() {
   // What the panes are allowed to know about the worktree under them
   // (lib/paneModel.ts). `cwdPending` is the distinction that keeps a pane from
   // telling the owner his worktree has no checkout when all that has happened
-  // is that the home-directory lookup above has not answered yet.
-  const paneContext: PaneContext = {
+  // is that the home-directory lookup above has not answered yet — and it is
+  // `rootSettled`, not `worktreeRoot === null`, because that lookup can also
+  // *fail*, and a failure is an answer. Reading it as "still waiting" left the
+  // Diff and Agent panes telling the owner to wait for something that was
+  // never coming.
+  const paneFacts: PaneFacts = {
     cwd: selectedWorktreeCwd,
-    cwdPending: worktreeRoot === null,
+    cwdPending: !rootSettled,
     ownerRunId: selectedWorktree?.owner_run_id ?? null,
+    worktreeId: selectedWorktreeId,
   };
+  // Whatever the registry's panes need asked of the world. This screen runs
+  // them and knows what none of them is about (lib/usePaneProbes.ts).
+  const probe = usePaneProbes(paneProbes(), paneFacts);
+  const paneContext: PaneContext = { ...paneFacts, probe };
   // Which pane sits beside the terminal, how wide it is, and whether it is
   // showing — per worktree, and held here rather than in `WorkSurface` for the
   // same reason the tab layout is: that component unmounts on the way to the

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  AGENT_HARNESS_PROBE,
   agentAvailability,
   clampRatio,
   DEFAULT_RATIO,
@@ -11,10 +12,14 @@ import {
   LEFT_PANE,
   MAX_RATIO,
   MIN_RATIO,
+  noProbes,
   nudgeRatio,
   PANE_IDS,
   panesFor,
+  probeReader,
+  probeSlot,
   ratioFromPointer,
+  readProbeFinding,
   resetRatio,
   rightChoices,
   runsAvailability,
@@ -28,7 +33,19 @@ import {
 const WT = "binding-1";
 
 function ctx(over = {}) {
-  return { cwd: "/tmp/wt", cwdPending: false, ownerRunId: null, ...over };
+  const { probe, ...facts } = over;
+  return {
+    cwd: "/tmp/wt",
+    cwdPending: false,
+    ownerRunId: null,
+    probe: probe ?? (() => ({ answer: "yes", detail: null })),
+    worktreeId: WT,
+    ...facts,
+  };
+}
+
+function answering(answer, detail = null) {
+  return () => ({ answer, detail });
 }
 
 test("a worktree nobody has arranged gets the split, open, with Diff", () => {
@@ -147,4 +164,92 @@ test("a pane with its backing present is available", () => {
 
 test("the terminal is available even with nothing resolved — it says so itself", () => {
   assert.equal(terminalAvailability().status, "available");
+});
+
+test("a pane can refuse on a question no fact could answer", () => {
+  const none = agentAvailability(
+    ctx({
+      probe: answering(
+        "no",
+        "no ACP agent is configured — set VINGILOT_AGENT.",
+      ),
+    }),
+  );
+  assert.equal(none.status, "unavailable");
+  // The probe's own sentence, not a generic one: a pane that knows why says
+  // why, and the picker prints it on the disabled row.
+  assert.match(none.reason, /VINGILOT_AGENT/);
+  assert.equal(
+    agentAvailability(ctx({ probe: answering("yes") })).status,
+    "available",
+  );
+});
+
+test("a question still being asked is pending, and one that could not be asked is not a refusal", () => {
+  assert.equal(
+    agentAvailability(ctx({ probe: answering("asking") })).status,
+    "pending",
+  );
+  assert.equal(
+    agentAvailability(ctx({ probe: answering("unknown") })).status,
+    "available",
+  );
+  assert.equal(
+    agentAvailability(ctx({ probe: noProbes() })).status,
+    "available",
+  );
+});
+
+test("a probe with no keyOf is one question for the machine; one with a keyOf is one per answer", () => {
+  const machine = { ask: async () => null, id: "docker" };
+  const perTree = {
+    ask: async () => null,
+    id: "repo",
+    keyOf: (f) => f.cwd ?? "",
+  };
+  const here = ctx();
+  const there = ctx({ cwd: "/tmp/other" });
+  assert.equal(probeSlot(machine, here), probeSlot(machine, there));
+  assert.notEqual(probeSlot(perTree, here), probeSlot(perTree, there));
+});
+
+test("a finding says yes, no, or that the question could not be put", () => {
+  assert.deepEqual(readProbeFinding({ present: true }), {
+    answer: "yes",
+    detail: null,
+  });
+  assert.deepEqual(readProbeFinding({ detail: "why", present: false }), {
+    answer: "no",
+    detail: "why",
+  });
+  assert.deepEqual(readProbeFinding(null), { answer: "unknown", detail: null });
+});
+
+test("an unrecorded answer reads as asking, and an unregistered question as unknown", () => {
+  const probe = { ask: async () => null, id: "docker" };
+  const facts = ctx();
+  const read = probeReader([probe], {}, facts);
+  assert.equal(read("docker").answer, "asking");
+  // Nobody registered this one. Reading that as "no" would be an empty read
+  // taken for a refusal.
+  assert.equal(read("nobody-asked-this").answer, "unknown");
+  const answered = probeReader(
+    [probe],
+    { [probeSlot(probe, facts)]: { answer: "no", detail: "no daemon" } },
+    facts,
+  );
+  assert.equal(answered("docker").detail, "no daemon");
+});
+
+test("the probe id the Agent pane is written against is the one the registry answers", () => {
+  const asked = [];
+  agentAvailability(
+    ctx({
+      probe: (id) => {
+        asked.push(id);
+        return { answer: "yes", detail: null };
+      },
+    }),
+  );
+  assert.deepEqual(asked, [AGENT_HARNESS_PROBE]);
 });
