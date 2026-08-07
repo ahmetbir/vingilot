@@ -22,6 +22,13 @@
 // killed only when the owner closes its tab or its worktree leaves the
 // workspace (`lib/terminalTabs.ts`) — never on a switch, a tab change, or a
 // re-render.
+//
+// The screen has no title bar of its own. Everywhere else in this app an `h1`
+// names the thing you are looking at — a channel in `ChatHeader`, a run's
+// objective in `RunDetail` — never the screen; a static "Projects" named the
+// leftmost column, which `ProjectsNav` already heads itself, and put a second
+// `h1` on screen whenever a run was open. What that row was reaching for —
+// where am I — is the status bar's job, and the status bar is always there.
 
 import { homeDir } from "@tauri-apps/api/path";
 import * as React from "react";
@@ -406,10 +413,6 @@ export function RunsScreen() {
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       data-testid="runs-screen"
     >
-      <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
-        <h1 className="text-lg font-semibold">Projects</h1>
-      </div>
-
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ProjectsNav
           error={projectActions.error}
