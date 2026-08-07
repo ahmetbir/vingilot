@@ -110,6 +110,46 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     await expect(page.getByTestId("worktree-column")).toBeVisible();
   });
 
+  test("alt+primary+B hides the right pane and leaves the sidebar alone", async ({
+    page,
+  }) => {
+    // VS Code's secondary-sidebar chord, on the surface that is this app's
+    // secondary sidebar. Only a browser can say whether it arrives: macOS
+    // resolves the native menu's key equivalents before the webview sees a
+    // keydown at all, so a collision would not be a shadowed handler but no
+    // handler. ⌥⌘H is the one ⌥⌘ chord Tauri's default menu claims
+    // (muda 0.19.3 predefined.rs, HideOthers); ⌥⌘B is nobody's.
+    await openWorkspace(page);
+    await page.getByTestId("projects-nav-repo-repo-left").click();
+    await expect(page.getByTestId("pane-divider")).toBeVisible();
+
+    await page.keyboard.press("Alt+ControlOrMeta+b");
+    await expect(page.getByTestId("pane-right-rail")).toBeVisible();
+    await expect(page.getByTestId("pane-divider")).toBeHidden();
+    // Not the sidebar's chord with a modifier along for the ride: the two maps
+    // are read from two different listeners, and a ⌘B that also fired on ⌥⌘B
+    // would hide the sidebar every time the owner hid a pane.
+    await expect(sidebar(page)).toHaveAttribute("data-state", "expanded");
+
+    await page.keyboard.press("Alt+ControlOrMeta+b");
+    await expect(page.getByTestId("pane-divider")).toBeVisible();
+    await expect(sidebar(page)).toHaveAttribute("data-state", "expanded");
+
+    // One collapse state, persisted per worktree — the same one the header's ›
+    // and the rail drive, not a second one bound to the chord.
+    await page.keyboard.press("Alt+ControlOrMeta+b");
+    await expect(page.getByTestId("pane-right-rail")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => window.localStorage.getItem("vingilot-panes.v1")),
+      )
+      .toContain('"collapsed":true');
+    await page.reload();
+    await expect(page.getByTestId("runs-screen")).toBeVisible();
+    await page.getByTestId("projects-nav-repo-repo-left").click();
+    await expect(page.getByTestId("pane-right-rail")).toBeVisible();
+  });
+
   test("a collapsed column comes back collapsed, and only for its own project", async ({
     page,
   }) => {
