@@ -128,9 +128,16 @@ impl PtySessions {
     /// no longer registered — the shell is gone and nothing will ever
     /// reattach to it, so the output is dropped.
     ///
-    /// Callers must record whole characters: the position returned here is
-    /// what a reattaching view compares against, so the recorded bytes and
-    /// the emitted text have to describe the same span exactly.
+    /// Callers must record whole characters: what is recorded and what is
+    /// emitted have to be the same span of the stream, so a chunk that ends
+    /// mid-character has to wait for the read that completes it.
+    ///
+    /// What the ring keeps of that span is narrower than what is emitted, by
+    /// design: terminal queries are dropped on the way in, because a live
+    /// view has a program waiting for the answer and a replayed one has
+    /// nobody (`scrollback.rs`, `query_filter.rs`). The position returned
+    /// here counts chunks, not bytes, so that narrowing cannot move the mark
+    /// a reattaching view filters on.
     pub(crate) fn record_output(&self, session_id: &str, bytes: &[u8]) -> Option<u64> {
         let mut sessions = self.lock();
         let session = sessions.get_mut(session_id)?;

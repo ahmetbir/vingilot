@@ -40,6 +40,7 @@
 
 #[cfg(test)]
 mod live;
+mod query_filter;
 mod scrollback;
 mod session;
 mod tmux;

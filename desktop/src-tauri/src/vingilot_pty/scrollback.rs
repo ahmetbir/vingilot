@@ -9,6 +9,14 @@
 //! Raw bytes, not `String`: a pty read can end mid-character, so decoding is
 //! deferred to `replay()` where the whole retained span is available.
 //!
+//! **What it retains is what can be shown again, not everything that was
+//! written.** A terminal *query* is not output: it makes xterm type an answer
+//! back down the pty, and replaying one makes xterm answer a program that
+//! exited long ago, at whatever prompt is sitting there now. So queries are
+//! removed on the way in (`query_filter.rs`) rather than on the way out —
+//! cheaper, and it makes "the ring holds only replayable bytes" a property of
+//! the ring instead of a rule every reader has to remember.
+//!
 //! **It is not made redundant by tmux, and it never competes with tmux's own
 //! redraw.** The two cannot coincide: tmux redraws on *attach*, which happens
 //! only on `pty_open`'s spawn branch, and a session on that branch was
@@ -22,6 +30,8 @@
 //! change, a development remount.
 
 use std::collections::VecDeque;
+
+use super::query_filter::QueryFilter;
 
 /// Bytes retained per session.
 ///
@@ -44,6 +54,10 @@ const DEFAULT_SCROLLBACK_BYTES: usize = 256 * 1024;
 pub(crate) struct Scrollback {
     buf: VecDeque<u8>,
     cap: usize,
+    /// Holds the parser state that decides which bytes are replayable, across
+    /// pushes — a pty read boundary falls anywhere, including inside a
+    /// question.
+    filter: QueryFilter,
 }
 
 impl Default for Scrollback {
@@ -57,19 +71,28 @@ impl Scrollback {
         Self {
             buf: VecDeque::new(),
             cap,
+            filter: QueryFilter::default(),
         }
     }
 
-    /// Append output, evicting the oldest bytes to stay within capacity.
+    /// Record output, keeping only the part of it that can be shown again.
     ///
-    /// The re-opening below runs only for a push that actually evicted. A
-    /// standing rule instead of a per-eviction one would trim a line off
-    /// every push and eat the ring a line at a time.
+    /// A sequence straddling this push and the next contributes nothing until
+    /// the next one completes it, so the ring never holds half a question.
     pub(crate) fn push(&mut self, bytes: &[u8]) {
         if self.cap == 0 {
             return;
         }
+        let replayable = self.filter.retain(bytes);
+        self.append(&replayable);
+    }
 
+    /// Append replayable bytes, evicting the oldest to stay within capacity.
+    ///
+    /// The re-opening below runs only for a push that actually evicted. A
+    /// standing rule instead of a per-eviction one would trim a line off
+    /// every push and eat the ring a line at a time.
+    fn append(&mut self, bytes: &[u8]) {
         let mut evicted = false;
 
         // A single write larger than the ring keeps only its tail — the same
@@ -250,6 +273,38 @@ mod tests {
         let mut sb = Scrollback::with_capacity(4);
         sb.push(b"abcdefghij");
         assert_eq!(sb.replay(), "ghij");
+    }
+
+    #[test]
+    fn a_replay_never_repeats_a_question() {
+        // The ring is what a reattaching view is shown. A query in it makes
+        // xterm answer a program that is no longer there, and the answer
+        // arrives at the owner's prompt as if he had typed it.
+        let mut sb = Scrollback::default();
+        sb.push(b"$ vim\r\n\x1b[c\x1b[>c\x1b[6n\x1b]11;?\x07");
+        sb.push(b"\x1b[1;31mred\x1b[0m\r\n");
+        assert_eq!(sb.replay(), "$ vim\r\n\x1b[1;31mred\x1b[0m\r\n");
+    }
+
+    #[test]
+    fn a_question_split_across_two_pushes_never_reaches_the_ring() {
+        // The read boundary the pty chose is not the sequence boundary, and
+        // a ring that only recognised whole sequences would retain this one.
+        let mut sb = Scrollback::default();
+        sb.push(b"$ \x1b[");
+        sb.push(b"6ndone\r\n");
+        assert_eq!(sb.replay(), "$ done\r\n");
+    }
+
+    #[test]
+    fn it_stays_bounded_while_stripping() {
+        // A session printing nothing but questions must not grow the ring,
+        // and one printing nothing but output must still be capped.
+        let mut sb = Scrollback::with_capacity(16);
+        for _ in 0..1000 {
+            sb.push(b"\x1b[c\x1b[>0q0123456789");
+        }
+        assert_eq!(sb.replay().len(), 16);
     }
 
     #[test]
