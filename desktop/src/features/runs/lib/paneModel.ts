@@ -281,7 +281,12 @@ export const DEFAULT_RATIO = 0.6;
 
 /** Neither side may be squeezed to a sliver. A matter of taste, and nothing
  * else — a ratio cannot bound a column count, and this one was documented as
- * if it could. `MIN_LEFT_PX` below is the guard that was meant. */
+ * if it could. `MIN_LEFT_PX` below is the guard that was meant.
+ *
+ * **Taste is the weakest of the three clamps**, and `MAX_RATIO` in particular
+ * has no business overruling the terminal's floor: a cap that binds first is a
+ * cap deciding how many columns the shell gets, which is the confusion this
+ * pair was written to end. `clampRatioAt` ranks them. */
 export const MIN_RATIO = 0.2;
 export const MAX_RATIO = 0.8;
 
@@ -338,8 +343,30 @@ export function splitWidth(surfaceWidth: number): number {
   return Math.max(0, surfaceWidth - DIVIDER_PX);
 }
 
-/** The clamp for a surface whose width is known: the taste clamp, then the
- * floors, in that order.
+/** The clamp for a surface whose width is known. **Three rules, ranked**, and
+ * the ranking is the whole of it:
+ *
+ * 1. The terminal's 80 columns. It outranks everything below because it is the
+ *    only one whose loss is not recoverable: under tmux the attached client's
+ *    size is the session's size, so the scrollback re-wraps and dragging back
+ *    does not un-wrap it. A narrow Diff pane, by contrast, is merely narrow.
+ * 2. The right pane's `MIN_RIGHT_PX`. It gives way to rule 1 rather than the
+ *    other way round.
+ * 3. Taste (`MIN_RATIO`…`MAX_RATIO`) — what the owner may *ask* for, never
+ *    what he is held to.
+ *
+ * That ranking is what this function did not implement. `Math.min(MIN_LEFT_PX
+ * / w, MAX_RATIO)` let rule 3 outrank rule 1 for every surface under 940px:
+ * measured, a 900px surface gave the terminal **75 columns** and a 555px one
+ * **45**, while the comment above claimed the terminal's floor had won. The
+ * cap now goes at 1 — the surface itself — so the floor is bounded by what
+ * exists rather than by a preference.
+ *
+ * The endpoint of rule 1 taken seriously: a surface narrower than
+ * `MIN_LEFT_PX + DIVIDER_PX` gives the terminal all of it and the right pane
+ * none. That is not a split, and it is not meant to look like one — it is the
+ * arithmetic saying this window is too narrow for two panes, and the answer is
+ * a wider window or ⌥⌘B.
  *
  * A surface of 0 (measured mid-layout, or inside a hidden subtree) has no
  * floors to apply — the ratio it was given comes back clamped only by taste,
@@ -349,7 +376,7 @@ export function clampRatioAt(ratio: number, surfaceWidth: number): number {
   const wanted = clampRatio(ratio);
   const shared = splitWidth(surfaceWidth);
   if (shared <= 0) return wanted;
-  const floor = Math.min(MIN_LEFT_PX / shared, MAX_RATIO);
+  const floor = Math.min(MIN_LEFT_PX / shared, 1);
   const ceiling = Math.max(1 - MIN_RIGHT_PX / shared, floor);
   return Math.min(ceiling, Math.max(floor, wanted));
 }

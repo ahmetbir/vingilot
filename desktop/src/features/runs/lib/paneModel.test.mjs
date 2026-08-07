@@ -9,6 +9,7 @@ import {
   DEFAULT_RATIO,
   defaultPaneState,
   diffAvailability,
+  DIVIDER_PX,
   evidenceAvailability,
   LEFT_PANE,
   MAX_RATIO,
@@ -197,15 +198,51 @@ test("the pointer aims at the divider's middle, which is where the boundary look
   assert.equal(ratioFromPointer(0, 2000, 1999), MAX_RATIO);
 });
 
-test("a surface too narrow for both floors gives the terminal the room", () => {
+test("a surface too narrow for both floors still keeps the terminal's 80 columns", () => {
+  // The band where the two floors conflict starts at 992px of shared width and
+  // is not exotic: a 1280 window with the sidebar and the worktree column open
+  // is already inside it. The taste cap used to bind here instead of the
+  // floor — measured, a 900px surface gave the terminal 75 columns while the
+  // comment above the clamp said the terminal's floor had won.
+  for (const surface of [990, 940, 900, 800, 770]) {
+    assert.ok(
+      surface - RENDERED_DIVIDER_PX < MIN_LEFT_PX + MIN_RIGHT_PX,
+      `${surface}px should be inside the conflict band`,
+    );
+    const left = renderedLeftPx(clampRatioAt(DEFAULT_RATIO, surface), surface);
+    assert.ok(
+      renderedColumns(left) >= 80,
+      `${surface}px surface: ${renderedColumns(left)} columns in ${left}px`,
+    );
+  }
+});
+
+test("the right pane gives way to the terminal, not the other way round", () => {
+  // Ranked, not balanced. What a narrow Diff pane costs is legibility; what a
+  // narrow terminal costs is the scrollback, and tmux does not give that back.
+  const surface = 900;
+  const shared = surface - RENDERED_DIVIDER_PX;
+  const left = renderedLeftPx(clampRatioAt(DEFAULT_RATIO, surface), surface);
+  assert.equal(renderedColumns(left), 80);
+  assert.ok(shared - left < MIN_RIGHT_PX, "the right pane is the one squeezed");
+});
+
+test("a surface too narrow even for the terminal gives it everything there is", () => {
   // 549px is the real measurement: sidebar plus worktree column on a 1280
-  // window. Nothing here is a good layout — what it must not be is the one
-  // that destroys the scrollback, and ⌥⌘B is the way out.
+  // window. Nothing here is a good layout, and it is not dressed up as one —
+  // the right pane gets nothing, because the alternative is spending the
+  // terminal's columns on a pane that cannot be read at that width either.
+  // ⌥⌘B, or a wider window, is the way out.
   const narrow = 549;
-  assert.ok(MIN_LEFT_PX + MIN_RIGHT_PX > narrow);
-  assert.equal(clampRatioAt(0.01, narrow), MAX_RATIO);
-  assert.equal(clampRatioAt(0.99, narrow), MAX_RATIO);
-  assert.ok(clampRatioAt(DEFAULT_RATIO, narrow) * narrow > 400);
+  assert.ok(MIN_LEFT_PX + DIVIDER_PX > narrow);
+  assert.equal(clampRatioAt(0.01, narrow), 1);
+  assert.equal(clampRatioAt(0.99, narrow), 1);
+  assert.equal(clampRatioAt(DEFAULT_RATIO, narrow), 1);
+  // Still short of 80, and nothing in this file can conjure them — but it is
+  // 56 rather than the 45 the taste cap was handing out.
+  const left = renderedLeftPx(1, narrow);
+  assert.equal(left, narrow - RENDERED_DIVIDER_PX);
+  assert.equal(renderedColumns(left), 56);
 });
 
 test("a wide surface leaves the ratio alone — the floors are floors, not a layout", () => {
