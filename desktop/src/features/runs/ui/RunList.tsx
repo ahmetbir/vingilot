@@ -1,4 +1,4 @@
-// The Runs screen's left rail: NEEDS YOU / LIVE / RECENT groups (design 7c),
+// The Projects screen's left rail: NEEDS YOU / LIVE / RECENT groups (design 7c),
 // plus the "+ New run" row that opens the Deck. `ModeChip` and `StatusDot`
 // are exported here (not a separate file) because DeckPane and RunDetail
 // both need the identical glyphs — same reason the donor kept `ModeChip`

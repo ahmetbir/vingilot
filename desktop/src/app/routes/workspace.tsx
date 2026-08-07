@@ -8,11 +8,11 @@ const RunsScreen = React.lazy(async () => {
   return { default: module.RunsScreen };
 });
 
-export const Route = createFileRoute("/runs")({
-  component: RunsRouteComponent,
+export const Route = createFileRoute("/workspace")({
+  component: WorkspaceRouteComponent,
 });
 
-function RunsRouteComponent() {
+function WorkspaceRouteComponent() {
   return (
     <React.Suspense fallback={<RunsLoadingFallback />}>
       <RunsScreen />

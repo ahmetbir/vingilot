@@ -1,6 +1,6 @@
 // Typed coordinator client. Every method returns an ApiResult<T> and never
 // throws on HTTP-level or network-level failure — callers (usePolling, the
-// Runs screen, the deck) branch on `ok` instead of try/catch.
+// Projects screen, the deck) branch on `ok` instead of try/catch.
 //
 // Ported from vingilot/workbench/src/api/coordinator.ts (ADR-001's
 // 2026-08-03 reversal). The base path changes here: the sibling app talked
@@ -165,7 +165,7 @@ export function getWorkspace(
 /** Applies a (possibly empty) mutation batch to a workspace. The mutations
  * endpoint has ensure semantics server-side: it creates the workspace row on
  * first write, so an empty mutation batch at `expected_revision: 0` is the
- * bootstrap path the Runs screen uses when `getWorkspace` first 404s. */
+ * bootstrap path the Projects screen uses when `getWorkspace` first 404s. */
 export function applyMutations(
   workspaceId: string,
   expectedRevision: number,

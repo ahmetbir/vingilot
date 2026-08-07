@@ -1,4 +1,4 @@
-// Domain types + pure view logic shared by the Runs screen's list, deck, and
+// Domain types + pure view logic shared by the Projects screen's list, deck, and
 // run detail views. No coordinator-client or React imports here — this
 // module is the thing coordinatorClient.ts and every UI component agree on.
 //

@@ -1,4 +1,4 @@
-// The Runs screen's leftmost column: pick a project (a repo from Workspace
+// The Projects screen's leftmost column: pick a project (a repo from Workspace
 // state, see projects.ts's `readRepos`) or fall back to the project-less
 // landing view (the Deck). Mirrors RunList's "+ New run" row style — this
 // replaces RunList as the screen's front door; RunList itself moves into
@@ -71,7 +71,7 @@ export function ProjectsNav({
         onClick={onSelectLanding}
         type="button"
       >
-        Runs
+        All runs
       </button>
 
       <h2 className="mt-2 flex items-center gap-1.5 px-2 text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">

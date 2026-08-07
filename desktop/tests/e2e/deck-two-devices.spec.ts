@@ -157,7 +157,7 @@ test.describe("Deck: two devices, one pin set, two arrangements", () => {
       await seedDeviceLayout(pageA, "device-a", ["run-a", "run-b"]);
       await installMockBridge(pageA);
       await mockCoordinator(pageA);
-      await pageA.goto("/#/runs");
+      await pageA.goto("/#/workspace");
 
       await expect(pageA.getByTestId("runs-screen")).toBeVisible();
       await expect(pageA.getByTestId("deck-pinned")).toBeVisible();
@@ -177,7 +177,7 @@ test.describe("Deck: two devices, one pin set, two arrangements", () => {
       await seedDeviceLayout(pageB, "device-b", ["run-b"]);
       await installMockBridge(pageB);
       await mockCoordinator(pageB);
-      await pageB.goto("/#/runs");
+      await pageB.goto("/#/workspace");
 
       await expect(pageB.getByTestId("runs-screen")).toBeVisible();
       await expect(pageB.getByTestId("deck-pinned")).toBeVisible();
@@ -306,7 +306,7 @@ test.describe("Deck: two devices, one pin set, two arrangements", () => {
         });
       });
 
-      await page.goto("/#/runs");
+      await page.goto("/#/workspace");
       await expect(page.getByTestId("runs-screen")).toBeVisible();
       await expect(page.getByTestId("deck-pinned")).toBeVisible();
 

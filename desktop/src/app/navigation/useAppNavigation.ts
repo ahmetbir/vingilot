@@ -79,11 +79,11 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
-  const goRuns = React.useCallback(
+  const goWorkspace = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
         {
-          to: "/runs",
+          to: "/workspace",
         },
         behavior,
       ),
@@ -327,7 +327,7 @@ export function useAppNavigation() {
     goProjects,
     goPulse,
     goProfile,
-    goRuns,
+    goWorkspace,
     goSettings,
     goWorkflow,
     goWorkflows,

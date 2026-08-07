@@ -3,7 +3,7 @@ import {
   Bot,
   FolderGit2,
   Inbox,
-  PlayCircle,
+  SquareTerminal,
   Zap,
 } from "lucide-react";
 
@@ -24,7 +24,7 @@ type SidebarSelectedView =
   | "channel"
   | "messages"
   | "agents"
-  | "runs"
+  | "workspace"
   | "workflows"
   | "pulse"
   | "projects";
@@ -49,7 +49,7 @@ type AppSidebarPrimaryMenuProps = {
   onSelectHome: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
-  onSelectRuns: () => void;
+  onSelectWorkspace: () => void;
   onSelectWorkflows: () => void;
   selectedView: SidebarSelectedView;
 };
@@ -95,7 +95,7 @@ export function AppSidebarPrimaryMenu({
   onSelectHome,
   onSelectProjects,
   onSelectPulse,
-  onSelectRuns,
+  onSelectWorkspace,
   onSelectWorkflows,
   selectedView,
 }: AppSidebarPrimaryMenuProps) {
@@ -145,11 +145,11 @@ export function AppSidebarPrimaryMenu({
               data-testid="open-projects-view"
               isActive={selectedView === "projects"}
               onClick={onSelectProjects}
-              tooltip="Projects"
+              tooltip="Repos"
               type="button"
             >
               <FolderGit2 className="h-4 w-4" />
-              <SidebarMenuLabel>Projects</SidebarMenuLabel>
+              <SidebarMenuLabel>Repos</SidebarMenuLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </FeatureGate>
@@ -167,14 +167,14 @@ export function AppSidebarPrimaryMenu({
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
-            data-testid="open-runs-view"
-            isActive={selectedView === "runs"}
-            onClick={onSelectRuns}
-            tooltip="Runs"
+            data-testid="open-workspace-view"
+            isActive={selectedView === "workspace"}
+            onClick={onSelectWorkspace}
+            tooltip="Projects"
             type="button"
           >
-            <PlayCircle className="h-4 w-4" />
-            <SidebarMenuLabel>Runs</SidebarMenuLabel>
+            <SquareTerminal className="h-4 w-4" />
+            <SidebarMenuLabel>Projects</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <FeatureGate feature="workflows">

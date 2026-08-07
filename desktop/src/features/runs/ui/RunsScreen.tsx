@@ -1,4 +1,4 @@
-// The Runs screen: three columns per the layout contract
+// The Projects screen: three columns per the layout contract
 // (vingilot/docs/plans/2026-08-06-projects-and-terminal.md) — ProjectsNav
 // (pick a project or the project-less landing view), WorktreeColumn (that
 // project's worktrees, live state), WorkSurface (Terminal default, Diff,
@@ -202,7 +202,7 @@ export function RunsScreen() {
     setSelectedRepoId(id);
     setSelectedWorktreeId(null);
   }, []);
-  // Also clears any open run detail — clicking "Runs" while already on the
+  // Also clears any open run detail — clicking "All runs" while already on the
   // landing view is the way back to the Deck from a RunDetail, since the
   // old RunList's "+ New run" row (which used to do this) now lives inside
   // WorkSurface's own Runs tab instead.
@@ -231,7 +231,7 @@ export function RunsScreen() {
   // on its own.
   //
   // Seeded from, and mirrored back into, storage (lib/terminalTabStore.ts):
-  // this component unmounts on any route change away from /runs, and a layout
+  // this component unmounts on any route change away from /workspace, and a layout
   // that lived only here would be forgotten on the way out — along with any
   // shell whose worktree disappears while the owner is elsewhere. The same
   // write is what carries the strip across an app restart, to meet the tmux
@@ -336,7 +336,7 @@ export function RunsScreen() {
       data-testid="runs-screen"
     >
       <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
-        <h1 className="text-lg font-semibold">Runs</h1>
+        <h1 className="text-lg font-semibold">Projects</h1>
         <StopAllButton
           engaged={stopEngaged}
           onEngage={() => void engageStop()}

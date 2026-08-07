@@ -199,7 +199,7 @@ export interface WorktreeSummary {
   label: string;
   /** `"clean"` for a worktree with no owner run (nothing running there);
    * otherwise the owner run's own semantic class (runModel.ts's
-   * `statusClass`), so the worktree column and the Runs list agree on what
+   * `statusClass`), so the worktree column and the Runs tab agree on what
    * each hue means. */
   stateClass: SemanticClass | "clean";
   /** `null` when no diff evidence exists yet — never coerced to `{0, 0}`,

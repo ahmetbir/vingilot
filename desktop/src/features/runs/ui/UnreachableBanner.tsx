@@ -1,4 +1,4 @@
-// Scoped to the Runs screen (not global chrome, design 7c): a persistent,
+// Scoped to the Projects screen (not global chrome, design 7c): a persistent,
 // non-dismissible banner while the control plane is unreachable. Clears
 // itself the instant reachable flips back true — there is no manual
 // dismiss, because the state it reports isn't something the user can wave

@@ -2,7 +2,7 @@
 // PINNED region above the lanes shows what the owner pinned (placed in this
 // device's local order, unplaced cards flagged as arrivals from elsewhere),
 // three lanes below mirror the rail's grouping as clickable cards. This is
-// the Runs screen's default right pane (nothing selected).
+// the Projects screen's default right pane (nothing selected).
 //
 // Phase 3 (vingilot/docs/plans/2026-08-04-deck-phase-3.md) adds the PINNED
 // region: the pin *set* is Workspace state written through the coordinator's

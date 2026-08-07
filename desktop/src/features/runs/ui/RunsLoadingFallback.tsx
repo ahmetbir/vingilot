@@ -1,4 +1,4 @@
-// Suspense fallback for the /runs route. Shaped like RunsScreen itself
+// Suspense fallback for the /workspace route. Shaped like RunsScreen itself
 // (header + RunList-shaped aside + DeckPane-shaped main pane) rather than
 // reusing ViewLoadingFallback's "agents" kind, which renders the
 // Agents-list skeleton (library + teams sections) — a shape that belongs

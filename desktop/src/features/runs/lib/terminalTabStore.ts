@@ -43,7 +43,7 @@ const LAYOUT_KEY = "vingilot-terminal-tabs.v1";
 
 /** Storage that answers nothing and keeps nothing, for contexts with no
  * `localStorage` (a `node --test` run, a stripped webview). Losing the layout
- * is survivable; throwing on the way into the Runs screen is not. */
+ * is survivable; throwing on the way into the Projects screen is not. */
 const NO_STORAGE: StorageLike = {
   getItem: () => null,
   setItem: () => {},
@@ -82,7 +82,7 @@ function isWorktreeTabs(value: unknown): value is WorktreeTabs {
 /** Read a stored layout, dropping any worktree whose strip does not survive
  * `isWorktreeTabs`. Missing, unparseable, or wrongly-shaped storage reads as
  * an empty layout — never a throw, because this is called during the render
- * that puts the Runs screen on screen. */
+ * that puts the Projects screen on screen. */
 export function parseTabLayout(raw: string | null): TabLayout {
   if (raw === null || raw === "") return emptyLayout();
   let parsed: unknown;

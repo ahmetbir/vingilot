@@ -5,9 +5,9 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/root";
+import { Route as workspaceRouteImport } from "./routes/workspace";
 import { Route as workflowsRouteImport } from "./routes/workflows";
 import { Route as settingsRouteImport } from "./routes/settings";
-import { Route as runsRouteImport } from "./routes/runs";
 import { Route as remindersRouteImport } from "./routes/reminders";
 import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
@@ -19,6 +19,11 @@ import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
 
+const workspaceRoute = workspaceRouteImport.update({
+  id: "/workspace",
+  path: "/workspace",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const workflowsRoute = workflowsRouteImport.update({
   id: "/workflows",
   path: "/workflows",
@@ -27,11 +32,6 @@ const workflowsRoute = workflowsRouteImport.update({
 const settingsRoute = settingsRouteImport.update({
   id: "/settings",
   path: "/settings",
-  getParentRoute: () => rootRouteImport,
-} as any);
-const runsRoute = runsRouteImport.update({
-  id: "/runs",
-  path: "/runs",
   getParentRoute: () => rootRouteImport,
 } as any);
 const remindersRoute = remindersRouteImport.update({
@@ -92,9 +92,9 @@ export interface FileRoutesByFullPath {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
-  "/runs": typeof runsRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/workspace": typeof workspaceRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -107,9 +107,9 @@ export interface FileRoutesByTo {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
-  "/runs": typeof runsRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/workspace": typeof workspaceRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -123,9 +123,9 @@ export interface FileRoutesById {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
-  "/runs": typeof runsRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/workspace": typeof workspaceRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -140,9 +140,9 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
-    | "/runs"
     | "/settings"
     | "/workflows"
+    | "/workspace"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -155,9 +155,9 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
-    | "/runs"
     | "/settings"
     | "/workflows"
+    | "/workspace"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -170,9 +170,9 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
-    | "/runs"
     | "/settings"
     | "/workflows"
+    | "/workspace"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -186,9 +186,9 @@ export interface RootRouteChildren {
   projectsRoute: typeof projectsRoute;
   pulseRoute: typeof pulseRoute;
   remindersRoute: typeof remindersRoute;
-  runsRoute: typeof runsRoute;
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
+  workspaceRoute: typeof workspaceRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
@@ -198,6 +198,13 @@ export interface RootRouteChildren {
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
+    "/workspace": {
+      id: "/workspace";
+      path: "/workspace";
+      fullPath: "/workspace";
+      preLoaderRoute: typeof workspaceRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/workflows": {
       id: "/workflows";
       path: "/workflows";
@@ -210,13 +217,6 @@ declare module "@tanstack/react-router" {
       path: "/settings";
       fullPath: "/settings";
       preLoaderRoute: typeof settingsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/runs": {
-      id: "/runs";
-      path: "/runs";
-      fullPath: "/runs";
-      preLoaderRoute: typeof runsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/reminders": {
@@ -298,9 +298,9 @@ const rootRouteChildren: RootRouteChildren = {
   projectsRoute: projectsRoute,
   pulseRoute: pulseRoute,
   remindersRoute: remindersRoute,
-  runsRoute: runsRoute,
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,
+  workspaceRoute: workspaceRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,
