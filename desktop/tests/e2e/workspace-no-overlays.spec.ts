@@ -40,6 +40,17 @@ const REPO = {
   path: "/tmp/vingilot-guard",
 };
 
+/** Every tab of the work surface, with what has to be on screen before the
+ * surface is worth auditing. The terminal has no wrapper testid of its own —
+ * the xterm canvas is the thing that has to exist. */
+const TABS: Array<{ key: string; ready: string }> = [
+  { key: "terminal", ready: ".xterm" },
+  { key: "diff", ready: '[data-testid="work-surface-diff-tab"]' },
+  { key: "agent", ready: '[data-testid="work-surface-agent-tab"]' },
+  { key: "evidence", ready: '[data-testid="work-surface-evidence-tab"]' },
+  { key: "runs", ready: '[data-testid="work-surface-runs-tab"]' },
+];
+
 /** The coordinator reads RunsScreen issues, answered with one project and no
  * runs — the smallest workspace that still reaches the work surface. */
 async function mockCoordinator(page: Page) {
@@ -98,8 +109,83 @@ async function stubTerminalBackend(page: Page) {
   });
 }
 
+/** Both readings over whatever the work surface currently shows. Returns one
+ * line per offender, empty when the surface is clean. */
+async function auditSurface(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const surface = document.querySelector('[data-testid="work-surface"]');
+    if (surface === null) return ["no work surface"];
+    const box = surface.getBoundingClientRect();
+    const problems: string[] = [];
+
+    // `className` is a plain string only on HTML elements; on an SVG it is an
+    // SVGAnimatedString, which stringifies to "[object SVGAnimatedString]" and
+    // names nothing. The attribute reads the same on both.
+    function describe(el: Element): string {
+      const testId = el.getAttribute("data-testid");
+      const cls = el.getAttribute("class") ?? "";
+      const rect = el.getBoundingClientRect();
+      return `<${el.tagName.toLowerCase()}${testId ? ` data-testid="${testId}"` : ""} class="${cls.slice(0, 80)}"> at ${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`;
+    }
+
+    // 1. Hit testing. A box is only guaranteed a sample when it is larger than
+    // the step in both axes, so the step has to sit below the smallest thing
+    // worth catching: lucide's default icon is `h-4 w-4` — 16px — and the app
+    // renders it in 264 places.
+    const step = 8;
+    for (let x = box.left + 4; x < box.right - 4; x += step) {
+      for (let y = box.top + 4; y < box.bottom - 4; y += step) {
+        const top = document.elementFromPoint(x, y);
+        if (top === null || surface.contains(top)) continue;
+        problems.push(
+          `hit test at ${Math.round(x)},${Math.round(y)} landed on ${describe(top)}`,
+        );
+        // One report per offender is enough; a full grid of the same
+        // element would bury everything else.
+        return problems;
+      }
+    }
+
+    // 2. Geometry. `tagName` uppercases for HTML elements only — an SVG
+    // reports lowercase "svg", so an uppercase set silently excluded every
+    // icon in the app, which is the exact shape a stray badge has.
+    const VISUAL_TAGS = new Set(["IMG", "IMAGE", "SVG", "CANVAS", "VIDEO"]);
+    for (const el of document.querySelectorAll("body *")) {
+      if (surface.contains(el) || el.contains(surface)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const overlaps =
+        rect.left < box.right &&
+        rect.right > box.left &&
+        rect.top < box.bottom &&
+        rect.bottom > box.top;
+      if (!overlaps) continue;
+      const style = getComputedStyle(el);
+      if (style.visibility === "hidden" || style.opacity === "0") continue;
+
+      const fullBleed =
+        rect.left <= box.left &&
+        rect.right >= box.right &&
+        rect.top <= box.top &&
+        rect.bottom >= box.bottom;
+      if (fullBleed) continue;
+
+      const ownText =
+        el.childElementCount === 0 && (el.textContent ?? "").trim() !== "";
+      const ownGraphic = VISUAL_TAGS.has(el.tagName.toUpperCase());
+      if (!ownText && !ownGraphic) continue;
+
+      problems.push(
+        `overlapping element with its own content: ${describe(el)}`,
+      );
+    }
+
+    return problems;
+  });
+}
+
 test.describe("the work surface carries nothing from another feature", () => {
-  test("no foreign element paints over the terminal", async ({ page }) => {
+  test("no foreign element paints over any of its tabs", async ({ page }) => {
     await installMockBridge(page);
     await mockCoordinator(page);
     await page.goto("/#/workspace");
@@ -114,80 +200,14 @@ test.describe("the work surface carries nothing from another feature", () => {
 
     await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
     await expect(page.getByTestId("work-surface")).toBeVisible();
-    await expect(page.locator(".xterm").first()).toBeVisible();
 
-    const findings = await page.evaluate(() => {
-      const surface = document.querySelector('[data-testid="work-surface"]');
-      if (surface === null) return ["no work surface"];
-      const box = surface.getBoundingClientRect();
-      const problems: string[] = [];
-
-      // `className` is a plain string only on HTML elements; on an SVG it is
-      // an SVGAnimatedString, which stringifies to "[object
-      // SVGAnimatedString]" and names nothing. The attribute reads the same
-      // on both.
-      function describe(el: Element): string {
-        const testId = el.getAttribute("data-testid");
-        const cls = el.getAttribute("class") ?? "";
-        const rect = el.getBoundingClientRect();
-        return `<${el.tagName.toLowerCase()}${testId ? ` data-testid="${testId}"` : ""} class="${cls.slice(0, 80)}"> at ${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`;
-      }
-
-      // 1. Hit testing. A box is only guaranteed a sample when it is larger
-      // than the step in both axes, so the step has to sit below the smallest
-      // thing worth catching: lucide's default icon is `h-4 w-4` — 16px — and
-      // the app renders it in 264 places.
-      const step = 8;
-      for (let x = box.left + 4; x < box.right - 4; x += step) {
-        for (let y = box.top + 4; y < box.bottom - 4; y += step) {
-          const top = document.elementFromPoint(x, y);
-          if (top === null || surface.contains(top)) continue;
-          problems.push(
-            `hit test at ${Math.round(x)},${Math.round(y)} landed on ${describe(top)}`,
-          );
-          // One report per offender is enough; a full grid of the same
-          // element would bury everything else.
-          return problems;
-        }
-      }
-
-      // 2. Geometry. `tagName` uppercases for HTML elements only — an SVG
-      // reports lowercase "svg", so an uppercase set silently excluded every
-      // icon in the app, which is the exact shape a stray badge has.
-      const VISUAL_TAGS = new Set(["IMG", "IMAGE", "SVG", "CANVAS", "VIDEO"]);
-      for (const el of document.querySelectorAll("body *")) {
-        if (surface.contains(el) || el.contains(surface)) continue;
-        const rect = el.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) continue;
-        const overlaps =
-          rect.left < box.right &&
-          rect.right > box.left &&
-          rect.top < box.bottom &&
-          rect.bottom > box.top;
-        if (!overlaps) continue;
-        const style = getComputedStyle(el);
-        if (style.visibility === "hidden" || style.opacity === "0") continue;
-
-        const fullBleed =
-          rect.left <= box.left &&
-          rect.right >= box.right &&
-          rect.top <= box.top &&
-          rect.bottom >= box.bottom;
-        if (fullBleed) continue;
-
-        const ownText =
-          el.childElementCount === 0 && (el.textContent ?? "").trim() !== "";
-        const ownGraphic = VISUAL_TAGS.has(el.tagName.toUpperCase());
-        if (!ownText && !ownGraphic) continue;
-
-        problems.push(
-          `overlapping element with its own content: ${describe(el)}`,
-        );
-      }
-
-      return problems;
-    });
-
-    expect(findings).toEqual([]);
+    // The terminal is the default tab and the one the badge was seen over,
+    // but a pane that only misbehaves on Diff is the same bug — every tab
+    // gets both readings.
+    for (const tab of TABS) {
+      await page.getByTestId(`work-surface-tab-${tab.key}`).click();
+      await expect(page.locator(tab.ready).first()).toBeVisible();
+      expect(await auditSurface(page), `${tab.key} tab`).toEqual([]);
+    }
   });
 });
