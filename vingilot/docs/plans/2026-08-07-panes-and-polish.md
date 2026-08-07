@@ -157,6 +157,35 @@ buries it. In a week it is fifty.
 - [ ] Copy mode / select-all that does not fight tmux.
 - [ ] Commit `feat(runs): know which terminal is which, and find things in it`.
 
+## Task 6 — Collapsible chrome, on VS Code's shortcuts
+The owner, 2026-08-07: *"sol tarafı da VS Code shortcutları ile küçültebilsek sidebar'ı güzel
+olur. çünkü ben normalde VS Code'da sidebar'ı sağda kullanıyorum ve sık sık açıp kapatıyorum
+yer kaplamasın diye."*
+
+Read that carefully: he does not want a wider sidebar, he wants it **out of the way most of
+the time and back in one keystroke**. That makes the toggle the feature and the animation
+irrelevant.
+
+- [ ] **`⌘B` toggles the sidebar** (VS Code's binding for exactly this). Check first whether
+      upstream's `AppSidebar` already has a collapse mechanism — if it does, bind to it rather
+      than building a second one, and the seam is one line. If it does not, the collapse state
+      belongs to the island and the seam must be as small as it can be.
+- [ ] **`⌥⌘B` toggles the right pane** (VS Code's secondary sidebar), so the two sides of the
+      workspace collapse with the two shortcuts his hands already know. This is the same state
+      Task 4 already persists — bind, do not duplicate.
+- [ ] The worktree column collapses too, with its own binding. Three columns, three toggles,
+      and a terminal that can be full-screen without leaving the app.
+- [ ] Collapsed state persists across restart, per project — coming back should look like how
+      he left it.
+- [ ] **Sidebar on the right is out of scope for this task, and worth saying why:** he puts it
+      right in VS Code, but here the sidebar's right-hand neighbour is the pane slot, which is
+      the thing he asked to be selectable. Moving the sidebar right would put two configurable
+      surfaces on the same edge. Revisit once he has lived with the pane host — the answer may
+      be that the sidebar becomes a pane.
+- [ ] Pure key resolution in `lib/` with tests, following `terminalKeys.ts`. Check for
+      conflicts with upstream's existing bindings before claiming any of these.
+- [ ] Commit `feat(runs): collapse any column, on the shortcuts your hands already know`.
+
 ---
 
 ## What comes after this branch (recorded so the order is not re-litigated)
