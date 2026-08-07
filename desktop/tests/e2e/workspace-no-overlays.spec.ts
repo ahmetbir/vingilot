@@ -28,6 +28,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
 // Matches RunsScreen.tsx's hardcoded dev workspace id.
@@ -40,15 +41,15 @@ const REPO = {
   path: "/tmp/vingilot-guard",
 };
 
-/** Every tab of the work surface, with what has to be on screen before the
- * surface is worth auditing. The terminal has no wrapper testid of its own —
- * the xterm canvas is the thing that has to exist. */
-const TABS: Array<{ key: string; ready: string }> = [
-  { key: "terminal", ready: ".xterm" },
-  { key: "diff", ready: '[data-testid="work-surface-diff-tab"]' },
-  { key: "agent", ready: '[data-testid="work-surface-agent-tab"]' },
-  { key: "evidence", ready: '[data-testid="work-surface-evidence-tab"]' },
-  { key: "runs", ready: '[data-testid="work-surface-runs-tab"]' },
+/** Every pane the right slot can hold here, with what has to be on screen
+ * before the surface is worth auditing. Evidence is absent because it is
+ * genuinely unavailable in this workspace — no run owns this worktree, so
+ * there is no transcript — and the picker refuses it. That refusal is asserted
+ * below rather than worked around. */
+const PANES: Array<{ key: string; ready: string }> = [
+  { key: "diff", ready: '[data-testid="pane-diff"]' },
+  { key: "agent", ready: '[data-testid="pane-agent"]' },
+  { key: "runs", ready: '[data-testid="pane-runs"]' },
 ];
 
 /** The coordinator reads RunsScreen issues, answered with one project and no
@@ -185,7 +186,7 @@ async function auditSurface(page: Page): Promise<string[]> {
 }
 
 test.describe("the work surface carries nothing from another feature", () => {
-  test("no foreign element paints over any of its tabs", async ({ page }) => {
+  test("no foreign element paints over any of its panes", async ({ page }) => {
     await installMockBridge(page);
     await mockCoordinator(page);
     await page.goto("/#/workspace");
@@ -201,13 +202,45 @@ test.describe("the work surface carries nothing from another feature", () => {
     await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
     await expect(page.getByTestId("work-surface")).toBeVisible();
 
-    // The terminal is the default tab and the one the badge was seen over,
-    // but a pane that only misbehaves on Diff is the same bug — every tab
-    // gets both readings.
-    for (const tab of TABS) {
-      await page.getByTestId(`work-surface-tab-${tab.key}`).click();
-      await expect(page.locator(tab.ready).first()).toBeVisible();
-      expect(await auditSurface(page), `${tab.key} tab`).toEqual([]);
+    // The terminal is the left pane and the one the badge was seen over, and
+    // it is on screen throughout — so every reading below is a reading of the
+    // terminal *and* of whatever is beside it. A pane that only misbehaves on
+    // Diff is the same bug, so each one gets both readings.
+    await expect(page.locator(".xterm").first()).toBeVisible();
+    expect(await auditSurface(page), "terminal").toEqual([]);
+
+    const picker = page.getByTestId("pane-picker");
+    for (const pane of PANES) {
+      await picker.click();
+      await page.getByTestId(`pane-choice-${pane.key}`).click();
+      await expect(page.locator(pane.ready).first()).toBeVisible();
+      // The picker's own menu overlaps the surface by design, and it leaves on
+      // an animation that outlives the pane appearing — auditing before it has
+      // gone would report the menu the owner just used as a foreign overlay.
+      await expect(picker).toHaveAttribute("data-state", "closed");
+      await waitForAnimations(page);
+      expect(await auditSurface(page), `${pane.key} pane`).toEqual([]);
     }
+
+    // A pane whose backing is missing is offered and refused, with the reason
+    // on it. Vanishing from the picker would read as a bug in the picker, and
+    // rendering empty would read as a run with nothing in it.
+    await picker.click();
+    const evidence = page.getByTestId("pane-choice-evidence");
+    await expect(evidence).toHaveAttribute("aria-disabled", "true");
+    await expect(evidence).toContainText("no run owns this worktree");
+    await page.keyboard.press("Escape");
+    await expect(picker).toHaveAttribute("data-state", "closed");
+    await waitForAnimations(page);
+    expect(await auditSurface(page), "picker closed").toEqual([]);
+
+    // Hidden and brought back: the collapsed surface is a render of its own,
+    // and the rail that restores it is the only way back that does not need a
+    // shortcut remembered.
+    await page.getByTestId("pane-right-collapse").click();
+    await expect(page.getByTestId("pane-right-rail")).toBeVisible();
+    expect(await auditSurface(page), "collapsed").toEqual([]);
+    await page.getByTestId("pane-right-expand").click();
+    await expect(page.getByTestId("pane-divider")).toBeVisible();
   });
 });

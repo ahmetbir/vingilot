@@ -164,10 +164,12 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
-      data-testid="work-surface-diff-tab"
+      data-testid="pane-diff"
     >
       <form
-        className="flex shrink-0 items-center gap-2 border-b border-border/60 px-4 py-2"
+        // Wraps and shrinks because this is a pane now, not a full-width tab:
+        // its width is whatever the owner left the divider at.
+        className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2"
         onSubmit={(event) => {
           event.preventDefault();
           setRequest((prev) => ({
@@ -185,7 +187,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
           against
         </label>
         <input
-          className="w-40 rounded-md border border-border/60 bg-transparent px-2 py-1 font-mono text-xs"
+          className="min-w-0 max-w-40 flex-1 rounded-md border border-border/60 bg-transparent px-2 py-1 font-mono text-xs"
           data-testid="worktree-diff-base"
           id="worktree-diff-base"
           onChange={(event) => setDraft(event.target.value)}
@@ -201,7 +203,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
           {reading ? "reading…" : "Read"}
         </button>
         {summary === null ? null : (
-          <span className="truncate text-xs text-muted-foreground">
+          <span className="min-w-0 basis-full truncate text-xs text-muted-foreground">
             {summary.headline}
           </span>
         )}

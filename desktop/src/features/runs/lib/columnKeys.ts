@@ -24,12 +24,12 @@
 //   provider; there is no second collapse mechanism.
 // - This island's own map (`terminalKeys.ts`): ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→.
 //
-// **⌥⌘B is deliberately unclaimed.** In VS Code it toggles the secondary
-// sidebar; here that surface is Task 4's right pane, which does not exist yet.
-// Binding it to today's work surface would mean collapsing the only thing on
-// it, and the alternative — a placeholder pane to have something to toggle —
-// is a lie about what the app can do. So the chord resolves to nothing and
-// falls through, and the code that binds it lands with the pane it belongs to.
+// **⌥⌘B is not this map's.** In VS Code it toggles the secondary sidebar;
+// here that surface is the work surface's right pane, and the chord landed
+// with it — `paneKeys.ts` resolves it, `WorkSurface` binds it. It is refused
+// below rather than ignored, because the two maps are read from two different
+// listeners and a ⌘B that also fired on ⌥⌘B would hide the sidebar every time
+// the owner hid a pane.
 //
 // **On a non-mac platform the primary modifier is Ctrl** (`shared/lib/
 // platform.ts`), and ⌃B is tmux's default prefix — the terminals this app runs
@@ -53,7 +53,7 @@ export function resolveColumnKey(input: KeyInput): ColumnKeyAction | null {
   // flickers open and shut is not a second press of anything.
   if (input.repeat === true) return null;
   if (!input.primaryModifier) return null;
-  // ⌥ held is ⌥⌘B, reserved above.
+  // ⌥ held is ⌥⌘B, which is `paneKeys.ts`'s — see above.
   if (input.altKey === true) return null;
   // Matched case-insensitively: macOS reports ⇧⌘B as "B" and ⌘B as "b", but a
   // stuck caps lock reports "B" for the unshifted chord too, and losing the

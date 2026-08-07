@@ -17,6 +17,10 @@
 // names the shell (and, under tmux, the session), so it stays with the tab
 // through a reorder; a label that renumbered on every move would be naming
 // the strip instead of the terminal.
+//
+// It draws no border or outer padding of its own: it lives inside the terminal
+// pane's header (`ui/PaneFrame.tsx`), which already has both, and a second set
+// would put a rule through the middle of one row.
 
 import type { WorktreeTabs } from "@/features/runs/lib/terminalTabs";
 
@@ -35,7 +39,7 @@ export function TerminalTabStrip({
 }: TerminalTabStripProps) {
   return (
     <div
-      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/40 px-3 py-1"
+      className="flex min-w-0 items-center gap-1 overflow-x-auto"
       data-testid="terminal-tab-strip"
       role="tablist"
     >

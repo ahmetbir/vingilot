@@ -1,55 +1,65 @@
-// The selected worktree's tabbed work surface: Terminal (default, per the
-// layout contract — iTerm: the terminal is the work surface, not a
-// drawer), Diff (this worktree's real changes, `WorktreeDiffPanel`), Agent
-// (hand this worktree to an ACP agent for one turn, `AgentPanel`), Evidence
-// (the owner run's transcript, its committed diffs included), Runs. Owns the ⌘1…9 / ⌘` / Esc key map and the
-// terminal-tab keys ⌘T / ⇧⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`).
+// The selected worktree's work surface: **left pane, divider, right pane**
+// (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 4).
 //
-// Agent sits next to Diff because that is the order they are used in: a turn
-// finishes, and the next thing anyone wants is the diff it produced. The two
-// never share state — the agent reports what it *said*, git reports what
-// changed.
+// The left pane is the terminal — iTerm's rule, that the terminal *is* the
+// work surface and not a drawer. The right pane is a slot, and what goes in it
+// is chosen from that pane's own header (`ui/PanePicker.tsx`) out of the pane
+// registry (`ui/paneRegistry.tsx`). The two sides are independent, and that
+// independence is the whole feature: the tab bar this replaces made reading a
+// diff cost the terminal.
 //
-// It renders a `<Terminal>` per open session (hidden, not torn down, when it
-// is not the one showing) but it does not own that list, and must not: this
-// component unmounts whenever the owner leaves a project for the landing
-// view, so anything it owned would be lost on the way. `RunsScreen` — which
-// stays mounted — owns which sessions are open and when one is really
-// closed. What survives an unmount here is the pty session itself, whose
-// screen `pty_open` replays on reattach.
+// Which pane, how wide, and whether the right slot is showing at all are
+// `lib/paneModel.ts`'s, held per worktree by `RunsScreen` (`lib/usePanes.ts`)
+// and persisted. This component renders that arrangement and owns no part of
+// it.
 //
-// The Runs tab is the pre-existing RunList + DeckPane/RunDetail pair,
-// unchanged — "Run rows do not disappear — they become a tab, not the
-// front door" (vingilot/docs/plans/2026-08-06-projects-and-terminal.md).
+// It also owns the ⌘1…9 / ⌘` / Esc key map, the terminal-tab keys
+// ⌘T / ⇧⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`), and ⌥⌘B for the right pane
+// (`lib/paneKeys.ts`) — VS Code's secondary-sidebar chord, left unclaimed by
+// `lib/columnKeys.ts` until there was a pane to bind it to.
+//
+// **The terminals are rendered here and must never move.** It renders a
+// `<Terminal>` per open session (hidden, not torn down, when it is not the one
+// showing) but it does not own that list, and must not: this component
+// unmounts whenever the owner leaves a project for the landing view, so
+// anything it owned would be lost on the way. `RunsScreen` — which stays
+// mounted — owns which sessions are open and when one is really closed. What
+// survives an unmount here is the pty session itself, whose screen `pty_open`
+// replays on reattach.
+//
+// That is also why the terminal is the pane fixed to the left rather than one
+// more thing the picker can move: a terminal that changed slots would change
+// parents, which means a new xterm, a fresh attach, and a replay into a
+// terminal that has not been laid out. The terminal's frame is unconditional
+// below, and `terminalAvailability` is constantly available, so nothing in the
+// pane host can unmount a live session — the collapse hides the *right* side,
+// never this one.
 
 import * as React from "react";
 
-import { listEvidence } from "@/features/runs/lib/coordinatorClient";
-import type { ApiResult } from "@/features/runs/lib/coordinatorClient";
 import type { Worktree } from "@/features/runs/lib/projects";
-import { evidenceView } from "@/features/runs/lib/runModel";
-import type {
-  EvidenceKind,
-  EvidenceRow,
-  RunSummary,
-} from "@/features/runs/lib/runModel";
+import { resolvePaneKey } from "@/features/runs/lib/paneKeys";
+import {
+  LEFT_PANE,
+  type PaneContext,
+  type PaneState,
+  rightChoices,
+} from "@/features/runs/lib/paneModel";
+import type { RunSummary } from "@/features/runs/lib/runModel";
 import { resolveKey } from "@/features/runs/lib/terminalKeys";
 import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
 import type {
   TabCommand,
   WorktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
-import { usePolling } from "@/features/runs/lib/usePolling";
-import { AgentPanel } from "@/features/runs/ui/AgentPanel";
-import { DeckPane } from "@/features/runs/ui/DeckPane";
-import { RunDetail } from "@/features/runs/ui/RunDetail";
-import { RunList } from "@/features/runs/ui/RunList";
+import type { Panes } from "@/features/runs/lib/usePanes";
+import { PaneDivider } from "@/features/runs/ui/PaneDivider";
+import { PaneFrame } from "@/features/runs/ui/PaneFrame";
+import { PaneLabel, PanePicker } from "@/features/runs/ui/PanePicker";
+import { paneEntry } from "@/features/runs/ui/paneRegistry";
 import { Terminal } from "@/features/runs/ui/Terminal";
 import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
-import { WorktreeDiffPanel } from "@/features/runs/ui/WorktreeDiffPanel";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
-
-type Tab = "terminal" | "diff" | "agent" | "evidence" | "runs";
 
 interface WorkSurfaceProps {
   workspaceId: string;
@@ -69,44 +79,47 @@ interface WorkSurfaceProps {
   onTabCommand: (command: TabCommand) => void;
   runs: RunSummary[];
   reachable: boolean;
-  /** The selected worktree's own directory, resolved by `RunsScreen` (it owns
-   * the repo/worktree-root pair the derivation needs). `null` when it cannot
-   * be derived — the Diff panel then says so rather than reading somewhere. */
-  worktreeCwd: string | null;
+  /** What the panes are allowed to know about this worktree, assembled by
+   * `RunsScreen` — it owns the repo/worktree-root pair a cwd derives from, and
+   * whether that root has been resolved at all yet. */
+  paneContext: PaneContext;
+  /** The arrangement of this worktree's panes, and the only way to change it. */
+  panes: Panes;
 }
-
-const TABS: Array<{ key: Tab; label: string }> = [
-  { key: "terminal", label: "Terminal" },
-  { key: "diff", label: "Diff" },
-  { key: "agent", label: "Agent" },
-  { key: "evidence", label: "Evidence" },
-  { key: "runs", label: "Runs" },
-];
 
 export function WorkSurface({
   onSelectWorktree,
   onTabCommand,
+  paneContext,
+  panes,
   reachable,
   runs,
   selectedWorktreeId,
   tabs,
   terminals,
-  worktreeCwd,
   worktrees,
   workspaceId,
 }: WorkSurfaceProps) {
-  const [activeTab, setActiveTab] = React.useState<Tab>("terminal");
   const [focusToken, setFocusToken] = React.useState(0);
+  const surfaceRef = React.useRef<HTMLDivElement | null>(null);
+  const toggleRightPane = panes.toggleCollapsed;
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      const action = resolveKey({
+      const input = {
         altKey: event.altKey,
         key: event.key,
         primaryModifier: hasPrimaryShortcutModifier(event),
         repeat: event.repeat,
         shiftKey: event.shiftKey,
-      });
+      };
+      if (resolvePaneKey(input) !== null) {
+        event.preventDefault();
+        toggleRightPane();
+        return;
+      }
+
+      const action = resolveKey(input);
       if (action === null) return;
 
       if (action.type === "switch-worktree") {
@@ -118,32 +131,30 @@ export function WorkSurface({
       }
       if (action.type === "focus-terminal") {
         event.preventDefault();
-        setActiveTab("terminal");
         setFocusToken((t) => t + 1);
         return;
       }
-      // ⌘T brings the terminal forward as well as adding to it — asking for a
-      // new shell from the Diff tab can only mean "and show it to me", and a
-      // tab that opened somewhere the owner cannot see would be a shell they
+      // ⌘T brings focus with it as well as adding a tab — a shell that opened
+      // somewhere the owner's keystrokes were not going would be a shell they
       // have to go looking for.
       if (action.type === "new-terminal-tab") {
         event.preventDefault();
-        setActiveTab("terminal");
         setFocusToken((t) => t + 1);
         onTabCommand({ type: "new" });
         return;
       }
       if (action.type === "leave-terminal") {
         // Move focus off whatever currently has it (the terminal's own hidden
-        // input, most commonly) — this key map only owns focus, not tab
+        // input, most commonly) — this key map only owns focus, not
         // navigation.
         (document.activeElement as HTMLElement | null)?.blur();
         return;
       }
-      // The rest act on the strip that is showing, so they are only ours
-      // while it is. Anywhere else the key falls through untouched rather
-      // than closing or reordering something off screen.
-      if (activeTab !== "terminal" || tabs === null) return;
+      // The rest act on the terminal's tab strip, which is on screen whenever
+      // this surface is: the terminal is a pane now, not a tab, so there is no
+      // longer a state in which these keys would close or reorder something
+      // the owner cannot see.
+      if (tabs === null) return;
       if (action.type === "close-terminal-tab") {
         event.preventDefault();
         onTabCommand({ n: tabs.active, type: "close" });
@@ -163,203 +174,178 @@ export function WorkSurface({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [worktrees, onSelectWorktree, onTabCommand, activeTab, tabs]);
+  }, [worktrees, onSelectWorktree, onTabCommand, toggleRightPane, tabs]);
 
   const selectedWorktree =
     worktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
+  const leftEntry = paneEntry(LEFT_PANE);
+  const layout: PaneState = panes.state;
 
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
       data-testid="work-surface"
     >
-      <div
-        className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-1.5"
-        role="tablist"
-      >
-        {TABS.map((tab) => (
-          <button
-            aria-selected={activeTab === tab.key}
-            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              activeTab === tab.key
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-muted/60"
-            }`}
-            data-testid={`work-surface-tab-${tab.key}`}
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            role="tab"
-            type="button"
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {activeTab === "terminal" && tabs !== null ? (
-          <TerminalTabStrip
-            onClose={(n) => onTabCommand({ n, type: "close" })}
-            onNew={() => onTabCommand({ type: "new" })}
-            onSelect={(n) => onTabCommand({ n, type: "select" })}
-            tabs={tabs}
-          />
-        ) : null}
-
-        {terminals.map((terminal) => (
-          <Terminal
-            active={
-              activeTab === "terminal" &&
-              selectedWorktreeId === terminal.bindingId &&
-              tabs?.active === terminal.n
-            }
-            cwd={terminal.cwd}
-            focusToken={focusToken}
-            key={terminal.sessionId}
-            sessionId={terminal.sessionId}
-          />
-        ))}
-
-        {activeTab === "diff" && selectedWorktree !== null ? (
-          <WorktreeDiffPanel
-            cwd={worktreeCwd}
-            key={selectedWorktree.binding_id}
-            worktree={selectedWorktree}
-          />
-        ) : null}
-        {activeTab === "agent" && selectedWorktree !== null ? (
-          <AgentPanel cwd={worktreeCwd} key={selectedWorktree.binding_id} />
-        ) : null}
-        {activeTab === "evidence" ? (
-          <EvidenceTab ownerRunId={selectedWorktree?.owner_run_id ?? null} />
-        ) : null}
-        {activeTab === "runs" ? (
-          <RunsTab
-            initialRunId={selectedWorktree?.owner_run_id ?? null}
-            reachable={reachable}
-            runs={runs}
-            workspaceId={workspaceId}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-async function fetchOwnerEvidence(
-  ownerRunId: string | null,
-): Promise<ApiResult<EvidenceRow[]>> {
-  if (ownerRunId === null) return { ok: true, value: [] };
-  return listEvidence(ownerRunId);
-}
-
-const EVIDENCE_KIND_CLASS: Record<EvidenceKind, string> = {
-  command: "text-foreground",
-  commit: "text-emerald-600 dark:text-emerald-400",
-  diff: "text-muted-foreground",
-  error: "text-destructive",
-  note: "text-muted-foreground",
-  output: "text-foreground",
-};
-
-function EvidenceTab({ ownerRunId }: { ownerRunId: string | null }) {
-  const fetchEvidence = React.useCallback(
-    () => fetchOwnerEvidence(ownerRunId),
-    [ownerRunId],
-  );
-  const { data: evidenceRows } = usePolling(fetchEvidence, 2000);
-  const { rows, truncatedCount } = evidenceView(evidenceRows ?? []);
-
-  return (
-    <div
-      className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 py-3"
-      data-testid="work-surface-evidence-tab"
-    >
-      {ownerRunId === null ? (
-        <p className="text-sm text-muted-foreground">
-          this worktree has no owner run yet
-        </p>
-      ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">no evidence yet</p>
-      ) : (
-        <div className="flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-xs">
-          {truncatedCount > 0 ? (
-            <p className="text-3xs text-muted-foreground/70">
-              {truncatedCount} earlier row{truncatedCount === 1 ? "" : "s"} not
-              shown
-            </p>
-          ) : null}
-          {rows.map((ev) => (
-            <div
-              className={`whitespace-pre-wrap break-words ${EVIDENCE_KIND_CLASS[ev.kind]}`}
-              key={ev.seq}
-            >
-              {ev.kind === "command" ? "$ " : ""}
-              {ev.kind === "commit" ? "⎘ " : ""}
-              {ev.content}
-            </div>
+      <div className="flex min-h-0 flex-1 overflow-hidden" ref={surfaceRef}>
+        <PaneFrame
+          availability={leftEntry.availability(paneContext)}
+          chooser={<PaneLabel entry={leftEntry} />}
+          entry={leftEntry}
+          header={
+            tabs === null ? null : (
+              <TerminalTabStrip
+                onClose={(n) => onTabCommand({ n, type: "close" })}
+                onNew={() => onTabCommand({ type: "new" })}
+                onSelect={(n) => onTabCommand({ n, type: "select" })}
+                tabs={tabs}
+              />
+            )
+          }
+          share={layout.collapsed ? 1 : layout.ratio}
+          side="left"
+        >
+          {terminals.map((terminal) => (
+            <Terminal
+              active={
+                selectedWorktreeId === terminal.bindingId &&
+                tabs?.active === terminal.n
+              }
+              cwd={terminal.cwd}
+              focusToken={focusToken}
+              key={terminal.sessionId}
+              sessionId={terminal.sessionId}
+            />
           ))}
-        </div>
-      )}
-    </div>
-  );
-}
+        </PaneFrame>
 
-function RunsTab({
-  initialRunId,
-  reachable,
-  runs,
-  workspaceId,
-}: {
-  initialRunId: string | null;
-  reachable: boolean;
-  runs: RunSummary[];
-  workspaceId: string;
-}) {
-  const [selectedRunId, setSelectedRunId] = React.useState(initialRunId);
-
-  // The worktree underneath this tab can change (a different worktree
-  // selected while "Runs" stays the active tab) — re-sync to that
-  // worktree's own owner run rather than showing a stale one.
-  React.useEffect(() => {
-    setSelectedRunId(initialRunId);
-  }, [initialRunId]);
-
-  const openRun = React.useCallback((id: string) => setSelectedRunId(id), []);
-  const openDeck = React.useCallback(() => setSelectedRunId(null), []);
-
-  return (
-    <div
-      className="flex min-h-0 flex-1 overflow-hidden"
-      data-testid="work-surface-runs-tab"
-    >
-      <aside
-        aria-label="runs"
-        className="flex w-64 shrink-0 flex-col overflow-hidden border-r border-border/60"
-      >
-        <RunList
-          activeRunId={selectedRunId}
-          onSelectDeck={openDeck}
-          onSelectRun={openRun}
-          runs={runs}
-          workspaceId={workspaceId}
-        />
-      </aside>
-      <main
-        aria-label="workspace"
-        className="flex min-h-0 flex-1 flex-col overflow-hidden"
-      >
-        {selectedRunId === null ? (
-          <DeckPane
-            onOpenRun={openRun}
-            reachable={reachable}
-            runs={runs}
-            workspaceId={workspaceId}
+        {layout.collapsed ? (
+          <CollapsedRail
+            onExpand={toggleRightPane}
+            title={paneEntry(layout.right).title}
           />
         ) : (
-          <RunDetail key={selectedRunId} runId={selectedRunId} />
+          <>
+            <PaneDivider
+              onNudge={panes.nudgeRatio}
+              onRatio={panes.setRatio}
+              onReset={panes.resetRatio}
+              onToggle={toggleRightPane}
+              ratio={layout.ratio}
+              surfaceRef={surfaceRef}
+            />
+            <RightPane
+              context={paneContext}
+              onCollapse={toggleRightPane}
+              onChoose={panes.choose}
+              reachable={reachable}
+              right={layout.right}
+              runs={runs}
+              share={1 - layout.ratio}
+              worktree={selectedWorktree}
+              workspaceId={workspaceId}
+            />
+          </>
         )}
-      </main>
+      </div>
+    </div>
+  );
+}
+
+function RightPane({
+  context,
+  onChoose,
+  onCollapse,
+  reachable,
+  right,
+  runs,
+  share,
+  worktree,
+  workspaceId,
+}: {
+  context: PaneContext;
+  onChoose: Panes["choose"];
+  onCollapse: () => void;
+  reachable: boolean;
+  right: PaneState["right"];
+  runs: RunSummary[];
+  share: number;
+  worktree: Worktree | null;
+  workspaceId: string;
+}) {
+  const entry = paneEntry(right);
+  const availability = entry.availability(context);
+  const choices = rightChoices().map((id) => {
+    const choice = paneEntry(id);
+    return { availability: choice.availability(context), entry: choice };
+  });
+  const Pane = entry.component;
+
+  return (
+    <PaneFrame
+      action={
+        <button
+          aria-label="hide the right pane"
+          className="shrink-0 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          data-testid="pane-right-collapse"
+          onClick={onCollapse}
+          title="Hide the right pane (⌥⌘B)"
+          type="button"
+        >
+          ›
+        </button>
+      }
+      availability={availability}
+      chooser={
+        <PanePicker choices={choices} current={entry} onChoose={onChoose} />
+      }
+      entry={entry}
+      share={share}
+      side="right"
+    >
+      {Pane === null ? null : (
+        // Keyed by both, because a pane holds a reading of one worktree: the
+        // Diff pane's patch and the Runs pane's open run are answers about the
+        // worktree that was selected when they were asked for.
+        <Pane
+          cwd={context.cwd}
+          key={`${right}:${worktree?.binding_id ?? "none"}`}
+          ownerRunId={context.ownerRunId}
+          reachable={reachable}
+          runs={runs}
+          worktree={worktree}
+          workspaceId={workspaceId}
+        />
+      )}
+    </PaneFrame>
+  );
+}
+
+/** The right side when it is hidden: a rail whose only job is to be the way
+ * back. A collapsed pane plus a shortcut the owner has to remember is a trap —
+ * the same reason `WorktreeColumn` keeps a rail — and it is what makes ⌥⌘B
+ * safe to have at all. */
+function CollapsedRail({
+  onExpand,
+  title,
+}: {
+  onExpand: () => void;
+  title: string;
+}) {
+  return (
+    <div
+      className="flex min-h-0 w-9 shrink-0 flex-col items-center border-l border-border/60 py-3"
+      data-testid="pane-right-rail"
+    >
+      <button
+        aria-label={`show the ${title} pane`}
+        className="rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+        data-testid="pane-right-expand"
+        onClick={onExpand}
+        title={`${title} — show the right pane (⌥⌘B)`}
+        type="button"
+      >
+        ‹
+      </button>
     </div>
   );
 }

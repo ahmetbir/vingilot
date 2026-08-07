@@ -97,7 +97,7 @@ export function AgentPanel({ cwd }: Props) {
   return (
     <div
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
-      data-testid="work-surface-agent-tab"
+      data-testid="pane-agent"
     >
       <div className="flex flex-col gap-1">
         <p className="text-xs text-muted-foreground">{boundaryNote}</p>

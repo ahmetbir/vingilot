@@ -1,8 +1,9 @@
 // The Projects screen: three columns per the layout contract
 // (vingilot/docs/plans/2026-08-06-projects-and-terminal.md) — ProjectsNav
 // (pick a project or the project-less landing view), WorktreeColumn (that
-// project's worktrees, live state), WorkSurface (Terminal default, Diff,
-// Evidence, Runs). A persistent ProjectStatusBar names where the owner is.
+// project's worktrees, live state), WorkSurface (the terminal, and whichever
+// pane the owner has put beside it). A persistent ProjectStatusBar names where
+// the owner is.
 // The project-less landing view is the old Deck (composer + lanes),
 // unchanged — nothing is deleted, it just stops being the front door.
 //
@@ -12,7 +13,9 @@
 //
 // It is also where the collapsible chrome is bound (`lib/useColumns.ts`),
 // for the same reason: the flag is per project and must outlive both the
-// column it hides and any switch between projects.
+// column it hides and any switch between projects. The pane arrangement
+// (`lib/usePanes.ts`) is held here on the same argument, one key finer — per
+// worktree rather than per project.
 //
 // It also owns the terminal-tab layout — which worktrees have terminals open
 // and which tabs each of them holds — because it is the only component here
@@ -69,7 +72,9 @@ import {
   type TabLayout,
   worktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
+import type { PaneContext } from "@/features/runs/lib/paneModel";
 import { useColumns } from "@/features/runs/lib/useColumns";
+import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
@@ -415,6 +420,22 @@ export function RunsScreen() {
     selectedRepo === null || selectedWorktree === null || worktreeRoot === null
       ? null
       : worktreeCwd(selectedRepo, selectedWorktree, worktreeRoot);
+
+  // What the panes are allowed to know about the worktree under them
+  // (lib/paneModel.ts). `cwdPending` is the distinction that keeps a pane from
+  // telling the owner his worktree has no checkout when all that has happened
+  // is that the home-directory lookup above has not answered yet.
+  const paneContext: PaneContext = {
+    cwd: selectedWorktreeCwd,
+    cwdPending: worktreeRoot === null,
+    ownerRunId: selectedWorktree?.owner_run_id ?? null,
+  };
+  // Which pane sits beside the terminal, how wide it is, and whether it is
+  // showing — per worktree, and held here rather than in `WorkSurface` for the
+  // same reason the tab layout is: that component unmounts on the way to the
+  // landing view and would forget the arrangement on the way out.
+  const panes = usePanes(selectedWorktreeId);
+
   const ownerRun =
     selectedWorktree?.owner_run_id !== null &&
     selectedWorktree?.owner_run_id !== undefined
@@ -500,12 +521,13 @@ export function RunsScreen() {
               <WorkSurface
                 onSelectWorktree={setSelectedWorktreeId}
                 onTabCommand={runTabCommand}
+                paneContext={paneContext}
+                panes={panes}
                 reachable={reachable}
                 runs={runs}
                 selectedWorktreeId={selectedWorktreeId}
                 tabs={selectedTabs}
                 terminals={terminals}
-                worktreeCwd={selectedWorktreeCwd}
                 worktrees={repoWorktrees}
                 workspaceId={WORKSPACE_ID}
               />
