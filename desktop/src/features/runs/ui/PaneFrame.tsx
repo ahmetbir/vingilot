@@ -37,8 +37,21 @@ interface PaneFrameProps {
   /** Anything the pane wants in its own header, beside the chooser — the
    * terminal's tab strip is the only one so far. */
   header?: React.ReactNode;
-  /** The button that hides this side, for the side that can be hidden. */
+  /** The buttons this side offers over its own width — hide, maximise. */
   action?: React.ReactNode;
+  /** True when the *other* side has the whole surface. The frame stays
+   * mounted and stops being laid out, which is not the same as not being
+   * rendered: the terminal's xterm instances live inside the left frame and
+   * cannot be unmounted without losing them (`WorkSurface.tsx` says why), so
+   * "the right pane is maximised" has to mean a left frame that is still here
+   * and merely has no box. `terminalFit.ts` already reads a 0×0 container as
+   * "refuse", which is the same state a background terminal tab is in.
+   *
+   * Applied as an inline style rather than as `hidden` or a `hidden` class:
+   * Tailwind's preflight `[hidden] { display: none }` is emitted *before* the
+   * utilities, so the `flex` on this element would win on source order, and
+   * two display utilities in one class list is the same coin toss. */
+  hidden?: boolean;
   /** This side's own box, for a caller that has to ask whether something is
    * inside it — the work surface's key map does, since the terminal's tab
    * shortcuts must not fire while the owner is typing in the other pane. */
@@ -54,6 +67,7 @@ export function PaneFrame({
   entry,
   frameRef,
   header,
+  hidden = false,
   share,
   side,
 }: PaneFrameProps) {
@@ -64,7 +78,10 @@ export function PaneFrame({
       data-pane={entry.id}
       data-testid={`pane-${side}`}
       ref={frameRef}
-      style={{ flexGrow: share }}
+      style={{
+        display: hidden ? "none" : undefined,
+        flexGrow: share,
+      }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1">
         {chooser}

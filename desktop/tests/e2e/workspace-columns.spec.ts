@@ -135,7 +135,7 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     await expect(page.getByTestId("pane-divider")).toBeVisible();
     await expect(sidebar(page)).toHaveAttribute("data-state", "expanded");
 
-    // One collapse state, persisted per worktree — the same one the header's ›
+    // One layout state, persisted per worktree — the same one the header's ›
     // and the rail drive, not a second one bound to the chord.
     await page.keyboard.press("Alt+ControlOrMeta+b");
     await expect(page.getByTestId("pane-right-rail")).toBeVisible();
@@ -143,11 +143,49 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
       .poll(() =>
         page.evaluate(() => window.localStorage.getItem("vingilot-panes.v1")),
       )
-      .toContain('"collapsed":true');
+      .toContain('"solo":"left"');
     await page.reload();
     await expect(page.getByTestId("runs-screen")).toBeVisible();
     await page.getByTestId("projects-nav-repo-repo-left").click();
     await expect(page.getByTestId("pane-right-rail")).toBeVisible();
+  });
+
+  test("shift+alt+primary+B gives the right pane the whole surface, and the terminal survives it", async ({
+    page,
+  }) => {
+    // The mirror of the chord above, and the gesture the four ported panes
+    // lost when the tab bar became a split: full width, which `MIN_LEFT_PX`
+    // otherwise caps at 37% of the surface for good.
+    await page.setViewportSize({ height: 900, width: 1600 });
+    await openWorkspace(page);
+    await page.getByTestId("projects-nav-repo-repo-left").click();
+
+    const surface = await page.getByTestId("work-surface").boundingBox();
+    const before = await page.getByTestId("pane-right").boundingBox();
+    expect(before?.width ?? 0).toBeLessThan((surface?.width ?? 0) / 2);
+
+    await page.keyboard.press("Shift+Alt+ControlOrMeta+b");
+    await expect(page.getByTestId("pane-left-rail")).toBeVisible();
+    await expect(page.getByTestId("pane-divider")).toBeHidden();
+    // The terminal is not merely off screen — it is still in the document,
+    // because its xterm instances are attached to live ptys and cannot be
+    // rebuilt. `toBeHidden` passes for both; `count` tells them apart.
+    expect(await page.getByTestId("pane-left").count()).toBe(1);
+    await expect(page.getByTestId("pane-left")).toBeHidden();
+
+    // Nearly all of it: the rail is the only other thing in the row.
+    const after = await page.getByTestId("pane-right").boundingBox();
+    expect(after?.width ?? 0).toBeGreaterThan((surface?.width ?? 0) - 60);
+    // Not the worktree column's chord with ⌥ along for the ride.
+    await expect(page.getByTestId("worktree-column")).toBeVisible();
+
+    // The rail is the way back, and it restores the split the owner had.
+    await page.getByTestId("pane-left-expand").click();
+    await expect(page.getByTestId("pane-divider")).toBeVisible();
+    const restored = await page.getByTestId("pane-right").boundingBox();
+    expect(Math.round(restored?.width ?? 0)).toBe(
+      Math.round(before?.width ?? 0),
+    );
   });
 
   test("dragging the divider to the left edge still leaves the terminal 80 columns", async ({

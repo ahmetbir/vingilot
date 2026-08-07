@@ -28,10 +28,10 @@ import {
   rightChoices,
   runsAvailability,
   terminalAvailability,
-  toggleCollapsed,
-  withCollapsed,
+  toggleSolo,
   withRatio,
   withRight,
+  withSolo,
 } from "./paneModel.ts";
 
 const WT = "binding-1";
@@ -63,7 +63,7 @@ function answering(answer, detail = null) {
 
 test("a worktree nobody has arranged gets the split, open, with Diff", () => {
   const state = panesFor({}, WT);
-  assert.equal(state.collapsed, false);
+  assert.equal(state.solo, null);
   assert.equal(state.right, "diff");
   assert.equal(state.ratio, DEFAULT_RATIO);
   assert.deepEqual(defaultPaneState(), state);
@@ -87,25 +87,50 @@ test("an arrangement is remembered per worktree, not per app", () => {
   assert.equal(panesFor(layout, "b").ratio, 0.35);
 });
 
-test("choosing a pane opens a collapsed slot — picking one means showing it", () => {
-  const collapsed = withCollapsed({}, WT, true);
-  assert.equal(panesFor(collapsed, WT).collapsed, true);
-  const chosen = withRight(collapsed, WT, "evidence");
-  assert.equal(panesFor(chosen, WT).collapsed, false);
+test("choosing a pane brings it back on screen — picking one means showing it", () => {
+  const terminalOnly = withSolo({}, WT, "left");
+  assert.equal(panesFor(terminalOnly, WT).solo, "left");
+  const chosen = withRight(terminalOnly, WT, "evidence");
+  assert.equal(panesFor(chosen, WT).solo, null);
   assert.equal(panesFor(chosen, WT).right, "evidence");
 });
 
-test("collapse and restore return the same pane, not a default", () => {
+test("choosing a pane on a maximised surface leaves it maximised", () => {
+  // He gave the surface over to read something. Swapping which pane he is
+  // reading is not a request to shrink it back down.
+  const maximised = withSolo({}, WT, "right");
+  const chosen = withRight(maximised, WT, "evidence");
+  assert.equal(panesFor(chosen, WT).solo, "right");
+  assert.equal(panesFor(chosen, WT).right, "evidence");
+});
+
+test("either side can have the whole surface, and neither can have it at once", () => {
+  // The regression this closes: the four ported panes were full-surface tabs,
+  // and the host capped them at 1 - clampRatioAt(MIN_RATIO, w) — 442px of a
+  // 1195px surface — with no gesture that could widen them past it.
+  let layout = toggleSolo({}, WT, "right");
+  assert.equal(panesFor(layout, WT).solo, "right");
+  // Asking for the other side is a move, not a second flag: "both maximised"
+  // is not a layout and must not be spellable.
+  layout = toggleSolo(layout, WT, "left");
+  assert.equal(panesFor(layout, WT).solo, "left");
+  layout = toggleSolo(layout, WT, "left");
+  assert.equal(panesFor(layout, WT).solo, null);
+});
+
+test("a solo and its return keep the pane and the ratio, not a default", () => {
   let layout = withRight({}, WT, "runs");
-  layout = toggleCollapsed(layout, WT);
-  assert.equal(panesFor(layout, WT).collapsed, true);
-  assert.equal(panesFor(layout, WT).right, "runs");
-  layout = toggleCollapsed(layout, WT);
-  assert.deepEqual(panesFor(layout, WT), {
-    collapsed: false,
-    ratio: DEFAULT_RATIO,
-    right: "runs",
-  });
+  layout = withRatio(layout, WT, 0.45, UNMEASURED);
+  for (const side of ["left", "right"]) {
+    const away = toggleSolo(layout, WT, side);
+    assert.equal(panesFor(away, WT).right, "runs");
+    assert.equal(panesFor(away, WT).ratio, 0.45);
+    assert.deepEqual(panesFor(toggleSolo(away, WT, side), WT), {
+      ratio: 0.45,
+      right: "runs",
+      solo: null,
+    });
+  }
 });
 
 test("neither side can be squeezed to a sliver", () => {
@@ -161,7 +186,7 @@ test("what is stored is a ratio the surface allowed, not one a key asked for", (
 test("a no-op returns the same layout object, so no write is provoked", () => {
   const layout = withRight({}, WT, "runs");
   assert.equal(withRight(layout, WT, "runs"), layout);
-  assert.equal(withCollapsed(layout, WT, false), layout);
+  assert.equal(withSolo(layout, WT, null), layout);
   assert.equal(withRatio(layout, WT, DEFAULT_RATIO, WIDE), layout);
   assert.notEqual(withRight(layout, WT, "diff"), layout);
 });

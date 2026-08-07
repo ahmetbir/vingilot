@@ -26,6 +26,7 @@ import {
   DIVIDER_PX,
   MAX_RATIO,
   MIN_RATIO,
+  type PaneSide,
   ratioFromPointer,
 } from "@/features/runs/lib/paneModel";
 import { resolveDividerKey } from "@/features/runs/lib/paneKeys";
@@ -42,7 +43,10 @@ interface PaneDividerProps {
   onRatio: (ratio: number, surfaceWidth: number) => void;
   onNudge: (delta: number, surfaceWidth: number) => void;
   onReset: (surfaceWidth: number) => void;
-  onToggle: () => void;
+  /** Give one side the whole surface. Home, End and Enter all land here; the
+   * caller toggles, and the divider is only rendered inside a split so none of
+   * them can arrive as an un-toggle. */
+  onSolo: (side: PaneSide) => void;
   /** The splitter's own element, so the work surface can put focus back on it
    * when the right pane is restored from the rail — the control that was
    * focused a moment ago is gone by then. */
@@ -58,7 +62,7 @@ export function PaneDivider({
   onNudge,
   onRatio,
   onReset,
-  onToggle,
+  onSolo,
   ratio,
   surfaceRef,
 }: PaneDividerProps) {
@@ -97,9 +101,8 @@ export function PaneDivider({
     // agreed to.
     const width = surfaceWidthNow();
     if (action.type === "nudge") onNudge(action.delta, width);
-    else if (action.type === "set-ratio") onRatio(action.ratio, width);
     else if (action.type === "reset-ratio") onReset(width);
-    else onToggle();
+    else onSolo(action.side);
   }
 
   return (
@@ -144,7 +147,7 @@ export function PaneDivider({
       // change width under ⌘+ zoom while the constant did not.
       style={{ width: DIVIDER_PX }}
       tabIndex={0}
-      title="Drag to resize, double-click to reset, ← → to adjust, Enter to hide the right pane"
+      title="Drag to resize, double-click to reset, ← → to adjust, Home/End to give one pane the whole surface, Enter to hide the right pane"
     >
       <span
         aria-hidden="true"

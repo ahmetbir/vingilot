@@ -22,10 +22,11 @@ import {
   nudgeRatio,
   type PaneId,
   type PaneLayout,
+  type PaneSide,
   type PaneState,
   panesFor,
   resetRatio,
-  toggleCollapsed,
+  toggleSolo,
   withRatio,
   withRight,
 } from "@/features/runs/lib/paneModel";
@@ -44,7 +45,10 @@ export interface Panes {
   setRatio: (ratio: number, surfaceWidth: number) => void;
   nudgeRatio: (delta: number, surfaceWidth: number) => void;
   resetRatio: (surfaceWidth: number) => void;
-  toggleCollapsed: () => void;
+  /** Give `side` the whole surface, or put the split back when it already has
+   * it. The one act behind ⌥⌘B, ⇧⌥⌘B, the divider's Home/End/Enter, both
+   * header buttons and both rails. */
+  toggleSolo: (side: PaneSide) => void;
 }
 
 /** How long the layout has to stop changing before it is written down.
@@ -113,8 +117,8 @@ export function usePanes(worktreeId: string | null): Panes {
       edit((prev, at) => resetRatio(prev, at, surfaceWidth)),
     [edit],
   );
-  const collapse = React.useCallback(
-    () => edit((prev, at) => toggleCollapsed(prev, at)),
+  const solo = React.useCallback(
+    (side: PaneSide) => edit((prev, at) => toggleSolo(prev, at, side)),
     [edit],
   );
 
@@ -128,6 +132,6 @@ export function usePanes(worktreeId: string | null): Panes {
     // worktree-less surface reads the default arrangement and cannot record
     // one.
     state: panesFor(layout, worktreeId ?? ""),
-    toggleCollapsed: collapse,
+    toggleSolo: solo,
   };
 }

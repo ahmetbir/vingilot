@@ -23,9 +23,34 @@ function memoryStorage(seed = {}) {
 
 test("an arrangement survives the round trip", () => {
   const storage = memoryStorage();
-  const layout = { wt: { collapsed: true, ratio: 0.45, right: "runs" } };
+  const layout = { wt: { ratio: 0.45, right: "runs", solo: "right" } };
   writePaneLayout(layout, storage);
   assert.deepEqual(readPaneLayout(storage), layout);
+});
+
+test("a layout written before there were two solos still reads as one", () => {
+  // The key stays v1 through the shape change on purpose: a new key would
+  // silently reset every arrangement the owner has made, which is the one
+  // outcome this module exists to avoid. `collapsed: true` meant the terminal
+  // alone and still does.
+  const layout = parsePaneLayout(
+    JSON.stringify({
+      hidden: { collapsed: true, ratio: 0.45, right: "runs" },
+      shown: { collapsed: false, ratio: 0.45, right: "runs" },
+    }),
+  );
+  assert.equal(layout.hidden.solo, "left");
+  assert.equal(layout.hidden.ratio, 0.45);
+  assert.equal(layout.shown.solo, null);
+});
+
+test("a solo this build does not recognise is the split, not a guess", () => {
+  const layout = parsePaneLayout(
+    JSON.stringify({
+      wt: { ratio: 0.5, right: "runs", solo: "middle" },
+    }),
+  );
+  assert.equal(layout.wt.solo, null);
 });
 
 test("nothing stored is no arrangement, not a broken one", () => {
@@ -39,21 +64,21 @@ test("nothing stored is no arrangement, not a broken one", () => {
 test("a value this build does not recognise is coerced, never dropped whole", () => {
   const layout = parsePaneLayout(
     JSON.stringify({
-      wt: { collapsed: "yes", ratio: "wide", right: "plan" },
+      wt: { ratio: "wide", right: "plan", solo: "yes" },
     }),
   );
   assert.deepEqual(layout.wt, {
-    collapsed: false,
     ratio: DEFAULT_RATIO,
     right: "diff",
+    solo: null,
   });
 });
 
 test("a ratio from outside this build's clamp is brought inside it", () => {
   const layout = parsePaneLayout(
     JSON.stringify({
-      a: { collapsed: false, ratio: 0.98, right: "diff" },
-      b: { collapsed: false, ratio: -1, right: "diff" },
+      a: { ratio: 0.98, right: "diff", solo: null },
+      b: { ratio: -1, right: "diff", solo: null },
     }),
   );
   assert.equal(layout.a.ratio, MAX_RATIO);
@@ -63,10 +88,10 @@ test("a ratio from outside this build's clamp is brought inside it", () => {
 test("keys that are not arrangements are dropped", () => {
   const layout = parsePaneLayout(
     JSON.stringify({
-      "": { collapsed: false, ratio: 0.5, right: "runs" },
+      "": { ratio: 0.5, right: "runs", solo: null },
       list: [1, 2],
       nothing: null,
-      real: { collapsed: false, ratio: 0.5, right: "runs" },
+      real: { ratio: 0.5, right: "runs", solo: null },
       text: "runs",
     }),
   );
@@ -82,7 +107,7 @@ test("a storage that refuses the write costs the layout, not the render", () => 
   };
   assert.doesNotThrow(() =>
     writePaneLayout(
-      { wt: { collapsed: false, ratio: 0.5, right: "runs" } },
+      { wt: { ratio: 0.5, right: "runs", solo: null } },
       refusing,
     ),
   );
@@ -90,9 +115,6 @@ test("a storage that refuses the write costs the layout, not the render", () => 
 
 test("the storage key is versioned so an older build starts from defaults", () => {
   const storage = memoryStorage();
-  writePaneLayout(
-    { wt: { collapsed: false, ratio: 0.5, right: "runs" } },
-    storage,
-  );
+  writePaneLayout({ wt: { ratio: 0.5, right: "runs", solo: null } }, storage);
   assert.notEqual(storage.read(LAYOUT_KEY), null);
 });

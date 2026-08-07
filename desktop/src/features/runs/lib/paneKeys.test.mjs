@@ -3,12 +3,7 @@ import { test } from "node:test";
 
 import { resolveColumnKey } from "./columnKeys.ts";
 import { resolveDividerKey, resolvePaneKey } from "./paneKeys.ts";
-import {
-  MAX_RATIO,
-  MIN_RATIO,
-  RATIO_STEP,
-  RATIO_STEP_COARSE,
-} from "./paneModel.ts";
+import { RATIO_STEP, RATIO_STEP_COARSE } from "./paneModel.ts";
 import { resolveKey } from "./terminalKeys.ts";
 
 function chord(over = {}) {
@@ -22,30 +17,55 @@ function chord(over = {}) {
   };
 }
 
-test("alt+primary+B hides and restores the right pane", () => {
+test("alt+primary+B gives the terminal the whole surface, and takes it back", () => {
   assert.deepEqual(resolvePaneKey(chord({ altKey: true })), {
-    type: "toggle-right-pane",
+    side: "left",
+    type: "solo",
   });
   assert.deepEqual(resolvePaneKey(chord({ altKey: true, key: "B" })), {
-    type: "toggle-right-pane",
+    side: "left",
+    type: "solo",
   });
 });
 
-test("the composed character macOS makes of alt+b is the same chord", () => {
-  assert.deepEqual(resolvePaneKey(chord({ altKey: true, key: "∫" })), {
-    type: "toggle-right-pane",
+test("shift is the mirror: the same chord gives the right pane the whole surface", () => {
+  // The gesture the four ported panes lost when the tab bar became a split.
+  // This file used to refuse ⇧⌥⌘B outright so that claiming it would have to
+  // be a decision; this is that decision, and it is the *only* other side the
+  // chord can mean.
+  assert.deepEqual(resolvePaneKey(chord({ altKey: true, shiftKey: true })), {
+    side: "right",
+    type: "solo",
   });
+});
+
+test("the composed characters macOS makes of the two chords are the same two chords", () => {
+  assert.deepEqual(resolvePaneKey(chord({ altKey: true, key: "∫" })), {
+    side: "left",
+    type: "solo",
+  });
+  assert.deepEqual(
+    resolvePaneKey(chord({ altKey: true, key: "ı", shiftKey: true })),
+    { side: "right", type: "solo" },
+  );
 });
 
 test("the chord without alt is the sidebar's, and is left alone", () => {
   assert.equal(resolvePaneKey(chord()), null);
   assert.equal(resolvePaneKey(chord({ shiftKey: true })), null);
-  assert.equal(resolvePaneKey(chord({ altKey: true, shiftKey: true })), null);
   assert.equal(
     resolvePaneKey(chord({ altKey: true, primaryModifier: false })),
     null,
   );
   assert.equal(resolvePaneKey(chord({ altKey: true, key: "n" })), null);
+});
+
+test("no column chord fires on either solo — alt is refused over there", () => {
+  // Two listeners, two maps. A ⇧⌘B that also fired on ⇧⌥⌘B would hide the
+  // worktree column every time the owner maximised a pane.
+  const mirror = chord({ altKey: true, shiftKey: true });
+  assert.equal(resolveColumnKey(mirror), null);
+  assert.equal(resolveKey(mirror), null);
 });
 
 test("a held chord is not a second press", () => {
@@ -107,14 +127,18 @@ test("a held arrow keeps moving the divider — that is what holding it means", 
   });
 });
 
-test("Home and End take the divider to its limits", () => {
+test("Home and End take the divider to its limits, and the limits are the edges", () => {
+  // They used to resolve to MIN_RATIO and MAX_RATIO, which are a matter of
+  // taste and not a limit of anything: Home left the right pane at 442px of a
+  // 1195px surface and called that "its limits". The limit of the left pane
+  // getting smaller is the left pane being gone.
   assert.deepEqual(resolveDividerKey(bare({ key: "Home" })), {
-    ratio: MIN_RATIO,
-    type: "set-ratio",
+    side: "right",
+    type: "solo",
   });
   assert.deepEqual(resolveDividerKey(bare({ key: "End" })), {
-    ratio: MAX_RATIO,
-    type: "set-ratio",
+    side: "left",
+    type: "solo",
   });
 });
 
@@ -126,7 +150,8 @@ test("the keyboard reaches the reset a double-click reaches", () => {
 
 test("Enter collapses and restores, and a held Enter does not", () => {
   assert.deepEqual(resolveDividerKey(bare({ key: "Enter" })), {
-    type: "toggle-right-pane",
+    side: "left",
+    type: "solo",
   });
   assert.equal(resolveDividerKey(bare({ key: "Enter", repeat: true })), null);
 });

@@ -262,14 +262,39 @@ export function runsAvailability(): PaneAvailability {
 }
 
 /** Which side of the split a pane is asked about. */
+export type PaneSide = "left" | "right";
+
 export interface PaneState {
-  /** The pane in the right slot. Kept while collapsed, so restoring brings
-   * back what was there rather than a default. */
+  /** The pane in the right slot. Kept while the terminal is solo, so restoring
+   * brings back what was there rather than a default. */
   right: PaneId;
-  /** True while the right slot is hidden and the terminal has the full width.
-   * The owner's pre-pane layout, one keystroke away and remembered. */
-  collapsed: boolean;
-  /** The left pane's share of the surface, 0…1. */
+  /** The side that has the whole surface to itself, or `null` for the split.
+   *
+   * **Three shapes, not two booleans.** "Both sides maximised" is not a layout
+   * and should not be spellable, and the pair of flags that would spell it is
+   * how a host ends up with a state nobody designed.
+   *
+   * `"left"` is what the old `collapsed` flag meant: the terminal alone, which
+   * is the screen the owner had before there was a right pane.
+   *
+   * `"right"` is the one that was missing, and its absence was a capability
+   * regression rather than a gap. Diff, Agent, Evidence and Runs were tabs
+   * over the *whole* work surface before this host; afterwards their ceiling
+   * was `1 - clampRatioAt(MIN_RATIO, w)` — 442px of the 1195px surface a
+   * maximised window gives, down from 1195 — with no gesture anywhere that
+   * could widen them past it. A 120-column patch that used to fit wrapped
+   * every hunk, and `Home`, documented as taking the divider to its limits,
+   * stopped at 37%.
+   *
+   * It is a state and not a ratio of 0 or 1 because of *why* the ceiling was
+   * there: `MIN_LEFT_PX` keeps the terminal at 80 columns so a drag cannot
+   * re-wrap the scrollback. That is a rule about **sharing** a surface. A pane
+   * that is not sharing one is not covered by it, and a floor that also
+   * governed the not-sharing case would be a floor deciding a question it was
+   * never asked. */
+  solo: PaneSide | null;
+  /** The left pane's share of the surface, 0…1. Kept across a solo, so coming
+   * back from one restores the split the owner arranged. */
   ratio: number;
 }
 
@@ -390,9 +415,9 @@ export const RATIO_STEP = 0.02;
 export const RATIO_STEP_COARSE = 0.1;
 
 const DEFAULT_STATE: PaneState = {
-  collapsed: false,
   ratio: DEFAULT_RATIO,
   right: "diff",
+  solo: null,
 };
 
 /** What a worktree nobody has arranged yet looks like: the split, open, with
@@ -432,7 +457,7 @@ function withState(
   const current = panesFor(layout, key);
   if (
     current.right === next.right &&
-    current.collapsed === next.collapsed &&
+    current.solo === next.solo &&
     current.ratio === next.ratio
   ) {
     return layout;
@@ -440,15 +465,23 @@ function withState(
   return { ...layout, [key]: next };
 }
 
-/** Choosing a pane also opens the slot: picking Diff from a collapsed surface
- * can only mean "and show it to me". */
+/** Choosing a pane also puts it on screen: picking Diff while the terminal has
+ * the surface to itself can only mean "and show it to me".
+ *
+ * A surface already given over to the right pane stays that way — the owner
+ * maximised it to read something, and swapping which pane he is reading is not
+ * a request to shrink it back. */
 export function withRight(
   layout: PaneLayout,
   key: string,
   right: PaneId,
 ): PaneLayout {
   const current = panesFor(layout, key);
-  return withState(layout, key, { ...current, collapsed: false, right });
+  return withState(layout, key, {
+    ...current,
+    right,
+    solo: current.solo === "left" ? null : current.solo,
+  });
 }
 
 /** Record a ratio for `key`, clamped to the surface it was chosen on.
@@ -494,17 +527,28 @@ export function resetRatio(
   return withRatio(layout, key, DEFAULT_RATIO, surfaceWidth);
 }
 
-export function withCollapsed(
+export function withSolo(
   layout: PaneLayout,
   key: string,
-  collapsed: boolean,
+  solo: PaneSide | null,
 ): PaneLayout {
   const current = panesFor(layout, key);
-  return withState(layout, key, { ...current, collapsed });
+  return withState(layout, key, { ...current, solo });
 }
 
-export function toggleCollapsed(layout: PaneLayout, key: string): PaneLayout {
-  return withCollapsed(layout, key, !panesFor(layout, key).collapsed);
+/** The gesture behind every way of giving one pane the whole surface: asking
+ * for the side that already has it puts the split back.
+ *
+ * One act, so the chords, the divider's keys and the header's buttons cannot
+ * drift into meaning different things — and so that whichever of them the
+ * owner reaches for, the way back is the same one. */
+export function toggleSolo(
+  layout: PaneLayout,
+  key: string,
+  side: PaneSide,
+): PaneLayout {
+  const current = panesFor(layout, key).solo;
+  return withSolo(layout, key, current === side ? null : side);
 }
 
 /** Where a drag put the divider, as a ratio of the width the panes share.

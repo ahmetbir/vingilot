@@ -22,6 +22,7 @@ import {
   PANE_IDS,
   type PaneId,
   type PaneLayout,
+  type PaneSide,
   type PaneState,
 } from "./paneModel.ts";
 
@@ -54,6 +55,18 @@ function readPaneId(value: unknown, fallback: PaneId): PaneId {
   return PANE_IDS.find((id) => id === value) ?? fallback;
 }
 
+/** Which side has the surface to itself.
+ *
+ * The key stays `v1` through this shape change, and deliberately: a new key
+ * would silently reset every arrangement the owner has made, which is the one
+ * outcome the header of this file says to avoid. The boolean it replaces is
+ * read rather than discarded — `collapsed: true` meant the terminal alone, and
+ * still does. Anything else, including the boolean's `false`, is the split. */
+function readSolo(record: Record<string, unknown>): PaneSide | null {
+  if (record.solo === "left" || record.solo === "right") return record.solo;
+  return record.collapsed === true ? "left" : null;
+}
+
 function readState(value: unknown): PaneState | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
@@ -61,12 +74,12 @@ function readState(value: unknown): PaneState | null {
   const record = value as Record<string, unknown>;
   const fallback = defaultPaneState();
   return {
-    collapsed: record.collapsed === true,
     ratio:
       typeof record.ratio === "number"
         ? clampRatio(record.ratio)
         : DEFAULT_RATIO,
     right: readPaneId(record.right, fallback.right),
+    solo: readSolo(record),
   };
 }
 
