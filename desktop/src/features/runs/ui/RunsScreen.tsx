@@ -59,6 +59,8 @@ import {
 } from "@/features/runs/lib/terminalTabs";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
+import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
+import { withLocalGroups } from "@/features/runs/lib/worktreeGit";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
@@ -99,15 +101,6 @@ export function RunsScreen() {
     () => readRepos(workspaceSnapshot ? workspaceSnapshot.state : null),
     [workspaceSnapshot],
   );
-  const grouped = React.useMemo(
-    () => groupWorktrees(repos, worktrees),
-    [repos, worktrees],
-  );
-  const index = React.useMemo(
-    () => worktreeIndex(repos, grouped),
-    [repos, grouped],
-  );
-
   // The moment reachability first flipped false — null while reachable.
   const [unreachableSince, setUnreachableSince] = React.useState<Date | null>(
     null,
@@ -214,6 +207,60 @@ export function RunsScreen() {
   const openRun = React.useCallback((id: string) => setSelectedRunId(id), []);
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId) ?? null;
+
+  // The terminal-tab layout, seeded from and mirrored back into storage
+  // (lib/terminalTabStore.ts): this component unmounts on any route change
+  // away from /workspace, and a layout that lived only here would be forgotten
+  // on the way out — along with any shell whose worktree disappears while the
+  // owner is elsewhere. The same write is what carries the strip across an app
+  // restart, to meet the tmux sessions that were already surviving one.
+  const [tabLayout, setTabLayout] = React.useState<TabLayout>(readTabLayout);
+  React.useEffect(() => {
+    writeTabLayout(tabLayout);
+  }, [tabLayout]);
+
+  // The owner just closed a worktree, so its checkout no longer exists: its
+  // shells end with it rather than surviving until a poll notices. Selection
+  // falls back to nothing, which the effect below turns into the project's own
+  // checkout — the one row that is always there.
+  const handleWorktreeRemoved = React.useCallback(
+    (bindingId: string) => {
+      const { closed, layout } = closeWorktrees(tabLayout, [bindingId]);
+      if (closed.length > 0) {
+        setTabLayout(layout);
+        for (const sessionId of closed) void ptyClose(sessionId);
+      }
+      setSelectedWorktreeId((prev) => (prev === bindingId ? null : prev));
+    },
+    [tabLayout],
+  );
+
+  const worktreeActions = useWorktreeActions({
+    onRemoved: handleWorktreeRemoved,
+    repos,
+    selectedRepo,
+    worktreeRoot,
+  });
+
+  // Two sources, one column: the coordinator's rows (a Run's worktrees, with
+  // their live status) and git's own listing (everything that exists on disk,
+  // including what the owner made himself). `withLocalGroups` folds the second
+  // into the first without duplicating what both know about.
+  const grouped = React.useMemo(
+    () =>
+      withLocalGroups(
+        repos,
+        groupWorktrees(repos, worktrees),
+        worktreeActions.byRepo,
+        worktreeRoot,
+      ),
+    [repos, worktrees, worktreeActions.byRepo, worktreeRoot],
+  );
+  const index = React.useMemo(
+    () => worktreeIndex(repos, grouped),
+    [repos, grouped],
+  );
+
   const repoWorktrees =
     selectedRepoId !== null ? (grouped.byRepo[selectedRepoId] ?? []) : [];
 
@@ -229,17 +276,6 @@ export function RunsScreen() {
 
   // Visiting a worktree gives it a terminal; nothing here opens a second one
   // on its own.
-  //
-  // Seeded from, and mirrored back into, storage (lib/terminalTabStore.ts):
-  // this component unmounts on any route change away from /workspace, and a layout
-  // that lived only here would be forgotten on the way out — along with any
-  // shell whose worktree disappears while the owner is elsewhere. The same
-  // write is what carries the strip across an app restart, to meet the tmux
-  // sessions that were already surviving one.
-  const [tabLayout, setTabLayout] = React.useState<TabLayout>(readTabLayout);
-  React.useEffect(() => {
-    writeTabLayout(tabLayout);
-  }, [tabLayout]);
   React.useEffect(() => {
     if (selectedWorktreeId === null) return;
     setTabLayout((prev) => ensureWorktree(prev, selectedWorktreeId));
@@ -248,12 +284,17 @@ export function RunsScreen() {
   // The one event that means "really closed" for a whole strip at once: the
   // worktree is gone from the workspace, so no view can ever reattach and its
   // shells would otherwise run unreferenced for the app's lifetime.
+  //
+  // Not while git has yet to say what worktrees exist. Half the index comes
+  // from that listing, and acting on it early would kill, on every single app
+  // start, precisely the terminals the saved tab layout exists to bring back.
   React.useEffect(() => {
+    if (!worktreeActions.settled) return;
     const { closed, layout } = dropWorktrees(tabLayout, [...index.keys()]);
     if (closed.length === 0) return;
     setTabLayout(layout);
     for (const sessionId of closed) void ptyClose(sessionId);
-  }, [tabLayout, index]);
+  }, [tabLayout, index, worktreeActions.settled]);
 
   // The other one: the owner closed a tab. Unlike a worktree switch, that is a
   // real close — the pty is killed and its tmux session ended.
@@ -383,9 +424,11 @@ export function RunsScreen() {
         ) : (
           <>
             <WorktreeColumn
+              actions={worktreeActions}
               onSelectWorktree={setSelectedWorktreeId}
               repo={selectedRepo}
               selectedWorktreeId={selectedWorktreeId}
+              worktreeRoot={worktreeRoot}
               worktrees={repoWorktrees}
             />
             {selectedWorktree === null ? (

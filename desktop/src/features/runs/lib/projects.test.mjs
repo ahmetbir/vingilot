@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   groupWorktrees,
+  isLocalWorktree,
   isMainCheckout,
+  localBindingId,
+  localWorktreePath,
   mergeForeignRepos,
   readRepoEntries,
   readRepos,
@@ -368,4 +371,91 @@ test("task worktrees are listed after the main checkout, never instead of it", (
     ["primary", "task"],
   );
   assert.equal(isMainCheckout(byRepo.buzz[1]), false);
+});
+
+// ---------------------------------------------------------------------
+// local worktree ids
+//
+// A binding id is derived once and then consumed by three things with three
+// different alphabets, none of which reports a violation usefully:
+//
+//   1. tmux session names — vingilot_pty/tmux.rs escapes every byte outside
+//      [A-Za-z0-9_] as -<hex>, so any ASCII id survives injectively.
+//   2. Tauri event names — is_event_name_valid (tauri 2.11.5) admits ONLY
+//      [A-Za-z0-9-/:_]. An id outside it makes listen/emit fail, silently on
+//      the emit side. (The session id itself no longer rides in an event
+//      name — it travels in the payload — but the id must stay inside this
+//      alphabet so that putting it back is never the thing that breaks.)
+//   3. this app's own ids — MAIN_CHECKOUT_PREFIX / LOCAL_WORKTREE_PREFIX have
+//      to stay distinguishable from each other and from a coordinator
+//      binding id, which is a UUID.
+//
+// Hex encoding is what makes all three true at once: the path can be
+// anything, the id is `local:` plus [0-9a-f].
+// ---------------------------------------------------------------------
+
+const TMUX_SAFE = /^[A-Za-z0-9_-]+$/;
+const TAURI_EVENT_SAFE = /^[A-Za-z0-9\-/:_]+$/;
+
+const AWKWARD_PATHS = [
+  "/Users/o/self-hosted/vingilot",
+  "/Users/o/my repo/tree #2",
+  "/Users/o/.vingilot/worktrees/buzz/fix:this",
+  "/Users/o/çalışma/ağaç",
+  "/Users/o/emoji/🌱",
+  "/",
+];
+
+test("a local binding id stays inside every alphabet that consumes it", () => {
+  for (const path of AWKWARD_PATHS) {
+    const id = localBindingId(path);
+    assert.match(id, /^local:[0-9a-f]+$/, `${path} produced ${id}`);
+    // 2: the Tauri event alphabet, which admits ":" and so admits this id.
+    assert.match(id, TAURI_EVENT_SAFE, `${path} left the Tauri alphabet`);
+    // 1: everything after the one ":" is already tmux-safe verbatim; the ":"
+    // is escaped, exactly as it already is in every "main:<repo id>" id.
+    assert.match(
+      id.slice("local:".length),
+      TMUX_SAFE,
+      `${path} left the tmux alphabet`,
+    );
+    // 3: never mistakable for the repo's own checkout, and never a UUID.
+    assert.equal(isMainCheckout({ binding_id: id }), false);
+    assert.equal(isLocalWorktree({ binding_id: id }), true);
+  }
+});
+
+test("a local binding id round-trips to the exact path, and is injective", () => {
+  const seen = new Set();
+  for (const path of AWKWARD_PATHS) {
+    const id = localBindingId(path);
+    assert.equal(localWorktreePath(id), path);
+    assert.equal(seen.has(id), false, `${path} collided with an earlier path`);
+    seen.add(id);
+  }
+  // Two paths one character apart must not share a shell.
+  assert.notEqual(localBindingId("/a/b"), localBindingId("/a/c"));
+});
+
+test("an id that is not a local worktree decodes to null, never to a path", () => {
+  assert.equal(localWorktreePath("main:buzz"), null);
+  assert.equal(localWorktreePath("9f1c8d2e-0000-4000-8000-000000000000"), null);
+  // Hand-edited or half-written ids: odd length, non-hex, empty.
+  assert.equal(localWorktreePath("local:abc"), null);
+  assert.equal(localWorktreePath("local:zz"), null);
+  assert.equal(localWorktreePath("local:"), null);
+});
+
+test("a local worktree's terminal opens at the path its id carries", () => {
+  const repo = { id: "buzz", name: "vingilot", path: "/repos/vingilot" };
+  const local = wt({
+    binding_id: localBindingId("/Users/o/.vingilot/worktrees/buzz/fix"),
+    owner_run_id: null,
+    role: "local",
+  });
+  assert.equal(
+    worktreeCwd(repo, local, "/root"),
+    "/Users/o/.vingilot/worktrees/buzz/fix",
+    "no owner run to derive from, and none needed",
+  );
 });

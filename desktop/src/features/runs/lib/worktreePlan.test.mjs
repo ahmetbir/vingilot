@@ -1,0 +1,273 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { localBindingId, mainCheckout } from "./projects.ts";
+import {
+  branchSlug,
+  explainWorktreeError,
+  planWorktree,
+  readWorktreeError,
+  removableWorktree,
+  removeWorktreeConfirm,
+  worktreePathFor,
+} from "./worktreePlan.ts";
+
+const repo = { id: "buzz", name: "vingilot", path: "/repos/vingilot" };
+const ROOT = "/Users/o/.vingilot/worktrees";
+
+function task(overrides = {}) {
+  return {
+    added: null,
+    base_commit: "abc",
+    binding_id: "b1",
+    branch: "run/aaa",
+    commit_sha: null,
+    lifecycle: "ready",
+    owner_run_id: "r1",
+    owner_run_objective: null,
+    owner_run_status: "running",
+    removed: null,
+    repo_id: "buzz",
+    role: "task",
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------
+// where a worktree lands
+// ---------------------------------------------------------------------
+
+test("a worktree lands under the same root the executor uses, per project", () => {
+  assert.equal(
+    worktreePathFor(ROOT, repo, "fix-the-thing"),
+    "/Users/o/.vingilot/worktrees/buzz/fix-the-thing",
+  );
+});
+
+test("a slash in the branch name does not become a directory level", () => {
+  assert.equal(
+    worktreePathFor(ROOT, repo, "feature/login"),
+    "/Users/o/.vingilot/worktrees/buzz/feature-login",
+  );
+});
+
+test("a trailing slash on the root does not double up", () => {
+  assert.equal(
+    worktreePathFor(`${ROOT}/`, repo, "fix"),
+    "/Users/o/.vingilot/worktrees/buzz/fix",
+  );
+});
+
+test("branchSlug never produces an empty or hidden directory name", () => {
+  assert.equal(branchSlug("....."), "worktree");
+  assert.equal(branchSlug(".hidden"), "hidden");
+  assert.equal(branchSlug("üç ağaç"), "a-a");
+  assert.equal(branchSlug("keep_this.one-2"), "keep_this.one-2");
+});
+
+// ---------------------------------------------------------------------
+// planWorktree
+// ---------------------------------------------------------------------
+
+test("a branch and a base become the call git is about to be given", () => {
+  const planned = planWorktree({
+    base: " main ",
+    branch: " fix ",
+    repo,
+    worktreeRoot: ROOT,
+  });
+  assert.equal(planned.ok, true);
+  assert.deepEqual(planned.plan, {
+    base: "main",
+    branch: "fix",
+    path: "/Users/o/.vingilot/worktrees/buzz/fix",
+    repoPath: "/repos/vingilot",
+  });
+});
+
+test("an empty branch or base is refused before git is called", () => {
+  const noBranch = planWorktree({
+    base: "HEAD",
+    branch: "   ",
+    repo,
+    worktreeRoot: ROOT,
+  });
+  assert.equal(noBranch.ok, false);
+  assert.match(noBranch.reason, /name the branch/);
+
+  const noBase = planWorktree({
+    base: "",
+    branch: "fix",
+    repo,
+    worktreeRoot: ROOT,
+  });
+  assert.equal(noBase.ok, false);
+  assert.match(noBase.reason, /HEAD/);
+});
+
+test("without a worktree root there is nowhere to put it, and it says so", () => {
+  const planned = planWorktree({
+    base: "HEAD",
+    branch: "fix",
+    repo,
+    worktreeRoot: null,
+  });
+  assert.equal(planned.ok, false);
+});
+
+test("branch-name legality is left to git, not re-decided here", () => {
+  // `check-ref-format` is the authority (vingilot_worktree/mod.rs); a second
+  // copy of its rules in this module would eventually disagree with it.
+  const planned = planWorktree({
+    base: "HEAD",
+    branch: "has a space",
+    repo,
+    worktreeRoot: ROOT,
+  });
+  assert.equal(planned.ok, true);
+});
+
+// ---------------------------------------------------------------------
+// what may be removed
+// ---------------------------------------------------------------------
+
+test("the project's own checkout has no removable form at all", () => {
+  // Not "the button is hidden" — there is no value to hand to the remove
+  // call, so no code path anywhere can ask git to remove the repository.
+  assert.equal(removableWorktree(repo, mainCheckout(repo), ROOT), null);
+});
+
+test("a task worktree is removable, at the path it resolves to", () => {
+  const target = removableWorktree(repo, task(), ROOT);
+  assert.notEqual(target, null);
+  assert.equal(target.path, `${ROOT}/r1`);
+  assert.equal(target.bindingId, "b1");
+  assert.equal(target.label, "run/aaa");
+});
+
+test("a worktree git listed is removable at the path its id carries", () => {
+  const path = `${ROOT}/buzz/fix`;
+  const target = removableWorktree(
+    repo,
+    task({
+      binding_id: localBindingId(path),
+      branch: "fix",
+      owner_run_id: null,
+      role: "local",
+    }),
+    ROOT,
+  );
+  assert.equal(target.path, path);
+});
+
+test("a worktree whose path cannot be worked out is not removable", () => {
+  // Never a guessed path: this is the one call that could cost the owner a
+  // directory, so an unresolvable row simply has no remove.
+  assert.equal(
+    removableWorktree(repo, task({ owner_run_id: null }), ROOT),
+    null,
+  );
+  assert.equal(removableWorktree(repo, task(), null), null);
+});
+
+test("the confirm promises what actually happens: a checkout, not history", () => {
+  const target = removableWorktree(repo, task(), ROOT);
+  const confirm = removeWorktreeConfirm(target);
+  assert.match(confirm.title, /run\/aaa/);
+  assert.match(confirm.body, new RegExp(`${ROOT}/r1`));
+  assert.match(confirm.body, /branch and every commit on it stay/);
+  assert.match(confirm.body, /git refuses and nothing is removed/);
+  assert.match(confirm.body, /never overridden/);
+});
+
+// ---------------------------------------------------------------------
+// refusals
+// ---------------------------------------------------------------------
+
+test("a dirty refusal carries every path that is in the way", () => {
+  const error = readWorktreeError({
+    entries: [" M README.md", "?? scratch.txt"],
+    kind: "dirty",
+    path: "/w/fix",
+    total: 2,
+  });
+  const refusal = explainWorktreeError(error);
+  assert.deepEqual(refusal.entries, [" M README.md", "?? scratch.txt"]);
+  assert.match(refusal.message, /2 uncommitted changes/);
+  assert.match(refusal.message, /NOT removed/);
+  assert.match(refusal.message, /Commit or stash/);
+});
+
+test("a dirty refusal says how many paths it did not list", () => {
+  const refusal = explainWorktreeError({
+    entries: ["?? a"],
+    kind: "dirty",
+    path: "/w/fix",
+    total: 41,
+  });
+  assert.match(refusal.message, /40 more not listed/);
+});
+
+test("removing the repository itself is refused in git's terms too", () => {
+  const refusal = explainWorktreeError({
+    kind: "main-worktree",
+    path: "/repos/vingilot",
+  });
+  assert.match(refusal.message, /project's own checkout/);
+  assert.match(refusal.message, /forgets the path and touches nothing/);
+});
+
+test("a name collision names the branch, and says nothing was changed", () => {
+  const refusal = explainWorktreeError({
+    branch: "fix",
+    kind: "branch-exists",
+  });
+  assert.match(refusal.message, /"fix" already exists/);
+  assert.match(refusal.message, /nothing was changed/);
+});
+
+test("an occupied path is reported with the path, and left alone", () => {
+  const refusal = explainWorktreeError({
+    kind: "path-exists",
+    path: "/w/fix",
+  });
+  assert.deepEqual(refusal.entries, ["/w/fix"]);
+  assert.match(refusal.message, /left\s+exactly as it is/);
+});
+
+test("a base ref that resolves to nothing is quoted back", () => {
+  const refusal = explainWorktreeError({ base: "nope", kind: "unknown-base" });
+  assert.match(refusal.message, /"nope" names no commit/);
+});
+
+test("every refusal shape reads back off the wire", () => {
+  const shapes = [
+    { kind: "git-missing" },
+    { kind: "not-a-repo", path: "/p" },
+    { branch: "b", kind: "invalid-branch" },
+    { branch: "b", kind: "branch-exists" },
+    { kind: "path-exists", path: "/p" },
+    { base: "x", kind: "unknown-base" },
+    { kind: "main-worktree", path: "/p" },
+    { kind: "not-a-worktree", path: "/p" },
+    { command: "git worktree remove /p", kind: "git-failed", stderr: "no" },
+  ];
+  for (const shape of shapes) {
+    const read = readWorktreeError(shape);
+    assert.notEqual(read, null, `${shape.kind} did not read back`);
+    assert.equal(read.kind, shape.kind);
+    assert.notEqual(explainWorktreeError(read).message, "");
+  }
+});
+
+test("an unreadable refusal is null rather than a guess at which one it was", () => {
+  assert.equal(readWorktreeError(null), null);
+  assert.equal(readWorktreeError({ kind: "something-new" }), null);
+  assert.equal(readWorktreeError("boom"), null);
+});
+
+test("a dirty refusal missing its fields still counts what it has", () => {
+  const read = readWorktreeError({ entries: ["?? a", 7], kind: "dirty" });
+  assert.deepEqual(read.entries, ["?? a"]);
+  assert.equal(read.total, 1);
+  assert.equal(read.path, "");
+});

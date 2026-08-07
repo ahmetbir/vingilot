@@ -133,6 +133,57 @@ export function isMainCheckout(wt: Worktree): boolean {
   return wt.binding_id.startsWith(MAIN_CHECKOUT_PREFIX);
 }
 
+/** Prefix marking a worktree git knows about and the coordinator does not —
+ * one the owner made, from this app or from a shell
+ * (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 6). Synthetic in the
+ * same sense `MAIN_CHECKOUT_PREFIX` is: there is no binding to lease or
+ * transition, only a directory. */
+export const LOCAL_WORKTREE_PREFIX = "local:";
+
+/** The binding id for a worktree at `path`.
+ *
+ * **The path is hex, and that is the point.** A worktree's path is the only
+ * thing that identifies it (git has no id for one), and a path may hold
+ * spaces, `#`, `:`, or any UTF-8 at all — while the derived id has to survive
+ * three separate alphabets downstream: tmux session names, Tauri event names
+ * (`[A-Za-z0-9-/:_]`, and an id outside it makes `listen`/`emit` fail with no
+ * error on the emit side), and the ids this app's own model is built from.
+ * Hex encoding widens the character set by exactly nothing — the id is
+ * `local:` plus `[0-9a-f]` — while staying injective, which an escaping or
+ * slugging scheme would have to be argued into being.
+ *
+ * It also means the id *carries* the path, so `worktreeCwd` can answer for a
+ * worktree nobody has a row for without a side table to keep in sync. */
+export function localBindingId(path: string): string {
+  let hex = "";
+  for (const byte of new TextEncoder().encode(path)) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+  return `${LOCAL_WORKTREE_PREFIX}${hex}`;
+}
+
+/** The path back out of a local binding id, or `null` for an id that is not
+ * one. Tolerant on purpose: ids round-trip through stored tab layouts
+ * (`terminalTabStore.ts`), so a hand-edited or older-format id must read as
+ * "not a local worktree" rather than decode to garbage a shell would be
+ * opened in. */
+export function localWorktreePath(bindingId: string): string | null {
+  if (!bindingId.startsWith(LOCAL_WORKTREE_PREFIX)) return null;
+  const hex = bindingId.slice(LOCAL_WORKTREE_PREFIX.length);
+  if (hex.length === 0 || hex.length % 2 !== 0) return null;
+  if (!/^[0-9a-f]+$/.test(hex)) return null;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i += 1) {
+    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/** True when this worktree is one git knows and the coordinator does not. */
+export function isLocalWorktree(wt: Worktree): boolean {
+  return wt.binding_id.startsWith(LOCAL_WORKTREE_PREFIX);
+}
+
 /** The repo's own checkout as a `Worktree`, so the column and the terminal can
  * treat it like any other row. `role: "primary"` and a null owner run are the
  * honest description: nothing is running there and nobody holds a grant. */
@@ -242,6 +293,12 @@ export function worktreeCwd(
   wt: Worktree,
   worktreeRoot: string,
 ): string | null {
+  // A worktree git listed carries its own path inside its binding id
+  // (`localBindingId`), so it needs no derivation and no side table — which
+  // is what lets a worktree the owner made in a shell get a terminal on the
+  // same terms as one a Run provisioned.
+  const local = localWorktreePath(wt.binding_id);
+  if (local !== null) return local;
   if (wt.role === "primary") return repo.path;
   if (wt.owner_run_id === null) return null;
   const root = worktreeRoot.endsWith("/")
