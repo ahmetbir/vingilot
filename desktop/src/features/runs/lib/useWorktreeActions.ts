@@ -39,7 +39,8 @@ import {
 } from "@/features/runs/lib/worktreePlan";
 
 export interface WorktreeActions {
-  /** What git says each project's worktrees are, keyed by repo id. */
+  /** What git says each project's worktrees are, keyed by repo id. A project
+   * git could not read has **no entry at all** — see `unreadable`. */
   byRepo: Record<string, GitWorktree[]>;
   /** False while `byRepo` predates the current project set — before the
    * first listing of an app run, and between a project being added and its
@@ -51,6 +52,16 @@ export interface WorktreeActions {
    * acting on `byRepo` before it has answered would end, on every app start,
    * exactly the terminals the tab layout was saved to bring back. */
   settled: boolean;
+  /** The projects that answered with a refusal rather than a listing — an
+   * unmounted volume, a directory that is no longer a repository, no git on
+   * PATH.
+   *
+   * `settled` alone is not enough for a caller that kills things: it says the
+   * listing is *current*, not that it is *complete*. An unreadable project
+   * contributes no worktrees for the same reason an empty one does, and the
+   * two must not lead to the same action — `worktreeGit.ts`'s
+   * `unlistedWorktrees` is what keeps them apart. */
+  unreadable: readonly string[];
   /** Resolves true when the worktree was created — the dialog closes on
    * true, and stays open with the refusal showing on false. */
   create: (branch: string, base: string) => Promise<boolean>;
@@ -70,6 +81,24 @@ interface Options {
   onRemoved?: (bindingId: string) => void;
 }
 
+interface Listing {
+  key: string;
+  byRepo: Record<string, GitWorktree[]>;
+  unreadable: string[];
+}
+
+/** One project's fresh listing, folded into the state. A listing that arrived
+ * at all is proof git can reach that project, so it also clears the project
+ * from `unreadable` — a create or a remove is the one moment this hook learns
+ * that without waiting for the next project-set change. */
+function listed(prev: Listing, repoId: string, git: GitWorktree[]): Listing {
+  return {
+    ...prev,
+    byRepo: { ...prev.byRepo, [repoId]: git },
+    unreadable: prev.unreadable.filter((id) => id !== repoId),
+  };
+}
+
 export function useWorktreeActions({
   onRemoved,
   repos,
@@ -79,10 +108,11 @@ export function useWorktreeActions({
   // The listing and the project set it describes, together: what makes
   // `settled` an exact statement rather than a flag two effects have to keep
   // in step.
-  const [listing, setListing] = React.useState<{
-    key: string;
-    byRepo: Record<string, GitWorktree[]>;
-  }>({ byRepo: {}, key: "" });
+  const [listing, setListing] = React.useState<Listing>({
+    byRepo: {},
+    key: "",
+    unreadable: [],
+  });
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<WorktreeRefusal | null>(null);
 
@@ -95,14 +125,18 @@ export function useWorktreeActions({
     let cancelled = false;
     void (async () => {
       const listed: Record<string, GitWorktree[]> = {};
+      const unreadable: string[] = [];
       for (const repo of readProjectsKey(key)) {
         const result = await gitWorktrees(repo.path);
-        // A project git cannot read is left out rather than reported: nobody
-        // asked for this listing, and the column already reads as empty. The
-        // refusals worth showing are the ones attached to a click.
-        listed[repo.id] = result.ok ? result.value : [];
+        // A project git cannot read is not shown a refusal — nobody asked for
+        // this listing, and the refusals worth showing are the ones attached
+        // to a click. But it is not written down as an empty listing either:
+        // that reads as "this project has no worktrees", which is what closes
+        // their terminals. It gets no entry, and its id is recorded.
+        if (result.ok) listed[repo.id] = result.value;
+        else unreadable.push(repo.id);
       }
-      if (!cancelled) setListing({ byRepo: listed, key });
+      if (!cancelled) setListing({ byRepo: listed, key, unreadable });
     })();
     return () => {
       cancelled = true;
@@ -132,10 +166,7 @@ export function useWorktreeActions({
         setRefusal(explainWorktreeError(result.error));
         return false;
       }
-      setListing((prev) => ({
-        ...prev,
-        byRepo: { ...prev.byRepo, [selectedRepo.id]: result.value },
-      }));
+      setListing((prev) => listed(prev, selectedRepo.id, result.value));
       return true;
     },
     [selectedRepo, worktreeRoot],
@@ -153,10 +184,7 @@ export function useWorktreeActions({
           setRefusal(explainWorktreeError(result.error));
           return;
         }
-        setListing((prev) => ({
-          ...prev,
-          byRepo: { ...prev.byRepo, [selectedRepo.id]: result.value },
-        }));
+        setListing((prev) => listed(prev, selectedRepo.id, result.value));
         onRemoved?.(target.bindingId);
       })();
     },
@@ -173,5 +201,6 @@ export function useWorktreeActions({
     refusal,
     remove,
     settled: listing.key === key,
+    unreadable: listing.unreadable,
   };
 }

@@ -10,10 +10,10 @@
 // (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 6). Two things about
 // the × on a row:
 //
-// - It is absent, not disabled, on the project's own checkout — because
-//   `removableWorktree` cannot produce a target for it (`lib/worktreePlan.ts`).
-//   The repository is un-removable in the model; this render just has nothing
-//   to draw.
+// - It is absent, not disabled, on the project's own checkout and on any
+//   worktree a Run owns — because `removableWorktree` cannot produce a target
+//   for either (`lib/worktreePlan.ts`, which says why). Both are un-removable
+//   in the model; this render just has nothing to draw.
 // - It runs `git worktree remove`, which refuses when there is uncommitted
 //   work in the tree. The refusal is shown, with the dirty paths listed, and
 //   nothing is removed. There is no override anywhere in this feature.

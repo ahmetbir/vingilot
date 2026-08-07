@@ -136,27 +136,29 @@ test("the project's own checkout has no removable form at all", () => {
   assert.equal(removableWorktree(repo, mainCheckout(repo), ROOT), null);
 });
 
-test("a task worktree is removable, at the path it resolves to", () => {
-  const target = removableWorktree(repo, task(), ROOT);
-  assert.notEqual(target, null);
-  assert.equal(target.path, `${ROOT}/r1`);
-  assert.equal(target.bindingId, "b1");
-  assert.equal(target.label, "run/aaa");
+test("a Run's worktree is not removable from the column", () => {
+  // git would remove the directory; the coordinator would never hear about
+  // it, keep `removed` null, and re-emit the row on the next poll — a row
+  // that opens a shell in a directory that is no longer there. A Run's
+  // worktree is retired by the Run.
+  assert.equal(removableWorktree(repo, task(), ROOT), null);
 });
+
+function local(path, overrides = {}) {
+  return task({
+    binding_id: localBindingId(path),
+    branch: "fix",
+    owner_run_id: null,
+    role: "local",
+    ...overrides,
+  });
+}
 
 test("a worktree git listed is removable at the path its id carries", () => {
   const path = `${ROOT}/buzz/fix`;
-  const target = removableWorktree(
-    repo,
-    task({
-      binding_id: localBindingId(path),
-      branch: "fix",
-      owner_run_id: null,
-      role: "local",
-    }),
-    ROOT,
-  );
+  const target = removableWorktree(repo, local(path), ROOT);
   assert.equal(target.path, path);
+  assert.equal(target.label, "fix");
 });
 
 test("a worktree whose path cannot be worked out is not removable", () => {
@@ -166,14 +168,19 @@ test("a worktree whose path cannot be worked out is not removable", () => {
     removableWorktree(repo, task({ owner_run_id: null }), ROOT),
     null,
   );
-  assert.equal(removableWorktree(repo, task(), null), null);
+  assert.equal(removableWorktree(repo, local(`${ROOT}/buzz/fix`), null), null);
 });
 
 test("the confirm promises what actually happens: a checkout, not history", () => {
-  const target = removableWorktree(repo, task(), ROOT);
+  const path = `${ROOT}/buzz/fix`;
+  const target = removableWorktree(
+    repo,
+    local(path, { branch: "run/aaa" }),
+    ROOT,
+  );
   const confirm = removeWorktreeConfirm(target);
   assert.match(confirm.title, /run\/aaa/);
-  assert.match(confirm.body, new RegExp(`${ROOT}/r1`));
+  assert.match(confirm.body, new RegExp(path));
   assert.match(confirm.body, /branch and every commit on it stay/);
   assert.match(confirm.body, /git refuses and nothing is removed/);
   assert.match(confirm.body, /never overridden/);

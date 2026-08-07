@@ -60,7 +60,10 @@ import {
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
-import { withLocalGroups } from "@/features/runs/lib/worktreeGit";
+import {
+  unlistedWorktrees,
+  withLocalGroups,
+} from "@/features/runs/lib/worktreeGit";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
@@ -288,13 +291,20 @@ export function RunsScreen() {
   // Not while git has yet to say what worktrees exist. Half the index comes
   // from that listing, and acting on it early would kill, on every single app
   // start, precisely the terminals the saved tab layout exists to bring back.
+  //
+  // Nor for a project git answered a refusal for — an unmounted volume is not
+  // a removed worktree, and `unlistedWorktrees` is what keeps the two apart.
   React.useEffect(() => {
     if (!worktreeActions.settled) return;
-    const { closed, layout } = dropWorktrees(tabLayout, [...index.keys()]);
+    const live = [
+      ...index.keys(),
+      ...unlistedWorktrees(Object.keys(tabLayout), worktreeActions.unreadable),
+    ];
+    const { closed, layout } = dropWorktrees(tabLayout, live);
     if (closed.length === 0) return;
     setTabLayout(layout);
     for (const sessionId of closed) void ptyClose(sessionId);
-  }, [tabLayout, index, worktreeActions.settled]);
+  }, [tabLayout, index, worktreeActions.settled, worktreeActions.unreadable]);
 
   // The other one: the owner closed a tab. Unlike a worktree switch, that is a
   // real close — the pty is killed and its tmux session ended.

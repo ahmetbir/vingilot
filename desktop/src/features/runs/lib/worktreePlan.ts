@@ -17,6 +17,7 @@
 // listed and the operation abandoned. `--force` is never sent, from anywhere.
 
 import {
+  isLocalWorktree,
   isMainCheckout,
   type Repo,
   type Worktree,
@@ -273,18 +274,35 @@ export interface RemovableWorktree {
 
 /** The removable form of a worktree, or `null`.
  *
- * `null` for exactly two rows, and they are the same refusal wearing two
- * hats: the synthetic main-checkout row **is** the repository (there is no
- * `git worktree remove` that could apply to it), and a row whose path cannot
- * be derived is one this app does not know the location of — asking git to
- * remove a path it guessed at is the one mistake that could cost the owner
- * something. */
+ * Removable means **this workspace owns the worktree's whole existence**, and
+ * exactly one kind of row does: a `local:` one, which is a directory git knows
+ * about and nothing else has a record of. Three rows are therefore `null`:
+ *
+ * - The synthetic main-checkout row **is** the repository. There is no
+ *   `git worktree remove` that could apply to it.
+ * - A row whose path cannot be derived is one this app does not know the
+ *   location of, and asking git to remove a guessed path is the one mistake
+ *   here that could cost the owner something.
+ * - **A Run's worktree, which the coordinator owns.** git would remove the
+ *   directory happily, and the removal would be invisible to the coordinator:
+ *   its `worktree_bindings` row still has a null `removed`, so the next poll
+ *   re-emits it, the row comes back in the column, and selecting it opens a
+ *   shell in a directory that is no longer there. Nothing in this feature can
+ *   write that binding back — worktree remove is a git operation, and the
+ *   coordinator has no endpoint that retires a binding — so the honest answer
+ *   is that a Run's worktree is retired by the Run, not from here. Task 6's
+ *   create path is symmetric with this: what it makes is a `local:` worktree
+ *   the coordinator was never told about.
+ *
+ * The consequence is not a hidden button but an unconstructible argument:
+ * `gitWorktreeRemove` takes only this type. */
 export function removableWorktree(
   repo: Repo,
   wt: Worktree,
   worktreeRoot: string | null,
 ): RemovableWorktree | null {
   if (isMainCheckout(wt)) return null;
+  if (!isLocalWorktree(wt)) return null;
   if (worktreeRoot === null) return null;
   const path = worktreeCwd(repo, wt, worktreeRoot);
   if (path === null) return null;

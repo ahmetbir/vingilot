@@ -6,6 +6,7 @@ import {
   projectsKey,
   readGitWorktrees,
   readProjectsKey,
+  unlistedWorktrees,
   withLocalGroups,
   withLocalWorktrees,
 } from "./worktreeGit.ts";
@@ -228,4 +229,35 @@ test("a key this build cannot read lists no projects rather than throwing", () =
   assert.deepEqual(readProjectsKey('[["buzz"],["web","/w"],7]'), [
     { id: "web", path: "/w" },
   ]);
+});
+
+// ---------------------------------------------------------------------
+// unlistedWorktrees
+// ---------------------------------------------------------------------
+
+test("a project git could not read holds its worktrees' terminals open", () => {
+  // The regression this exists for: the owner's projects live on an external
+  // volume. It is not mounted, `git -C` fails, the listing for that project
+  // is a refusal — and the index then contains none of its worktrees, which
+  // the workspace reads as "these left, kill their shells" (and with them
+  // their tmux sessions). Held instead.
+  const open = [
+    localBindingId("/Volumes/ugreen/projects/buzz/fix"),
+    "main:buzz",
+    "b1",
+  ];
+  assert.deepEqual(unlistedWorktrees(open, ["buzz"]), [open[0]]);
+});
+
+test("nothing is held while every project answered", () => {
+  const open = [localBindingId("/w/fix"), "main:buzz", "b1"];
+  assert.deepEqual(unlistedWorktrees(open, []), []);
+});
+
+test("only git-listed rows are held — the others have another source", () => {
+  // A coordinator row and a main checkout do not come from `git worktree
+  // list`, so a git refusal says nothing about them and they stay
+  // adjudicable: a Run's worktree that really did leave still gets dropped.
+  const open = ["main:buzz", "b1", "not-a-local-id", "local:zz"];
+  assert.deepEqual(unlistedWorktrees(open, ["buzz"]), []);
 });

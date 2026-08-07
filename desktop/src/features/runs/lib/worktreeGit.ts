@@ -15,6 +15,7 @@
 import {
   type GroupedWorktrees,
   localBindingId,
+  localWorktreePath,
   type Repo,
   type Worktree,
   worktreeCwd,
@@ -160,6 +161,34 @@ export function withLocalWorktrees(
     .map((gw) => localWorktreeRow(repo, gw));
 
   return [...rows, ...extra];
+}
+
+/** The open worktrees that no listing can currently speak for — the ones a
+ * caller must treat as still live even though nothing in the index mentions
+ * them.
+ *
+ * **"git could not read this project" and "this project has no worktrees" are
+ * the same value and must not be the same conclusion.** A project on an
+ * unmounted volume, or one whose `.git` a `git -C` cannot reach, answers
+ * `NotARepo`; the workspace then sees an index with none of that project's
+ * worktrees in it and reads the absence as "these have left, kill their
+ * shells" (`terminalTabs.ts`'s `dropWorktrees`) — ending, with their tmux
+ * sessions, shells the owner had running an hour ago.
+ *
+ * The only rows a git listing contributes are the `local:` ones, so while any
+ * project is unreadable those are the rows nothing can adjudicate, and they
+ * are held. Which project a `local:` id belongs to is deliberately not
+ * guessed: a worktree does not have to live under the repository it belongs
+ * to (ours live under `~/.vingilot/worktrees/`), so path containment would be
+ * a guess, and the direction to be wrong in is "kept a shell alive one poll
+ * too long", never "killed one". Coordinator-owned and main-checkout rows come
+ * from elsewhere and stay adjudicable throughout. */
+export function unlistedWorktrees(
+  openBindingIds: readonly string[],
+  unreadableRepoIds: readonly string[],
+): string[] {
+  if (unreadableRepoIds.length === 0) return [];
+  return openBindingIds.filter((id) => localWorktreePath(id) !== null);
 }
 
 /** `groupWorktrees`' output with every project's git worktrees folded in.
