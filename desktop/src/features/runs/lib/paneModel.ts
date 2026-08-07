@@ -345,6 +345,22 @@ export const MIN_LEFT_PX = 80 * CELL_PX + TERMINAL_CHROME_PX;
  * layout he had before there was a right pane at all. */
 export const MIN_RIGHT_PX = 240;
 
+/** Narrower than this and the right pane is not a narrow pane, it is an absent
+ * one — too thin to read, to click, or to grab the divider beside.
+ *
+ * The distinction matters because the ranking above deliberately squeezes the
+ * right pane below `MIN_RIGHT_PX` to keep the terminal's columns: at a 1600px
+ * window the right pane renders at 115px, which is cramped but present and
+ * reachable, and that is the intended trade. Below this, it stops being a
+ * trade — measured at 1280×800, where the row is 555px, the pane was laid out
+ * at width 0 with its header at x=1363, 83px outside the viewport and clipped;
+ * `elementFromPoint` at its own controls answered `null`, and with no solo
+ * stored there was no rail either. Unreachable by mouse entirely.
+ *
+ * So the fallback is not "the right pane is under its floor" — that is allowed
+ * and ranked. It is "the right pane cannot be reached", which is a trap. */
+export const MIN_REACHABLE_PX = 48;
+
 /** The divider's own width, in CSS pixels.
  *
  * **It is the row's third member, not a hairline between two halves.** The
@@ -359,6 +375,21 @@ export const MIN_RIGHT_PX = 240;
  * are one number. That is what makes the arithmetic below checkable against
  * what is drawn rather than only against itself. */
 export const DIVIDER_PX = 8;
+
+/** Blink's layout grain: lengths are stored as 1/64 of a CSS pixel, and a flex
+ * distribution lands on that grid rather than on the exact real number the
+ * ratio asked for.
+ *
+ * It matters here because `MIN_LEFT_PX` is *exactly* 80 columns — `(752−32)/9`
+ * is 80.0 with nothing to spare — so a shortfall of one grain costs a whole
+ * column. Measured: at a 1600px viewport the row is 875px, `752/867` resolves
+ * to **751.984375px**, and 80 columns became 79. Every other viewport tried
+ * landed on 752 exactly, which is what makes this the kind of bug that ships:
+ * it is correct almost everywhere.
+ *
+ * Asking for one grain more costs a sixty-fourth of a pixel of terminal and
+ * buys the column back at every width. */
+const LAYOUT_UNIT_PX = 1 / 64;
 
 /** What the two panes actually have to divide between them: the surface, less
  * the divider standing in it. A surface narrower than the divider has nothing
@@ -401,9 +432,37 @@ export function clampRatioAt(ratio: number, surfaceWidth: number): number {
   const wanted = clampRatio(ratio);
   const shared = splitWidth(surfaceWidth);
   if (shared <= 0) return wanted;
-  const floor = Math.min(MIN_LEFT_PX / shared, 1);
+  const floor = Math.min((MIN_LEFT_PX + LAYOUT_UNIT_PX) / shared, 1);
   const ceiling = Math.max(1 - MIN_RIGHT_PX / shared, floor);
   return Math.min(ceiling, Math.max(floor, wanted));
+}
+
+/** The solo actually rendered, which is not always the one stored.
+ *
+ * A surface too narrow to seat both floors falls back to the terminal alone,
+ * with the right pane on its rail — not to a split whose right pane is zero
+ * pixels wide. Those are different things: a zero-width pane is laid out past
+ * the edge of the window with its header clipped, and `elementFromPoint` at
+ * its own controls answers `null`. Measured at a 1280×800 window, where the
+ * row is 555px: the right header sits at x=1363, 83px outside the viewport,
+ * and the ⤢ that would rescue it cannot be clicked. With a stored `solo` of
+ * `null` there is no rail either, so the pane is unreachable by mouse
+ * entirely — the same trap a collapsed column with a swallowed shortcut would
+ * be, arriving through arithmetic instead of a keybinding.
+ *
+ * The stored preference is deliberately not rewritten. Widening the window
+ * gives back the split the owner chose, rather than making him pick it again
+ * because his laptop was small for a moment. */
+export function effectiveSolo(
+  stored: PaneSide | null,
+  surfaceWidth: number,
+): PaneSide | null {
+  if (stored !== null) return stored;
+  const shared = splitWidth(surfaceWidth);
+  // Not measured yet. Never invent a layout from a width nobody has read —
+  // the same rule the clamp above follows, and for the same reason.
+  if (shared <= 0) return null;
+  return shared - MIN_LEFT_PX < MIN_REACHABLE_PX ? "left" : null;
 }
 
 /** One arrow press on the focused divider. Small enough that holding the key

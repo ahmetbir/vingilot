@@ -10,11 +10,13 @@ import {
   defaultPaneState,
   diffAvailability,
   DIVIDER_PX,
+  effectiveSolo,
   evidenceAvailability,
   LEFT_PANE,
   MAX_RATIO,
   MIN_LEFT_PX,
   MIN_RATIO,
+  MIN_REACHABLE_PX,
   MIN_RIGHT_PX,
   noProbes,
   nudgeRatio,
@@ -204,8 +206,18 @@ test("a no-op returns the same layout object, so no write is provoked", () => {
 // model's arithmetic against itself and passes at any consistent wrongness.
 const RENDERED_DIVIDER_PX = 8;
 
+/** Blink stores lengths as 1/64 px and truncates to that grid, so the pane is
+ * laid out at the grid point at or below what the ratio asks for — never above.
+ *
+ * Modelling that is not pedantry: `MIN_LEFT_PX` is exactly 80 columns with
+ * nothing to spare, so one grain short costs a whole column. Without this
+ * truncation the helper returned the exact real number, agreed with the model
+ * it was checking, and reported 80 at a width the browser rendered as 79. */
+const RENDERED_GRID_PER_PX = 64;
+
 function renderedLeftPx(ratio, surfaceWidth) {
-  return (surfaceWidth - RENDERED_DIVIDER_PX) * ratio;
+  const exact = (surfaceWidth - RENDERED_DIVIDER_PX) * ratio;
+  return Math.floor(exact * RENDERED_GRID_PER_PX) / RENDERED_GRID_PER_PX;
 }
 
 /** Columns of @xterm/xterm's stock 15px monospace that fit in a left pane of
@@ -224,7 +236,11 @@ test("no drag can take the terminal under 80 columns while the surface can hold 
   //
   // 1195 is the surface a maximised window on the owner's display gives, and
   // the width at which the floor was landing 747px/79 columns.
-  for (const surface of [1195, 1280, 2000]) {
+  // 875 is the row a 1600px viewport gives, and the width where the floor
+  // resolved to 751.984375px — one 1/64px grain short of 752, which is a whole
+  // column. Every other width tried landed on 752 exactly, which is what makes
+  // this the kind of defect that ships: it is correct almost everywhere.
+  for (const surface of [875, 975, 1195, 1280, 2000]) {
     for (const asked of [0.01, MIN_RATIO, 0.3]) {
       const left = renderedLeftPx(clampRatioAt(asked, surface), surface);
       assert.ok(
@@ -250,10 +266,72 @@ test("the floor is a floor and not a layout — it costs the terminal nothing it
 });
 
 test("the right pane keeps a floor of its own at the other end", () => {
-  const surface = 1000;
+  // 1192px of shared width seats both floors with room to spare, so the
+  // ceiling binds and the right pane gets exactly what it asked for.
+  const surface = 1200;
   const shared = surface - RENDERED_DIVIDER_PX;
   const right = shared - renderedLeftPx(clampRatioAt(0.99, surface), surface);
   assert.ok(Math.abs(right - MIN_RIGHT_PX) < 1e-9, `${right}px right pane`);
+});
+
+test("a surface too narrow to split shows one pane and a rail, not a pane of no width", () => {
+  // Measured at a 1280x800 window, where the row is 555px: the right pane was
+  // laid out at width 0, its header at x=1363 — 83px outside the viewport,
+  // clipped — and `elementFromPoint` at the control that would rescue it
+  // answered null. With `solo` stored as null there is no rail either, so the
+  // pane was unreachable by mouse at all. Falling back to a solo puts the rail
+  // back, which is the way in.
+  assert.equal(effectiveSolo(null, 555), "left");
+  assert.equal(effectiveSolo(null, MIN_LEFT_PX), "left");
+});
+
+test("a right pane squeezed under its own floor is still a right pane", () => {
+  // The ranking deliberately takes the right pane below MIN_RIGHT_PX to keep
+  // the terminal's columns, and that trade must survive this fallback: at a
+  // 1600px window the row is 875px and the right pane renders at 115px —
+  // cramped, but present, reachable, and what the owner asked for. Folding it
+  // into a solo here would be the fallback overruling the ranking.
+  const shared = 875 - DIVIDER_PX;
+  assert.ok(shared - MIN_LEFT_PX < MIN_RIGHT_PX, "the band under test");
+  assert.equal(effectiveSolo(null, 875), null);
+});
+
+test("the fallback is a rendering decision, never a rewrite of what he chose", () => {
+  // Widening the window has to give back the split he picked. If the narrow
+  // case wrote "left" into storage, a moment on a small screen would cost him
+  // the arrangement permanently, and he would have to pick it again.
+  const wide = MIN_LEFT_PX + MIN_RIGHT_PX + DIVIDER_PX + 100;
+  assert.equal(effectiveSolo(null, wide), null);
+  // An explicit solo is his and outranks the surface either way.
+  assert.equal(effectiveSolo("right", 555), "right");
+  assert.equal(effectiveSolo("left", wide), "left");
+});
+
+test("an unmeasured surface invents no layout", () => {
+  // Width 0 is the first frame, or a hidden subtree — not a narrow window.
+  // Reading it as "too narrow" would flash a solo on every mount, which is the
+  // same mistake as reading an empty stat as a clean worktree.
+  assert.equal(effectiveSolo(null, 0), null);
+  assert.equal(effectiveSolo(null, Number.NaN), null);
+});
+
+test("at the width where the two floors just meet, the terminal's wins", () => {
+  // 992px of shared width is exactly MIN_LEFT_PX + MIN_RIGHT_PX, so the two
+  // floors meet with nothing between them — and the terminal's floor asks for
+  // one 1/64px grain more than its bare minimum, because a flex distribution
+  // lands at or below what it is asked for and MIN_LEFT_PX is exactly 80
+  // columns. Something has to give, and the ranking says which: the terminal
+  // keeps its 80 columns, the right pane is a grain under its floor.
+  //
+  // A grain is not a legibility problem; a column is. That is the whole reason
+  // the ranking is written down rather than left to whichever clamp ran last.
+  const surface = 1000;
+  const shared = surface - RENDERED_DIVIDER_PX;
+  const left = renderedLeftPx(clampRatioAt(0.99, surface), surface);
+  assert.ok(renderedColumns(left) >= 80, `${renderedColumns(left)} columns`);
+  const right = shared - left;
+  assert.ok(right < MIN_RIGHT_PX, `${right}px right pane`);
+  assert.ok(MIN_RIGHT_PX - right < 0.02, `${MIN_RIGHT_PX - right}px short`);
 });
 
 test("the pointer aims at the divider's middle, which is where the boundary looks", () => {

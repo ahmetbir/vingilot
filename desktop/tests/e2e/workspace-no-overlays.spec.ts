@@ -218,6 +218,11 @@ async function auditSurface(page: Page): Promise<string[]> {
 
 test.describe("the work surface carries nothing from another feature", () => {
   test("no foreign element paints over any of its panes", async ({ page }) => {
+    // Wide enough that the work surface can hold a split. Playwright's default
+    // 1280×720 leaves it 555px, which `effectiveSolo` correctly renders as the
+    // terminal alone with the right pane railed — so a test about the panes
+    // beside each other has to ask for a window that fits them.
+    await page.setViewportSize({ height: 900, width: 1700 });
     await installMockBridge(page);
     await mockCoordinator(page);
     await page.goto("/#/workspace");
@@ -284,6 +289,8 @@ test.describe("the work surface carries nothing from another feature", () => {
   test("work in the right pane survives the terminal's shortcuts and a worktree switch", async ({
     page,
   }) => {
+    // Wide enough to hold a split; see the note on the first test.
+    await page.setViewportSize({ height: 900, width: 1700 });
     await installMockBridge(page);
     await mockCoordinator(page, [SECOND_WORKTREE]);
     await page.goto("/#/workspace");

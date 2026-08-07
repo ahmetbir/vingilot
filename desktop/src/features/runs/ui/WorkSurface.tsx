@@ -54,6 +54,7 @@ import type { Worktree } from "@/features/runs/lib/projects";
 import { resolvePaneKey } from "@/features/runs/lib/paneKeys";
 import {
   clampRatioAt,
+  effectiveSolo,
   LEFT_PANE,
   type PaneContext,
   type PaneSide,
@@ -258,7 +259,10 @@ export function WorkSurface({
   // does not rewrite it, it only declines to draw it.
   const ratio = clampRatioAt(layout.ratio, surfaceWidth);
 
-  const solo = layout.solo;
+  // Read from the surface, not only from storage: a window too narrow to seat
+  // both floors renders the terminal alone with the right pane on its rail,
+  // rather than a split whose right half is zero pixels wide and off-screen.
+  const solo = effectiveSolo(layout.solo, surfaceWidth);
 
   // Giving one side the surface unmounts or un-lays-out the control that did
   // it — the divider, or a button in the header that just went away — and

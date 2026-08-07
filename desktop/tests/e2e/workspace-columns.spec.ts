@@ -74,7 +74,18 @@ function sidebar(page: Page) {
   return page.locator("[data-side][data-collapsible]").first();
 }
 
+/** A window wide enough for the work surface to hold a split at all.
+ *
+ * Playwright's default 1280×720 is not: with the sidebar and the two columns
+ * in front of it, the work surface is 555px, and the terminal alone wants 752
+ * for its 80 columns. `effectiveSolo` reads that as "too narrow to split" and
+ * renders the terminal with the right pane on its rail — correct behaviour,
+ * and the reason a test that wants a divider has to ask for a window that can
+ * hold one. 1700 leaves a 975px surface, comfortably above the threshold. */
+const SPLITTABLE = { height: 900, width: 1700 } as const;
+
 async function openWorkspace(page: Page) {
+  await page.setViewportSize(SPLITTABLE);
   await installMockBridge(page);
   await mockCoordinator(page);
   await page.goto("/#/workspace");
