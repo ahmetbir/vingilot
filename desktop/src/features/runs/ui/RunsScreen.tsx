@@ -47,6 +47,7 @@ import {
   DEFAULT_WORKTREE_ROOT_SUFFIX,
   groupWorktrees,
   readRepos,
+  type Repo,
   worktreeCwd,
 } from "@/features/runs/lib/projects";
 import {
@@ -72,7 +73,18 @@ import {
   type TabLayout,
   worktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
-import type { PaneContext, PaneFacts } from "@/features/runs/lib/paneModel";
+import type {
+  PaneContext,
+  PaneFacts,
+  PaneId,
+} from "@/features/runs/lib/paneModel";
+import { rightChoices } from "@/features/runs/lib/paneModel";
+import type { PaletteCommand } from "@/features/runs/lib/paletteModel";
+import type {
+  PaletteChoice,
+  PaletteContext,
+} from "@/features/runs/lib/paletteSources";
+import { usePalette } from "@/features/runs/lib/usePalette";
 import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
 import { usePanes } from "@/features/runs/lib/usePanes";
@@ -83,17 +95,21 @@ import {
   useWorktreeStats,
   type WorktreeTarget,
 } from "@/features/runs/lib/useWorktreeStats";
-import { orderWorktrees } from "@/features/runs/lib/worktreeAttention";
+import {
+  orderWorktrees,
+  prunableWorktrees,
+} from "@/features/runs/lib/worktreeAttention";
 import {
   unlistedWorktrees,
   withLocalGroups,
 } from "@/features/runs/lib/worktreeGit";
+import { CommandPalette } from "@/features/runs/ui/CommandPalette";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
 import { UnreachableBanner } from "@/features/runs/ui/UnreachableBanner";
-import { paneProbes } from "@/features/runs/ui/paneRegistry";
+import { paneEntry, paneProbes } from "@/features/runs/ui/paneRegistry";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
 import { WorktreeColumn } from "@/features/runs/ui/WorktreeColumn";
 
@@ -455,6 +471,129 @@ export function RunsScreen() {
   // landing view and would forget the arrangement on the way out.
   const panes = usePanes(selectedWorktreeId);
 
+  // The three dialogs the palette is a second door to. Held here rather than
+  // in the columns that used to own them, so both doors open the *same*
+  // dialog: a "New worktree…" the palette opened and a "+ New worktree" the
+  // column opened must not be two dialogs that can be on screen at once.
+  const [creatingWorktree, setCreatingWorktree] = React.useState(false);
+  const [prunePreview, setPrunePreview] = React.useState<string[] | null>(null);
+  const [removingProject, setRemovingProject] = React.useState<Repo | null>(
+    null,
+  );
+
+  const previewPrune = worktreeActions.previewPrune;
+  const openPrune = React.useCallback(() => {
+    void (async () => {
+      const entries = await previewPrune();
+      // A preview that names nothing is not a dialog — there is nothing to
+      // approve. The refusal, if git gave one, is already on screen.
+      if (entries !== null && entries.length > 0) setPrunePreview(entries);
+    })();
+  }, [previewPrune]);
+
+  // The panes the palette may offer, with each pane's own availability asked
+  // through the registry's own rule — the same call `WorkSurface` makes for
+  // the picker, so the two surfaces cannot come to disagree about whether a
+  // pane can work here. Recomputed per render rather than memoised: it is four
+  // synchronous rules over a context that is itself rebuilt every render, so a
+  // memo would have nothing stable to key on and would only look like one.
+  const paneChoices: PaletteChoice[] = rightChoices().map((id) => {
+    const entry = paneEntry(id);
+    return {
+      availability: entry.availability(paneContext),
+      icon: entry.icon,
+      id: entry.id,
+      title: entry.title,
+    };
+  });
+
+  const paletteContext: PaletteContext = {
+    hasWorktreeColumn: selectedRepo !== null,
+    paneChoices,
+    prunable: prunableWorktrees(repoWorktrees).length,
+    repos,
+    selectedRepoId,
+    selectedWorktreeId,
+    sidebarCollapsed: columns.sidebarCollapsed,
+    solo: panes.state.solo,
+    worktrees: repoWorktrees,
+    worktreesCollapsed: columns.worktreesCollapsed,
+  };
+
+  // Every command the palette can produce, run against the actions that
+  // already exist. Nothing new is reachable from here — a palette that could
+  // do something no button could would be a second implementation of it.
+  const runPaletteCommand = React.useCallback(
+    (command: PaletteCommand) => {
+      switch (command.type) {
+        case "open-landing":
+          selectLanding();
+          return;
+        case "open-project":
+          selectRepo(command.repoId);
+          return;
+        case "open-worktree":
+          setSelectedWorktreeId(command.bindingId);
+          return;
+        case "choose-pane": {
+          // Narrowed against the model's own list rather than cast: the
+          // command carries a string so `paletteSources.ts` needs no import
+          // from the pane registry, and an id that is not a pane must land as
+          // nothing rather than as a lookup on a key that does not exist.
+          const pane: PaneId | undefined = rightChoices().find(
+            (id) => id === command.pane,
+          );
+          if (pane !== undefined) panes.choose(pane);
+          return;
+        }
+        case "new-worktree":
+          setCreatingWorktree(true);
+          return;
+        case "new-terminal-tab":
+          runTabCommand({ type: "new" });
+          return;
+        case "add-project":
+          projectActions.addProject();
+          return;
+        case "remove-project":
+          // Straight to the same confirm the × on a project row opens. The
+          // palette never removes anything itself: the exact words of that
+          // interruption are a tested promise (`lib/repoChoice.ts`).
+          if (selectedRepo !== null) setRemovingProject(selectedRepo);
+          return;
+        case "prune-worktrees":
+          openPrune();
+          return;
+        case "toggle-sidebar":
+          columns.toggleSidebar();
+          return;
+        case "toggle-worktrees":
+          columns.toggleWorktrees();
+          return;
+        case "toggle-solo":
+          panes.toggleSolo(command.side);
+          return;
+      }
+    },
+    [
+      columns.toggleSidebar,
+      columns.toggleWorktrees,
+      openPrune,
+      panes.choose,
+      panes.toggleSolo,
+      projectActions.addProject,
+      runTabCommand,
+      selectedRepo,
+      selectLanding,
+      selectRepo,
+    ],
+  );
+
+  const palette = usePalette({
+    context: paletteContext,
+    onCommand: runPaletteCommand,
+  });
+
   const ownerRun =
     selectedWorktree?.owner_run_id !== null &&
     selectedWorktree?.owner_run_id !== undefined
@@ -482,8 +621,10 @@ export function RunsScreen() {
     >
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ProjectsNav
+          confirming={removingProject}
           error={projectActions.error}
           onAddProject={projectActions.addProject}
+          onConfirmingChange={setRemovingProject}
           onDismissError={projectActions.dismissError}
           onRemoveProject={projectActions.removeProject}
           onSelectLanding={selectLanding}
@@ -493,66 +634,78 @@ export function RunsScreen() {
           selectedRepoId={selectedRepoId}
         />
 
-        {selectedRepo === null ? (
-          <main
-            aria-label="workspace"
-            className="flex min-h-0 flex-1 flex-col overflow-hidden"
-          >
-            <UnreachableBanner
-              intervalMs={POLL_INTERVAL_MS}
-              now={now}
-              onRetryNow={retryNow}
-              reachable={reachable}
-              since={unreachableSince}
-            />
-            {selectedRunId === null ? (
-              <DeckPane
-                onOpenRun={openRun}
+        {/* Everything right of the project nav, in a box the palette can be
+         * centred in. The palette is positioned rather than portalled for
+         * exactly this: it belongs over the surface the owner is working on,
+         * not over a window that is mostly chrome he is not looking at. */}
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          {selectedRepo === null ? (
+            <main
+              aria-label="workspace"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              <UnreachableBanner
+                intervalMs={POLL_INTERVAL_MS}
+                now={now}
+                onRetryNow={retryNow}
                 reachable={reachable}
-                runs={runs}
-                workspaceId={WORKSPACE_ID}
+                since={unreachableSince}
               />
-            ) : (
-              <RunDetail key={selectedRunId} runId={selectedRunId} />
-            )}
-          </main>
-        ) : (
-          <>
-            <WorktreeColumn
-              actions={worktreeActions}
-              collapsed={columns.worktreesCollapsed}
-              onSelectWorktree={setSelectedWorktreeId}
-              onToggleCollapsed={columns.toggleWorktrees}
-              repo={selectedRepo}
-              selectedWorktreeId={selectedWorktreeId}
-              stats={worktreeStats}
-              worktreeRoot={worktreeRoot}
-              worktrees={repoWorktrees}
-            />
-            {selectedWorktree === null ? (
-              <main
-                aria-label="workspace"
-                className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
-              >
-                select a worktree
-              </main>
-            ) : (
-              <WorkSurface
+              {selectedRunId === null ? (
+                <DeckPane
+                  onOpenRun={openRun}
+                  reachable={reachable}
+                  runs={runs}
+                  workspaceId={WORKSPACE_ID}
+                />
+              ) : (
+                <RunDetail key={selectedRunId} runId={selectedRunId} />
+              )}
+            </main>
+          ) : (
+            <>
+              <WorktreeColumn
+                actions={worktreeActions}
+                collapsed={columns.worktreesCollapsed}
+                creating={creatingWorktree}
+                onCreatingChange={setCreatingWorktree}
+                onOpenPrune={openPrune}
+                onPrunePreviewChange={setPrunePreview}
                 onSelectWorktree={setSelectedWorktreeId}
-                onTabCommand={runTabCommand}
-                paneContext={paneContext}
-                panes={panes}
-                reachable={reachable}
-                runs={runs}
+                onToggleCollapsed={columns.toggleWorktrees}
+                prunePreview={prunePreview}
+                repo={selectedRepo}
                 selectedWorktreeId={selectedWorktreeId}
-                tabs={selectedTabs}
-                terminals={terminals}
+                stats={worktreeStats}
+                worktreeRoot={worktreeRoot}
                 worktrees={repoWorktrees}
-                workspaceId={WORKSPACE_ID}
               />
-            )}
-          </>
-        )}
+              {selectedWorktree === null ? (
+                <main
+                  aria-label="workspace"
+                  className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+                >
+                  select a worktree
+                </main>
+              ) : (
+                <WorkSurface
+                  onSelectWorktree={setSelectedWorktreeId}
+                  onTabCommand={runTabCommand}
+                  paneContext={paneContext}
+                  panes={panes}
+                  reachable={reachable}
+                  runs={runs}
+                  selectedWorktreeId={selectedWorktreeId}
+                  tabs={selectedTabs}
+                  terminals={terminals}
+                  worktrees={repoWorktrees}
+                  workspaceId={WORKSPACE_ID}
+                />
+              )}
+            </>
+          )}
+          <CommandPalette palette={palette} />
+        </div>
       </div>
 
       {/* STOP rides the status bar, which is the only thing on screen on every

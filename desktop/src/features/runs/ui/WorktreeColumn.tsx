@@ -93,6 +93,19 @@ interface WorktreeColumnProps {
    * the worktrees are still open, still running, still selected. */
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /** The two dialogs below are held by the screen rather than here, because
+   * the palette is a second door to both. One state each, so whichever door
+   * the owner came through he gets the same dialog — a second copy would be a
+   * second chance for git's dry run and this column's button to disagree about
+   * what is about to be pruned. */
+  creating: boolean;
+  onCreatingChange: (creating: boolean) => void;
+  /** git's own dry run of `worktree prune`, or `null` for a closed dialog.
+   * Fetched by the screen, because both doors have to fetch it before they
+   * have anything to show. */
+  prunePreview: string[] | null;
+  onOpenPrune: () => void;
+  onPrunePreviewChange: (preview: string[] | null) => void;
 }
 
 const STATE_DOT_CLASS: Record<WorktreeSummary["stateClass"], string> = {
@@ -158,21 +171,24 @@ function StateDot({ row }: { row: WorktreeRow }) {
 export function WorktreeColumn({
   actions,
   collapsed,
+  creating,
+  onCreatingChange,
+  onOpenPrune,
+  onPrunePreviewChange,
   onSelectWorktree,
   onToggleCollapsed,
+  prunePreview,
   repo,
   selectedWorktreeId,
   stats,
   worktreeRoot,
   worktrees,
 }: WorktreeColumnProps) {
-  const [creating, setCreating] = React.useState(false);
   const [confirming, setConfirming] = React.useState<RemovableWorktree | null>(
     null,
   );
   const [query, setQuery] = React.useState("");
   const [expanded, setExpanded] = React.useState(false);
-  const [prunePreview, setPrunePreview] = React.useState<string[] | null>(null);
   const confirm =
     confirming === null ? null : removeWorktreeConfirm(confirming);
 
@@ -195,13 +211,6 @@ export function WorktreeColumn({
     worktrees,
   });
   const prunable = prunableWorktrees(worktrees).length;
-
-  async function openPrune() {
-    const entries = await actions.previewPrune();
-    // A preview that names nothing is not a dialog — there is nothing to
-    // approve. The refusal, if git gave one, is already on screen.
-    if (entries !== null && entries.length > 0) setPrunePreview(entries);
-  }
 
   return (
     <>
@@ -349,7 +358,7 @@ export function WorktreeColumn({
             className="mt-1 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
             data-testid="worktree-column-new"
             disabled={actions.pending}
-            onClick={() => setCreating(true)}
+            onClick={() => onCreatingChange(true)}
             type="button"
           >
             + New worktree
@@ -360,7 +369,7 @@ export function WorktreeColumn({
               className="rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
               data-testid="worktree-column-prune"
               disabled={actions.pending}
-              onClick={() => void openPrune()}
+              onClick={onOpenPrune}
               title="Show what `git worktree prune` would remove — records only, no directories"
               type="button"
             >
@@ -400,7 +409,7 @@ export function WorktreeColumn({
 
       <NewWorktreeDialog
         onCreate={actions.create}
-        onOpenChange={setCreating}
+        onOpenChange={onCreatingChange}
         open={creating}
         pending={actions.pending}
         refusal={actions.refusal}
@@ -410,10 +419,10 @@ export function WorktreeColumn({
 
       <PruneWorktreesDialog
         onConfirm={() => {
-          setPrunePreview(null);
+          onPrunePreviewChange(null);
           void actions.prune();
         }}
-        onOpenChange={() => setPrunePreview(null)}
+        onOpenChange={() => onPrunePreviewChange(null)}
         pending={actions.pending}
         preview={prunePreview}
       />

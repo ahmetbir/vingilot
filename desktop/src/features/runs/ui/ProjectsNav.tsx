@@ -12,8 +12,6 @@
 // a path.** Nothing in this feature deletes, moves, or writes anything inside
 // a project directory.
 
-import * as React from "react";
-
 import type { Repo } from "@/features/runs/lib/projects";
 import { removeProjectConfirm } from "@/features/runs/lib/repoChoice";
 import {
@@ -43,11 +41,19 @@ interface ProjectsNavProps {
   /** The last refusal, in words the owner can act on. */
   error: string | null;
   onDismissError: () => void;
+  /** The project whose removal is being confirmed, held by the screen rather
+   * than here because the palette is a second door to this same confirm — and
+   * a second confirm would be a second set of words for an act whose exact
+   * words are a tested promise (`lib/repoChoice.ts`). */
+  confirming: Repo | null;
+  onConfirmingChange: (repo: Repo | null) => void;
 }
 
 export function ProjectsNav({
+  confirming,
   error,
   onAddProject,
+  onConfirmingChange,
   onDismissError,
   onRemoveProject,
   onSelectLanding,
@@ -56,7 +62,6 @@ export function ProjectsNav({
   repos,
   selectedRepoId,
 }: ProjectsNavProps) {
-  const [confirming, setConfirming] = React.useState<Repo | null>(null);
   const confirm = confirming === null ? null : removeProjectConfirm(confirming);
 
   return (
@@ -108,7 +113,7 @@ export function ProjectsNav({
                 className="shrink-0 rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
                 data-testid={`projects-nav-remove-${repo.id}`}
                 disabled={pending}
-                onClick={() => setConfirming(repo)}
+                onClick={() => onConfirmingChange(repo)}
                 title={`Remove ${repo.name} — forgets the path, never touches the folder`}
                 type="button"
               >
@@ -148,7 +153,7 @@ export function ProjectsNav({
 
       <AlertDialog
         onOpenChange={(open) => {
-          if (!open) setConfirming(null);
+          if (!open) onConfirmingChange(null);
         }}
         open={confirming !== null}
       >
@@ -163,7 +168,7 @@ export function ProjectsNav({
               data-testid="projects-nav-remove-confirm-action"
               onClick={() => {
                 if (confirming !== null) onRemoveProject(confirming);
-                setConfirming(null);
+                onConfirmingChange(null);
               }}
             >
               {confirm?.confirmLabel}

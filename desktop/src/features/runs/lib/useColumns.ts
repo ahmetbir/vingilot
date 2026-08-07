@@ -44,6 +44,15 @@ export interface Columns {
    * `WorktreeColumn`. */
   worktreesCollapsed: boolean;
   toggleWorktrees: () => void;
+  /** Upstream's sidebar, as this hook sees it right now. `false` outside a
+   * `SidebarProvider`, where there is no sidebar to be collapsed — read as
+   * "not collapsed", which is what a surface labelling the toggle should say
+   * when there is nothing to toggle. */
+  sidebarCollapsed: boolean;
+  /** The same act ⌘B performs, for a caller that is not a keystroke — the
+   * palette. Drives the provider's own `toggleSidebar`, never a second
+   * collapse mechanism beside it. */
+  toggleSidebar: () => void;
 }
 
 interface ColumnsOptions {
@@ -119,6 +128,13 @@ export function useColumns({
     setLayout((prev) => toggleColumn(prev, layoutKey, "worktrees"));
   }, [layoutKey]);
 
+  // Stable across renders, and reads the provider out of the ref for the same
+  // reason the effects above do: the context object is rebuilt whenever the
+  // sidebar moves at all.
+  const toggleSidebar = React.useCallback(() => {
+    latest.current.sidebar?.toggleSidebar();
+  }, []);
+
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const action = resolveColumnKey({
@@ -146,6 +162,8 @@ export function useColumns({
   }, [hasWorktreeColumn, toggleWorktrees]);
 
   return {
+    sidebarCollapsed: sidebarOpen === null ? false : !sidebarOpen,
+    toggleSidebar,
     toggleWorktrees,
     worktreesCollapsed: columnsFor(layout, layoutKey).worktrees,
   };
