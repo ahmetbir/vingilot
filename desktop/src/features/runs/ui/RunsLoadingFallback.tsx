@@ -1,6 +1,7 @@
 // Suspense fallback for the /workspace route. Shaped like RunsScreen's first
-// paint — header + ProjectsNav-shaped aside + DeckPane-shaped main pane,
-// because `selectedRepoId` starts null and the landing view is the Deck —
+// paint — header + ProjectsNav-shaped aside + DeckPane-shaped main pane +
+// ProjectStatusBar-shaped footer, because `selectedRepoId` starts null and
+// the landing view is the Deck —
 // rather than reusing ViewLoadingFallback's "agents" kind, which renders the
 // Agents-list skeleton (library + teams sections) — a shape that belongs
 // to that screen, not this one. Kept island-local (no new kind added to
@@ -60,7 +61,6 @@ export function RunsLoadingFallback() {
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
         <Skeleton className="h-5 w-16" />
-        <Skeleton className="h-8 w-20 rounded-lg" />
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -89,6 +89,12 @@ export function RunsLoadingFallback() {
             titleWidth="w-14"
           />
         </main>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2 border-t border-border/60 px-4 py-1.5">
+        <Skeleton className="h-3 w-40" />
+        <Skeleton className="ml-auto h-3 w-16" />
+        <Skeleton className="h-5 w-14 rounded-full" />
       </div>
     </div>
   );

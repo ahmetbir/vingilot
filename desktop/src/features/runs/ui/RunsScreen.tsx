@@ -74,7 +74,6 @@ import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
-import { StopAllButton } from "@/features/runs/ui/StopAllButton";
 import { UnreachableBanner } from "@/features/runs/ui/UnreachableBanner";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
 import { WorktreeColumn } from "@/features/runs/ui/WorktreeColumn";
@@ -409,17 +408,6 @@ export function RunsScreen() {
     >
       <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
         <h1 className="text-lg font-semibold">Projects</h1>
-        {/* STOP pauses every live run in the workspace, so it belongs beside
-         * the surface that lists them. A project view shows one worktree's
-         * work and no run rows at all; a workspace-wide kill in its corner
-         * names nothing the owner can see. */}
-        {selectedRepo === null ? (
-          <StopAllButton
-            engaged={stopEngaged}
-            onEngage={() => void engageStop()}
-            onRelease={releaseStop}
-          />
-        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -495,10 +483,15 @@ export function RunsScreen() {
         )}
       </div>
 
+      {/* STOP rides the status bar, which is the only thing on screen on every
+       * screen and every tab — see ProjectStatusBar's own note. */}
       <ProjectStatusBar
+        onEngageStop={() => void engageStop()}
+        onReleaseStop={releaseStop}
         reachable={reachable}
         repo={selectedRepo}
         run={ownerRun}
+        stopEngaged={stopEngaged}
         terminalBacking={terminalBacking}
         worktree={selectedWorktree}
       />

@@ -8,6 +8,15 @@
 // detected once per app run (vingilot_pty/tmux.rs), so every terminal in this
 // run has the same backing. What it may say is `lib/terminalPersistence.ts`'s
 // decision, not this component's.
+//
+// STOP is here for the same reason, and it is the only control on this bar.
+// It pauses every live run in the *workspace*, and no single screen owns that
+// scope: the Deck lists the workspace's runs, and so does the work surface's
+// own Runs tab, unfiltered. A workspace-wide brake parked on either one is
+// absent from the other. This bar is the only thing on screen no matter which
+// of them the owner is looking at — which also means a latched STOP can always
+// be seen and always be released, rather than staying engaged behind a screen
+// that does not draw it.
 
 import type { Repo, Worktree } from "@/features/runs/lib/projects";
 import { worktreeSummary } from "@/features/runs/lib/projects";
@@ -15,6 +24,7 @@ import type { PtyBacking } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import { wallClock } from "@/features/runs/lib/runModel";
 import { persistenceCopy } from "@/features/runs/lib/terminalPersistence";
+import { StopAllButton } from "@/features/runs/ui/StopAllButton";
 
 interface ProjectStatusBarProps {
   /** `null` on the project-less landing view — the bar renders a neutral
@@ -28,12 +38,20 @@ interface ProjectStatusBarProps {
   /** What is keeping terminals alive. `null` until the backend has answered
    * — the bar then says nothing about persistence rather than guessing. */
   terminalBacking: PtyBacking | null;
+  /** Whether STOP is latched. Owned by `RunsScreen`, which is what actually
+   * pauses the runs. */
+  stopEngaged: boolean;
+  onEngageStop: () => void;
+  onReleaseStop: () => void;
 }
 
 export function ProjectStatusBar({
+  onEngageStop,
+  onReleaseStop,
   reachable,
   repo,
   run,
+  stopEngaged,
   terminalBacking,
   worktree,
 }: ProjectStatusBarProps) {
@@ -87,6 +105,11 @@ export function ProjectStatusBar({
           </>
         ) : null}
         <span>{reachable ? "synced" : "unreachable"}</span>
+        <StopAllButton
+          engaged={stopEngaged}
+          onEngage={onEngageStop}
+          onRelease={onReleaseStop}
+        />
       </span>
     </footer>
   );
