@@ -40,7 +40,9 @@ pub(crate) async fn clear_initial_window_backing<R: tauri::Runtime>(window: &tau
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) async fn wait_for_stable_initial_window_geometry<R: tauri::Runtime>(window: &tauri::Window<R>) {
+pub(crate) async fn wait_for_stable_initial_window_geometry<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+) {
     const MAX_POLLS: usize = 120;
     const REQUIRED_STABLE_POLLS: usize = 4;
 

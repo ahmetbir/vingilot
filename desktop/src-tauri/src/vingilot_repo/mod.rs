@@ -242,7 +242,9 @@ mod tests {
     #[test]
     fn the_three_answers_serialise_to_what_the_ui_switches_on() {
         assert_eq!(
-            serde_json::to_string(&RepoProbe::Repository).ok().as_deref(),
+            serde_json::to_string(&RepoProbe::Repository)
+                .ok()
+                .as_deref(),
             Some(r#"{"kind":"repository"}"#)
         );
         assert_eq!(

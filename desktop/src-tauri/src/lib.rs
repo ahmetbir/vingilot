@@ -59,6 +59,12 @@ use huddle::{
     join_huddle, leave_huddle, push_audio_pcm, set_huddle_transcription_enabled, set_tts_enabled,
     set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
 };
+use initial_window::reveal_initial_window;
+#[cfg(target_os = "macos")]
+use initial_window::{
+    clear_initial_window_backing, set_initial_window_backing,
+    wait_for_stable_initial_window_geometry, INITIAL_RENDER_READY_EVENT,
+};
 use managed_agents::{
     backfill_persona_snapshots, ensure_nest, list_managed_agent_runtimes,
     put_managed_agent_runtime_lifecycle, reconcile_managed_agent_runtimes,
@@ -77,10 +83,6 @@ use tauri::{Listener, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 #[cfg(target_os = "macos")]
 use tray_menu::show_main_window;
-use initial_window::reveal_initial_window;
-#[cfg(target_os = "macos")]
-use initial_window::{clear_initial_window_backing, set_initial_window_backing, wait_for_stable_initial_window_geometry, INITIAL_RENDER_READY_EVENT};
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
