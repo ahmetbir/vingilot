@@ -170,12 +170,19 @@ test("a worktree only moves because its own state moved", () => {
 // the fold
 // ---------------------------------------------------------------------------
 
+/** Every worktree, read and clean — the ordinary state once git has answered.
+ * It is the default here because folding requires an answer: a test that wants
+ * "not read yet" has to say so, rather than getting it by omission. */
+function allClean(worktrees) {
+  return statsFor(worktrees.map((wt) => [wt, stat({ path: wt.binding_id })]));
+}
+
 function view(worktrees, overrides = {}) {
   return worktreeColumnView({
     expanded: false,
     query: "",
     selectedId: null,
-    stats: {},
+    stats: allClean(worktrees),
     worktrees,
     ...overrides,
   });
@@ -229,8 +236,40 @@ test("the row you are standing in is never folded away", () => {
   assert.equal(answer.foldLabel, "3 finished runs");
 });
 
+test("a worktree git has not answered about yet is never folded away", () => {
+  // `stats` starts empty and is not cleared on a project switch, so without
+  // this the whole column folds on first paint and again on every switch —
+  // and folding is the one place a wrong guess removes the row from sight.
+  const finished = ["one", "two", "three", "four"].map((b) =>
+    task(b, "completed"),
+  );
+  const answer = view([main, ...finished], { stats: {} });
+  assert.equal(answer.folded.length, 0);
+  assert.equal(answer.foldLabel, "");
+  assert.equal(answer.rows.length, finished.length + 1);
+});
+
+test("a worktree that could not be read is never folded away", () => {
+  // The owner keeps projects on /Volumes/ugreen. If that unmounts, git cannot
+  // read any of them — and an unreadable tree may have been dirty when it was
+  // last readable. Folding it behind "N finished runs" would claim something
+  // git never said, with uncommitted work hidden behind the claim.
+  const finished = ["one", "two", "three", "four"].map((b) =>
+    task(b, "completed"),
+  );
+  const stats = statsFor(
+    finished.map((wt) => [wt, stat({ dirty: true, unreadable: true })]),
+  );
+  const answer = view([main, ...finished], { stats });
+  assert.equal(answer.folded.length, 0);
+  assert.equal(answer.foldLabel, "");
+  assert.deepEqual(
+    answer.rows.map((row) => row.worktree.binding_id),
+    [main.binding_id, ...finished.map((wt) => wt.binding_id)],
+  );
+});
+
 test("nothing dirty or running is ever folded", () => {
-  const stats = { "bind-changed": dirty };
   const worktrees = [
     main,
     task("live", "running"),
@@ -239,6 +278,10 @@ test("nothing dirty or running is ever folded", () => {
     task("b", "completed"),
     task("c", "completed"),
   ];
+  // Git has answered about every row — clean for all but one — so the only
+  // reason anything stays out of the fold is the state it is in, which is what
+  // this test is about.
+  const stats = { ...allClean(worktrees), "bind-changed": dirty };
   // The column is rendered from the ordered list, so the test is too — the
   // view folds, it does not sort.
   const answer = view(orderWorktrees(worktrees, stats), { stats });

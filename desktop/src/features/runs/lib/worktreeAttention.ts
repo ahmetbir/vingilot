@@ -192,7 +192,25 @@ export function worktreeColumnView(
     };
   }
 
+  // Folding requires git to have actually said "clean" — `attention` alone is
+  // not enough, because it reads a missing stat as clean and folding is the
+  // one place where that guess removes the row from sight.
+  //
+  // `stat === null` covers three cases that must all stay visible: the read
+  // has not answered yet (`stats` starts empty and is not cleared on project
+  // switch, so the whole column would fold on first paint and again on every
+  // switch), the path could not be read at all (a worktree on an unmounted
+  // volume — the owner keeps projects on /Volumes/ugreen), and the worktree
+  // sat past the stat command's per-call path cap and was never asked about,
+  // which is not transient. In the unreadable case git may well have reported
+  // the tree dirty before it became unreadable; folding it would hide
+  // uncommitted work behind a row claiming "N finished runs", which is a
+  // statement git never made.
+  //
+  // Same rule the session teardown already follows: an empty read is "no
+  // answer", never "nothing there".
   const foldable = (row: WorktreeRow) =>
+    row.stat !== null &&
     row.attention === "clean" &&
     !isMainCheckout(row.worktree) &&
     row.worktree.binding_id !== input.selectedId;
