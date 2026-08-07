@@ -142,14 +142,27 @@ pub(crate) fn session_name(session_id: &str) -> String {
 /// `vingilot_other` and `vingilot_wt_11`:
 ///
 /// ```text
-/// $ tmux kill-session -t vingilot_wt_1     # exit 0, vingilot_wt_11 is gone
-/// $ tmux kill-session -t '=vingilot_wt_1'  # "can't find session", refused
+/// $ tmux kill-session -t vingilot_wt_1      # exit 0, vingilot_wt_11 is gone
+/// $ tmux kill-session -t '=vingilot_wt_1:'  # "can't find session", refused
 /// ```
 ///
 /// Closing one worktree would end another worktree's shell and everything
 /// running in it. The hazard is not an edge case either: `pty_close` asks to
 /// end a session for **every** id, including shells that never ran under tmux
 /// at all, and those are exactly the names that match nothing exactly.
+///
+/// **Why the trailing `:` is load-bearing too.** It is what says "this names a
+/// *session*", and without it `set-option` reads the target as a pane and
+/// finds nothing. Measured on 3.6a against a live `vingilot_probe`:
+///
+/// ```text
+/// $ tmux set-option -t '=vingilot_probe' status off   # "no such session"
+/// $ tmux set-option -t '=vingilot_probe:' status off  # exit 0
+/// ```
+///
+/// `kill-session` accepts both spellings, so the one form both commands agree
+/// on is the one used everywhere — two nearly identical anchored targets is
+/// how one of them ends up unanchored.
 ///
 /// Every tmux target this app builds is constructed here, so anchoring is a
 /// property of the module rather than of each call site. `new-session -s` is
@@ -158,7 +171,7 @@ pub(crate) fn session_name(session_id: &str) -> String {
 /// `new-session -A -s vingilot_wt_1` beside a live `vingilot_wt_11` creates a
 /// second, separate session rather than attaching to the longer one.
 fn exact_target(session_id: &str) -> String {
-    format!("={}", session_name(session_id))
+    format!("={}:", session_name(session_id))
 }
 
 /// The full argument list for ending one tab's session, so a test can assert
@@ -226,6 +239,39 @@ pub(crate) struct SpawnPlan {
     pub(crate) backing: Backing,
 }
 
+/// The separator tmux reads as "and then run this", as one argument of its
+/// own. Nothing here goes through a shell, so it needs no escaping — and
+/// nothing here may ever be handed to one.
+const THEN: &str = ";";
+
+/// Turn off the status line — for one named session, and no other.
+///
+/// The app draws its own status bar. tmux's, underneath it, says the same
+/// things twice and costs a row of the terminal the owner is actually using.
+///
+/// **Scoped to our sessions, deliberately and structurally.** `status` is a
+/// session option, and the tmux *server* is shared with every session the
+/// owner started by hand — so `set-option -g` here would blank the status bar
+/// of the tmux he was already running, and writing to `~/.tmux.conf` would do
+/// it to every session he ever starts again. The anchored per-session target
+/// is what makes the blast radius exactly one session, and the absence of
+/// `-g` is what keeps it off the server's own defaults.
+///
+/// Chained onto the spawn rather than run as a second process, because a
+/// second process would have to guess when the session exists. Verified on
+/// tmux 3.6a: commands after an attaching `new-session` do run, and running
+/// this on every spawn (not only on creation) is what turns the bar off for a
+/// session an earlier build of this app left behind.
+fn quiet_status_args(session_id: &str) -> [String; 5] {
+    [
+        "set-option".to_string(),
+        "-t".to_string(),
+        exact_target(session_id),
+        "status".to_string(),
+        "off".to_string(),
+    ]
+}
+
 /// Plan the spawn for one terminal tab.
 ///
 /// `-A` attaches to the named session or creates it, which is what makes this
@@ -240,9 +286,8 @@ pub(crate) fn plan_spawn(
     cwd: &str,
 ) -> SpawnPlan {
     match tmux {
-        Some(tmux) => SpawnPlan {
-            program: tmux.to_string(),
-            args: vec![
+        Some(tmux) => {
+            let mut args = vec![
                 "new-session".to_string(),
                 "-A".to_string(),
                 "-D".to_string(),
@@ -250,9 +295,15 @@ pub(crate) fn plan_spawn(
                 session_name(session_id),
                 "-c".to_string(),
                 cwd.to_string(),
-            ],
-            backing: Backing::Tmux,
-        },
+                THEN.to_string(),
+            ];
+            args.extend(quiet_status_args(session_id));
+            SpawnPlan {
+                program: tmux.to_string(),
+                args,
+                backing: Backing::Tmux,
+            }
+        }
         None => SpawnPlan {
             program: shell.to_string(),
             args: Vec::new(),
@@ -433,19 +484,26 @@ mod tests {
         let args = kill_args("wt_1");
         assert_eq!(args[0], "kill-session");
         assert_eq!(args[1], "-t");
-        assert_eq!(args[2], "=vingilot_wt_1");
+        assert_eq!(args[2], "=vingilot_wt_1:");
     }
 
     #[test]
-    fn no_kill_target_is_left_unanchored() {
+    fn no_target_this_app_builds_is_left_unanchored() {
         // Structural, not per-case: an unanchored target is what let
-        // `kill-session -t vingilot_wt_1` end vingilot_wt_11 on tmux 3.6a.
+        // `kill-session -t vingilot_wt_1` end vingilot_wt_11 on tmux 3.6a,
+        // and a target without the trailing `:` is one `set-option` cannot
+        // resolve at all.
         for id in ["wt_1", "main:repo-1", "", "üñî", "-", "wt_7#1", "wt_7#11"] {
-            let target = &kill_args(id)[2];
-            assert!(
-                target.starts_with('='),
-                "target would prefix-match another session: {target}"
-            );
+            for target in [&kill_args(id)[2], &quiet_status_args(id)[2]] {
+                assert!(
+                    target.starts_with('='),
+                    "target would prefix-match another session: {target}"
+                );
+                assert!(
+                    target.ends_with(':'),
+                    "target does not name a session: {target}"
+                );
+            }
         }
     }
 
@@ -505,9 +563,60 @@ mod tests {
                 "vingilot_wt_7",
                 "-c",
                 "/tmp/w",
+                ";",
+                "set-option",
+                "-t",
+                "=vingilot_wt_7:",
+                "status",
+                "off",
             ]
         );
         assert_eq!(plan.backing, Backing::Tmux);
+    }
+
+    #[test]
+    fn the_status_line_is_turned_off_for_the_session_being_spawned_and_no_other() {
+        // The app draws its own status bar; tmux's underneath it duplicates it
+        // and costs a row.
+        let plan = plan_spawn(Some("tmux"), "/bin/zsh", "wt_7", "/tmp/w");
+        assert!(plan.args.iter().any(|arg| arg == "status"));
+        assert!(plan
+            .args
+            .windows(2)
+            .any(|pair| pair == ["-t", "=vingilot_wt_7:"]));
+    }
+
+    #[test]
+    fn nothing_this_app_runs_can_reach_a_session_it_did_not_create() {
+        // The tmux server is shared with every session the owner started by
+        // hand. `-g` would blank their status bars too, and a target naming
+        // anything but one of ours could reach one of his. Asserted over the
+        // whole argument list rather than the one call site that builds it,
+        // because the next spawn option added is the one that forgets.
+        let plan = plan_spawn(Some("tmux"), "/bin/zsh", "wt_7", "/tmp/w");
+        assert!(
+            !plan.args.iter().any(|arg| arg == "-g"),
+            "a server-wide option would change the owner's own tmux: {:?}",
+            plan.args
+        );
+        for target in plan
+            .args
+            .windows(2)
+            .filter(|pair| pair[0] == "-t")
+            .map(|pair| &pair[1])
+        {
+            assert_eq!(
+                target,
+                &format!("={}:", session_name("wt_7")),
+                "a target that is not this session's"
+            );
+        }
+    }
+
+    #[test]
+    fn without_tmux_there_is_no_status_line_to_turn_off() {
+        let plan = plan_spawn(None, "/bin/zsh", "wt_7", "/tmp/w");
+        assert!(plan.args.is_empty());
     }
 
     #[test]

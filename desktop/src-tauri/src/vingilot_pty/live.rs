@@ -602,7 +602,116 @@ fn a_tmux_session_survives_the_client_that_was_attached_to_it() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. no orphan shells
+// 4. our sessions draw no status bar, and nobody else's session changes
+// ---------------------------------------------------------------------------
+
+/// A tmux session started the way the owner starts one: by hand, with no part
+/// of this app involved. Ends itself, by exact name, on the socket these tests
+/// own.
+struct OutsiderSession {
+    name: String,
+}
+
+impl OutsiderSession {
+    fn new(name: String) -> Self {
+        tmux_says(&["new-session", "-d", "-s", &name, "-c", "/tmp"]);
+        Self { name }
+    }
+
+    fn target(&self) -> String {
+        format!("={}:", self.name)
+    }
+}
+
+impl Drop for OutsiderSession {
+    fn drop(&mut self) {
+        // Anchored, on the isolated socket, against a session this test made.
+        tmux_says(&["kill-session", "-t", &self.target()]);
+    }
+}
+
+/// Ask the tmux these tests own something, and answer with what it said.
+/// Panics only on a tmux that could not be run at all — a command that
+/// refuses is reported as its stderr, which is what the assertions read.
+fn tmux_says(args: &[&str]) -> String {
+    let Some(tmux) = tmux::path() else {
+        return String::new();
+    };
+    match Command::new(tmux).args(args).stdin(Stdio::null()).output() {
+        Ok(done) if done.status.success() => {
+            String::from_utf8_lossy(&done.stdout).trim().to_string()
+        }
+        Ok(done) => String::from_utf8_lossy(&done.stderr).trim().to_string(),
+        Err(error) => panic!("tmux {} did not run: {error}", args.join(" ")),
+    }
+}
+
+#[test]
+fn our_sessions_draw_no_status_bar_and_the_owners_sessions_are_untouched() {
+    let _live = live_lock();
+    isolated_tmux_socket();
+
+    if tmux::path().is_none() {
+        eprintln!(
+            "SKIPPED our_sessions_draw_no_status_bar_and_the_owners_sessions_are_untouched: \
+             no tmux on this machine, so there is no status bar to turn off."
+        );
+        return;
+    }
+
+    let mut repo = LiveRepo::new();
+    let worktree = repo.worktree("status");
+    let harness = Harness::new();
+    let id = live_id("status");
+
+    harness.open(&id, &worktree);
+    harness.settle(&id);
+
+    // Started by hand on the same server, after ours, so it cannot have
+    // inherited anything from a state that predates this app's spawn.
+    let outsider = OutsiderSession::new(format!("outsider-{}", std::process::id()));
+
+    // `#{status}` is the value that is actually in force for a session, not
+    // the one it was configured with — which is what the owner sees.
+    let ours = tmux_says(&[
+        "display-message",
+        "-p",
+        "-t",
+        &format!("={}:", tmux::session_name(&id)),
+        "#{status}",
+    ]);
+    assert_eq!(
+        ours, "off",
+        "our own session still draws a second status bar"
+    );
+
+    let theirs = tmux_says(&[
+        "display-message",
+        "-p",
+        "-t",
+        &outsider.target(),
+        "#{status}",
+    ]);
+    assert_eq!(
+        theirs, "on",
+        "a session this app did not create lost its status bar"
+    );
+
+    // And the server's own default, which is what every session the owner
+    // starts from now on will inherit.
+    assert_eq!(
+        tmux_says(&["show-options", "-g", "status"]),
+        "status on",
+        "the server-wide default was changed, so every future session inherits it"
+    );
+
+    drop(outsider);
+    harness.close(&id);
+    kill_test_tmux_server();
+}
+
+// ---------------------------------------------------------------------------
+// 5. no orphan shells
 // ---------------------------------------------------------------------------
 
 #[test]
