@@ -179,8 +179,15 @@ seams:
     status: "permanent"
     added: "2026-08-04"
 
+  - path: "desktop/tests/e2e/workspace-no-overlays.spec.ts"
+    reason: "Task 1c's regression guard (vingilot/docs/plans/2026-08-07-panes-and-polish.md): with a project open and a real xterm mounted, no element outside the work surface may paint on top of it -- read twice, once by hit testing every 16px of the surface and once by geometry over every overlapping box that carries its own text or graphic. Lives at the upstream-owned desktop/tests/e2e/ path for the same reason deck-two-devices.spec.ts does: that is where playwright.config.ts's testDir points, and the assertion is about the whole rendered app shell, so it cannot be expressed as a unit test inside the island."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the work surface must stay free of other features' overlays."
+    status: "permanent"
+    added: "2026-08-07"
+
   - path: "desktop/playwright.config.ts"
-    reason: "Registers desktop/tests/e2e/deck-two-devices.spec.ts (vingilot/docs/plans/2026-08-04-deck-phase-3.md, Task 4) in the smoke project's testMatch. Checked first per the plan: every existing testMatch entry is a literal per-file basename (no glob like **/*.spec.ts that would pick up a new file automatically), so a new spec has no way to run without this one-line addition. Smallest possible touch: one added array entry, alphabetically/logically appended after the existing list."
+    reason: "Registers the fork's desktop e2e specs in the smoke project's testMatch: deck-two-devices.spec.ts (vingilot/docs/plans/2026-08-04-deck-phase-3.md, Task 4) and workspace-no-overlays.spec.ts (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 1c). Checked first per the plan: every existing testMatch entry is a literal per-file basename (no glob like **/*.spec.ts that would pick up a new file automatically), so a new spec has no way to run without this one-line addition. Smallest possible touch: one added array entry per spec, appended after the existing list."
     owner: "vingilot/runs"
     removable_when: "Never, while deck-two-devices.spec.ts (or any future vingilot desktop e2e spec) needs to run in CI's smoke project."
     status: "permanent"
