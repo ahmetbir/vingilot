@@ -315,6 +315,29 @@ export const MIN_LEFT_PX = 80 * CELL_PX + TERMINAL_CHROME_PX;
  * layout he had before there was a right pane at all. */
 export const MIN_RIGHT_PX = 240;
 
+/** The divider's own width, in CSS pixels.
+ *
+ * **It is the row's third member, not a hairline between two halves.** The
+ * ratio divides what is left after it, so a floor derived from the whole
+ * surface overstates what the left pane gets by exactly this much: measured on
+ * the 1195px surface a maximised window gives, `MIN_LEFT_PX / surfaceWidth`
+ * put the terminal at 747px — **79 columns**, one short of the number
+ * `MIN_LEFT_PX` is named for, and the missing 5px were the divider.
+ *
+ * `PaneDivider` sizes itself from this constant instead of from a width class,
+ * so the number the row is laid out with and the number this file subtracts
+ * are one number. That is what makes the arithmetic below checkable against
+ * what is drawn rather than only against itself. */
+export const DIVIDER_PX = 8;
+
+/** What the two panes actually have to divide between them: the surface, less
+ * the divider standing in it. A surface narrower than the divider has nothing
+ * to divide and answers 0, which every caller reads as "not measured yet". */
+export function splitWidth(surfaceWidth: number): number {
+  if (!Number.isFinite(surfaceWidth)) return 0;
+  return Math.max(0, surfaceWidth - DIVIDER_PX);
+}
+
 /** The clamp for a surface whose width is known: the taste clamp, then the
  * floors, in that order.
  *
@@ -324,9 +347,10 @@ export const MIN_RIGHT_PX = 240;
  * gets resized to a shape nobody laid out. */
 export function clampRatioAt(ratio: number, surfaceWidth: number): number {
   const wanted = clampRatio(ratio);
-  if (!Number.isFinite(surfaceWidth) || surfaceWidth <= 0) return wanted;
-  const floor = Math.min(MIN_LEFT_PX / surfaceWidth, MAX_RATIO);
-  const ceiling = Math.max(1 - MIN_RIGHT_PX / surfaceWidth, floor);
+  const shared = splitWidth(surfaceWidth);
+  if (shared <= 0) return wanted;
+  const floor = Math.min(MIN_LEFT_PX / shared, MAX_RATIO);
+  const ceiling = Math.max(1 - MIN_RIGHT_PX / shared, floor);
   return Math.min(ceiling, Math.max(floor, wanted));
 }
 
@@ -434,7 +458,12 @@ export function toggleCollapsed(layout: PaneLayout, key: string): PaneLayout {
   return withCollapsed(layout, key, !panesFor(layout, key).collapsed);
 }
 
-/** Where a drag put the divider, as a ratio of the surface it is inside.
+/** Where a drag put the divider, as a ratio of the width the panes share.
+ *
+ * The pointer holds the *middle* of the divider, and the divider is a member
+ * of the row rather than a line drawn on the boundary — so the boundary the
+ * owner is aiming at is half a divider to the left of his pointer, and the
+ * width it divides is `splitWidth`, not the whole surface.
  *
  * `null` for a surface with no width to divide — a work surface measured
  * mid-layout, or one inside a hidden subtree. The caller keeps the ratio it
@@ -445,10 +474,12 @@ export function ratioFromPointer(
   surfaceWidth: number,
   clientX: number,
 ): number | null {
-  if (!Number.isFinite(surfaceWidth) || surfaceWidth <= 0) return null;
+  const shared = splitWidth(surfaceWidth);
+  if (shared <= 0) return null;
   if (!Number.isFinite(surfaceLeft) || !Number.isFinite(clientX)) return null;
+  const boundary = clientX - surfaceLeft - DIVIDER_PX / 2;
   // Clamped to this surface's floors, not just to the ratio: the divider has
   // to stop where the layout stops, or the pointer walks on past a divider
   // that is no longer under it.
-  return clampRatioAt((clientX - surfaceLeft) / surfaceWidth, surfaceWidth);
+  return clampRatioAt(boundary / shared, surfaceWidth);
 }

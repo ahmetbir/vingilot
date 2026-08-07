@@ -23,6 +23,7 @@
 import * as React from "react";
 
 import {
+  DIVIDER_PX,
   MAX_RATIO,
   MIN_RATIO,
   ratioFromPointer,
@@ -94,7 +95,7 @@ export function PaneDivider({
       aria-valuemax={percent(MAX_RATIO)}
       aria-valuemin={percent(MIN_RATIO)}
       aria-valuenow={percent(ratio)}
-      className={`group flex w-2 shrink-0 cursor-col-resize items-stretch justify-center outline-none ${
+      className={`group flex shrink-0 cursor-col-resize items-stretch justify-center outline-none ${
         dragging ? "bg-primary/20" : "hover:bg-muted/60"
       } focus-visible:bg-primary/30`}
       data-testid="pane-divider"
@@ -121,6 +122,12 @@ export function PaneDivider({
       }}
       ref={focusRef}
       role="separator"
+      // Sized from the model's own constant rather than from a width class:
+      // `clampRatioAt` subtracts this width before applying the terminal's
+      // floor, and two numbers for one divider is how the floor came to land a
+      // column short of the count it is named for. A rem-based class would also
+      // change width under ⌘+ zoom while the constant did not.
+      style={{ width: DIVIDER_PX }}
       tabIndex={0}
       title="Drag to resize, double-click to reset, ← → to adjust, Enter to hide the right pane"
     >

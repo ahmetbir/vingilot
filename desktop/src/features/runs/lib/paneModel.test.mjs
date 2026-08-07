@@ -124,25 +124,77 @@ test("a no-op returns the same layout object, so no write is provoked", () => {
   assert.notEqual(withRight(layout, WT, "diff"), layout);
 });
 
-test("a drag reads as a ratio of the surface it is inside", () => {
-  assert.equal(ratioFromPointer(100, 2000, 1100), 0.5);
-  assert.equal(ratioFromPointer(0, 2000, 1999), MAX_RATIO);
-});
+// What the browser gives the left pane, worked out from the row `WorkSurface`
+// draws rather than from the model that sizes it: three members — a left
+// `<section>` with `basis-0` and `flexGrow: share`, an 8px divider, a right
+// `<section>` the same way. Flexbox hands the two sections whatever the
+// divider leaves, in proportion to their grow factors.
+//
+// **The 8 and the two numbers below are written out, not imported.** A test
+// that borrowed the constants it is checking cannot see them move, and that is
+// precisely how a floor named "80 columns" shipped landing 79: the old
+// assertion was `clampRatioAt(0.01, w) * w === MIN_LEFT_PX`, which is the
+// model's arithmetic against itself and passes at any consistent wrongness.
+const RENDERED_DIVIDER_PX = 8;
+
+function renderedLeftPx(ratio, surfaceWidth) {
+  return (surfaceWidth - RENDERED_DIVIDER_PX) * ratio;
+}
+
+/** Columns of @xterm/xterm's stock 15px monospace that fit in a left pane of
+ * `px`, both numbers measured on the real surface: a 636px pane fits 68
+ * columns, which is 9.1px a column once the pane's `px-2` and xterm's
+ * scrollbar gutter — 32px together — are out of it. */
+function renderedColumns(px) {
+  return Math.floor((px - 32) / 9);
+}
 
 test("no drag can take the terminal under 80 columns while the surface can hold it", () => {
   // The measured defect: on a 549px surface the ratio clamp let a drag reach
   // 12 columns, and under tmux the attached client's size is the session's
   // size — every line of the scrollback re-wraps and dragging back does not
   // un-wrap it.
-  const wide = 2000;
-  assert.equal(ratioFromPointer(0, wide, 10) * wide, MIN_LEFT_PX);
-  assert.equal(clampRatioAt(0.01, wide) * wide, MIN_LEFT_PX);
-  assert.equal(clampRatioAt(MIN_RATIO, wide) * wide, MIN_LEFT_PX);
-  // And the right pane keeps a floor of its own at the other end, wherever
-  // that bites before the taste clamp does.
-  const mid = 1000;
-  assert.ok(MAX_RATIO * mid > mid - MIN_RIGHT_PX);
-  assert.equal(clampRatioAt(0.99, mid) * mid, mid - MIN_RIGHT_PX);
+  //
+  // 1195 is the surface a maximised window on the owner's display gives, and
+  // the width at which the floor was landing 747px/79 columns.
+  for (const surface of [1195, 1280, 2000]) {
+    for (const asked of [0.01, MIN_RATIO, 0.3]) {
+      const left = renderedLeftPx(clampRatioAt(asked, surface), surface);
+      assert.ok(
+        renderedColumns(left) >= 80,
+        `${surface}px surface, asked ${asked}: ${renderedColumns(left)} columns in ${left}px`,
+      );
+    }
+    const dragged = ratioFromPointer(0, surface, 10);
+    assert.ok(
+      renderedColumns(renderedLeftPx(dragged, surface)) >= 80,
+      `${surface}px surface, dragged to the left edge`,
+    );
+  }
+});
+
+test("the floor is a floor and not a layout — it costs the terminal nothing it asked for", () => {
+  // One column over the floor is what the floor should cost, not none and not
+  // two: a floor that overshot would be a layout this file had chosen for him.
+  const surface = 1195;
+  const left = renderedLeftPx(clampRatioAt(0.01, surface), surface);
+  assert.equal(renderedColumns(left), 80);
+  assert.equal(Math.round(left), MIN_LEFT_PX);
+});
+
+test("the right pane keeps a floor of its own at the other end", () => {
+  const surface = 1000;
+  const shared = surface - RENDERED_DIVIDER_PX;
+  const right = shared - renderedLeftPx(clampRatioAt(0.99, surface), surface);
+  assert.ok(Math.abs(right - MIN_RIGHT_PX) < 1e-9, `${right}px right pane`);
+});
+
+test("the pointer aims at the divider's middle, which is where the boundary looks", () => {
+  // The divider stands in the row rather than being drawn on the boundary, so
+  // a pointer 1100px into a 2000px surface starting at 100 is holding a
+  // divider whose left edge is at 996 — half the surface, not 1000/2000 of it.
+  assert.equal(ratioFromPointer(100, 2000, 1100), 0.5);
+  assert.equal(ratioFromPointer(0, 2000, 1999), MAX_RATIO);
 });
 
 test("a surface too narrow for both floors gives the terminal the room", () => {

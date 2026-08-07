@@ -150,6 +150,45 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     await expect(page.getByTestId("pane-right-rail")).toBeVisible();
   });
 
+  test("dragging the divider to the left edge still leaves the terminal 80 columns", async ({
+    page,
+  }) => {
+    // `paneModel.test.mjs` says what the clamp computes. What only a browser
+    // can say is how wide the pane it computed for actually came out — and the
+    // two disagreed: the floor divided by the whole surface while the row also
+    // holds the divider, so the terminal landed 747px/79 columns on a surface
+    // the model believed it had given 752. A unit test asserting the model
+    // against its own arithmetic could not see that, and passed.
+    await page.setViewportSize({ height: 900, width: 1600 });
+    await openWorkspace(page);
+    await page.getByTestId("projects-nav-repo-repo-left").click();
+
+    const divider = page.getByTestId("pane-divider");
+    await expect(divider).toBeVisible();
+    // The divider is a member of the row, and `DIVIDER_PX` is the width the
+    // clamp subtracts for it. If this stops being 8, the clamp is subtracting
+    // for a divider that is not there.
+    const dividerBox = await divider.boundingBox();
+    expect(dividerBox?.width).toBe(8);
+
+    // All the way left, past every stop the clamp has.
+    const from = {
+      x: dividerBox?.x ?? 0,
+      y: (dividerBox?.y ?? 0) + (dividerBox?.height ?? 0) / 2,
+    };
+    await page.mouse.move(from.x + 4, from.y);
+    await page.mouse.down();
+    await page.mouse.move(0, from.y, { steps: 12 });
+    await page.mouse.up();
+
+    // Measured, not derived: the pane's own box, converted to columns by the
+    // two numbers the terminal is actually drawn with — 9px a cell, 32px of
+    // `px-2` plus xterm's scrollbar gutter.
+    const left = await page.getByTestId("pane-left").boundingBox();
+    const columns = Math.floor(((left?.width ?? 0) - 32) / 9);
+    expect(columns).toBeGreaterThanOrEqual(80);
+  });
+
   test("a collapsed column comes back collapsed, and only for its own project", async ({
     page,
   }) => {

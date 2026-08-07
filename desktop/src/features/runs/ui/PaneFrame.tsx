@@ -25,7 +25,12 @@ interface PaneFrameProps {
   side: "left" | "right";
   /** This side's share of the surface. Applied as a flex grow factor against a
    * zero basis, so the two sides split whatever the divider leaves without
-   * either one being able to push the other out of the row. */
+   * either one being able to push the other out of the row.
+   *
+   * **"Whatever the divider leaves" is `surfaceWidth − DIVIDER_PX`**, and that
+   * is the width `paneModel.ts` applies its floors to. A share computed
+   * against the whole surface would put the terminal a column under the floor
+   * that is supposed to guarantee it. */
   share: number;
   /** The picker, or a static label for a side that does not offer one. */
   chooser: React.ReactNode;
