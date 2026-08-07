@@ -1,8 +1,14 @@
 // The selected worktree's tabbed work surface: Terminal (default, per the
 // layout contract — iTerm: the terminal is the work surface, not a
-// drawer), Diff (this worktree's real changes, `WorktreeDiffPanel`), Evidence
+// drawer), Diff (this worktree's real changes, `WorktreeDiffPanel`), Agent
+// (hand this worktree to an ACP agent for one turn, `AgentPanel`), Evidence
 // (the owner run's transcript, its committed diffs included), Runs. Owns the ⌘1…9 / ⌘` / Esc key map and the
 // terminal-tab keys ⌘T / ⇧⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`).
+//
+// Agent sits next to Diff because that is the order they are used in: a turn
+// finishes, and the next thing anyone wants is the diff it produced. The two
+// never share state — the agent reports what it *said*, git reports what
+// changed.
 //
 // It renders a `<Terminal>` per open session (hidden, not torn down, when it
 // is not the one showing) but it does not own that list, and must not: this
@@ -34,6 +40,7 @@ import type {
   WorktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
 import { usePolling } from "@/features/runs/lib/usePolling";
+import { AgentPanel } from "@/features/runs/ui/AgentPanel";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
 import { RunList } from "@/features/runs/ui/RunList";
@@ -42,7 +49,7 @@ import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
 import { WorktreeDiffPanel } from "@/features/runs/ui/WorktreeDiffPanel";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
-type Tab = "terminal" | "diff" | "evidence" | "runs";
+type Tab = "terminal" | "diff" | "agent" | "evidence" | "runs";
 
 interface WorkSurfaceProps {
   workspaceId: string;
@@ -71,6 +78,7 @@ interface WorkSurfaceProps {
 const TABS: Array<{ key: Tab; label: string }> = [
   { key: "terminal", label: "Terminal" },
   { key: "diff", label: "Diff" },
+  { key: "agent", label: "Agent" },
   { key: "evidence", label: "Evidence" },
   { key: "runs", label: "Runs" },
 ];
@@ -218,6 +226,9 @@ export function WorkSurface({
             key={selectedWorktree.binding_id}
             worktree={selectedWorktree}
           />
+        ) : null}
+        {activeTab === "agent" && selectedWorktree !== null ? (
+          <AgentPanel cwd={worktreeCwd} key={selectedWorktree.binding_id} />
         ) : null}
         {activeTab === "evidence" ? (
           <EvidenceTab ownerRunId={selectedWorktree?.owner_run_id ?? null} />

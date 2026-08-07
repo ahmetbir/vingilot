@@ -21,7 +21,7 @@ Three columns, left to right (`ui/RunsScreen.tsx`):
 |---|---|---|
 | **Projects** (`ProjectsNav`) | the local checkouts the owner has added, plus a project-less landing view | pick what you are working on. `+ Add project` opens the native folder picker; the choice is validated as a git repository *before* any workspace state is written. **Removing a project forgets the path — it never touches the directory on disk.** |
 | **Worktrees** (`WorktreeColumn`) | that project's worktrees: its own checkout plus every `git worktree` | pick where you are working. New worktrees are `git worktree add`; closing one is `git worktree remove`, never a recursive delete. If git refuses because the tree is dirty, what is dirty is shown and nothing happens — that refusal is the feature. |
-| **Work surface** (`WorkSurface`) | four tabs: **Terminal** (default), **Diff**, **Evidence**, **Runs** | do the work. Terminal is the default because in iTerm the terminal *is* the work surface, not a drawer. |
+| **Work surface** (`WorkSurface`) | five tabs: **Terminal** (default), **Diff**, **Agent**, **Evidence**, **Runs** | do the work. Terminal is the default because in iTerm the terminal *is* the work surface, not a drawer. |
 
 A persistent `ProjectStatusBar` names where the owner is and what is backing
 the terminals.
@@ -127,6 +127,56 @@ pressed. It is never polled — a `git diff` over a real worktree every two
 seconds is a permanent load on the machine to answer a question nobody asked
 twice.
 
+## The Agent tab, and the difference between wiring and judgement
+
+A worktree can be handed to an **ACP agent** for one turn: a prompt, the
+agent's own transcript, and then the Diff tab to read what it changed. ACP is
+the protocol this repo already speaks to agents with (`crates/buzz-acp`) —
+JSON-RPC 2.0 as newline-delimited JSON over a subprocess's stdio, with
+`initialize`, `session/new` carrying the working directory, and
+`session/prompt`. Any adapter that speaks it works here: `claude-agent-acp`,
+`codex-acp`, `goose`.
+
+**Which agent, and how it is found.** `VINGILOT_ACP_AGENT_COMMAND` first, then
+`BUZZ_ACP_AGENT_COMMAND` — the harness's own variable, so a machine already set
+up for `buzz-acp` needs no second setting. Arguments come from the *same*
+namespace as the command that won (`*_ACP_AGENT_ARGS`, comma-separated), never
+mixed across the two. **There is no default agent**: with neither variable set
+the panel says so and names both, rather than picking one and failing to spawn
+a binary the owner never asked for. The lookup is `PATH` first, then
+`/opt/homebrew/bin` and `/usr/local/bin`, because an app launched from Finder
+does not inherit a login shell's `PATH`.
+
+**The boundary, said plainly.** The agent runs as a child of this app, with the
+owner's account, environment, and credentials, and its working directory is the
+worktree. **A worktree is a collision boundary, not a security boundary**
+(ADR-003) — it keeps one agent's work off another branch; it does not hold the
+agent inside it. Permission requests are answered `allow_once` and every grant
+is written into the transcript, so the run is auditable rather than quietly
+permissive. Nothing in this feature's copy may read as isolated, sandboxed, or
+contained, and `agentTurn.test.mjs` fails the build if it starts to.
+
+**Every wait is bounded**: 60 s for the handshake, 300 s of silence during a
+turn, 30 min absolute. A turn that is given up on leaves what the agent already
+changed exactly where it is — the panel says so, because the diff is the only
+thing that knows.
+
+**What is proven, and what is not.** `vingilot_agent/live.rs` drives the
+shipping code — the turn, `git worktree add`, and the diff read — against a real
+git repository: the agent edits a file in *its* worktree, the diff surface
+reports `+2 −0` on that file, the project's own checkout is untouched, the
+permission handed back is the option id the agent minted, a silent agent is
+given up on, and a dying one reports what it wrote on the way out. It was also
+run once against a throwaway repository outside the tree, which is the form the
+owner asked for.
+
+**The agent in those tests is a stub** — forty lines of `/bin/sh` that speak
+ACP correctly and decide nothing. No ACP adapter was installed on the machine
+this was written on (`claude-agent-acp`, `codex-acp`, `goose`: none; the
+installed `codex` CLI has no ACP mode), and nothing was installed to make one
+appear. So this proves the **wiring**, end to end, and says nothing about any
+real agent's judgement. Those are two different claims and are not merged here.
+
 ## What this workspace deliberately does not do
 
 - **No editor.** VS Code's real value in the owner's screenshots is *reading a
@@ -143,24 +193,32 @@ twice.
   is a stop-and-ask.
 - **No agent runs by default.** Running a real coding agent as a Run's command
   is configuration (`VINGILOT_CMD`), not code — and deliberately not wired up:
-  see the note under *Work products* below.
+  see the note under *Work products* below. The Agent tab is the other door and
+  is configuration too: with no `*_ACP_AGENT_COMMAND` set, nothing spawns.
+- **No agent judgement is claimed.** The Agent tab's proof used a stub that
+  speaks ACP and decides nothing, because no adapter was installed. See *The
+  Agent tab* above.
 
 ## Where things live
 
 - **Island (fork-owned, additive):** `desktop/src/features/runs/**`
   - `lib/` — coordinator client, polling, run model, budget/legalNext,
     provision spec, reachability, projects/worktrees, the terminal tab model
-    and key maps, the diff model. All pure modules carry their `.test.mjs`
+    and key maps, the diff model, the agent turn model. All pure modules carry
+    their `.test.mjs`
     next to them; desktop's own `pnpm test` glob runs them.
   - `ui/` — `RunsScreen` (the three columns), `ProjectsNav`, `WorktreeColumn`,
     `WorkSurface`, `Terminal`, `TerminalTabStrip`, `WorktreeDiffPanel`,
+    `AgentPanel`,
     `NewWorktreeDialog`, `ProjectStatusBar`, plus the pre-existing `RunList`,
     `DeckPane`, `RunDetail`, `BudgetBar`, `StopAllButton` (hold-to-engage),
     `UnreachableBanner`, `RunsLoadingFallback`.
 - **Island (fork-owned, Rust):** `desktop/src-tauri/src/vingilot_pty/**` (the
   PTY sessions, their scrollback, tmux backing, and the live proof),
   `vingilot_repo/**` (read-only probe of a picked directory),
-  `vingilot_worktree/**` (worktree add/list/remove and the diff read).
+  `vingilot_worktree/**` (worktree add/list/remove and the diff read),
+  `vingilot_agent/**` (the ACP client over an agent subprocess, which agent to
+  run, the transcript, and the end-to-end proof).
 - **Touch-points (declared in `vingilot/seams.yaml`):** the sidebar nav entry,
   the `/workspace` route registration, and the command registry in
   `src-tauri/src/lib.rs`. Kept to a few lines each — these are the files

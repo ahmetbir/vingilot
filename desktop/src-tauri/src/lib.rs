@@ -36,6 +36,7 @@ mod templates;
 #[cfg(target_os = "macos")]
 mod tray_menu;
 mod util;
+mod vingilot_agent;
 mod vingilot_pty;
 mod vingilot_repo;
 mod vingilot_worktree;
@@ -653,6 +654,8 @@ pub fn run() {
             merge_project_pull_request,
             open_project_terminal,
             open_project_merge_recovery_terminal,
+            vingilot_agent::agent_probe,
+            vingilot_agent::agent_run,
             vingilot_pty::pty_open,
             vingilot_pty::pty_write,
             vingilot_pty::pty_resize,

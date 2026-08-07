@@ -35,7 +35,7 @@
 pub mod diff;
 mod porcelain;
 #[cfg(test)]
-mod testrepo;
+pub(crate) mod testrepo;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -295,7 +295,12 @@ fn list(repo: &str) -> Result<Vec<GitWorktree>, WorktreeError> {
     Ok(parse_worktree_list(&ran.stdout))
 }
 
-fn add(repo: &str, branch: &str, base: &str, path: &str) -> Result<GitWorktree, WorktreeError> {
+pub(crate) fn add(
+    repo: &str,
+    branch: &str,
+    base: &str,
+    path: &str,
+) -> Result<GitWorktree, WorktreeError> {
     ensure_repo(repo)?;
 
     // Ask git what a valid branch name is rather than deciding here: the rules
@@ -387,7 +392,7 @@ fn dirty_entries(path: &str) -> Result<Vec<String>, WorktreeError> {
         .collect())
 }
 
-fn remove(repo: &str, path: &str) -> Result<(), WorktreeError> {
+pub(crate) fn remove(repo: &str, path: &str) -> Result<(), WorktreeError> {
     let known = list(repo)?;
     let target = known
         .iter()

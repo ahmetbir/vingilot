@@ -480,7 +480,7 @@ fn untracked_changes(worktree: &str) -> Result<(Vec<DiffFile>, usize), WorktreeE
     Ok((files, omitted))
 }
 
-fn diff(worktree: &str, base: &str) -> Result<WorktreeDiff, WorktreeError> {
+pub(crate) fn diff(worktree: &str, base: &str) -> Result<WorktreeDiff, WorktreeError> {
     ensure_repo(worktree)?;
     if !answers_yes(
         worktree,
