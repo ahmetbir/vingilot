@@ -188,6 +188,38 @@ zero upstream diff:
 a diff outside `vingilot/`, so the seam-inventory CI rule in decision 6 already
 fails it. A rebrand that reaches the platform cannot land quietly.
 
+### 2026-08-07: the sidebar collision — our island takes "Projects", upstream's becomes "Repos"
+
+The rule above says upstream keeps upstream names. This is the one deliberate
+exception, and it is worth recording precisely because it is one.
+
+Upstream ships `desktop/src/features/projects/` — sixty-odd files covering
+relay-hosted repositories, issues, pull requests, reviews, and commit diffs,
+with a nav item labelled **Projects**. The Vingilot island grew its own
+projects-and-worktrees screen, which the owner opens all day and which he named
+himself when choosing the layout. Two nav items called Projects is not a naming
+preference; it is a screen the owner cannot navigate.
+
+**Decision:** the island's nav item is **Projects**. Upstream's is relabelled
+**Repos** — which is literally what it lists. One string in
+`desktop/src/features/sidebar/ui/AppSidebarPinnedHeader.tsx`, declared as a seam.
+Nothing else about upstream's feature is touched: its screens, routes, and logic
+are untouched and it remains fully reachable.
+
+Note this violates the letter of "upstream identifiers keep upstream names" while
+serving its purpose. That rule exists because **a rename is a merge conflict**;
+its cost is measured in diff surface, not in principle. This rename is one label
+string, which is the cheapest possible upstream touch, and the thing it buys —
+a sidebar the owner can read — is the reason the fork exists at all.
+
+**Route:** the island took `/workspace`, not `/projects`, because upstream already
+owns `/projects`. The URL and the label deliberately differ; the label is what the
+owner sees and the route is what does not collide.
+
+**This is cheap to reverse.** Changing one label back costs one line, so if the
+owner would rather live with two Projects entries, or rather rename ours, that
+decision costs nothing to act on later.
+
 ## Consequences
 
 - Two Tauri applications are built and shipped from one repository. Build,

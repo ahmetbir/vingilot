@@ -173,7 +173,7 @@ seams:
     added: "2026-08-03"
 
   - path: "desktop/tests/e2e/deck-two-devices.spec.ts"
-    reason: "Task 4's E2E proof (vingilot/docs/plans/2026-08-04-deck-phase-3.md) that the pin set syncs across devices while the pin arrangement stays device-local. Lives at the upstream-owned desktop/tests/e2e/ path because that is where every Playwright spec in this repo lives and where playwright.config.ts's testDir points; a fork-owned location would need its own testDir/project wiring for one file."
+    reason: "Task 4's E2E proof (vingilot/docs/plans/2026-08-04-deck-phase-3.md) that the pin set syncs across devices while the pin arrangement stays device-local. Lives at the upstream-owned desktop/tests/e2e/ path because that is where every Playwright spec in this repo lives and where playwright.config.ts's testDir points; a fork-owned location would need its own testDir/project wiring for one file. Also carries the /runs -> /workspace route rename (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 5): three goto() strings, changed for the same reason every other route seam was."
     owner: "vingilot/runs"
     removable_when: "Never, while Deck's two-device split needs an E2E regression spec."
     status: "permanent"
