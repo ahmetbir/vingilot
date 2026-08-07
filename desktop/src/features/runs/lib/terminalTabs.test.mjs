@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   applyTabCommand,
+  closeWorktrees,
   dropWorktrees,
   emptyLayout,
   ensureWorktree,
@@ -272,6 +273,29 @@ test("a worktree merely switched away from keeps its tabs and its shells", () =>
 test("an empty live set is read as 'the workspace has not answered', not 'everything was removed'", () => {
   const layout = withTabs("main:a", 3);
   const change = dropWorktrees(layout, []);
+  assert.equal(change.layout, layout);
+  assert.deepEqual(change.closed, []);
+});
+
+test("removing a project closes every tab of every worktree it owned", () => {
+  let layout = withTabs("main:a", 2);
+  layout = ensureWorktree(layout, "bind-1");
+  layout = ensureWorktree(layout, "main:b");
+  const change = closeWorktrees(layout, ["main:a", "bind-1"]);
+  assert.deepEqual(Object.keys(change.layout), ["main:b"]);
+  assert.deepEqual(change.closed, ["main:a#1", "main:a#2", "bind-1#1"]);
+});
+
+test("closing worktrees that hold no tabs changes nothing", () => {
+  const layout = withTabs("main:a", 2);
+  const change = closeWorktrees(layout, ["main:b"]);
+  assert.equal(change.layout, layout);
+  assert.deepEqual(change.closed, []);
+});
+
+test("an empty removal list is a no-op, not a close-everything", () => {
+  const layout = withTabs("main:a", 2);
+  const change = closeWorktrees(layout, []);
   assert.equal(change.layout, layout);
   assert.deepEqual(change.closed, []);
 });

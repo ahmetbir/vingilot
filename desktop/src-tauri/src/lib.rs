@@ -37,6 +37,7 @@ mod templates;
 mod tray_menu;
 mod util;
 mod vingilot_pty;
+mod vingilot_repo;
 #[cfg(target_os = "linux")]
 pub mod webkit_rendering;
 use app_state::{build_app_state, resolve_persisted_identity, AppState};
@@ -656,6 +657,7 @@ pub fn run() {
             vingilot_pty::pty_resize,
             vingilot_pty::pty_close,
             vingilot_pty::pty_backing,
+            vingilot_repo::repo_probe,
             search_users,
             get_presence,
             get_os_idle_seconds,

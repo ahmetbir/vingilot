@@ -3,8 +3,29 @@
 // landing view (the Deck). Mirrors RunList's "+ New run" row style — this
 // replaces RunList as the screen's front door; RunList itself moves into
 // WorkSurface's Runs tab (see vingilot/docs/plans/2026-08-06-projects-and-terminal.md).
+//
+// It is also where projects are added and forgotten
+// (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 4), which until now
+// meant curl against the coordinator's mutations endpoint. The confirm before
+// a removal is a deliberate interruption and its exact words are a tested
+// promise (`lib/repoChoice.ts`'s `removeProjectConfirm`): **removing forgets
+// a path.** Nothing in this feature deletes, moves, or writes anything inside
+// a project directory.
+
+import * as React from "react";
 
 import type { Repo } from "@/features/runs/lib/projects";
+import { removeProjectConfirm } from "@/features/runs/lib/repoChoice";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/ui/alert-dialog";
 
 interface ProjectsNavProps {
   repos: Repo[];
@@ -12,14 +33,29 @@ interface ProjectsNavProps {
   selectedRepoId: string | null;
   onSelectRepo: (id: string) => void;
   onSelectLanding: () => void;
+  onAddProject: () => void;
+  onRemoveProject: (repo: Repo) => void;
+  /** True while an add or a remove is in flight. */
+  pending: boolean;
+  /** The last refusal, in words the owner can act on. */
+  error: string | null;
+  onDismissError: () => void;
 }
 
 export function ProjectsNav({
+  error,
+  onAddProject,
+  onDismissError,
+  onRemoveProject,
   onSelectLanding,
   onSelectRepo,
+  pending,
   repos,
   selectedRepoId,
 }: ProjectsNavProps) {
+  const [confirming, setConfirming] = React.useState<Repo | null>(null);
+  const confirm = confirming === null ? null : removeProjectConfirm(confirming);
+
   return (
     <div
       className="flex min-h-0 w-48 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border/60 px-2 py-3"
@@ -50,23 +86,88 @@ export function ProjectsNav({
       ) : (
         <ul className="flex flex-col gap-0.5">
           {repos.map((repo) => (
-            <li key={repo.id}>
+            <li className="group flex items-center gap-0.5" key={repo.id}>
               <button
-                className={`w-full truncate rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+                className={`min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
                   repo.id === selectedRepoId
                     ? "bg-muted font-medium text-foreground"
                     : "text-muted-foreground hover:bg-muted/60"
                 }`}
                 data-testid={`projects-nav-repo-${repo.id}`}
                 onClick={() => onSelectRepo(repo.id)}
+                title={repo.path}
                 type="button"
               >
                 {repo.name}
+              </button>
+              <button
+                aria-label={`remove ${repo.name}`}
+                className="shrink-0 rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                data-testid={`projects-nav-remove-${repo.id}`}
+                disabled={pending}
+                onClick={() => setConfirming(repo)}
+                title={`Remove ${repo.name} — forgets the path, never touches the folder`}
+                type="button"
+              >
+                ×
               </button>
             </li>
           ))}
         </ul>
       )}
+
+      <button
+        className="mt-1 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+        data-testid="projects-nav-add"
+        disabled={pending}
+        onClick={onAddProject}
+        type="button"
+      >
+        + Add project
+      </button>
+
+      {error === null ? null : (
+        <div
+          className="mt-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5"
+          data-testid="projects-nav-error"
+        >
+          <p className="text-xs text-destructive">{error}</p>
+          <button
+            className="mt-1 text-3xs uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+            data-testid="projects-nav-error-dismiss"
+            onClick={onDismissError}
+            type="button"
+          >
+            dismiss
+          </button>
+        </div>
+      )}
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null);
+        }}
+        open={confirming !== null}
+      >
+        <AlertDialogContent data-testid="projects-nav-remove-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirm?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirm?.body}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="projects-nav-remove-confirm-action"
+              onClick={() => {
+                if (confirming !== null) onRemoveProject(confirming);
+                setConfirming(null);
+              }}
+            >
+              {confirm?.confirmLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

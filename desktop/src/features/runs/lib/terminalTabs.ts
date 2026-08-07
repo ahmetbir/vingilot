@@ -286,10 +286,38 @@ export function dropWorktrees(
 ): TabLayoutChange {
   if (liveBindingIds.length === 0) return { closed: [], layout };
   const live = new Set(liveBindingIds);
+  return dropWhere(layout, (bindingId) => !live.has(bindingId));
+}
+
+/** Close named worktrees outright — the owner removed the project that owns
+ * them, so their checkouts are no longer anything this workspace can reach.
+ *
+ * The complement of `dropWorktrees`, and separate from it because the two are
+ * told different things. Liveness is polled, so "not in the live set" is only
+ * probably gone and has to be read defensively; this is an act the owner
+ * performed, so it needs no such caution and must not wait a poll interval to
+ * take effect — a project's shells should end when it leaves, not a couple of
+ * seconds later. */
+export function closeWorktrees(
+  layout: TabLayout,
+  bindingIds: readonly string[],
+): TabLayoutChange {
+  if (bindingIds.length === 0) return { closed: [], layout };
+  const doomed = new Set(bindingIds);
+  return dropWhere(layout, (bindingId) => doomed.has(bindingId));
+}
+
+/** Drop every worktree the predicate accepts, naming each session that went
+ * with it. Returns the original layout untouched when nothing matched, so a
+ * caller can use reference equality to skip the write. */
+function dropWhere(
+  layout: TabLayout,
+  drop: (bindingId: string) => boolean,
+): TabLayoutChange {
   const closed: string[] = [];
   const kept: Record<string, WorktreeTabs> = {};
   for (const [bindingId, tabs] of Object.entries(layout)) {
-    if (live.has(bindingId)) {
+    if (!drop(bindingId)) {
       kept[bindingId] = tabs;
       continue;
     }

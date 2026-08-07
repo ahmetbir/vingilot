@@ -50,6 +50,7 @@ import {
 } from "@/features/runs/lib/terminalTabStore";
 import {
   applyTabCommand,
+  closeWorktrees,
   dropWorktrees,
   ensureWorktree,
   type TabCommand,
@@ -57,6 +58,7 @@ import {
   worktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
 import { usePolling } from "@/features/runs/lib/usePolling";
+import { useProjectActions } from "@/features/runs/lib/useProjectActions";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
@@ -269,6 +271,34 @@ export function RunsScreen() {
     [tabLayout, selectedWorktreeId],
   );
 
+  // A project the owner just forgot. Its worktrees are unreachable now, so
+  // their shells end with it rather than surviving until the next poll
+  // notices the repo is gone — the binding ids come from `grouped`, which
+  // still holds them, because the workspace snapshot this screen polls has
+  // not caught up yet. That lag is the whole reason this is explicit rather
+  // than left to `dropWorktrees`.
+  const handleProjectRemoved = React.useCallback(
+    (repoId: string) => {
+      const bindingIds = (grouped.byRepo[repoId] ?? []).map(
+        (wt) => wt.binding_id,
+      );
+      const { closed, layout } = closeWorktrees(tabLayout, bindingIds);
+      if (closed.length > 0) {
+        setTabLayout(layout);
+        for (const sessionId of closed) void ptyClose(sessionId);
+      }
+      // Standing inside the project that just left: the landing view is the
+      // only place left to be.
+      if (selectedRepoId === repoId) selectLanding();
+    },
+    [grouped, tabLayout, selectedRepoId, selectLanding],
+  );
+
+  const projectActions = useProjectActions({
+    onRemoved: handleProjectRemoved,
+    workspaceId: WORKSPACE_ID,
+  });
+
   const terminals = React.useMemo(
     () => openTerminals(tabLayout, index, worktreeRoot),
     [tabLayout, index, worktreeRoot],
@@ -316,8 +346,13 @@ export function RunsScreen() {
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ProjectsNav
+          error={projectActions.error}
+          onAddProject={projectActions.addProject}
+          onDismissError={projectActions.dismissError}
+          onRemoveProject={projectActions.removeProject}
           onSelectLanding={selectLanding}
           onSelectRepo={selectRepo}
+          pending={projectActions.pending}
           repos={repos}
           selectedRepoId={selectedRepoId}
         />
