@@ -135,6 +135,7 @@ export default defineConfig({
         "**/huddle-transcription.spec.ts",
         "**/deck-two-devices.spec.ts",
         "**/workspace-no-overlays.spec.ts",
+        "**/workspace-columns.spec.ts",
       ],
       use: {
         ...devices["Desktop Chrome"],

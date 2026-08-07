@@ -17,6 +17,13 @@
 // - It runs `git worktree remove`, which refuses when there is uncommitted
 //   work in the tree. The refusal is shown, with the dirty paths listed, and
 //   nothing is removed. There is no override anywhere in this feature.
+//
+// Collapsed, it is a rail rather than nothing (`lib/useColumns.ts` owns the
+// flag and its ⇧⌘B binding). A collapsed column plus a shortcut the owner has
+// to remember is a trap: the rail's button is the way back, and it is the
+// reason this column is safe to hide at all. The dialogs stay mounted in both
+// states — collapsing the column while a confirm is open must not take the
+// confirm with it.
 
 import * as React from "react";
 
@@ -51,6 +58,10 @@ interface WorktreeColumnProps {
    * which is also when nothing here is removable. */
   worktreeRoot: string | null;
   actions: WorktreeActions;
+  /** True while this column is a rail. Nothing is unmounted by collapsing —
+   * the worktrees are still open, still running, still selected. */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
 const STATE_DOT_CLASS: Record<WorktreeSummary["stateClass"], string> = {
@@ -62,9 +73,47 @@ const STATE_DOT_CLASS: Record<WorktreeSummary["stateClass"], string> = {
   muted: "bg-muted-foreground/40",
 };
 
+/** The column when it is collapsed: a rail whose only job is to be the way
+ * back, and to say how much is behind it. */
+function CollapsedRail({
+  count,
+  onExpand,
+  repoName,
+}: {
+  count: number;
+  onExpand: () => void;
+  repoName: string;
+}) {
+  return (
+    <div
+      className="flex min-h-0 w-9 shrink-0 flex-col items-center gap-1 border-r border-border/60 py-3"
+      data-testid="worktree-column-rail"
+    >
+      <button
+        aria-label={`show the worktrees for ${repoName}`}
+        className="rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+        data-testid="worktree-column-expand"
+        onClick={onExpand}
+        title={`${repoName} — show worktrees (⇧⌘B)`}
+        type="button"
+      >
+        ›
+      </button>
+      <span
+        aria-hidden="true"
+        className="text-3xs tabular-nums text-muted-foreground/70"
+      >
+        {count}
+      </span>
+    </div>
+  );
+}
+
 export function WorktreeColumn({
   actions,
+  collapsed,
   onSelectWorktree,
+  onToggleCollapsed,
   repo,
   selectedWorktreeId,
   worktreeRoot,
@@ -78,115 +127,142 @@ export function WorktreeColumn({
     confirming === null ? null : removeWorktreeConfirm(confirming);
 
   return (
-    <div
-      className="flex min-h-0 w-56 shrink-0 flex-col overflow-y-auto border-r border-border/60 px-2 py-3"
-      data-testid="worktree-column"
-    >
-      <h2 className="truncate px-2 text-sm font-semibold" title={repo.name}>
-        {repo.name}
-      </h2>
-
-      {worktrees.length === 0 ? (
-        <p className="px-2 py-4 text-xs text-muted-foreground">
-          no worktrees yet
-        </p>
+    <>
+      {collapsed ? (
+        <CollapsedRail
+          count={worktrees.length}
+          onExpand={onToggleCollapsed}
+          repoName={repo.name}
+        />
       ) : (
-        <ul className="mt-2 flex flex-col gap-0.5">
-          {worktrees.map((wt, index) => {
-            const summary = worktreeSummary(wt);
-            const shortcutDigit = index < 9 ? index + 1 : null;
-            const removable = removableWorktree(repo, wt, worktreeRoot);
-            return (
-              <li
-                className="group flex items-start gap-0.5"
-                key={wt.binding_id}
-              >
-                <button
-                  className={`flex min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                    wt.binding_id === selectedWorktreeId
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:bg-muted/60"
-                  }`}
-                  data-testid={`worktree-row-${wt.binding_id}`}
-                  onClick={() => onSelectWorktree(wt.binding_id)}
-                  type="button"
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`mt-1 h-2 w-2 shrink-0 rounded-full ${STATE_DOT_CLASS[summary.stateClass]}`}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {summary.label}
-                      </span>
-                      {shortcutDigit !== null ? (
-                        <span className="shrink-0 text-3xs text-muted-foreground/60">
-                          ⌘{shortcutDigit}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="block text-2xs text-muted-foreground/80">
-                      {summary.diff !== null
-                        ? `+${summary.diff.added} −${summary.diff.removed}`
-                        : summary.stateClass === "clean"
-                          ? "clean"
-                          : wt.owner_run_status}
-                    </span>
-                  </span>
-                </button>
-                {removable === null ? null : (
-                  <button
-                    aria-label={`remove the worktree for ${removable.label}`}
-                    className="mt-1 shrink-0 rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                    data-testid={`worktree-remove-${wt.binding_id}`}
-                    disabled={actions.pending}
-                    onClick={() => setConfirming(removable)}
-                    title="Remove this worktree — git refuses if anything in it is uncommitted"
-                    type="button"
-                  >
-                    ×
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      <button
-        className="mt-1 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
-        data-testid="worktree-column-new"
-        disabled={actions.pending}
-        onClick={() => setCreating(true)}
-        type="button"
-      >
-        + New worktree
-      </button>
-
-      {actions.refusal === null || creating ? null : (
         <div
-          className="mt-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5"
-          data-testid="worktree-column-refusal"
+          className="flex min-h-0 w-56 shrink-0 flex-col overflow-y-auto border-r border-border/60 px-2 py-3"
+          data-testid="worktree-column"
         >
-          <p className="text-xs text-destructive">{actions.refusal.message}</p>
-          {actions.refusal.entries.length === 0 ? null : (
-            <ul className="mt-1 flex flex-col gap-0.5 font-mono text-2xs text-muted-foreground">
-              {actions.refusal.entries.map((entry) => (
-                <li className="truncate" key={entry} title={entry}>
-                  {entry}
-                </li>
-              ))}
+          <div className="flex items-center gap-1 px-2">
+            <h2
+              className="min-w-0 flex-1 truncate text-sm font-semibold"
+              title={repo.name}
+            >
+              {repo.name}
+            </h2>
+            <button
+              aria-label="hide the worktrees"
+              className="shrink-0 rounded px-1 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              data-testid="worktree-column-collapse"
+              onClick={onToggleCollapsed}
+              title="Hide worktrees (⇧⌘B)"
+              type="button"
+            >
+              ‹
+            </button>
+          </div>
+
+          {worktrees.length === 0 ? (
+            <p className="px-2 py-4 text-xs text-muted-foreground">
+              no worktrees yet
+            </p>
+          ) : (
+            <ul className="mt-2 flex flex-col gap-0.5">
+              {worktrees.map((wt, index) => {
+                const summary = worktreeSummary(wt);
+                const shortcutDigit = index < 9 ? index + 1 : null;
+                const removable = removableWorktree(repo, wt, worktreeRoot);
+                return (
+                  <li
+                    className="group flex items-start gap-0.5"
+                    key={wt.binding_id}
+                  >
+                    <button
+                      className={`flex min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                        wt.binding_id === selectedWorktreeId
+                          ? "bg-muted text-foreground"
+                          : "text-muted-foreground hover:bg-muted/60"
+                      }`}
+                      data-testid={`worktree-row-${wt.binding_id}`}
+                      onClick={() => onSelectWorktree(wt.binding_id)}
+                      type="button"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${STATE_DOT_CLASS[summary.stateClass]}`}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {summary.label}
+                          </span>
+                          {shortcutDigit !== null ? (
+                            <span className="shrink-0 text-3xs text-muted-foreground/60">
+                              ⌘{shortcutDigit}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="block text-2xs text-muted-foreground/80">
+                          {summary.diff !== null
+                            ? `+${summary.diff.added} −${summary.diff.removed}`
+                            : summary.stateClass === "clean"
+                              ? "clean"
+                              : wt.owner_run_status}
+                        </span>
+                      </span>
+                    </button>
+                    {removable === null ? null : (
+                      <button
+                        aria-label={`remove the worktree for ${removable.label}`}
+                        className="mt-1 shrink-0 rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                        data-testid={`worktree-remove-${wt.binding_id}`}
+                        disabled={actions.pending}
+                        onClick={() => setConfirming(removable)}
+                        title="Remove this worktree — git refuses if anything in it is uncommitted"
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
+
           <button
-            className="mt-1 text-3xs uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
-            data-testid="worktree-column-refusal-dismiss"
-            onClick={actions.dismissRefusal}
+            className="mt-1 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+            data-testid="worktree-column-new"
+            disabled={actions.pending}
+            onClick={() => setCreating(true)}
             type="button"
           >
-            dismiss
+            + New worktree
           </button>
+
+          {actions.refusal === null || creating ? null : (
+            <div
+              className="mt-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5"
+              data-testid="worktree-column-refusal"
+            >
+              <p className="text-xs text-destructive">
+                {actions.refusal.message}
+              </p>
+              {actions.refusal.entries.length === 0 ? null : (
+                <ul className="mt-1 flex flex-col gap-0.5 font-mono text-2xs text-muted-foreground">
+                  {actions.refusal.entries.map((entry) => (
+                    <li className="truncate" key={entry} title={entry}>
+                      {entry}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                className="mt-1 text-3xs uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+                data-testid="worktree-column-refusal-dismiss"
+                onClick={actions.dismissRefusal}
+                type="button"
+              >
+                dismiss
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -225,6 +301,6 @@ export function WorktreeColumn({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }

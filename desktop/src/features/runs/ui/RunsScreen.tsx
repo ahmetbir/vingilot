@@ -10,6 +10,10 @@
 // unreachable-since clock, the STOP-all action, and the home-dir
 // resolution every terminal's cwd derives from.
 //
+// It is also where the collapsible chrome is bound (`lib/useColumns.ts`),
+// for the same reason: the flag is per project and must outlive both the
+// column it hides and any switch between projects.
+//
 // It also owns the terminal-tab layout — which worktrees have terminals open
 // and which tabs each of them holds — because it is the only component here
 // that never unmounts: `WorkSurface` disappears the moment the owner goes back
@@ -58,6 +62,7 @@ import {
   type TabLayout,
   worktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
+import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
@@ -211,6 +216,14 @@ export function RunsScreen() {
   const openRun = React.useCallback((id: string) => setSelectedRunId(id), []);
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId) ?? null;
+
+  // Which columns are out of the way, and the ⌘B / ⇧⌘B that put them there.
+  // Keyed by project rather than held here, so it survives both a project
+  // switch and a restart (`lib/useColumns.ts`).
+  const columns = useColumns({
+    hasWorktreeColumn: selectedRepo !== null,
+    projectId: selectedRepoId,
+  });
 
   // The terminal-tab layout, seeded from and mirrored back into storage
   // (lib/terminalTabStore.ts): this component unmounts on any route change
@@ -449,7 +462,9 @@ export function RunsScreen() {
           <>
             <WorktreeColumn
               actions={worktreeActions}
+              collapsed={columns.worktreesCollapsed}
               onSelectWorktree={setSelectedWorktreeId}
+              onToggleCollapsed={columns.toggleWorktrees}
               repo={selectedRepo}
               selectedWorktreeId={selectedWorktreeId}
               worktreeRoot={worktreeRoot}
