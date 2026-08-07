@@ -143,6 +143,13 @@ portable-pty = "0.9"
 # `test-util` enables tokio's paused-clock (`start_paused`) so the relay
 # admission gate tests can assert exact wait durations without real sleeps.
 tokio = { version = "1", features = ["test-util"] }
+# Vingilot: `test` exposes tauri::test::mock_app (MockRuntime, no window, no
+# webview), which is what lets the terminal's own commands be driven against a
+# real PTY in a normal `cargo test` — the shell's cwd, a reattach replay, and
+# tmux surviving its client are claims no screenshot can establish. The feature
+# is dev-only: `cargo build`/`cargo check` never see it, and it pulls in no
+# dependency of its own (tauri's `test = []`).
+tauri = { version = "2", features = ["test"] }
 # The relay's media validation, so the snapshot-sharing tests can prove the
 # full export → sanitize → relay-accept → import contract end to end.
 buzz_media_pkg = { package = "buzz-media", path = "../../crates/buzz-media" }

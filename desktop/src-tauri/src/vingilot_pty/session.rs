@@ -150,6 +150,19 @@ impl PtySessions {
             .map(|session| (session.scrollback.replay(), session.next_seq))
     }
 
+    /// The pid of a session's shell.
+    ///
+    /// Test-only, and deliberately so: nothing in the app has any business
+    /// with a pid — `close` is the only thing that ends a shell, and it holds
+    /// the handle itself. It exists because "no orphan shells" cannot be
+    /// asserted by counting this process's children (the tests run in threads
+    /// of one process and would count each other's), only by naming the exact
+    /// processes a terminal started and looking for them afterwards.
+    #[cfg(test)]
+    pub(crate) fn child_pid(&self, session_id: &str) -> Option<u32> {
+        self.lock().get(session_id)?.child.process_id()
+    }
+
     /// Remove and kill a session. Idempotent: closing an unknown or
     /// already-closed session id is a no-op, not an error.
     pub(crate) fn close(&self, session_id: &str) {

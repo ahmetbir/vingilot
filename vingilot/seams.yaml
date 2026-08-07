@@ -187,7 +187,7 @@ seams:
     added: "2026-08-04"
 
   - path: "desktop/src-tauri/Cargo.toml"
-    reason: "Adds portable-pty (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 3) -- the one Rust dependency the plan names for spawning and driving a real PTY per worktree. The alternative is hand-writing process/tty plumbing per platform, which portable-pty already solves correctly."
+    reason: "Adds portable-pty (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 3) -- the one Rust dependency the plan names for spawning and driving a real PTY per worktree. The alternative is hand-writing process/tty plumbing per platform, which portable-pty already solves correctly. Also enables tauri's test feature as a DEV-dependency (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 9): tauri::test::mock_app is what lets the terminal's own commands be driven against a real PTY inside a normal cargo test, which is the only way the shell's cwd, a reattach replay, and tmux outliving its client can be asserted at all -- a screenshot cannot establish any of them, and the E2E harness stubs invoke. Dev-only, so cargo build/check never see it, and tauri's test = [] pulls in no dependency, so Cargo.lock is unchanged by it."
     owner: "vingilot/runs"
     removable_when: "Never, while the Terminal tab is backed by a real PTY."
     status: "permanent"
@@ -201,7 +201,7 @@ seams:
     added: "2026-08-06"
 
   - path: "desktop/src-tauri/src/vingilot_pty/*"
-    reason: "A new island inside the Rust side (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 3): the PTY session registry (session.rs), its bounded reattach scrollback (scrollback.rs), stream decoding (utf8_stream.rs), tmux backing (tmux.rs), and the Tauri command surface (mod.rs) that back the Terminal tab. Additive-only new directory under the upstream desktop/src-tauri/src tree -- no existing file is renamed or deleted, so this cannot merge-conflict, mirroring how desktop/src/features/runs/* is an island inside the upstream desktop/src tree."
+    reason: "A new island inside the Rust side (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 3): the PTY session registry (session.rs), its bounded reattach scrollback (scrollback.rs), stream decoding (utf8_stream.rs), tmux backing (tmux.rs), the Tauri command surface (mod.rs) that back the Terminal tab, and live.rs -- a cfg(test)-only module (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 9) that drives those commands against a real PTY, a real shell and real tmux to prove the cwd, the replay, the persistence, and that no shell outlives its terminal. Additive-only new directory under the upstream desktop/src-tauri/src tree -- no existing file is renamed or deleted, so this cannot merge-conflict, mirroring how desktop/src/features/runs/* is an island inside the upstream desktop/src tree."
     owner: "vingilot/runs"
     removable_when: "Never, while the Terminal tab ships as an island inside desktop/src-tauri."
     status: "permanent"

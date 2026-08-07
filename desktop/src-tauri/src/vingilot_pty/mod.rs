@@ -38,6 +38,8 @@
 //! V1 trust model). Nothing here isolates or sandboxes the shell; UI copy
 //! that surfaces a worktree chip must say only where the shell starts.
 
+#[cfg(test)]
+mod live;
 mod scrollback;
 mod session;
 mod tmux;
@@ -52,7 +54,7 @@ use std::io::Read;
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 /// The one event every session's output arrives on.
 ///
@@ -92,7 +94,7 @@ struct PtyOutputPayload {
 /// Hand a newly attached view the session's screen and the mark it filters
 /// live output against. Emitted for a reattach and for a fresh spawn alike:
 /// the mark is what unblocks the view, not the screen.
-fn emit_replay(app: &AppHandle, session_id: &str, screen: String, next_seq: u64) {
+fn emit_replay<R: Runtime>(app: &AppHandle<R>, session_id: &str, screen: String, next_seq: u64) {
     let _ = app.emit(
         PTY_OUTPUT_EVENT,
         PtyOutputPayload {
@@ -134,6 +136,23 @@ pub fn pty_open(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    open(&app, &sessions, session, cwd, cols, rows)
+}
+
+/// `pty_open`'s whole body, generic over the runtime so that `live.rs` can
+/// drive it against tauri's `MockRuntime` and prove what it does with a real
+/// PTY — that the shell starts in the worktree, that a reattach replays, that
+/// a tmux-backed session outlives its client. The command above is the one
+/// line that cannot be tested that way, because `AppHandle` in a
+/// `#[tauri::command]` signature is the concrete `Wry` handle.
+fn open<R: Runtime>(
+    app: &AppHandle<R>,
+    sessions: &PtySessions,
+    session: String,
+    cwd: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
     if let Some((screen, next_seq)) = sessions.replay(&session) {
         // Deliberately no resize here. The `cols`/`rows` a reattaching view
         // reports may be its pre-layout defaults, and adopting them would
@@ -141,7 +160,7 @@ pub fn pty_open(
         // exact way the previous version destroyed scrollback. The view
         // resizes the pty itself once it is on screen and measured
         // (features/runs/lib/terminalFit.ts).
-        emit_replay(&app, &session, screen, next_seq);
+        emit_replay(app, &session, screen, next_seq);
         return Ok(());
     }
 
@@ -194,7 +213,7 @@ pub fn pty_open(
         // for a mark that nothing is going to send.
         kill_and_reap(losing_session.child.as_mut());
         if let Some((screen, next_seq)) = sessions.replay(&session) {
-            emit_replay(&app, &session, screen, next_seq);
+            emit_replay(app, &session, screen, next_seq);
         }
         return Ok(());
     }
@@ -207,8 +226,8 @@ pub fn pty_open(
     // ring and tmux's own attach redraw from ever competing — this is the
     // only branch on which tmux attaches and redraws, and it is the only
     // branch that replays no screen (`scrollback.rs`).
-    emit_replay(&app, &session, String::new(), 0);
-    spawn_reader_thread(app, session, reader);
+    emit_replay(app, &session, String::new(), 0);
+    spawn_reader_thread(app.clone(), session, reader);
 
     Ok(())
 }
@@ -277,7 +296,11 @@ pub fn pty_backing() -> Backing {
 /// so the two must not describe different bytes. A read that ends
 /// mid-character therefore contributes nothing until the next read completes
 /// it (`utf8_stream.rs`).
-fn spawn_reader_thread(app: AppHandle, session_id: String, mut reader: Box<dyn Read + Send>) {
+fn spawn_reader_thread<R: Runtime>(
+    app: AppHandle<R>,
+    session_id: String,
+    mut reader: Box<dyn Read + Send>,
+) {
     std::thread::spawn(move || {
         let sessions = app.state::<PtySessions>();
         let mut buf = [0u8; 4096];
