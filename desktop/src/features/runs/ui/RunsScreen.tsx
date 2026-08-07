@@ -74,6 +74,11 @@ import { usePolling } from "@/features/runs/lib/usePolling";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import {
+  useWorktreeStats,
+  type WorktreeTarget,
+} from "@/features/runs/lib/useWorktreeStats";
+import { orderWorktrees } from "@/features/runs/lib/worktreeAttention";
+import {
   unlistedWorktrees,
   withLocalGroups,
 } from "@/features/runs/lib/worktreeGit";
@@ -284,8 +289,30 @@ export function RunsScreen() {
     [repos, grouped],
   );
 
-  const repoWorktrees =
+  const knownWorktrees =
     selectedRepoId !== null ? (grouped.byRepo[selectedRepoId] ?? []) : [];
+
+  // git's own read of the open project's worktrees — what is uncommitted in
+  // each, which is what the column orders by. Only the open project: the other
+  // projects' rows are not on screen, and this is `git` subprocesses.
+  const statTargets = React.useMemo<WorktreeTarget[]>(
+    () =>
+      selectedRepo === null || worktreeRoot === null
+        ? []
+        : knownWorktrees.flatMap((wt) => {
+            const path = worktreeCwd(selectedRepo, wt, worktreeRoot);
+            return path === null ? [] : [{ id: wt.binding_id, path }];
+          }),
+    [knownWorktrees, selectedRepo, worktreeRoot],
+  );
+  const worktreeStats = useWorktreeStats(statTargets);
+
+  // One ordering, shared: the column renders it and the ⌘1…9 map is built from
+  // it, so the digit beside a row is the digit that selects it.
+  const repoWorktrees = React.useMemo(
+    () => orderWorktrees(knownWorktrees, worktreeStats),
+    [knownWorktrees, worktreeStats],
+  );
 
   // Entering a project with no worktree picked yet lands on its primary
   // checkout (or the first worktree, if there's no primary) rather than an
@@ -458,6 +485,7 @@ export function RunsScreen() {
               onToggleCollapsed={columns.toggleWorktrees}
               repo={selectedRepo}
               selectedWorktreeId={selectedWorktreeId}
+              stats={worktreeStats}
               worktreeRoot={worktreeRoot}
               worktrees={repoWorktrees}
             />

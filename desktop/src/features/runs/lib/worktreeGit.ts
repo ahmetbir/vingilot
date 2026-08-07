@@ -22,14 +22,16 @@ import {
 } from "./projects.ts";
 import { normalizeRepoPath } from "./repoChoice.ts";
 
-/** The project a listing is made against: an id to file the answer under, and
- * a path to run git in. */
+/** Something git is asked about: an id to file the answer under, and a path to
+ * run git in. A project, for `useWorktreeActions`; a worktree, for
+ * `useWorktreeStats` — the two hooks key their effects the same way because
+ * they have the same problem. */
 export interface ProjectRef {
   id: string;
   path: string;
 }
 
-/** The identity of the project set, as a string.
+/** The identity of a set of those, as a string.
  *
  * `repos` is rebuilt from a polled workspace snapshot every couple of seconds,
  * so its array identity says nothing about whether the projects changed — and

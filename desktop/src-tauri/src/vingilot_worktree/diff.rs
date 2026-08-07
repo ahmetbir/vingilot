@@ -139,16 +139,16 @@ pub struct WorktreeDiff {
 /// One `--numstat -z` record. `additions: None` is git's `-` for a binary
 /// file, which is not the same as zero added lines.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct NumStat {
-    path: String,
-    old_path: Option<String>,
-    additions: Option<usize>,
-    deletions: Option<usize>,
+pub(super) struct NumStat {
+    pub(super) path: String,
+    pub(super) old_path: Option<String>,
+    pub(super) additions: Option<usize>,
+    pub(super) deletions: Option<usize>,
 }
 
 /// Split a NUL-delimited stream into its fields, dropping the empty tail the
 /// trailing separator leaves behind.
-fn nul_fields(text: &str) -> Vec<&str> {
+pub(super) fn nul_fields(text: &str) -> Vec<&str> {
     text.split('\0').filter(|field| !field.is_empty()).collect()
 }
 
@@ -163,7 +163,7 @@ fn count(field: &str) -> Option<usize> {
 /// and a path with a tab in it is unparseable. With `-z` a record is
 /// `adds\tdels\tpath\0`, and a rename is `adds\tdels\t\0old\0new\0` — the
 /// empty third column is what says two more fields follow.
-fn parse_numstat_z(text: &str) -> Vec<NumStat> {
+pub(super) fn parse_numstat_z(text: &str) -> Vec<NumStat> {
     let fields = nul_fields(text);
     let mut records = Vec::new();
     let mut index = 0;

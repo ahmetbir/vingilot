@@ -1,10 +1,24 @@
 // The selected project's worktree explorer (VS Code: the tree tells you
 // where you are) — the `main` checkout, every task worktree the coordinator
 // knows, and every worktree git knows about that neither of those covers,
-// each with its live state (`worktreeSummary`). Rows are numbered 1-9 to
-// match the ⌘1…9 switch shortcut (`lib/terminalKeys.ts`); `RunsScreen` is the
-// source of truth for which index maps to which worktree (the same ordering
-// this column renders).
+// each with its live state.
+//
+// **It answers one question: what is happening right now?**
+// (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 3.) The order and
+// the fold are `lib/worktreeAttention.ts`'s — dirty first, then running, then
+// clean, with the project's own checkout pinned above all of it, and the quiet
+// rows behind a single expandable row. Nothing is deleted by folding; nothing
+// in this component deletes anything at all except through the two confirms
+// below. The `+`/`−` on a row is git's own count of the uncommitted work in
+// that worktree (`lib/useWorktreeStats.ts` reads it), and a dirty row is
+// marked by the *shape* of its dot as well as its colour, so the answer
+// survives being glanced at.
+//
+// Rows are numbered 1-9 to match the ⌘1…9 switch shortcut
+// (`lib/terminalKeys.ts`), and the digit is the row's place in the ordered
+// list — it stays with the worktree whether the fold is open or shut, and
+// selecting a folded worktree by its digit unfolds it, because the selected
+// row is never folded.
 //
 // It is also where worktrees are opened and closed
 // (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 6). Two things about
@@ -18,6 +32,10 @@
 //   work in the tree. The refusal is shown, with the dirty paths listed, and
 //   nothing is removed. There is no override anywhere in this feature.
 //
+// Prune is the third door and the narrowest: it removes `.git/worktrees/`
+// bookkeeping for worktrees whose directories git can no longer find, never a
+// directory, and it shows git's own dry run before it does anything.
+//
 // Collapsed, it is a rail rather than nothing (`lib/useColumns.ts` owns the
 // flag and its ⇧⌘B binding). A collapsed column plus a shortcut the owner has
 // to remember is a trap: the rail's button is the way back, and it is the
@@ -28,14 +46,23 @@
 import * as React from "react";
 
 import type { Repo, Worktree } from "@/features/runs/lib/projects";
-import type { WorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import { worktreeSummary } from "@/features/runs/lib/projects";
 import type { WorktreeSummary } from "@/features/runs/lib/projects";
+import type { WorktreeActions } from "@/features/runs/lib/useWorktreeActions";
+import type { WorktreeStats } from "@/features/runs/lib/useWorktreeStats";
+import {
+  prunableWorktrees,
+  rowDetail,
+  type WorktreeRow,
+  worktreeColumnView,
+} from "@/features/runs/lib/worktreeAttention";
 import {
   type RemovableWorktree,
   removableWorktree,
   removeWorktreeConfirm,
 } from "@/features/runs/lib/worktreePlan";
+import { NewWorktreeDialog } from "@/features/runs/ui/NewWorktreeDialog";
+import { PruneWorktreesDialog } from "@/features/runs/ui/PruneWorktreesDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,12 +73,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/shared/ui/alert-dialog";
-import { NewWorktreeDialog } from "@/features/runs/ui/NewWorktreeDialog";
 
 interface WorktreeColumnProps {
   repo: Repo;
-  /** Ordered — index N backs the ⌘(N+1) shortcut for N < 9. */
+  /** Ordered by `orderWorktrees` — index N backs the ⌘(N+1) shortcut for
+   * N < 9, and `RunsScreen` passes this same array to the work surface so the
+   * two agree. */
   worktrees: Worktree[];
+  /** git's own read of each worktree, by binding id. A worktree with no entry
+   * is one nothing is known about yet — never one that is clean. */
+  stats: WorktreeStats;
   selectedWorktreeId: string | null;
   onSelectWorktree: (bindingId: string) => void;
   /** Resolved worktree root; `null` before the desktop shell has answered,
@@ -109,6 +140,21 @@ function CollapsedRail({
   );
 }
 
+/** The dot, and the whole of the "is there uncommitted work here" signal.
+ *
+ * Dirty is a **square**, not a differently-coloured circle: colour alone is
+ * the one channel a reader may not have, and this marker exists precisely so
+ * the column can be answered at a glance rather than read. */
+function StateDot({ row }: { row: WorktreeRow }) {
+  const shape =
+    row.attention === "dirty"
+      ? "rounded-sm bg-amber-500"
+      : `rounded-full ${STATE_DOT_CLASS[worktreeSummary(row.worktree).stateClass]}`;
+  return (
+    <span aria-hidden="true" className={`mt-1 h-2 w-2 shrink-0 ${shape}`} />
+  );
+}
+
 export function WorktreeColumn({
   actions,
   collapsed,
@@ -116,6 +162,7 @@ export function WorktreeColumn({
   onToggleCollapsed,
   repo,
   selectedWorktreeId,
+  stats,
   worktreeRoot,
   worktrees,
 }: WorktreeColumnProps) {
@@ -123,8 +170,38 @@ export function WorktreeColumn({
   const [confirming, setConfirming] = React.useState<RemovableWorktree | null>(
     null,
   );
+  const [query, setQuery] = React.useState("");
+  const [expanded, setExpanded] = React.useState(false);
+  const [prunePreview, setPrunePreview] = React.useState<string[] | null>(null);
   const confirm =
     confirming === null ? null : removeWorktreeConfirm(confirming);
+
+  // A project switch is a different list; the filter and the fold from the
+  // last one mean nothing here. Adjusted during the render that brought the
+  // new project in rather than in an effect, so the column is never painted
+  // once showing another project's query.
+  const [scope, setScope] = React.useState(repo.id);
+  if (scope !== repo.id) {
+    setScope(repo.id);
+    setQuery("");
+    setExpanded(false);
+  }
+
+  const view = worktreeColumnView({
+    expanded,
+    query,
+    selectedId: selectedWorktreeId,
+    stats,
+    worktrees,
+  });
+  const prunable = prunableWorktrees(worktrees).length;
+
+  async function openPrune() {
+    const entries = await actions.previewPrune();
+    // A preview that names nothing is not a dialog — there is nothing to
+    // approve. The refusal, if git gave one, is already on screen.
+    if (entries !== null && entries.length > 0) setPrunePreview(entries);
+  }
 
   return (
     <>
@@ -158,16 +235,30 @@ export function WorktreeColumn({
             </button>
           </div>
 
+          {view.showFilter ? (
+            <input
+              aria-label={`filter the worktrees of ${repo.name}`}
+              className="mt-2 w-full rounded-md border border-border/60 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring"
+              data-testid="worktree-filter"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="filter branches"
+              type="search"
+              value={query}
+            />
+          ) : null}
+
           {worktrees.length === 0 ? (
             <p className="px-2 py-4 text-xs text-muted-foreground">
               no worktrees yet
             </p>
           ) : (
             <ul className="mt-2 flex flex-col gap-0.5">
-              {worktrees.map((wt, index) => {
+              {view.rows.map((row) => {
+                const wt = row.worktree;
                 const summary = worktreeSummary(wt);
-                const shortcutDigit = index < 9 ? index + 1 : null;
+                const shortcutDigit = row.index < 9 ? row.index + 1 : null;
                 const removable = removableWorktree(repo, wt, worktreeRoot);
+                const detail = rowDetail(row);
                 return (
                   <li
                     className="group flex items-start gap-0.5"
@@ -181,12 +272,14 @@ export function WorktreeColumn({
                       }`}
                       data-testid={`worktree-row-${wt.binding_id}`}
                       onClick={() => onSelectWorktree(wt.binding_id)}
+                      title={
+                        row.attention === "dirty"
+                          ? `${summary.label} — uncommitted changes`
+                          : summary.label
+                      }
                       type="button"
                     >
-                      <span
-                        aria-hidden="true"
-                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${STATE_DOT_CLASS[summary.stateClass]}`}
-                      />
+                      <StateDot row={row} />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5">
                           <span className="min-w-0 flex-1 truncate text-sm">
@@ -198,13 +291,17 @@ export function WorktreeColumn({
                             </span>
                           ) : null}
                         </span>
-                        <span className="block text-2xs text-muted-foreground/80">
-                          {summary.diff !== null
-                            ? `+${summary.diff.added} −${summary.diff.removed}`
-                            : summary.stateClass === "clean"
-                              ? "clean"
-                              : wt.owner_run_status}
-                        </span>
+                        {detail === "" ? null : (
+                          <span
+                            className={`block text-2xs ${
+                              row.attention === "dirty"
+                                ? "text-amber-600 dark:text-amber-500"
+                                : "text-muted-foreground/80"
+                            }`}
+                          >
+                            {detail}
+                          </span>
+                        )}
                       </span>
                     </button>
                     {removable === null ? null : (
@@ -226,6 +323,28 @@ export function WorktreeColumn({
             </ul>
           )}
 
+          {view.foldLabel === "" ? null : (
+            <button
+              aria-expanded={view.folded.length === 0}
+              className="mt-0.5 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground/80 transition-colors hover:bg-muted/60 hover:text-foreground"
+              data-testid="worktree-fold"
+              onClick={() => setExpanded((prev) => !prev)}
+              title="Nothing is removed by folding — these worktrees are all still here"
+              type="button"
+            >
+              <span aria-hidden="true" className="w-2 text-center">
+                {view.folded.length === 0 ? "▾" : "▸"}
+              </span>
+              {view.foldLabel}
+            </button>
+          )}
+
+          {view.filteredOut === 0 ? null : (
+            <p className="px-2 py-1 text-3xs text-muted-foreground/70">
+              {view.filteredOut} hidden by the filter
+            </p>
+          )}
+
           <button
             className="mt-1 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
             data-testid="worktree-column-new"
@@ -235,6 +354,19 @@ export function WorktreeColumn({
           >
             + New worktree
           </button>
+
+          {prunable === 0 ? null : (
+            <button
+              className="rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+              data-testid="worktree-column-prune"
+              disabled={actions.pending}
+              onClick={() => void openPrune()}
+              title="Show what `git worktree prune` would remove — records only, no directories"
+              type="button"
+            >
+              Prune {prunable} missing worktree{prunable === 1 ? "" : "s"}…
+            </button>
+          )}
 
           {actions.refusal === null || creating ? null : (
             <div
@@ -274,6 +406,16 @@ export function WorktreeColumn({
         refusal={actions.refusal}
         repo={repo}
         worktreeRoot={worktreeRoot}
+      />
+
+      <PruneWorktreesDialog
+        onConfirm={() => {
+          setPrunePreview(null);
+          void actions.prune();
+        }}
+        onOpenChange={() => setPrunePreview(null)}
+        pending={actions.pending}
+        preview={prunePreview}
       />
 
       <AlertDialog

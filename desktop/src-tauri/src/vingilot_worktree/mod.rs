@@ -34,6 +34,8 @@
 
 pub mod diff;
 mod porcelain;
+pub mod prune;
+pub mod stat;
 #[cfg(test)]
 pub(crate) mod testrepo;
 

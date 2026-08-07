@@ -23,6 +23,8 @@ import * as React from "react";
 import type { Repo } from "@/features/runs/lib/projects";
 import {
   gitWorktreeAdd,
+  gitWorktreePrune,
+  gitWorktreePrunePreview,
   gitWorktreeRemove,
   gitWorktrees,
 } from "@/features/runs/lib/worktreeClient";
@@ -66,6 +68,12 @@ export interface WorktreeActions {
    * true, and stays open with the refusal showing on false. */
   create: (branch: string, base: string) => Promise<boolean>;
   remove: (target: RemovableWorktree) => void;
+  /** What `git worktree prune` would remove, in git's own words. Removes
+   * nothing. `null` means git refused, and the refusal is on `refusal`. */
+  previewPrune: () => Promise<string[] | null>;
+  /** Prune, then re-list. Bookkeeping only — no directory is removed by this
+   * or by anything it calls. Resolves what git said it removed. */
+  prune: () => Promise<string[] | null>;
   pending: boolean;
   refusal: WorktreeRefusal | null;
   dismissRefusal: () => void;
@@ -191,6 +199,38 @@ export function useWorktreeActions({
     [selectedRepo, onRemoved],
   );
 
+  const previewPrune = React.useCallback(async (): Promise<string[] | null> => {
+    if (selectedRepo === null) return null;
+    setRefusal(null);
+    const result = await gitWorktreePrunePreview(selectedRepo.path);
+    if (!result.ok) {
+      setRefusal(explainWorktreeError(result.error));
+      return null;
+    }
+    return result.value;
+  }, [selectedRepo]);
+
+  const prune = React.useCallback(async (): Promise<string[] | null> => {
+    if (selectedRepo === null) return null;
+    setRefusal(null);
+    setPending(true);
+    const result = await gitWorktreePrune(selectedRepo.path);
+    if (!result.ok) {
+      setPending(false);
+      setRefusal(explainWorktreeError(result.error));
+      return null;
+    }
+    // Re-list, because the pruned rows are exactly the ones the column is
+    // still showing. Left in `pending` until it has, so the button cannot be
+    // pressed against a listing that predates the prune.
+    const relisted = await gitWorktrees(selectedRepo.path);
+    setPending(false);
+    if (relisted.ok) {
+      setListing((prev) => listed(prev, selectedRepo.id, relisted.value));
+    }
+    return result.value;
+  }, [selectedRepo]);
+
   const dismissRefusal = React.useCallback(() => setRefusal(null), []);
 
   return {
@@ -198,6 +238,8 @@ export function useWorktreeActions({
     create,
     dismissRefusal,
     pending,
+    previewPrune,
+    prune,
     refusal,
     remove,
     settled: listing.key === key,

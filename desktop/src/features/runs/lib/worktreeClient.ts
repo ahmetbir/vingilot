@@ -20,6 +20,10 @@ import {
   readGitWorktrees,
 } from "@/features/runs/lib/worktreeGit";
 import {
+  readWorktreeStats,
+  type WorktreeStat,
+} from "@/features/runs/lib/worktreeStat";
+import {
   readWorktreeError,
   type RemovableWorktree,
   type WorktreeError,
@@ -104,6 +108,67 @@ export async function gitWorktreeDiff(
   } catch (thrown) {
     return { error: asError(thrown), ok: false };
   }
+}
+
+/** Every listed worktree's uncommitted state, in one call.
+ *
+ * One call and not one per worktree: the backend reads them sequentially on a
+ * single blocking thread (vingilot_worktree/stat.rs says why), so N round trips
+ * would buy nothing but N times the IPC. A path the backend declined to answer
+ * for is simply absent from the result — the caller keeps whatever it knew
+ * before rather than replacing a number with a zero. */
+export async function gitWorktreeStats(
+  paths: readonly string[],
+): Promise<WorktreeResult<WorktreeStat[]>> {
+  try {
+    const answered = await invoke<unknown>("worktree_stats", {
+      paths: [...paths],
+    });
+    return { ok: true, value: readWorktreeStats(answered) };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
+}
+
+/** What `git worktree prune` would remove, in git's own words. Removes
+ * nothing — this is the read the confirm is built from. */
+export async function gitWorktreePrunePreview(
+  repoPath: string,
+): Promise<WorktreeResult<string[]>> {
+  try {
+    const answered = await invoke<unknown>("worktree_prune_preview", {
+      repo: repoPath,
+    });
+    return { ok: true, value: readPruneEntries(answered) };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
+}
+
+/** Prune the bookkeeping for worktrees whose directories git can no longer
+ * find, and answer what went. No directory is removed, here or in Rust: prune
+ * touches `.git/worktrees/<name>/` and nothing else. */
+export async function gitWorktreePrune(
+  repoPath: string,
+): Promise<WorktreeResult<string[]>> {
+  try {
+    const answered = await invoke<unknown>("worktree_prune", {
+      repo: repoPath,
+    });
+    return { ok: true, value: readPruneEntries(answered) };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
+}
+
+/** Tolerant read of a `PrunePlan`. An answer this build cannot read becomes an
+ * empty list, which the caller renders as "git named nothing" — the safe
+ * reading, since an empty preview is what withholds the prune button. */
+function readPruneEntries(value: unknown): string[] {
+  if (typeof value !== "object" || value === null) return [];
+  const entries = (value as Record<string, unknown>).entries;
+  if (!Array.isArray(entries)) return [];
+  return entries.filter((line): line is string => typeof line === "string");
 }
 
 /** `target` is a `RemovableWorktree`, which cannot be constructed for the
