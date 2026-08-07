@@ -34,11 +34,14 @@ import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 interface PaneDividerProps {
   /** The left pane's current share, for the value this separator reports. */
   ratio: number;
-  /** The row both panes are in — a drag is only meaningful against its box. */
+  /** The row both panes are in — a drag is only meaningful against its box,
+   * and neither is a key press: every one of the three setters below is told
+   * the width the gesture happened on, because a ratio stored against a
+   * surface that never allowed it is a divider that moves on its own later. */
   surfaceRef: React.RefObject<HTMLDivElement | null>;
-  onRatio: (ratio: number) => void;
-  onNudge: (delta: number) => void;
-  onReset: () => void;
+  onRatio: (ratio: number, surfaceWidth: number) => void;
+  onNudge: (delta: number, surfaceWidth: number) => void;
+  onReset: (surfaceWidth: number) => void;
   onToggle: () => void;
   /** The splitter's own element, so the work surface can put focus back on it
    * when the right pane is restored from the rail — the control that was
@@ -61,6 +64,14 @@ export function PaneDivider({
 }: PaneDividerProps) {
   const [dragging, setDragging] = React.useState(false);
 
+  /** The row's width right now. Read from the ref inside an event handler,
+   * never during a render — and 0 when there is nothing to read, which every
+   * clamp downstream takes as "no floors to apply" rather than as a floor of
+   * zero. */
+  function surfaceWidthNow(): number {
+    return surfaceRef.current?.getBoundingClientRect().width ?? 0;
+  }
+
   function moveTo(clientX: number) {
     const surface = surfaceRef.current;
     if (surface === null) return;
@@ -68,7 +79,7 @@ export function PaneDivider({
     const next = ratioFromPointer(box.left, box.width, clientX);
     // `null` is a surface with no width to divide — mid-layout, or inside a
     // hidden subtree. Keeping the ratio it had is the only safe reading.
-    if (next !== null) onRatio(next);
+    if (next !== null) onRatio(next, box.width);
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -81,9 +92,13 @@ export function PaneDivider({
     });
     if (action === null) return;
     event.preventDefault();
-    if (action.type === "nudge") onNudge(action.delta);
-    else if (action.type === "set-ratio") onRatio(action.ratio);
-    else if (action.type === "reset-ratio") onReset();
+    // Every key path is told the same width the drag path measures. The
+    // keyboard used to be the one route that stored a ratio no surface had
+    // agreed to.
+    const width = surfaceWidthNow();
+    if (action.type === "nudge") onNudge(action.delta, width);
+    else if (action.type === "set-ratio") onRatio(action.ratio, width);
+    else if (action.type === "reset-ratio") onReset(width);
     else onToggle();
   }
 
@@ -99,7 +114,7 @@ export function PaneDivider({
         dragging ? "bg-primary/20" : "hover:bg-muted/60"
       } focus-visible:bg-primary/30`}
       data-testid="pane-divider"
-      onDoubleClick={onReset}
+      onDoubleClick={() => onReset(surfaceWidthNow())}
       onKeyDown={handleKeyDown}
       onLostPointerCapture={() => setDragging(false)}
       onPointerDown={(event) => {

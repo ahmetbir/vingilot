@@ -36,6 +36,15 @@ import {
 
 const WT = "binding-1";
 
+/** A surface nobody has measured — before the work surface's first layout
+ * effect. `clampRatioAt` reads it as "no floors to apply", so a test using it
+ * is asking about the taste clamp and nothing else. */
+const UNMEASURED = 0;
+
+/** Wide enough that the terminal's floor is well below anything asked for
+ * here, so the taste clamp is what binds. */
+const WIDE = 2000;
+
 function ctx(over = {}) {
   const { probe, ...facts } = over;
   return {
@@ -71,7 +80,7 @@ test("the right picker offers every pane except the one on the left", () => {
 
 test("an arrangement is remembered per worktree, not per app", () => {
   let layout = withRight({}, "a", "runs");
-  layout = withRatio(layout, "b", 0.35);
+  layout = withRatio(layout, "b", 0.35, UNMEASURED);
   assert.equal(panesFor(layout, "a").right, "runs");
   assert.equal(panesFor(layout, "a").ratio, DEFAULT_RATIO);
   assert.equal(panesFor(layout, "b").right, "diff");
@@ -105,23 +114,55 @@ test("neither side can be squeezed to a sliver", () => {
   assert.equal(clampRatio(-5), MIN_RATIO);
   assert.equal(clampRatio(Number.NaN), DEFAULT_RATIO);
   assert.equal(clampRatio(Number.POSITIVE_INFINITY), DEFAULT_RATIO);
-  assert.equal(panesFor(withRatio({}, WT, 0.99), WT).ratio, MAX_RATIO);
-  assert.equal(panesFor(withRatio({}, WT, 0.01), WT).ratio, MIN_RATIO);
+  assert.equal(
+    panesFor(withRatio({}, WT, 0.99, UNMEASURED), WT).ratio,
+    MAX_RATIO,
+  );
+  assert.equal(
+    panesFor(withRatio({}, WT, 0.01, UNMEASURED), WT).ratio,
+    MIN_RATIO,
+  );
 });
 
 test("nudging walks the ratio and stops at the clamp", () => {
-  let layout = nudgeRatio({}, WT, 0.05);
+  let layout = nudgeRatio({}, WT, 0.05, UNMEASURED);
   assert.ok(Math.abs(panesFor(layout, WT).ratio - 0.65) < 1e-9);
-  for (let i = 0; i < 100; i += 1) layout = nudgeRatio(layout, WT, -0.02);
+  for (let i = 0; i < 100; i += 1) {
+    layout = nudgeRatio(layout, WT, -0.02, UNMEASURED);
+  }
   assert.equal(panesFor(layout, WT).ratio, MIN_RATIO);
-  assert.equal(panesFor(resetRatio(layout, WT), WT).ratio, DEFAULT_RATIO);
+  assert.equal(
+    panesFor(resetRatio(layout, WT, UNMEASURED), WT).ratio,
+    DEFAULT_RATIO,
+  );
+});
+
+test("what is stored is a ratio the surface allowed, not one a key asked for", () => {
+  // The defect this closes: a drag arrived pre-clamped by `ratioFromPointer`,
+  // an arrow press arrived clamped by taste alone. Nothing moved at the time —
+  // the render re-clamps — so what shipped was a *stored* ratio the surface had
+  // never allowed, waiting for a window width that would honour it and move a
+  // divider nobody had touched.
+  const surface = 1195;
+  const floor = clampRatioAt(0, surface);
+  assert.ok(floor > MIN_RATIO, "the floor is the interesting clamp here");
+
+  const home = panesFor(withRatio({}, WT, MIN_RATIO, surface), WT).ratio;
+  assert.equal(home, floor);
+  const walked = panesFor(nudgeRatio({}, WT, -1, surface), WT).ratio;
+  assert.equal(walked, floor);
+  assert.equal(renderedColumns(renderedLeftPx(home, surface)), 80);
+
+  // And the value that survives is one a wider window cannot reinterpret: it
+  // is already inside every clamp that surface has.
+  assert.equal(clampRatioAt(home, surface), home);
 });
 
 test("a no-op returns the same layout object, so no write is provoked", () => {
   const layout = withRight({}, WT, "runs");
   assert.equal(withRight(layout, WT, "runs"), layout);
   assert.equal(withCollapsed(layout, WT, false), layout);
-  assert.equal(withRatio(layout, WT, DEFAULT_RATIO), layout);
+  assert.equal(withRatio(layout, WT, DEFAULT_RATIO, WIDE), layout);
   assert.notEqual(withRight(layout, WT, "diff"), layout);
 });
 

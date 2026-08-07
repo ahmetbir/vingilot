@@ -451,25 +451,47 @@ export function withRight(
   return withState(layout, key, { ...current, collapsed: false, right });
 }
 
+/** Record a ratio for `key`, clamped to the surface it was chosen on.
+ *
+ * **`surfaceWidth` is required, and it is required because of what happened
+ * without it.** A drag arrived here already clamped by `ratioFromPointer`,
+ * while an arrow press arrived clamped by taste alone — so the arrows wrote a
+ * ratio the surface had never allowed. Nothing moved at the time, because the
+ * render re-clamps; what moved was the *next* surface. A ratio stored at 0.2
+ * on a 1600px window is 0.2 again on a 1200px one, where it is now legal, and
+ * the divider the owner never touched has jumped.
+ *
+ * A caller with nothing measured passes 0, which means "no floors to apply" —
+ * the same reading `clampRatioAt` gives it, and the only honest one. */
 export function withRatio(
   layout: PaneLayout,
   key: string,
   ratio: number,
+  surfaceWidth: number,
 ): PaneLayout {
   const current = panesFor(layout, key);
-  return withState(layout, key, { ...current, ratio: clampRatio(ratio) });
+  return withState(layout, key, {
+    ...current,
+    ratio: clampRatioAt(ratio, surfaceWidth),
+  });
 }
 
 export function nudgeRatio(
   layout: PaneLayout,
   key: string,
   delta: number,
+  surfaceWidth: number,
 ): PaneLayout {
-  return withRatio(layout, key, panesFor(layout, key).ratio + delta);
+  const from = panesFor(layout, key).ratio;
+  return withRatio(layout, key, from + delta, surfaceWidth);
 }
 
-export function resetRatio(layout: PaneLayout, key: string): PaneLayout {
-  return withRatio(layout, key, DEFAULT_RATIO);
+export function resetRatio(
+  layout: PaneLayout,
+  key: string,
+  surfaceWidth: number,
+): PaneLayout {
+  return withRatio(layout, key, DEFAULT_RATIO, surfaceWidth);
 }
 
 export function withCollapsed(

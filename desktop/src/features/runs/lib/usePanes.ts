@@ -31,13 +31,19 @@ import {
 } from "@/features/runs/lib/paneModel";
 import { readPaneLayout, writePaneLayout } from "@/features/runs/lib/paneStore";
 
+/** The three ratio setters take the width of the surface the gesture happened
+ * on, rather than reading one from anywhere: what is stored has to be a ratio
+ * that surface allowed, or it becomes a divider that moves by itself the next
+ * time the window is a different size. It is an argument and not a hook
+ * dependency so these callbacks stay reference-stable across a resize — they
+ * are props of a component that renders a live terminal. */
 export interface Panes {
   /** The selected worktree's arrangement. */
   state: PaneState;
   choose: (pane: PaneId) => void;
-  setRatio: (ratio: number) => void;
-  nudgeRatio: (delta: number) => void;
-  resetRatio: () => void;
+  setRatio: (ratio: number, surfaceWidth: number) => void;
+  nudgeRatio: (delta: number, surfaceWidth: number) => void;
+  resetRatio: (surfaceWidth: number) => void;
   toggleCollapsed: () => void;
 }
 
@@ -93,15 +99,18 @@ export function usePanes(worktreeId: string | null): Panes {
     [edit],
   );
   const setRatio = React.useCallback(
-    (ratio: number) => edit((prev, at) => withRatio(prev, at, ratio)),
+    (ratio: number, surfaceWidth: number) =>
+      edit((prev, at) => withRatio(prev, at, ratio, surfaceWidth)),
     [edit],
   );
   const nudge = React.useCallback(
-    (delta: number) => edit((prev, at) => nudgeRatio(prev, at, delta)),
+    (delta: number, surfaceWidth: number) =>
+      edit((prev, at) => nudgeRatio(prev, at, delta, surfaceWidth)),
     [edit],
   );
   const reset = React.useCallback(
-    () => edit((prev, at) => resetRatio(prev, at)),
+    (surfaceWidth: number) =>
+      edit((prev, at) => resetRatio(prev, at, surfaceWidth)),
     [edit],
   );
   const collapse = React.useCallback(
