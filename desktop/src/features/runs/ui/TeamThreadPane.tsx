@@ -20,6 +20,8 @@
 // **Choosing the team is part of the pane**, per the plan — one team per
 // worktree, stored beside that worktree's tabs and panes, not a global setting.
 
+import * as React from "react";
+
 import {
   canSend,
   scopeSentence,
@@ -132,10 +134,15 @@ function TeamChoice({ thread }: { thread: TeamThread }) {
  * starts processes on this machine — it is not a thing to do on a click with no
  * sentence in front of it. */
 function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
+  const [confirmingSecond, setConfirmingSecond] = React.useState(false);
   const blocked =
     thread.missingMembers > 0 ||
     thread.noRuntime ||
     thread.members.length === 0;
+  // A thread already on the relay for this (worktree, team) turns the deploy
+  // from the obvious action into the unusual one: the first is free, the second
+  // costs another agent process per member and leaves the first thread behind.
+  const again = thread.existingThread;
   return (
     <div
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
@@ -143,13 +150,31 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
     >
       <ChosenTeam thread={thread} />
       <Scope cwd={cwd} />
-      {thread.lostChannel ? (
+      {again === null && thread.lostChannel ? (
         <p className="text-xs text-muted-foreground" data-testid="team-lost">
           A thread was opened here before and its channel is not in this
           community's list any more. Opening one now makes a new channel; the
           old one, if it still exists, is wherever it was.
         </p>
       ) : null}
+      {again === null ? null : (
+        <div className="flex flex-col gap-2" data-testid="team-existing">
+          <p className="text-xs text-muted-foreground">
+            This worktree already has a thread with {thread.team?.name} on the
+            relay: #{again.name}. Reopening it deploys nothing and starts
+            nothing — it points this pane back at that channel, with everything
+            already said in it.
+          </p>
+          <button
+            className="self-start rounded-lg border border-border/60 px-3 py-1.5 text-sm hover:bg-muted/40"
+            data-testid="team-adopt"
+            onClick={() => thread.adoptThread()}
+            type="button"
+          >
+            Reopen #{again.name}
+          </button>
+        </div>
+      )}
       {thread.missingMembers > 0 ? (
         <p className="text-xs text-destructive" data-testid="team-missing">
           This team names {thread.missingMembers} agent
@@ -165,17 +190,82 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
           run a team member on.
         </p>
       ) : null}
-      <button
-        className="self-start rounded-lg border border-border/60 px-3 py-1.5 text-sm hover:bg-muted/40 disabled:opacity-50"
-        data-testid="team-open"
-        disabled={blocked || thread.opening}
-        onClick={() => thread.openThread()}
-        type="button"
-      >
-        {thread.opening
-          ? "opening…"
-          : `Open a thread with ${thread.team?.name ?? "this team"}`}
-      </button>
+      {again !== null && !confirmingSecond ? (
+        <button
+          className="self-start text-xs text-muted-foreground underline"
+          data-testid="team-open-second"
+          disabled={blocked || thread.opening}
+          onClick={() => setConfirmingSecond(true)}
+          type="button"
+        >
+          or open a second, separate thread with this team…
+        </button>
+      ) : null}
+      {again === null || confirmingSecond ? (
+        <div className="flex flex-col gap-2">
+          {again === null ? null : (
+            <p className="text-xs text-destructive" data-testid="team-second">
+              Open a <em>second</em> thread with {thread.team?.name}? This makes
+              another channel and starts a new agent process for each of its{" "}
+              {thread.members.length}{" "}
+              {thread.members.length === 1 ? "member" : "members"} — the ones in
+              #{again.name} keep running and are not reused. That thread and
+              everything said in it are untouched, and this pane will point at
+              the new one.
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              className="self-start rounded-lg border border-border/60 px-3 py-1.5 text-sm hover:bg-muted/40 disabled:opacity-50"
+              data-testid="team-open"
+              disabled={blocked || thread.opening}
+              onClick={() => thread.openThread()}
+              type="button"
+            >
+              {thread.opening
+                ? "opening…"
+                : again === null
+                  ? `Open a thread with ${thread.team?.name ?? "this team"}`
+                  : "Open a second thread"}
+            </button>
+            {again === null ? null : (
+              <button
+                className="text-xs text-muted-foreground underline"
+                data-testid="team-second-cancel"
+                onClick={() => setConfirmingSecond(false)}
+                type="button"
+              >
+                cancel
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
+      <ChangeTeam thread={thread} />
+      <Trouble thread={thread} />
+    </div>
+  );
+}
+
+/** Putting the team choice back — which, once a thread exists, **drops this
+ * worktree's pointer to it**, so it asks first and the question names the
+ * channel it is about.
+ *
+ * Two things made this worth a confirmation. It sat next to Send, where a
+ * mis-aimed click is one pixel of travel away; and the state it dropped could
+ * not be re-derived by the pane, so the recovery was to open another thread,
+ * which mints another agent process per member and leaves the first set
+ * running. The second half of that is fixed in `Preflight` — a thread already
+ * on the relay is offered for reopening rather than replaced — and this is the
+ * first: with a thread in hand, the control is a question, not an action. */
+function ChangeTeam({ thread }: { thread: TeamThread }) {
+  const [asking, setAsking] = React.useState(false);
+
+  if (!thread.hasThreadPointer) {
+    // No thread yet: forgetting costs the choice and nothing else, and a
+    // confirmation on a free action is noise that teaches him to click through
+    // the one that is not.
+    return (
       <button
         className="self-start text-xs text-muted-foreground underline"
         data-testid="team-change"
@@ -184,7 +274,56 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
       >
         choose a different team
       </button>
-      <Trouble thread={thread} />
+    );
+  }
+
+  if (!asking) {
+    return (
+      <button
+        className="text-xs text-muted-foreground underline"
+        data-testid="team-change"
+        onClick={() => setAsking(true)}
+        type="button"
+      >
+        change team…
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2" data-testid="team-change-confirm">
+      <p className="text-xs text-muted-foreground">
+        Change team? This pane stops pointing at
+        {thread.channel === null
+          ? " this worktree's thread"
+          : ` #${thread.channel.name}`}
+        . Nothing is deleted: the channel and everything said in it stay on the
+        relay, and the agents already deployed into it keep running. Choosing
+        this team again offers to reopen this same thread; opening a thread with
+        a different team starts a new agent process for each of that team's
+        members.
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          className="rounded-lg border border-border/60 px-3 py-1 text-xs hover:bg-muted/40"
+          data-testid="team-change-yes"
+          onClick={() => {
+            setAsking(false);
+            thread.forgetTeam();
+          }}
+          type="button"
+        >
+          Change team
+        </button>
+        <button
+          className="text-xs text-muted-foreground underline"
+          data-testid="team-change-no"
+          onClick={() => setAsking(false)}
+          type="button"
+        >
+          Keep this thread
+        </button>
+      </div>
     </div>
   );
 }
@@ -215,9 +354,9 @@ function Scope({ cwd }: { cwd: string }) {
 
 function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
   // The draft is the hook's, not this component's: a relay reinit remounts the
-  // whole community subtree (`<AppReady key={communityKey}>`), and a `useState`
-  // here would take the half-written paragraph with it. It is also not cleared
-  // by clicking Send — only by the relay accepting the message.
+  // whole community subtree, and a `useState` here would take the half-written
+  // paragraph with it. It is also not cleared by clicking Send — only by the
+  // relay accepting the message.
   const draft = thread.draft;
 
   function submit() {
@@ -227,6 +366,25 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* The team control lives here, at the top and a pane's width away from
+          Send — not beside it, where an unconfirmed click used to cost the
+          thread pointer. */}
+      <div
+        className="flex shrink-0 flex-col gap-1 border-b border-border/60 px-4 py-2"
+        data-testid="team-thread-header"
+      >
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="truncate text-sm font-medium">
+            {thread.team?.name}
+          </span>
+          <ChangeTeam thread={thread} />
+        </div>
+        {thread.channel === null ? null : (
+          <span className="truncate text-2xs text-muted-foreground">
+            #{thread.channel.name}
+          </span>
+        )}
+      </div>
       <div
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3"
         data-testid="team-thread"
@@ -297,14 +455,6 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
             type="button"
           >
             {thread.sending ? "sending…" : "Send ⌘↵"}
-          </button>
-          <button
-            className="text-xs text-muted-foreground underline"
-            data-testid="team-change"
-            onClick={() => thread.forgetTeam()}
-            type="button"
-          >
-            choose a different team
           </button>
         </div>
         <Trouble thread={thread} />

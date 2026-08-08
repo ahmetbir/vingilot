@@ -183,11 +183,15 @@ async function stubBackend(page: Page) {
     ).__TAURI_INTERNALS__;
     const passThrough = internals.invoke.bind(internals);
     window.__SIGNED__ = [];
+    window.__DEPLOYS__ = 0;
     internals.invoke = (cmd, args, opts) => {
       const name = String(cmd);
       if (name.startsWith("plugin:path|")) return Promise.resolve("/tmp/home/");
       if (name === "pty_backing") return Promise.resolve("tmux");
       if (name.startsWith("pty_")) return Promise.resolve(null);
+      // Every managed agent this app mints goes through here, so this counter
+      // is what a claim about "no new agent processes" can be settled against.
+      if (name === "create_managed_agent") window.__DEPLOYS__ += 1;
       if (name === "sign_event") {
         window.__SIGNED__?.push(args);
         // A relay hiccup, made to order. Signing is the first step of the
@@ -396,6 +400,46 @@ test.describe("talk to a team about this worktree", () => {
     expect(await lastMessage(page)).toBeNull();
   });
 
+  test("changing team asks first, and the thread comes back without a second team", async ({
+    page,
+  }) => {
+    await openWorktree(page);
+    await openThread(page);
+    const deployed = await page.evaluate(() => window.__DEPLOYS__);
+    expect(deployed).toBeGreaterThan(0);
+
+    // The control is not beside Send any more, and one click on it changes
+    // nothing — it asks, and names the channel it would let go of.
+    await page.getByTestId("team-change").click();
+    const confirm = page.getByTestId("team-change-confirm");
+    await expect(confirm).toContainText("stops pointing at #wt-");
+    await expect(confirm).toContainText("Nothing is deleted");
+    await expect(confirm).toContainText("keep running");
+    await expect(page.getByTestId("team-composer")).toBeVisible();
+
+    // Declining leaves the thread exactly where it was.
+    await page.getByTestId("team-change-no").click();
+    await expect(confirm).toBeHidden();
+    await expect(page.getByTestId("team-composer")).toBeVisible();
+
+    // Accepting drops the pointer — and only the pointer.
+    await page.getByTestId("team-change").click();
+    await page.getByTestId("team-change-yes").click();
+    await expect(page.getByTestId("team-choice")).toBeVisible();
+
+    // The thread is still on the relay, so choosing the team again offers it
+    // back rather than a second deploy.
+    await page.getByTestId(`team-choice-${TEAM.id}`).click();
+    await expect(page.getByTestId("team-existing")).toContainText(
+      "already has a thread",
+    );
+    await page.getByTestId("team-adopt").click();
+    await expect(page.getByTestId("team-composer")).toBeVisible();
+
+    // Nothing was minted to get back into it.
+    expect(await page.evaluate(() => window.__DEPLOYS__)).toBe(deployed);
+  });
+
   test("a team list that could not be read is never reported as no teams", async ({
     page,
   }) => {
@@ -417,6 +461,8 @@ declare global {
     /** Every event this app signed, in order — set by the stub above. The
      * kind:9 ones are the messages published to the relay. */
     __SIGNED__?: unknown[];
+    /** How many managed agent processes have been minted since boot. */
+    __DEPLOYS__: number;
     /** When true, signing a kind:9 fails — a send that does not leave. */
     __FAIL_SENDS__?: boolean;
   }

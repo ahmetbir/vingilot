@@ -5,6 +5,8 @@ import { noProbes } from "./paneModel.ts";
 import {
   canSend,
   composeTeamMessage,
+  findThreadChannel,
+  isThreadChannelName,
   NO_COMMUNITY,
   NO_TEAMS,
   RELAY_UNKNOWN,
@@ -234,4 +236,59 @@ test("the channel's description says where it came from and who signs it", () =>
   assert.match(described, /Launch Team/);
   assert.match(described, /\/tmp\/wt/);
   assert.match(described, /own pubkeys/);
+});
+
+// ── Finding an existing thread rather than deploying a second team ──────────
+// The pointer is the authority; this is the recovery path for when it is gone,
+// and the only thing standing between a dropped pointer and a duplicate agent
+// process per team member.
+
+test("the thread this worktree already has is found by name", () => {
+  const name = threadChannelName("binding-1", "team-1", "Launch Team", "main");
+  const channels = [
+    { id: "chan-other", name: "general" },
+    { id: "chan-thread", name },
+  ];
+  assert.equal(
+    findThreadChannel(channels, "binding-1", "team-1")?.id,
+    "chan-thread",
+  );
+});
+
+test("renaming the team or the branch does not lose the thread", () => {
+  // The name carries both labels, and both can be edited after the thread
+  // exists. What identifies it is the (worktree, team) pair.
+  const name = threadChannelName("binding-1", "team-1", "Launch Team", "main");
+  const renamed = name.replace("launch-team", "shipping-team");
+  assert.notEqual(renamed, name);
+  assert.equal(isThreadChannelName(renamed, "binding-1", "team-1"), true);
+});
+
+test("another worktree's thread with the same team is not this one", () => {
+  const name = threadChannelName("binding-2", "team-1", "Launch Team", "main");
+  assert.equal(isThreadChannelName(name, "binding-1", "team-1"), false);
+  assert.equal(
+    findThreadChannel([{ id: "c", name }], "binding-1", "team-1"),
+    null,
+  );
+});
+
+test("this worktree's thread with another team is not this one", () => {
+  const name = threadChannelName("binding-1", "team-2", "Launch Team", "main");
+  assert.equal(isThreadChannelName(name, "binding-1", "team-1"), false);
+});
+
+test("a hand-made channel is never mistaken for a thread this pane opened", () => {
+  const name = threadChannelName("binding-1", "team-1", "Launch Team", "main");
+  const suffix = name.slice(name.lastIndexOf("-"));
+  // Same trailing discriminator, no `wt-` prefix: not something this pane made,
+  // so adopting it would point the pane at someone else's channel.
+  assert.equal(
+    isThreadChannelName(`design${suffix}`, "binding-1", "team-1"),
+    false,
+  );
+});
+
+test("no thread on the relay reads as none, and never as a throw", () => {
+  assert.equal(findThreadChannel([], "binding-1", "team-1"), null);
 });

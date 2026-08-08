@@ -65,6 +65,7 @@ import {
 
 import {
   composeTeamMessage,
+  findThreadChannel,
   readTeamThread,
   relayReach,
   type TeamCount,
@@ -128,6 +129,18 @@ export interface TeamThread {
    * folded into `channel === null`: one is "no thread yet" and the other is
    * "your thread is not where you left it". */
   lostChannel: boolean;
+  /** A thread this worktree already has with the chosen team, found in the
+   * relay's own channel list rather than in the pointer. Non-null means there is
+   * something to *reopen*, and that deploying a team would be deploying a second
+   * one into a second channel. */
+  existingThread: Channel | null;
+  /** Adopt `existingThread` as this worktree's thread. Writes the pointer and
+   * nothing else: no channel is created, no agent is minted, no process starts. */
+  adoptThread: () => void;
+  /** True while this worktree has a stored channel pointer — the thing
+   * `forgetTeam` would drop. `false` means forgetting costs nothing but the
+   * choice, which is why the pane only asks for confirmation when this is true. */
+  hasThreadPointer: boolean;
   messages: TeamThreadRow[];
   /** Display names for the pubkeys in `messages`, as far as they are known. */
   nameOf: (pubkey: string) => string | null;
@@ -210,6 +223,13 @@ export function useTeamThread(input: {
   // "Not in the list" only means lost once the list has actually arrived.
   const lostChannel =
     binding?.channelId != null && channel === null && channelsQuery.isSuccess;
+
+  // Only asked while there is no thread in hand: once the pointer resolves,
+  // the pointer is the answer and a name match is a worse one.
+  const existingThread =
+    channel !== null || bindingId === null || team === null
+      ? null
+      : findThreadChannel(channelsQuery.data ?? [], bindingId, team.id);
 
   useChannelSubscription(channel);
   const messagesQuery = useChannelMessagesQuery(channel);
@@ -300,6 +320,13 @@ export function useTeamThread(input: {
     },
     [],
   );
+
+  const adoptThread = React.useCallback(() => {
+    if (bindingId === null || team === null || existingThread === null) return;
+    setTrouble(null);
+    setDeployFailures([]);
+    rememberChannel(bindingId, team.id, existingThread.id);
+  }, [bindingId, existingThread, rememberChannel, team]);
 
   const openThread = React.useCallback(() => {
     if (bindingId === null || team === null || cwd === null) return;
@@ -403,11 +430,14 @@ export function useTeamThread(input: {
   }, [bindingId, channel, cwd, sendMessage, setDraft]);
 
   return {
+    adoptThread,
     channel,
     chooseTeam,
     deployFailures,
     draft,
+    existingThread,
     forgetTeam,
+    hasThreadPointer: binding?.channelId != null,
     lostChannel,
     members: resolved.resolvedPersonas.map((persona) => ({
       id: persona.id,

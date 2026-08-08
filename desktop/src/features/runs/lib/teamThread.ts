@@ -262,6 +262,46 @@ export function threadChannelName(
   return `wt-${stem}-${discriminator(bindingId, teamId)}`;
 }
 
+/** Whether a channel in the owner's list is the one this pane would have made
+ * for this (worktree, team) pair.
+ *
+ * Matched on the discriminator rather than the whole name, because the name
+ * also carries the team's and the worktree's labels and either can be renamed
+ * after the thread exists — a rename must not make the thread unfindable. The
+ * `wt-` prefix keeps a hand-made channel that happens to end in six of the same
+ * characters out of it.
+ *
+ * **This is a recovery path, not the authority.** The pointer store is what
+ * normally finds a thread; this is how a *lost* pointer is picked back up
+ * without minting a second team, and its only consumer puts the channel's name
+ * in front of the owner before adopting it, so a hash collision is something he
+ * can see rather than something that happens to him. */
+export function isThreadChannelName(
+  name: string,
+  bindingId: string,
+  teamId: string,
+): boolean {
+  return (
+    name.startsWith("wt-") &&
+    name.endsWith(`-${discriminator(bindingId, teamId)}`)
+  );
+}
+
+/** The thread this worktree already has with this team, if the relay still has
+ * it. `null` is "not in the list", which after a successful list means there is
+ * none to reopen. */
+export function findThreadChannel<T extends { id: string; name: string }>(
+  channels: readonly T[],
+  bindingId: string,
+  teamId: string,
+): T | null {
+  return (
+    channels.find((channel) =>
+      isThreadChannelName(channel.name, bindingId, teamId),
+    ) ?? null
+  );
+}
+
 /** What the channel says it is for, on the relay, where the owner will read it
  * from the ordinary channel list months later with this pane nowhere in sight. */
 export function threadChannelDescription(
