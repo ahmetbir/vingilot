@@ -16,6 +16,11 @@
 // from `lib/terminalPersistence.ts` beside the sentence it must not be confused
 // with — the status bar's persistence line is about the worktree's tabs.
 //
+// **The keyboard, on the way out.** `FocusReturn` below gives it back to the
+// control the shell took it from, and where that capture happens is the whole
+// of it: taken one component too high, it records the shell's own xterm and the
+// return does nothing at all.
+//
 // **The keyboard, while it is open.** A container-scoped capture listener, not
 // a window one. The palette's argument for `window` was that focus can leave
 // its one field; here the whole surface is focusable content and the scrim is
@@ -42,23 +47,58 @@ interface ScratchTerminalProps {
   onClose: () => void;
 }
 
-export function ScratchTerminal({ onClose, scratch }: ScratchTerminalProps) {
-  const overlayRef = React.useRef<HTMLDivElement | null>(null);
-  // Where focus was when this opened, so closing does not strand a keyboard
-  // owner on `<body>` — the same promise the palette makes.
-  //
-  // **This is a return, not a theft.** Focus goes back to the element that had
-  // it, by a direct `.focus()`: no `focusToken` is bumped, so no persistent
-  // terminal is remeasured and no pty is resized on the way out.
-  const returnTo = React.useRef<Element | null>(null);
+/** Where focus was when this opened, given back when it closes — so closing
+ * does not leave a keyboard owner on `<body>`, with the whole document to Tab
+ * through to get anywhere.
+ *
+ * **Its own component, and it must stay above `<Terminal>` in this tree.**
+ * Passive effects run child-first and, among siblings, in tree order, and the
+ * terminal's own mount effect calls `focus()`. A capture in this overlay's
+ * parent therefore runs *after* the shell has already taken the keyboard, and
+ * what it records is the xterm's own textarea — an element that is removed with
+ * the overlay, so the restore silently does nothing. That is the defect this
+ * component exists to fix, and moving this call below the terminal reinstates
+ * it, which `workspace-scratch.spec.ts` is what notices.
+ *
+ * Being here also settles the palette's door. `run()` closes the palette and
+ * opens this in one commit; the palette gives focus back to where *it* found it
+ * from a passive cleanup, and every passive cleanup in a commit runs before
+ * every passive mount effect in it. So by the time this reads
+ * `document.activeElement`, the palette has already put the keyboard back on
+ * the control the owner opened it from — which is the element this shell is
+ * really taking it from, and the one it has to return it to.
+ *
+ * **A return, not a theft.** Focus goes back by a direct `.focus()`: no
+ * `focusToken` is bumped, so no persistent terminal is remeasured and no pty is
+ * resized on the way out. And only when the keyboard would otherwise be left
+ * nowhere — the pane host's own rule (`WorkSurface.tsx`) for a control it takes
+ * off screen. Focus that has already moved to something real, because the close
+ * was a click on a worktree in the nav, is the owner's and is left alone. */
+function FocusReturn({
+  overlayRef,
+}: {
+  overlayRef: React.RefObject<HTMLDivElement | null>;
+}) {
   React.useEffect(() => {
-    returnTo.current = document.activeElement;
+    const held = document.activeElement;
+    // Read now: a ref is cleared as its subtree is deleted, and this closure
+    // has to be able to ask "is the keyboard inside the thing that is going".
+    const overlay = overlayRef.current;
     return () => {
-      const held = returnTo.current;
-      returnTo.current = null;
+      const focused = document.activeElement;
+      const stranded =
+        focused === null ||
+        focused === document.body ||
+        (overlay !== null && overlay.contains(focused));
+      if (!stranded) return;
       if (held instanceof HTMLElement && held.isConnected) held.focus();
     };
-  }, []);
+  }, [overlayRef]);
+  return null;
+}
+
+export function ScratchTerminal({ onClose, scratch }: ScratchTerminalProps) {
+  const overlayRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     const overlay = overlayRef.current;
@@ -91,6 +131,7 @@ export function ScratchTerminal({ onClose, scratch }: ScratchTerminalProps) {
       data-testid="scratch-terminal"
       ref={overlayRef}
     >
+      <FocusReturn overlayRef={overlayRef} />
       {/* A real button rather than a div with a click handler: dismissing is
        * an act, and one an assistive technology should be able to name. */}
       <button

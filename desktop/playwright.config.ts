@@ -141,6 +141,7 @@ export default defineConfig({
         "**/workspace-notes.spec.ts",
         "**/workspace-plan.spec.ts",
         "**/workspace-team.spec.ts",
+        "**/workspace-scratch.spec.ts",
         "**/terminal-wheel.spec.ts",
         "**/diff-keeps-up.spec.ts",
       ],
