@@ -56,12 +56,14 @@ import {
   terminalAvailability,
 } from "@/features/runs/lib/paneModel";
 import type { RunSummary } from "@/features/runs/lib/runModel";
+import { teamAvailability } from "@/features/runs/lib/teamThread";
 import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import { AgentPanel } from "@/features/runs/ui/AgentPanel";
 import { EvidencePane } from "@/features/runs/ui/EvidencePane";
 import { NotesPane } from "@/features/runs/ui/NotesPane";
 import { PlanPane } from "@/features/runs/ui/PlanPane";
 import { RunsPane } from "@/features/runs/ui/RunsPane";
+import { TeamThreadPane } from "@/features/runs/ui/TeamThreadPane";
 import { WorktreeDiffPanel } from "@/features/runs/ui/WorktreeDiffPanel";
 
 /** Everything a pane may be told about where it is. Uniform on purpose: a
@@ -251,6 +253,22 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     id: "runs",
     identity: ofWorkspace,
     title: "Runs",
+  },
+  team: {
+    availability: teamAvailability,
+    component: TeamThreadPane,
+    icon: "◫",
+    id: "team",
+    // A reading of one worktree, and the strictest case of it in this table:
+    // the pane holds a composer and a chosen team per worktree, and carrying
+    // either across a switch would put a half-typed message about one checkout
+    // above a thread about another.
+    identity: ofWorktree,
+    // No probe, deliberately. Its four questions — community, teams, relay,
+    // runtime — are all live, and a probe is asked once per key; a pane gated
+    // on a snapshot would still say "no teams" ten minutes after one was made.
+    // It answers them itself, in `lib/teamThread.ts`'s words.
+    title: "Team",
   },
   terminal: {
     availability: terminalAvailability,

@@ -53,6 +53,7 @@ export const PANE_IDS = [
   "runs",
   "notes",
   "plan",
+  "team",
 ] as const;
 
 export type PaneId = (typeof PANE_IDS)[number];
