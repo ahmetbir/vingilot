@@ -51,6 +51,7 @@ export const PANE_IDS = [
   "agent",
   "evidence",
   "runs",
+  "notes",
 ] as const;
 
 export type PaneId = (typeof PANE_IDS)[number];
@@ -77,6 +78,12 @@ export interface PaneFacts {
   cwdPending: boolean;
   /** The Run that owns this worktree, or `null` for one nobody's run made. */
   ownerRunId: string | null;
+  /** The selected project's own directory, or `null` when this surface is not
+   * standing in a project this app can name. A fact of its own rather than
+   * something derived from `cwd`: a worktree's directory is not its project's,
+   * and a document the whole project carries is keyed by the project
+   * (`documents.ts`). */
+  projectPath: string | null;
   /** The selected worktree's binding id, `null` on a surface with none. Panes
    * name what they are a reading of in terms of this rather than the host
    * deciding for them; see `PaneEntry.identity`. */
@@ -259,6 +266,23 @@ export function evidenceAvailability(ctx: PaneContext): PaneAvailability {
  * one is an answer worth showing. */
 export function runsAvailability(): PaneAvailability {
   return AVAILABLE;
+}
+
+/** Notes belong to a project, so a project is the whole of what this pane
+ * needs — no checkout, no git, no harness. A worktree whose project this app
+ * cannot name has no document to open, and saying so is more honest than
+ * offering an editor that would keep what was typed into it nowhere.
+ *
+ * There is no `pending` here, and that is a fact rather than an omission: the
+ * project is the one the owner selected in the nav, held in this screen's own
+ * state, so it is never a lookup that might still answer. */
+export function notesAvailability(ctx: PaneContext): PaneAvailability {
+  if (ctx.projectPath !== null) return AVAILABLE;
+  return {
+    reason:
+      "no project is open here, and notes are kept per project — so there is nothing for this pane to be the notes of.",
+    status: "unavailable",
+  };
 }
 
 /** Which side of the split a pane is asked about. */

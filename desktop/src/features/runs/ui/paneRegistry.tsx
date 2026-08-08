@@ -43,6 +43,7 @@ import {
   agentAvailability,
   diffAvailability,
   evidenceAvailability,
+  notesAvailability,
   type PaneAvailability,
   type PaneContext,
   type PaneFacts,
@@ -55,6 +56,7 @@ import {
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import { AgentPanel } from "@/features/runs/ui/AgentPanel";
 import { EvidencePane } from "@/features/runs/ui/EvidencePane";
+import { NotesPane } from "@/features/runs/ui/NotesPane";
 import { RunsPane } from "@/features/runs/ui/RunsPane";
 import { WorktreeDiffPanel } from "@/features/runs/ui/WorktreeDiffPanel";
 
@@ -68,6 +70,11 @@ export interface PaneProps {
    * changing and the worktree list catching up. */
   worktree: Worktree | null;
   ownerRunId: string | null;
+  /** The open project's own directory, or `null` when there is none to name.
+   * Beside `cwd` rather than instead of it: a pane about the project (Notes)
+   * and a pane about the worktree (Diff) are both panes, and a host that
+   * handed out only one of the two would decide for them which they are. */
+  projectPath: string | null;
   runs: RunSummary[];
   reachable: boolean;
   workspaceId: string;
@@ -119,6 +126,14 @@ function ofWorkspace(): string {
   return "workspace";
 }
 
+/** A pane whose content is one project's. It survives every worktree switch
+ * inside that project — a note being typed must not be interrupted by ⌘2 —
+ * and is re-taken when the project changes, because it is then a different
+ * document. */
+function ofProject(facts: PaneFacts): string {
+  return facts.projectPath ?? "none";
+}
+
 function DiffPane({ cwd, worktree }: PaneProps) {
   if (worktree === null) return null;
   return <WorktreeDiffPanel cwd={cwd} worktree={worktree} />;
@@ -126,6 +141,10 @@ function DiffPane({ cwd, worktree }: PaneProps) {
 
 function AgentPane({ cwd }: PaneProps) {
   return <AgentPanel cwd={cwd} />;
+}
+
+function NotesPaneEntry({ projectPath }: PaneProps) {
+  return <NotesPane projectPath={projectPath} />;
 }
 
 /** Is there a harness on this machine to hand a worktree to? A question about
@@ -175,6 +194,14 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     id: "evidence",
     identity: ofWorktree,
     title: "Evidence",
+  },
+  notes: {
+    availability: notesAvailability,
+    component: NotesPaneEntry,
+    icon: "✎",
+    id: "notes",
+    identity: ofProject,
+    title: "Notes",
   },
   runs: {
     availability: runsAvailability,

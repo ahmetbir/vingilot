@@ -471,6 +471,7 @@ function RightPane({
           key={`${right}:${entry.identity(context)}`}
           onChoosePane={onChoose}
           ownerRunId={context.ownerRunId}
+          projectPath={context.projectPath}
           reachable={reachable}
           runs={runs}
           worktree={worktree}

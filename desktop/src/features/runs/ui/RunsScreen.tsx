@@ -464,6 +464,10 @@ export function RunsScreen() {
     cwd: selectedWorktreeCwd,
     cwdPending: !rootSettled,
     ownerRunId: selectedWorktree?.owner_run_id ?? null,
+    // The project itself, not the worktree under it: what a project carries
+    // (its notes, and next its plan) is keyed by the project's own path, which
+    // outlives both the worktree and this workspace's name for the repo.
+    projectPath: selectedRepo?.path ?? null,
     worktreeId: selectedWorktreeId,
   };
   // Whatever the registry's panes need asked of the world. This screen runs
