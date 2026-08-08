@@ -318,6 +318,20 @@ impl Harness {
             .unwrap_or_default()
     }
 
+    /// Everything the pty has said on this session, in arrival order — the
+    /// raw stream, not the retained screen. `screen()` is filtered
+    /// (`query_filter.rs`) and is the wrong place to look for what a terminal
+    /// was *told to do*; mode sets live here.
+    fn stream(&self, id: &str) -> String {
+        self.heard
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|chunk| !chunk.replay && chunk.session == id)
+            .map(|chunk| chunk.data.as_str())
+            .collect()
+    }
+
     /// The replay chunks a view attaching to `id` was handed, oldest first.
     fn replays(&self, id: &str) -> Vec<Chunk> {
         self.heard
@@ -711,7 +725,125 @@ fn our_sessions_draw_no_status_bar_and_the_owners_sessions_are_untouched() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. no orphan shells
+// 5. the wheel: what tmux asks for, and what it answers to
+// ---------------------------------------------------------------------------
+
+/// The mode sets that decide whether a wheel is reported at all, and how.
+///
+/// `1000`/`1002` are "report button events" and "report button events plus
+/// drag"; `1006` is the SGR encoding. A terminal emulator that never sees
+/// `1006` encodes its reports the old way, and xterm.js sends *those* on a
+/// different channel (`onBinary`) than the SGR ones (`onData`) — so which of
+/// these tmux sends is not a detail, it decides which wire the report is on.
+const MOUSE_MODE_SETS: [&str; 3] = ["\x1b[?1000h", "\x1b[?1002h", "\x1b[?1006h"];
+
+/// A wheel-up over row 11, column 11, encoded the way xterm.js encodes it once
+/// `1006` is on: `CSI < 64 ; col ; row M`. Byte-identical to what the browser
+/// harness observes leaving xterm
+/// (desktop/tests/e2e/terminal-wheel.spec.ts).
+const SGR_WHEEL_UP: &str = "\x1b[<64;11;11M";
+
+/// What xterm.js sends *instead* when no mouse protocol is active and the
+/// screen it is showing has no scrollback of its own: cursor-up, once per line
+/// (browser/Terminal.ts). Here to prove that this is not a substitute — it is
+/// what the shell reads as history navigation.
+const ARROW_UP: &str = "\x1b[A";
+
+/// Ask tmux about our own session, by exact name on the isolated socket.
+fn ours_says(id: &str, format: &str) -> String {
+    tmux_says(&[
+        "display-message",
+        "-p",
+        "-t",
+        &format!("={}:", tmux::session_name(id)),
+        format,
+    ])
+}
+
+/// Wait for `#{pane_in_mode}` to become `1`. tmux enters copy-mode when it
+/// accepts a wheel-up over a pane with history, so this is the pane saying it
+/// scrolled — not a screenshot of text that may or may not have moved.
+fn scrolled_within(id: &str, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        if ours_says(id, "#{pane_in_mode}") == "1" {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+#[test]
+fn a_wheel_report_is_what_makes_tmux_scroll_and_an_arrow_key_is_not() {
+    let _live = live_lock();
+    isolated_tmux_socket();
+
+    if tmux::path().is_none() {
+        eprintln!(
+            "SKIPPED a_wheel_report_is_what_makes_tmux_scroll_and_an_arrow_key_is_not: \
+             no tmux on this machine, so there is no scrollback to reach."
+        );
+        return;
+    }
+
+    let mut repo = LiveRepo::new();
+    let worktree = repo.worktree("wheel");
+    let harness = Harness::new();
+    let id = live_id("wheel");
+    let marker = format!("VINGILOT-WHEEL-{}", std::process::id());
+
+    harness.open(&id, &worktree);
+
+    // Half of the answer: what the spawn actually asks the terminal for. The
+    // browser harness replays these bytes verbatim, so if tmux ever stops
+    // sending one of them, that harness is testing a fiction — and this is
+    // where it fails.
+    harness.settle(&id);
+    let attach = harness.stream(&id);
+    for mode in MOUSE_MODE_SETS {
+        assert!(
+            attach.contains(mode),
+            "the spawn never asked for {}, so the wheel is never reported: {}",
+            mode.escape_debug(),
+            tail(&attach).escape_debug()
+        );
+    }
+
+    // Something to scroll *back* to. A pane whose history is empty has nothing
+    // to show above the screen, and tmux answers a wheel there by doing
+    // nothing at all — which would make either outcome below look the same.
+    harness.ask(
+        &id,
+        &format!("for i in $(seq 1 200); do echo {marker}-$i; done\n"),
+        &format!("{marker}-200"),
+    );
+
+    // The other half: an arrow key is not a smaller wheel. It reaches the
+    // shell as history navigation and the pane never enters copy-mode.
+    harness.write(&id, ARROW_UP);
+    assert!(
+        !scrolled_within(&id, Duration::from_secs(2)),
+        "an arrow key put the pane in copy-mode, which is not what tmux does with one"
+    );
+
+    harness.write(&id, SGR_WHEEL_UP);
+    assert!(
+        scrolled_within(&id, EXIT_WITHIN),
+        "tmux ignored a wheel report the terminal is configured to send: \
+         mouse={}, pane_in_mode={}",
+        ours_says(&id, "#{mouse}"),
+        ours_says(&id, "#{pane_in_mode}")
+    );
+
+    harness.close(&id);
+    kill_test_tmux_server();
+}
+
+// ---------------------------------------------------------------------------
+// 6. no orphan shells
 // ---------------------------------------------------------------------------
 
 #[test]
