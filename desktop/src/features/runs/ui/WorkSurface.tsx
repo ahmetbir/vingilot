@@ -56,6 +56,7 @@ import {
   clampRatioAt,
   effectiveSolo,
   LEFT_PANE,
+  type PaneAct,
   type PaneContext,
   type PaneSide,
   type PaneState,
@@ -101,9 +102,14 @@ interface WorkSurfaceProps {
   paneContext: PaneContext;
   /** The arrangement of this worktree's panes, and the only way to change it. */
   panes: Panes;
+  /** What a pane asks the workspace to do (`PaneAct`). Passed straight
+   * through: this component hosts panes, it does not decide what their acts
+   * mean — `RunsScreen` owns the dialogs they open. */
+  onPaneAct: (act: PaneAct) => void;
 }
 
 export function WorkSurface({
+  onPaneAct,
   onSelectWorktree,
   onTabCommand,
   paneContext,
@@ -359,6 +365,7 @@ export function WorkSurface({
             context={paneContext}
             frameRef={rightPaneRef}
             onChoose={panes.choose}
+            onPaneAct={onPaneAct}
             onSolo={toggleSolo}
             reachable={reachable}
             right={layout.right}
@@ -381,6 +388,7 @@ function RightPane({
   context,
   frameRef,
   onChoose,
+  onPaneAct,
   onSolo,
   reachable,
   right,
@@ -393,6 +401,7 @@ function RightPane({
   context: PaneContext;
   frameRef: React.RefObject<HTMLElement | null>;
   onChoose: Panes["choose"];
+  onPaneAct: (act: PaneAct) => void;
   onSolo: Panes["toggleSolo"];
   reachable: boolean;
   right: PaneState["right"];
@@ -470,6 +479,7 @@ function RightPane({
           cwd={context.cwd}
           key={`${right}:${entry.identity(context)}`}
           onChoosePane={onChoose}
+          onPaneAct={onPaneAct}
           ownerRunId={context.ownerRunId}
           projectPath={context.projectPath}
           reachable={reachable}

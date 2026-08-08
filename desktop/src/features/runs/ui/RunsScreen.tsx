@@ -74,6 +74,7 @@ import {
   worktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
 import type {
+  PaneAct,
   PaneContext,
   PaneFacts,
   PaneId,
@@ -108,8 +109,10 @@ import {
   unlistedWorktrees,
   withLocalGroups,
 } from "@/features/runs/lib/worktreeGit";
+import { localBindingId } from "@/features/runs/lib/projects";
 import { CommandPalette } from "@/features/runs/ui/CommandPalette";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
+import { PlanWorktreeDialog } from "@/features/runs/ui/PlanWorktreeDialog";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
@@ -487,6 +490,10 @@ export function RunsScreen() {
   // dialog: a "New worktree…" the palette opened and a "+ New worktree" the
   // column opened must not be two dialogs that can be on screen at once.
   const [creatingWorktree, setCreatingWorktree] = React.useState(false);
+  // The fourth: the plan's worktree. Held here for the reason the other three
+  // are — the Plan pane and the palette are two doors, and two dialogs that
+  // could be on screen at once is not a thing either of them asked for.
+  const [planningWorktree, setPlanningWorktree] = React.useState(false);
   const [prunePreview, setPrunePreview] = React.useState<string[] | null>(null);
   const [removingProject, setRemovingProject] = React.useState<Repo | null>(
     null,
@@ -501,6 +508,18 @@ export function RunsScreen() {
       if (entries !== null && entries.length > 0) setPrunePreview(entries);
     })();
   }, [previewPrune]);
+
+  // A refusal belongs to the attempt that earned it. `refusal` is one piece of
+  // state shared by both worktree dialogs, so opening this one onto the last
+  // one's refusal would explain a failure that was not this one's.
+  const dismissRefusal = worktreeActions.dismissRefusal;
+  const openPlanWorktree = React.useCallback(
+    (open: boolean) => {
+      if (open) dismissRefusal();
+      setPlanningWorktree(open);
+    },
+    [dismissRefusal],
+  );
 
   // The panes the palette may offer, with each pane's own availability asked
   // through the registry's own rule — the same call `WorkSurface` makes for
@@ -560,6 +579,12 @@ export function RunsScreen() {
         case "new-worktree":
           setCreatingWorktree(true);
           return;
+        case "plan-to-worktree":
+          // The same dialog the Plan pane's button opens, and it is what reads
+          // the plan — so a palette row cannot act on a plan the owner has
+          // edited since the row was drawn.
+          if (selectedRepo !== null) openPlanWorktree(true);
+          return;
         case "new-terminal-tab":
           runTabCommand({ type: "new" });
           return;
@@ -600,6 +625,7 @@ export function RunsScreen() {
     [
       columns.toggleSidebar,
       columns.toggleWorktrees,
+      openPlanWorktree,
       openPrune,
       panes.choose,
       panes.state.solo,
@@ -612,6 +638,23 @@ export function RunsScreen() {
       selectRepo,
     ],
   );
+
+  // What a pane asks the workspace for. One act today, and it lands on the
+  // same state the palette's command does — the pane is a second door, not a
+  // second implementation.
+  const runPaneAct = React.useCallback(
+    (act: PaneAct) => {
+      if (act.type === "plan-to-worktree") openPlanWorktree(true);
+    },
+    [openPlanWorktree],
+  );
+
+  // Standing in the worktree the plan just opened. The binding id is derived
+  // from git's own path (`localBindingId`), so it is the id the row will carry
+  // when the fresh listing arrives — no side table, and no wait for a poll.
+  const openLocalWorktree = React.useCallback((path: string) => {
+    setSelectedWorktreeId(localBindingId(path));
+  }, []);
 
   const palette = usePalette({
     // The same probe reading the Agent pane's availability is built from, so
@@ -725,6 +768,7 @@ export function RunsScreen() {
                 </main>
               ) : (
                 <WorkSurface
+                  onPaneAct={runPaneAct}
                   onSelectWorktree={setSelectedWorktreeId}
                   onTabCommand={runTabCommand}
                   paneContext={paneContext}
@@ -739,6 +783,18 @@ export function RunsScreen() {
                 />
               )}
             </>
+          )}
+          {selectedRepo === null ? null : (
+            <PlanWorktreeDialog
+              onCreate={worktreeActions.createWithBrief}
+              onOpenChange={openPlanWorktree}
+              onOpened={openLocalWorktree}
+              open={planningWorktree}
+              pending={worktreeActions.pending}
+              refusal={worktreeActions.refusal}
+              repo={selectedRepo}
+              worktreeRoot={worktreeRoot}
+            />
           )}
           <CommandPalette palette={palette} />
         </div>

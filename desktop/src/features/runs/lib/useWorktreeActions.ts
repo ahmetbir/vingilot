@@ -23,6 +23,7 @@ import * as React from "react";
 import type { Repo } from "@/features/runs/lib/projects";
 import {
   gitWorktreeAdd,
+  gitWorktreeAddWithBrief,
   gitWorktreePrune,
   gitWorktreePrunePreview,
   gitWorktreeRemove,
@@ -39,6 +40,18 @@ import {
   type RemovableWorktree,
   type WorktreeRefusal,
 } from "@/features/runs/lib/worktreePlan";
+
+/** What a briefed creation actually did. Two separate answers on purpose: the
+ * worktree exists, and the brief either does or does not. */
+export interface BriefedOutcome {
+  /** git's own path for the new worktree. */
+  path: string;
+  branch: string;
+  /** The brief's path, or `null` when it was not written. */
+  brief: string | null;
+  /** Why it was not, in words. `null` when it was. */
+  briefRefusal: WorktreeRefusal | null;
+}
 
 export interface WorktreeActions {
   /** What git says each project's worktrees are, keyed by repo id. A project
@@ -67,6 +80,18 @@ export interface WorktreeActions {
   /** Resolves true when the worktree was created — the dialog closes on
    * true, and stays open with the refusal showing on false. */
   create: (branch: string, base: string) => Promise<boolean>;
+  /** The same creation, with a document written into the new checkout
+   * (`planBrief.ts` decides the filename, `vingilot_worktree/brief.rs` writes
+   * it). `null` is a refusal, on `refusal` — nothing was created.
+   *
+   * An outcome is **not** a claim that the brief landed: the worktree can
+   * exist with `briefRefusal` set, and the caller must say so rather than
+   * reporting a success it did not get. */
+  createWithBrief: (
+    branch: string,
+    base: string,
+    brief: { name: string; text: string },
+  ) => Promise<BriefedOutcome | null>;
   remove: (target: RemovableWorktree) => void;
   /** What `git worktree prune` would remove, in git's own words. Removes
    * nothing. `null` means git refused, and the refusal is on `refusal`. */
@@ -151,33 +176,84 @@ export function useWorktreeActions({
     };
   }, [key]);
 
-  const create = React.useCallback(
-    async (branch: string, base: string): Promise<boolean> => {
-      if (selectedRepo === null) return false;
+  /** The questions both doors ask before git is asked anything: is there a
+   * project, and does the plan resolve to a call. One function, so a refusal
+   * the plain dialog shows is the refusal the plan's dialog shows. */
+  const planCall = React.useCallback(
+    (branch: string, base: string) => {
+      if (selectedRepo === null) return null;
       setRefusal(null);
-
       const planned = planWorktree({
         base,
         branch,
         repo: selectedRepo,
         worktreeRoot,
       });
-      if (!planned.ok) {
-        setRefusal({ entries: [], message: planned.reason });
-        return false;
-      }
+      if (planned.ok) return { plan: planned.plan, repo: selectedRepo };
+      setRefusal({ entries: [], message: planned.reason });
+      return null;
+    },
+    [selectedRepo, worktreeRoot],
+  );
+
+  const create = React.useCallback(
+    async (branch: string, base: string): Promise<boolean> => {
+      const call = planCall(branch, base);
+      if (call === null) return false;
 
       setPending(true);
-      const result = await gitWorktreeAdd(planned.plan);
+      const result = await gitWorktreeAdd(call.plan);
       setPending(false);
       if (!result.ok) {
         setRefusal(explainWorktreeError(result.error));
         return false;
       }
-      setListing((prev) => listed(prev, selectedRepo.id, result.value));
+      setListing((prev) => listed(prev, call.repo.id, result.value));
       return true;
     },
-    [selectedRepo, worktreeRoot],
+    [planCall],
+  );
+
+  const createWithBrief = React.useCallback(
+    async (
+      branch: string,
+      base: string,
+      brief: { name: string; text: string },
+    ): Promise<BriefedOutcome | null> => {
+      const call = planCall(branch, base);
+      if (call === null) return null;
+
+      setPending(true);
+      const result = await gitWorktreeAddWithBrief(
+        call.plan,
+        brief.name,
+        brief.text,
+      );
+      if (!result.ok) {
+        setPending(false);
+        setRefusal(explainWorktreeError(result.error));
+        return null;
+      }
+      // The listing the column renders does not come back with the worktree
+      // here (the answer is one record plus a brief), so it is asked for. Left
+      // in `pending` until it has: the new row is the whole point, and a
+      // dialog that closed onto a column without it in would look like the
+      // creation had not happened.
+      const relisted = await gitWorktrees(call.repo.path);
+      setPending(false);
+      if (relisted.ok) {
+        setListing((prev) => listed(prev, call.repo.id, relisted.value));
+      }
+      const { brief: written, briefRefusal, worktree } = result.value;
+      return {
+        branch: worktree.branch ?? branch,
+        brief: written,
+        briefRefusal:
+          briefRefusal === null ? null : explainWorktreeError(briefRefusal),
+        path: worktree.path,
+      };
+    },
+    [planCall],
   );
 
   const remove = React.useCallback(
@@ -236,6 +312,7 @@ export function useWorktreeActions({
   return {
     byRepo: listing.byRepo,
     create,
+    createWithBrief,
     dismissRefusal,
     pending,
     previewPrune,

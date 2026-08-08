@@ -36,6 +36,8 @@ export type WorktreeError =
   | { kind: "dirty"; path: string; entries: string[]; total: number }
   | { kind: "main-worktree"; path: string }
   | { kind: "not-a-worktree"; path: string }
+  | { kind: "brief-exists"; path: string }
+  | { kind: "invalid-brief-name"; name: string }
   | { kind: "git-failed"; command: string; stderr: string };
 
 function str(v: Record<string, unknown>, key: string): string {
@@ -66,6 +68,10 @@ export function readWorktreeError(value: unknown): WorktreeError | null {
       return { kind: "main-worktree", path: str(v, "path") };
     case "not-a-worktree":
       return { kind: "not-a-worktree", path: str(v, "path") };
+    case "brief-exists":
+      return { kind: "brief-exists", path: str(v, "path") };
+    case "invalid-brief-name":
+      return { kind: "invalid-brief-name", name: str(v, "name") };
     case "git-failed":
       return {
         command: str(v, "command"),
@@ -156,6 +162,21 @@ export function explainWorktreeError(error: WorktreeError): WorktreeRefusal {
       return {
         entries: [],
         message: `git does not know ${error.path} as a worktree of this project.`,
+      };
+    case "brief-exists":
+      // The worktree exists — only its brief does not. The caller says that
+      // part (`useWorktreeActions.ts`); this sentence is about the file.
+      return {
+        entries: [error.path],
+        message:
+          "the branch this was opened from already carries a file by that name, " +
+          "and it was left exactly as it is. The plan is still in the Plan pane; " +
+          "nothing was written over.",
+      };
+    case "invalid-brief-name":
+      return {
+        entries: [],
+        message: `"${error.name}" is not a filename, so nothing was written.`,
       };
     case "git-failed":
       return {

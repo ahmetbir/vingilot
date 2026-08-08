@@ -256,6 +256,8 @@ test("every refusal shape reads back off the wire", () => {
     { base: "x", kind: "unknown-base" },
     { kind: "main-worktree", path: "/p" },
     { kind: "not-a-worktree", path: "/p" },
+    { kind: "brief-exists", path: "/w/fix/PLAN.md" },
+    { kind: "invalid-brief-name", name: "../PLAN.md" },
     { command: "git worktree remove /p", kind: "git-failed", stderr: "no" },
   ];
   for (const shape of shapes) {
@@ -264,6 +266,28 @@ test("every refusal shape reads back off the wire", () => {
     assert.equal(read.kind, shape.kind);
     assert.notEqual(explainWorktreeError(read).message, "");
   }
+});
+
+test("a brief already on the base branch is reported as a file, not as a worktree", () => {
+  // The worktree exists when this arrives; the sentence must be about the
+  // file, and it must promise the file was left alone.
+  const refusal = explainWorktreeError({
+    kind: "brief-exists",
+    path: "/w/fix/PLAN.md",
+  });
+  assert.deepEqual(refusal.entries, ["/w/fix/PLAN.md"]);
+  assert.match(refusal.message, /left exactly as it is/);
+  assert.match(refusal.message, /nothing was written over/);
+  assert.doesNotMatch(refusal.message, /removed/);
+});
+
+test("a brief filename that is not a filename is quoted back, with nothing written", () => {
+  const refusal = explainWorktreeError({
+    kind: "invalid-brief-name",
+    name: "../PLAN.md",
+  });
+  assert.match(refusal.message, /"\.\.\/PLAN\.md" is not a filename/);
+  assert.match(refusal.message, /nothing was written/);
 });
 
 test("an unreadable refusal is null rather than a guess at which one it was", () => {

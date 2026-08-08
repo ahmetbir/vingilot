@@ -32,6 +32,7 @@
 //! second opinion about the owner's repository, which is the last thing this
 //! app should have.
 
+pub mod brief;
 pub mod diff;
 mod porcelain;
 pub mod prune;
@@ -104,6 +105,15 @@ pub enum WorktreeError {
     MainWorktree { path: String },
     /// git does not know this path as a worktree of this repository.
     NotAWorktree { path: String },
+    /// A file is already where a worktree's brief would go — its base commit
+    /// carried one (`brief.rs`). Reported with the worktree, which was made:
+    /// only the brief did not land, and the file that was there is untouched.
+    BriefExists { path: String },
+    /// The brief's filename is not a filename — a path, a dotfile, something
+    /// with a separator in it. Refused before anything is opened, so no edit
+    /// that ever derives this name from the owner's own words can turn a brief
+    /// into a write somewhere else.
+    InvalidBriefName { name: String },
     /// git ran and refused, and this module has no better name for why.
     /// `stderr` is git's own words, which are usually the right ones.
     GitFailed { command: String, stderr: String },

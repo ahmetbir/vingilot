@@ -43,15 +43,27 @@ export type DocumentLibrary = Record<string, ProjectDocument>;
  * is losing the work this whole task exists to keep. A keystroke that cannot
  * be stored must not be accepted in the first place.
  *
- * 40 000 characters is roughly a 15-page note. Twelve of them is ~480 KB
- * against a webview's ~5 MB origin quota, which leaves room for the ask
- * threads and the layouts sharing it. */
+ * 40 000 characters is roughly a 15-page note. `MAX_DOCUMENTS` of them is
+ * under a megabyte against a webview's ~5 MB origin quota, which leaves room
+ * for the ask threads and the layouts sharing it. */
 export const MAX_DOCUMENT_CHARS = 40_000;
 
 /** How many documents are kept at all. Past this the least recently saved one
  * goes — a note about a project the owner removed months ago is not worth the
- * quota that loses the one he is typing into. */
-export const MAX_DOCUMENTS = 12;
+ * quota that loses the one he is typing into.
+ *
+ * **It is 24 because there are two kinds, not because 24 is a nicer number.**
+ * It was 12, chosen as "twelve projects' notes" when notes were the only
+ * document. The Plan pane made every project able to hold two, which silently
+ * turned the same 12 into *six* projects — and the eviction that followed
+ * would not have been a stale note going, it would have been a plan going to
+ * make room for a note. This is the one place the substrate was shaped around
+ * its first tenant, and this is the shape it should have had.
+ *
+ * The arithmetic still holds: 24 × 40 000 characters is ~960 KB against a
+ * webview's ~5 MB origin quota, worst case, with every document at its cap —
+ * and a 40 000-character document is fifteen pages. */
+export const MAX_DOCUMENTS = 24;
 
 export function documentKey(kind: DocumentKind, projectPath: string): string {
   // NUL, because a project path can contain anything a filesystem allows —

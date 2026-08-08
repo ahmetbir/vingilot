@@ -39,6 +39,11 @@ export type PaletteCommand =
   | { type: "open-worktree"; bindingId: string }
   | { type: "choose-pane"; pane: string }
   | { type: "new-worktree" }
+  /** Open the dialog that turns this project's plan into a worktree. The
+   * command opens it and nothing more: the branch name is derived from the
+   * plan and shown in an editable field, and a palette row that skipped that
+   * would be the palette taking a name on the owner's behalf. */
+  | { type: "plan-to-worktree" }
   | { type: "new-terminal-tab" }
   | { type: "add-project" }
   | { type: "remove-project" }

@@ -52,9 +52,25 @@ export const PANE_IDS = [
   "evidence",
   "runs",
   "notes",
+  "plan",
 ] as const;
 
 export type PaneId = (typeof PANE_IDS)[number];
+
+/** What a pane may ask the workspace to do.
+ *
+ * **The second thing a pane can ask of the host**, after `onChoosePane`, and
+ * a union rather than another prop because the first one taught us the shape:
+ * a pane's ask is an *act the workspace owns*, and the third one should be a
+ * variant here rather than a fourth callback threaded through the surface.
+ *
+ * `plan-to-worktree` is here because the Plan pane cannot do it itself and
+ * should not be able to: it is a dialog over the whole work surface and a
+ * branch in the owner's repository, and both belong to `RunsScreen`, which is
+ * also where the palette's door into the same dialog arrives. Two doors, one
+ * dialog — the rule that already holds for New worktree, Prune and Remove
+ * project. */
+export type PaneAct = { type: "plan-to-worktree" };
 
 /** The pane on the left, which the owner does not choose.
  *
@@ -268,21 +284,44 @@ export function runsAvailability(): PaneAvailability {
   return AVAILABLE;
 }
 
-/** Notes belong to a project, so a project is the whole of what this pane
- * needs — no checkout, no git, no harness. A worktree whose project this app
- * cannot name has no document to open, and saying so is more honest than
- * offering an editor that would keep what was typed into it nowhere.
+/** A document belongs to a project, so a project is the whole of what a
+ * document pane needs — no checkout, no git, no harness. A worktree whose
+ * project this app cannot name has no document to open, and saying so is more
+ * honest than offering an editor that would keep what was typed into it
+ * nowhere.
  *
  * There is no `pending` here, and that is a fact rather than an omission: the
  * project is the one the owner selected in the nav, held in this screen's own
- * state, so it is never a lookup that might still answer. */
+ * state, so it is never a lookup that might still answer.
+ *
+ * One rule for both document panes, with the sentence as its argument: what
+ * differs between Notes and Plan when there is no project is only what the
+ * owner is told he cannot have. */
+function documentAvailability(
+  ctx: PaneContext,
+  reason: string,
+): PaneAvailability {
+  return ctx.projectPath === null
+    ? { reason, status: "unavailable" }
+    : AVAILABLE;
+}
+
 export function notesAvailability(ctx: PaneContext): PaneAvailability {
-  if (ctx.projectPath !== null) return AVAILABLE;
-  return {
-    reason:
-      "no project is open here, and notes are kept per project — so there is nothing for this pane to be the notes of.",
-    status: "unavailable",
-  };
+  return documentAvailability(
+    ctx,
+    "no project is open here, and notes are kept per project — so there is nothing for this pane to be the notes of.",
+  );
+}
+
+/** The Plan pane needs exactly what Notes needs and nothing more — in
+ * particular **not** a worktree. The plan is written before there is anywhere
+ * to do the work; that is what makes it a plan, and it is the document the
+ * worktree is opened *from*. */
+export function planAvailability(ctx: PaneContext): PaneAvailability {
+  return documentAvailability(
+    ctx,
+    "no project is open here, and a plan is kept per project — so there is nothing for this pane to be the plan of, and nowhere to open a worktree under.",
+  );
 }
 
 /** Which side of the split a pane is asked about. */

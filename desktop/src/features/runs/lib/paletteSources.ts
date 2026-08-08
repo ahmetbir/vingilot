@@ -185,6 +185,20 @@ export const actionSource: PaletteSource = (ctx, query) => {
       label: "New worktree…",
     },
     {
+      blocked: project === null ? NO_PROJECT : null,
+      // What the plan says, and what is in it, are not this source's to know:
+      // the document is read when the dialog opens, which is the moment the
+      // branch name has to be derived from. A row carrying a name read at
+      // palette-open would offer a branch from a plan the owner had since
+      // edited.
+      command: { type: "plan-to-worktree" },
+      detail: "a branch from this project's plan, with the plan copied into it",
+      icon: "◇",
+      id: "action:plan-to-worktree",
+      kind: "action",
+      label: "Turn this plan into a worktree…",
+    },
+    {
       blocked:
         ctx.selectedWorktreeId === null
           ? "no worktree is open, so there is nowhere to open a shell."

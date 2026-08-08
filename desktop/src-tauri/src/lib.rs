@@ -666,6 +666,7 @@ pub fn run() {
             vingilot_repo::repo_probe,
             vingilot_worktree::worktree_list,
             vingilot_worktree::worktree_add,
+            vingilot_worktree::brief::worktree_add_with_brief,
             vingilot_worktree::worktree_remove,
             vingilot_worktree::diff::worktree_diff,
             vingilot_worktree::stat::worktree_stats,

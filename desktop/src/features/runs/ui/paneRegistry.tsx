@@ -44,12 +44,14 @@ import {
   diffAvailability,
   evidenceAvailability,
   notesAvailability,
+  type PaneAct,
   type PaneAvailability,
   type PaneContext,
   type PaneFacts,
   type PaneId,
   PANE_IDS,
   type PaneProbe,
+  planAvailability,
   runsAvailability,
   terminalAvailability,
 } from "@/features/runs/lib/paneModel";
@@ -57,6 +59,7 @@ import type { RunSummary } from "@/features/runs/lib/runModel";
 import { AgentPanel } from "@/features/runs/ui/AgentPanel";
 import { EvidencePane } from "@/features/runs/ui/EvidencePane";
 import { NotesPane } from "@/features/runs/ui/NotesPane";
+import { PlanPane } from "@/features/runs/ui/PlanPane";
 import { RunsPane } from "@/features/runs/ui/RunsPane";
 import { WorktreeDiffPanel } from "@/features/runs/ui/WorktreeDiffPanel";
 
@@ -84,6 +87,12 @@ export interface PaneProps {
    * cannot yet do is hand the next pane an argument — no pane needs that, and
    * inventing the channel before one does would fix its shape blind. */
   onChoosePane: (pane: PaneId) => void;
+  /** The second thing a pane can ask of the host, and the one the note above
+   * said would come: an act the workspace owns (`PaneAct`). The Plan pane's
+   * "turn this into a worktree" is a dialog over the whole surface and a
+   * branch in the owner's repository, and the palette is a second door onto
+   * the same dialog — so the pane asks, and `RunsScreen` decides. */
+  onPaneAct: (act: PaneAct) => void;
 }
 
 export type PaneComponent = (props: PaneProps) => React.ReactElement | null;
@@ -147,6 +156,15 @@ function NotesPaneEntry({ projectPath }: PaneProps) {
   return <NotesPane projectPath={projectPath} />;
 }
 
+function PlanPaneEntry({ onPaneAct, projectPath }: PaneProps) {
+  return (
+    <PlanPane
+      onTurnIntoWorktree={() => onPaneAct({ type: "plan-to-worktree" })}
+      projectPath={projectPath}
+    />
+  );
+}
+
 /** Is there a harness on this machine to hand a worktree to? A question about
  * the machine, so it carries no `keyOf` and is asked once per app run — the
  * answer changes when the owner edits his shell profile, which is not
@@ -202,6 +220,17 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     id: "notes",
     identity: ofProject,
     title: "Notes",
+  },
+  plan: {
+    availability: planAvailability,
+    component: PlanPaneEntry,
+    icon: "◇",
+    id: "plan",
+    // A project's, like Notes — and for the sharper reason: the worktree this
+    // plan is about does not exist yet, so a plan re-taken on every worktree
+    // switch would be a plan that vanished the moment it was acted on.
+    identity: ofProject,
+    title: "Plan",
   },
   runs: {
     availability: runsAvailability,

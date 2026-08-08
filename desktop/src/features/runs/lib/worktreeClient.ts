@@ -78,6 +78,72 @@ export async function gitWorktreeAdd(
   return gitWorktrees(plan.repoPath);
 }
 
+/** A new worktree with a document written into it, and what became of that
+ * document (`vingilot_worktree/brief.rs`).
+ *
+ * `brief` is the file's path when it landed. `briefRefusal` is why it did not
+ * — and it arrives *beside* a worktree that exists, never instead of one:
+ * failing the whole call would describe a repository state that is no longer
+ * true, and the only way to make it true again would be to remove something. */
+export interface BriefedWorktree {
+  worktree: GitWorktree;
+  brief: string | null;
+  briefRefusal: WorktreeError | null;
+}
+
+/** Tolerant read of a `BriefedWorktree`. `null` for a shape this build cannot
+ * read — the caller then says the worktree's state is unknown to it, which is
+ * the truth, rather than reporting a brief it has no word about. */
+function readBriefedWorktree(value: unknown): BriefedWorktree | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const worktree = readGitWorktrees([v.worktree])[0];
+  if (worktree === undefined) return null;
+  return {
+    brief: typeof v.brief === "string" ? v.brief : null,
+    briefRefusal: readWorktreeError(v.briefRefusal),
+    worktree,
+  };
+}
+
+/** `plan`'s worktree, plus `text` written into it as `name`.
+ *
+ * The same `worktree_add` path as `gitWorktreeAdd` — one function in Rust,
+ * called with one extra pair of arguments — so every refusal a new worktree
+ * can meet is the same refusal, in the same words, whichever door it came
+ * through. */
+export async function gitWorktreeAddWithBrief(
+  plan: WorktreePlan,
+  name: string,
+  text: string,
+): Promise<WorktreeResult<BriefedWorktree>> {
+  try {
+    const answered = await invoke<unknown>("worktree_add_with_brief", {
+      base: plan.base,
+      branch: plan.branch,
+      name,
+      path: plan.path,
+      repo: plan.repoPath,
+      text,
+    });
+    const made = readBriefedWorktree(answered);
+    if (made === null) {
+      return {
+        error: {
+          command: "git worktree add",
+          kind: "git-failed",
+          stderr:
+            "the worktree came back in a shape this build cannot read. Check the project's worktrees before trying again — one may have been created.",
+        },
+        ok: false,
+      };
+    }
+    return { ok: true, value: made };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
+}
+
 /** One worktree's changes against `base`, working tree included.
  *
  * `path` is the worktree's own directory rather than the project's: a linked

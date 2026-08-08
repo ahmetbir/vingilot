@@ -64,7 +64,10 @@ test("nothing stored is no arrangement, not a broken one", () => {
 test("a value this build does not recognise is coerced, never dropped whole", () => {
   const layout = parsePaneLayout(
     JSON.stringify({
-      wt: { ratio: "wide", right: "plan", solo: "yes" },
+      // Not a pane id this build has, and deliberately not one it might
+      // acquire: "plan" stood here until the Plan pane shipped, at which point
+      // this test was asserting that a perfectly good arrangement was dropped.
+      wt: { ratio: "wide", right: "a-pane-from-a-later-build", solo: "yes" },
     }),
   );
   assert.deepEqual(layout.wt, {
