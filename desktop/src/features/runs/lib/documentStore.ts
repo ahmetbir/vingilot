@@ -40,9 +40,18 @@
 // **A write that did not happen is never reported as saved.** `writeDocument`
 // returns whether storage took it, and a build with no `localStorage` at all
 // answers `false` rather than silently succeeding into a no-op: `autosave.ts`
-// turns that into a "not saved" the owner can see. This is the one place the
-// ask store's swallowing pattern is wrong for the case — a lost answer is
-// annoying, a lost note is the owner's own writing.
+// turns that into a "not saved" the owner can see.
+//
+// **What a refusal here does not do is hold the text**, and that is the whole
+// of the difference between this store and `askStore.ts`. Neither claims a
+// write landed. But an ask thread is drawn out of storage by a pane that is
+// usually not even mounted when the question is asked, so a refusal there had
+// nothing on screen standing behind it and that store keeps the conversation
+// in memory instead. A document is the other way round: the editor is holding
+// it (`useDocument`'s state, `autosave`'s `pending`), so refused text is in
+// front of the owner, marked as refused, and re-tried by his next keystroke.
+// It goes when this editor is remounted, because a remount reads storage —
+// and the pane had said "not saved" for as long as it was there.
 
 import {
   type DocumentLibrary,
