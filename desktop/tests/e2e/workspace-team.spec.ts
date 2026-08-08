@@ -188,9 +188,30 @@ async function stubBackend(page: Page) {
       if (name.startsWith("plugin:path|")) return Promise.resolve("/tmp/home/");
       if (name === "pty_backing") return Promise.resolve("tmux");
       if (name.startsWith("pty_")) return Promise.resolve(null);
-      if (name === "sign_event") window.__SIGNED__?.push(args);
+      if (name === "sign_event") {
+        window.__SIGNED__?.push(args);
+        // A relay hiccup, made to order. Signing is the first step of the
+        // publish, so refusing it here is a send that fails before anything
+        // leaves — which is exactly the case where the composer used to be
+        // emptied anyway.
+        const kind = (args as { kind?: number } | undefined)?.kind;
+        if (window.__FAIL_SENDS__ === true && kind === 9) {
+          return Promise.reject(new Error("the relay refused this message"));
+        }
+      }
       return passThrough(cmd, args, opts);
     };
+  });
+}
+
+/** Open a thread with `TEAM` and wait until there is something to type into. */
+async function openThread(page: Page) {
+  await choosePane(page, "team");
+  await expect(page.getByTestId("team-choice")).toBeVisible();
+  await page.getByTestId(`team-choice-${TEAM.id}`).click();
+  await page.getByTestId("team-open").click();
+  await expect(page.getByTestId("team-composer")).toBeVisible({
+    timeout: 15_000,
   });
 }
 
@@ -308,6 +329,73 @@ test.describe("talk to a team about this worktree", () => {
     expect(await lastMessage(page)).toBeNull();
   });
 
+  test("a send that fails keeps every character he typed", async ({ page }) => {
+    await openWorktree(page);
+    await openThread(page);
+
+    await page.evaluate(() => {
+      window.__FAIL_SENDS__ = true;
+    });
+    const composer = page.getByTestId("team-composer");
+    await composer.fill(QUESTION);
+    await page.getByTestId("team-send").click();
+
+    // It says the send failed, in the words of whatever refused it, and says
+    // where the text is rather than leaving him to find out.
+    const trouble = page.getByTestId("team-trouble");
+    await expect(trouble).toContainText("did not go");
+    await expect(trouble).toContainText("still in the composer");
+    await expect(trouble).toContainText("the relay refused this message");
+
+    // And the paragraph is still there, to the character.
+    await expect(composer).toHaveValue(QUESTION);
+
+    // The retry is a second click, not a retype.
+    await page.evaluate(() => {
+      window.__FAIL_SENDS__ = false;
+    });
+    await page.getByTestId("team-send").click();
+    await expect
+      .poll(async () => (await lastMessage(page))?.content ?? null, {
+        timeout: 15_000,
+      })
+      .toBe(`${SCOPE_LINE}\n\n${QUESTION}`);
+    // Accepted, and only now is the composer empty.
+    await expect(composer).toHaveValue("");
+  });
+
+  test("a half-written message survives the pane being torn down and rebuilt", async ({
+    page,
+  }) => {
+    await openWorktree(page);
+    await openThread(page);
+
+    const half = "the parser regressed when we";
+    await page.getByTestId("team-composer").fill(half);
+
+    // Out of the React heap and into storage on the keystroke — which is what a
+    // relay reinit needs, since it remounts the whole community subtree
+    // (`<AppReady key={communityKey}>`) and every `useState` under it.
+    expect(
+      await page.evaluate(() =>
+        window.localStorage.getItem("vingilot-team-draft.v1"),
+      ),
+    ).toContain(half);
+
+    // A real teardown: putting another pane in the slot unmounts this one and
+    // everything it held, and coming back builds a fresh hook. Route navigation
+    // is *not* enough here — the workspace screen survives it, so a spec that
+    // used it would pass with the draft still sitting in React state, which is
+    // the bug.
+    await choosePane(page, "notes");
+    await expect(page.getByTestId("team-composer")).toBeHidden();
+    await choosePane(page, "team");
+
+    await expect(page.getByTestId("team-composer")).toHaveValue(half);
+    // And nothing was sent by any of it.
+    expect(await lastMessage(page)).toBeNull();
+  });
+
   test("a team list that could not be read is never reported as no teams", async ({
     page,
   }) => {
@@ -329,5 +417,7 @@ declare global {
     /** Every event this app signed, in order — set by the stub above. The
      * kind:9 ones are the messages published to the relay. */
     __SIGNED__?: unknown[];
+    /** When true, signing a kind:9 fails — a send that does not leave. */
+    __FAIL_SENDS__?: boolean;
   }
 }

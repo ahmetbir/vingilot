@@ -73,6 +73,13 @@ import {
   threadChannelName,
 } from "./teamThread.ts";
 import {
+  draftFor,
+  readTeamDrafts,
+  type TeamDrafts,
+  withDraft,
+  writeTeamDrafts,
+} from "./teamDraftStore.ts";
+import {
   bindingFor,
   readTeamThreadBindings,
   type TeamThreadBindings,
@@ -133,7 +140,15 @@ export interface TeamThread {
   /** Members that could not be deployed, by name and reason. A partial deploy
    * is reported as one: the thread exists and is short of an agent. */
   deployFailures: { name: string; error: string }[];
-  send: (body: string) => void;
+  /** What is typed and not yet sent. Owned here rather than by the composer,
+   * because a `useState` in the composer is lost to the community remount a
+   * relay reconnect performs, and because a failed send must not take it. */
+  draft: string;
+  setDraft: (text: string) => void;
+  /** Sends `draft`. Takes no argument on purpose: the text that goes and the
+   * text on screen are one value, so there is no arrangement in which the
+   * composer is cleared of something other than what left. */
+  send: () => void;
   sending: boolean;
   trouble: TeamThreadTrouble | null;
 }
@@ -156,6 +171,16 @@ export function useTeamThread(input: {
   const [bindings, setBindings] = React.useState<TeamThreadBindings>(() =>
     readTeamThreadBindings(),
   );
+  // Seeded from storage on every mount, which is what makes it survive the
+  // remount `<AppReady key={communityKey}>` performs on a relay reinit.
+  const [drafts, setDrafts] = React.useState<TeamDrafts>(() =>
+    readTeamDrafts(),
+  );
+  // The authority between renders, so a keystroke can be mirrored to storage
+  // *outside* the state updater. An updater is not guaranteed to run — React
+  // drops it for a fiber that has unmounted — and "the write only happens if
+  // the component is still there" is precisely the bug being fixed.
+  const draftsRef = React.useRef(drafts);
   const [opening, setOpening] = React.useState(false);
   const [trouble, setTrouble] = React.useState<TeamThreadTrouble | null>(null);
   const [deployFailures, setDeployFailures] = React.useState<
@@ -252,6 +277,30 @@ export function useTeamThread(input: {
     commit(withNoTeam(bindings, bindingId));
   }, [bindingId, bindings, commit]);
 
+  /** Record which channel a worktree's thread is, **to storage first**.
+   *
+   * Every caller of this runs after an `await`, and by then a relay reinit may
+   * have remounted the community subtree and taken this component with it.
+   * React is free not to run the updater of a `setState` on an unmounted fiber,
+   * so a write made *inside* one is a write that may never happen — and what
+   * would not have been written is where a channel with live managed agents in
+   * it went. Storage is read fresh for the same reason: this closure's copy of
+   * `bindings` is a render old and possibly from a tree that no longer exists.
+   */
+  const rememberChannel = React.useCallback(
+    (owner: string, teamId: string, channelId: string) => {
+      const next = withThreadChannel(
+        readTeamThreadBindings(),
+        owner,
+        teamId,
+        channelId,
+      );
+      writeTeamThreadBindings(next);
+      setBindings(next);
+    },
+    [],
+  );
+
   const openThread = React.useCallback(() => {
     if (bindingId === null || team === null || cwd === null) return;
     if (defaultRuntime === null) return;
@@ -270,6 +319,15 @@ export function useTeamThread(input: {
           // owner did not ask for that to be readable by the whole community.
           visibility: "private",
         });
+        // **The moment the channel exists, it is written down** — before the
+        // members are deployed, not after. A reinit landing between the two
+        // used to leave a channel on the relay that this worktree could never
+        // find again, and the next open would make a second one with a second
+        // set of agent processes. A thread that is short of its members is
+        // recoverable; a thread nobody can name is not. `withThreadChannel`
+        // still refuses if the owner chose another team while this was in
+        // flight.
+        rememberChannel(bindingId, teamId, opened.id);
         const result = await createChannelManagedAgents(
           opened.id,
           resolved.resolvedPersonas.map((persona) =>
@@ -282,13 +340,6 @@ export function useTeamThread(input: {
             name: failure.name,
           })),
         );
-        // Written last, and against the team that was chosen when this
-        // started: `withThreadChannel` refuses if the owner has moved on.
-        setBindings((current) => {
-          const next = withThreadChannel(current, bindingId, teamId, opened.id);
-          if (next !== current) writeTeamThreadBindings(next);
-          return next;
-        });
       } catch (error) {
         setTrouble({ message: reasonOf(error), step: "open" });
       } finally {
@@ -301,33 +352,61 @@ export function useTeamThread(input: {
     cwd,
     defaultRuntime,
     opening,
+    rememberChannel,
     resolved,
     runtimes,
     team,
     worktreeLabel,
   ]);
 
-  const send = React.useCallback(
-    (body: string) => {
-      if (channel === null || cwd === null) return;
-      const content = composeTeamMessage(cwd, body);
-      if (content === null) return;
-      setTrouble(null);
-      sendMessage.mutate(
-        { channelId: channel.id, content, targetChannel: channel },
-        {
-          onError: (error) =>
-            setTrouble({ message: reasonOf(error), step: "send" }),
-        },
-      );
+  const setDraft = React.useCallback(
+    (text: string) => {
+      if (bindingId === null) return;
+      const next = withDraft(draftsRef.current, bindingId, text);
+      if (next === draftsRef.current) return;
+      draftsRef.current = next;
+      // Written on the keystroke, not on a debounce. A debounce is a window in
+      // which what is on screen is not what is stored, and a reconnect landing
+      // inside that window is the loss this store exists to prevent.
+      writeTeamDrafts(next);
+      setDrafts(next);
     },
-    [channel, cwd, sendMessage],
+    [bindingId],
   );
+
+  const draft = draftFor(drafts, bindingId);
+
+  const send = React.useCallback(() => {
+    if (bindingId === null || channel === null || cwd === null) return;
+    const said = draftsRef.current[bindingId] ?? "";
+    const content = composeTeamMessage(cwd, said);
+    if (content === null) return;
+    setTrouble(null);
+    sendMessage.mutate(
+      { channelId: channel.id, content, targetChannel: channel },
+      {
+        // **The composer is cleared by the relay accepting it, and by nothing
+        // else.** A send that fails leaves every character where it was, with
+        // the sentence below saying it did not go, so the retry is a second
+        // click rather than typing the paragraph again.
+        onError: (error) =>
+          setTrouble({ message: reasonOf(error), step: "send" }),
+        // And only the text that actually left: an owner who kept typing while
+        // the send was in flight must not have those keystrokes cleared by an
+        // acknowledgement of the ones before them.
+        onSuccess: () => {
+          if ((draftsRef.current[bindingId] ?? "") !== said) return;
+          setDraft("");
+        },
+      },
+    );
+  }, [bindingId, channel, cwd, sendMessage, setDraft]);
 
   return {
     channel,
     chooseTeam,
     deployFailures,
+    draft,
     forgetTeam,
     lostChannel,
     members: resolved.resolvedPersonas.map((persona) => ({
@@ -345,6 +424,7 @@ export function useTeamThread(input: {
     reading,
     send,
     sending: sendMessage.isPending,
+    setDraft,
     team,
     teams,
     trouble,

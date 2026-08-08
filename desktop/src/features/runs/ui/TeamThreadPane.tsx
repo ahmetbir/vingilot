@@ -20,8 +20,6 @@
 // **Choosing the team is part of the pane**, per the plan — one team per
 // worktree, stored beside that worktree's tabs and panes, not a global setting.
 
-import * as React from "react";
-
 import {
   canSend,
   scopeSentence,
@@ -216,12 +214,15 @@ function Scope({ cwd }: { cwd: string }) {
 }
 
 function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
-  const [draft, setDraft] = React.useState("");
+  // The draft is the hook's, not this component's: a relay reinit remounts the
+  // whole community subtree (`<AppReady key={communityKey}>`), and a `useState`
+  // here would take the half-written paragraph with it. It is also not cleared
+  // by clicking Send — only by the relay accepting the message.
+  const draft = thread.draft;
 
   function submit() {
     if (draft.trim() === "") return;
-    thread.send(draft);
-    setDraft("");
+    thread.send();
   }
 
   return (
@@ -230,6 +231,14 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3"
         data-testid="team-thread"
       >
+        {thread.opening ? (
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid="team-deploying"
+          >
+            deploying this team's members into the thread…
+          </p>
+        ) : null}
         {thread.deployFailures.length > 0 ? (
           <p className="text-xs text-destructive" data-testid="team-partial">
             {thread.deployFailures.length} member
@@ -267,7 +276,7 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
         <textarea
           className="mt-2 h-16 w-full resize-none rounded-lg border border-border/60 bg-transparent px-2 py-1 text-sm"
           data-testid="team-composer"
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => thread.setDraft(event.target.value)}
           onKeyDown={(event) => {
             // ⌘/Ctrl+Enter, not bare Enter: a message here carries a path and
             // goes to a server, and a newline is the more likely keystroke.
@@ -312,7 +321,9 @@ function Trouble({ thread }: { thread: TeamThread }) {
     <p className="pt-2 text-xs text-destructive" data-testid="team-trouble">
       {thread.trouble.step === "open"
         ? "the thread could not be opened: "
-        : "this message did not go: "}
+        : // Says where the text is, because the text being kept is only useful
+          // if he knows to look for it rather than retyping it.
+          "this message did not go and is still in the composer — send it again when you want: "}
       {thread.trouble.message}
     </p>
   );
