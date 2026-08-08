@@ -16,27 +16,36 @@
 // it would ask a question whose answer changes when the owner edits his shell
 // profile, which is not something to watch for.
 //
-// **This pane is also where the palette's questions land**
+// **This pane is where every turn in this worktree is kept**
 // (vingilot/docs/plans/2026-08-08-palette-and-documents.md, Task 2). A `?` in
-// the palette asks in this worktree's directory, and the exchange is kept, so
-// the thread above the box is a conversation the owner can come back to — the
-// one thing the box below it has never had. The pane reads it from
-// `askStore.ts` rather than being handed it: the question is usually asked
-// while this pane is not on screen, since asking is what switches to it.
+// the palette and the box below both go through `askRunner.ask`, so both are
+// written to the same thread and both claim the same "a turn is out" mark.
+// That is the whole reason the box does not call `agent_run` itself any more:
+// its `running` was component-local, so the palette could not see it and would
+// start a second adapter in this same worktree.
+//
+// The thread is therefore a conversation the owner can come back to for
+// *either* door — including after a restart, which the box's own transcript
+// has never survived. What is not kept is the transcript below: the trace is
+// this turn's detail, and it is drawn from the outcome in hand, not storage.
+//
+// The pane reads the thread from `askStore.ts` rather than being handed it:
+// a palette question is usually asked while this pane is not on screen, since
+// asking is what switches to it.
 
 import * as React from "react";
 
-import { probeAgent, runAgent } from "@/features/runs/lib/agentClient";
+import { probeAgent } from "@/features/runs/lib/agentClient";
 import {
   type AgentAvailability,
   type AgentTurn,
   boundaryNote,
   canRun,
   explainAvailability,
-  explainFailure,
   type TraceKind,
   turnSummary,
 } from "@/features/runs/lib/agentTurn";
+import { ask } from "@/features/runs/lib/askRunner";
 import { readThread, subscribeToAsks } from "@/features/runs/lib/askStore";
 import {
   type AskExchange,
@@ -68,9 +77,11 @@ interface Props {
   cwd: string | null;
 }
 
-/** One question and whatever came back, with the directory it was asked in on
- * the record beside it — a thread read weeks later has to say what each
- * question was asked *with*, not what this surface would send today. */
+/** One question — or one prompt from the box below; the thread does not sort
+ * turns by which door started them — and whatever came back, with the
+ * directory it was asked in on the record beside it. A thread read weeks later
+ * has to say what each question was asked *with*, not what this surface would
+ * send today. */
 function Exchange({
   exchange,
   pending,
@@ -134,9 +145,7 @@ export function AgentPanel({ cwd }: Props) {
     React.useState<AgentAvailability | null>(null);
   const [asked, setAsked] = React.useState(false);
   const [prompt, setPrompt] = React.useState("");
-  const [running, setRunning] = React.useState(false);
   const [turn, setTurn] = React.useState<AgentTurn | null>(null);
-  const [refusal, setRefusal] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -152,22 +161,27 @@ export function AgentPanel({ cwd }: Props) {
   }, []);
 
   const agent = explainAvailability(availability);
-  const ready = cwd !== null && canRun(prompt, availability) && !running;
+  // Derived from the one mark, not tracked beside it. `elsewhere` is a turn
+  // this worktree cannot see and must still wait for — the guard is one
+  // adapter for the whole app.
+  const runningHere = thread.pending !== null && thread.pending.cwd === cwd;
+  const elsewhere =
+    thread.pending !== null && thread.pending.cwd !== cwd
+      ? thread.pending.cwd
+      : null;
+  const ready =
+    cwd !== null && canRun(prompt, availability) && thread.pending === null;
 
   async function start() {
     if (cwd === null || !ready) return;
-    setRunning(true);
     // The previous turn's transcript goes: it described a different prompt,
     // and leaving it under a running one reads as this turn's output.
     setTurn(null);
-    setRefusal(null);
-    const result = await runAgent(cwd, prompt);
-    setRunning(false);
-    if (result.ok) {
-      setTurn(result.value);
-    } else {
-      setRefusal(explainFailure(result.error));
-    }
+    // A refusal is not held here: `ask` has already written it onto this
+    // prompt's row in the thread, where it survives the remount that a
+    // worktree switch does to this component.
+    const outcome = await ask(cwd, prompt);
+    if (outcome.kind === "turn") setTurn(outcome.turn);
   }
 
   return (
@@ -188,7 +202,7 @@ export function AgentPanel({ cwd }: Props) {
       {thread.exchanges.length > 0 ? (
         <section className="flex flex-col gap-2" data-testid="ask-thread">
           <h3 className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-            asked here
+            asked and run here
           </h3>
           {thread.exchanges.map((exchange) => (
             <Exchange
@@ -203,7 +217,7 @@ export function AgentPanel({ cwd }: Props) {
       <textarea
         className="min-h-24 w-full resize-y rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-border"
         data-testid="agent-prompt"
-        disabled={running}
+        disabled={runningHere}
         onChange={(event) => setPrompt(event.target.value)}
         placeholder="what should the agent do in this worktree?"
         value={prompt}
@@ -217,11 +231,20 @@ export function AgentPanel({ cwd }: Props) {
           onClick={() => void start()}
           type="button"
         >
-          {running ? "running…" : "Run"}
+          {runningHere ? "running…" : "Run"}
         </button>
         {cwd === null ? (
           <span className="text-xs text-muted-foreground">
             this worktree has no directory this app can name.
+          </span>
+        ) : null}
+        {elsewhere !== null ? (
+          <span
+            className="min-w-0 truncate text-xs text-amber-600 dark:text-amber-500"
+            data-testid="agent-busy-elsewhere"
+          >
+            a turn is already running in {elsewhere}, and one adapter runs at a
+            time.
           </span>
         ) : null}
         {turn !== null ? (
@@ -230,12 +253,6 @@ export function AgentPanel({ cwd }: Props) {
           </span>
         ) : null}
       </div>
-
-      {refusal !== null ? (
-        <p className="text-sm text-destructive" data-testid="agent-refusal">
-          {refusal}
-        </p>
-      ) : null}
 
       {turn !== null && turn.trace.length > 0 ? (
         <div

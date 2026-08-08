@@ -2,13 +2,14 @@
 // about it (vingilot/docs/plans/2026-08-08-palette-and-documents.md, Task 2).
 // Why it is here rather than in a Buzz channel is `askThread.ts`'s header.
 //
-// **Two writers, one conversation.** The palette asks and the Agent pane reads,
-// and the pane is often not mounted when the question is asked — it is the pane
-// the ask *switches to*. So the channel between them is this store rather than
-// a prop: the host writes, the pane subscribes, and neither has to know the
-// other exists. It is also why the in-flight ask is named here instead of held
-// in a component's state, which would be lost the moment the pane remounted on
-// a worktree switch.
+// **Two writers, one conversation.** The palette and the Agent pane's own box
+// both ask, and the pane is often not mounted when a palette question is asked
+// — it is the pane the ask *switches to*. So the channel between them is this
+// store rather than a prop: whoever asks writes, the pane subscribes, and
+// neither has to know the other exists. It is also why the in-flight turn is
+// named here instead of held in a component's state — which is exactly how the
+// pane's Run button came to start a second adapter behind the palette's back,
+// and which would be lost the moment the pane remounted on a worktree switch.
 //
 // **The pending ask is memory, the exchange is storage.** The question is
 // written the moment it is asked, so quitting mid-turn keeps the question the

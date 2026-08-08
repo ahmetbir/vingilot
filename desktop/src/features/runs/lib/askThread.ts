@@ -19,7 +19,9 @@
 //   post under their own pubkeys for exactly this reason.
 //
 // So the conversation is kept here instead, and this is the whole of it: no
-// second *message* store, one record per question. The seam that would put it
+// second *message* store, one record per turn — a palette question and a
+// prompt typed into the Agent pane's box are the same thing here, because they
+// are the same adapter run in the same directory. The seam that would put it
 // in a Buzz channel is an identity for the local agent plus a channel to post
 // into — upstream's managed-agent identity plumbing extended to the workspace,
 // which is a feature, not a seam. When Task 3's document substrate exists, this
