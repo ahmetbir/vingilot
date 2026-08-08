@@ -22,6 +22,13 @@
 // the worktree got, and degrades by getting slower rather than by pinning the
 // machine.
 //
+// **That share is a ceiling only because every trigger obeys the same gap.**
+// An earlier version let a wake-up through on `MIN_GAP_MS` instead, and the
+// share stopped being true the moment the owner did what this pane is for:
+// alternating with an editor every few seconds took it to 15% of a core at
+// 545ms reads and 45% at 2.5s. A number like 5% is worth nothing if one
+// trigger is exempt from it.
+//
 // In practice that is a ~3 s gap on a handful of files, ~11 s at forty, and
 // the 30 s ceiling past a hundred and fifty. What the ceiling costs in
 // staleness the pane pays back by *saying* how stale it is (`freshnessLabel`)
@@ -115,10 +122,22 @@ export function shouldRead(
   // A clock that moved backwards (a sleep, an NTP step) must not freeze this
   // pane until the difference has been waited out a second time.
   if (since < 0) return true;
-  if (at.trigger === "tick") return since >= state.gapMs;
-  // Coming back to the window is not a reason to re-read something read a
-  // moment ago; ⌘-tabbing twice must not cost two reads.
-  return since >= MIN_GAP_MS;
+  // Every trigger waits the same cost-derived gap, wake-ups included.
+  //
+  // A wake-up used to be let through on `MIN_GAP_MS`, on the reasoning that
+  // returning to the window is a moment when something has probably changed.
+  // The reasoning is right and the floor was the wrong way to honour it:
+  // alternating between this app and an editor every few seconds — the exact
+  // workflow the pane exists for — made almost every switch a read. Measured
+  // over 300s against these functions, with a 545ms read (~205 git
+  // subprocesses at 200 files), that is 15% of a core; at 2.5s reads, 45%.
+  // The share this module is built around is 5%.
+  //
+  // The floor bought nothing, because being away long enough to matter already
+  // satisfies the gap: `since` counts wall time, so a real absence reads
+  // immediately and a three-second tab-out does not. `asked` is still the
+  // escape hatch, and it is above.
+  return since >= state.gapMs;
 }
 
 /** A read has started. */

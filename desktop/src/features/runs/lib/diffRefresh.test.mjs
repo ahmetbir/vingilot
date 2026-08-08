@@ -104,18 +104,19 @@ test("a pane nobody can see does not spend git subprocesses", () => {
   }
 });
 
-test("coming back to the window reads, but coming back twice in a second does not read twice", () => {
-  // Forty changed files: a 545ms read, so an 10.9s gap — far above the floor,
-  // which is what makes the two triggers distinguishable at all.
+test("coming back to the window obeys the same gap the pump does", () => {
+  // Forty changed files: a 545ms read, so a 10.9s gap — far above the floor,
+  // which is what makes an exemption for wake-ups measurable at all.
   const state = readOnce(545, 1_000);
   const wake = (now) =>
     shouldRead(state, { now, onScreen: true, trigger: "shown" });
   // A ⌘-tab out and straight back is not new information about the worktree.
   assert.equal(wake(1_500), false);
-  assert.equal(wake(1_000 + MIN_GAP_MS), true);
-  // The pump has to wait out the whole gap where the wake-up waits out only
-  // the floor. That difference is what makes returning to the window feel
-  // live without making the pane cost more than it is allowed to.
+  // Nor is it after the floor. Letting a wake-up through on MIN_GAP_MS was
+  // measured at 15% of a core when alternating with an editor every three
+  // seconds, against a module built around 5% — and the exemption bought
+  // nothing, because a real absence outlasts the gap on its own (below).
+  assert.equal(wake(1_000 + MIN_GAP_MS), false);
   assert.equal(
     shouldRead(state, {
       now: 1_000 + MIN_GAP_MS,
@@ -124,6 +125,8 @@ test("coming back to the window reads, but coming back twice in a second does no
     }),
     false,
   );
+  // Away long enough for the worktree to have moved: both read, at once.
+  assert.equal(wake(1_000 + state.gapMs), true);
   assert.equal(
     shouldRead(state, {
       now: 1_000 + state.gapMs,
