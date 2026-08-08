@@ -1,8 +1,10 @@
 // Pure keyboard-resolution for the Projects/Terminal work surface (see
 // vingilot/docs/plans/2026-08-06-projects-and-terminal.md's layout contract):
 // ⌘1…9 switches worktrees (iTerm tab muscle memory), ⌘` focuses the
-// terminal, Esc leaves it, and ⌘T/⇧⌘W/⌥⌘←→ work the worktree's own terminal
-// tabs. A pure `resolveKey`-style function so the key map is unit-testable
+// terminal, Esc leaves it, ⌘T/⇧⌘W/⌥⌘←→ work the worktree's own terminal
+// tabs, and ⌥⌘T opens the scratch shell that keeps none of that
+// (`scratchTerminal.ts`). A pure `resolveKey`-style function so the map is
+// unit-testable
 // without mounting React or a real keyboard event — the caller
 // (RunsScreen/WorkSurface) wires it to a `keydown` listener and the platform's
 // primary shortcut modifier (⌘ on macOS, Ctrl elsewhere; see
@@ -19,7 +21,8 @@ export type TerminalKeyAction =
   | { type: "new-terminal-tab" }
   | { type: "close-terminal-tab" }
   | { type: "step-terminal-tab"; dir: -1 | 1 }
-  | { type: "move-terminal-tab"; dir: -1 | 1 };
+  | { type: "move-terminal-tab"; dir: -1 | 1 }
+  | { type: "open-scratch-terminal" };
 
 /** Which way an arrow points, or `null` for a key that is not one. */
 function arrowDirection(key: string): -1 | 1 | null {
@@ -67,16 +70,51 @@ export function resolveKey(input: KeyInput): TerminalKeyAction | null {
   if (input.repeat === true) return null;
 
   // ⌥⌘←/→ moves between a worktree's terminal tabs, ⇧ added moves the tab
-  // itself. These are the only chords here that use ⌥ — everything below is
-  // resolved only with it released, which is why the short-circuit that used
-  // to open this function now follows them instead of preceding them.
+  // itself, and ⌥⌘T opens the scratch shell. These are the only chords here
+  // that use ⌥ — everything below is resolved only with it released, which is
+  // why the short-circuit that used to open this function now follows them
+  // instead of preceding them.
   if (input.altKey) {
     if (!input.primaryModifier) return null;
     const dir = arrowDirection(input.key);
-    if (dir === null) return null;
-    return input.shiftKey
-      ? { dir, type: "move-terminal-tab" }
-      : { dir, type: "step-terminal-tab" };
+    if (dir !== null) {
+      return input.shiftKey
+        ? { dir, type: "move-terminal-tab" }
+        : { dir, type: "step-terminal-tab" };
+    }
+    // ⌥⌘T — the shell that leaves nothing behind, one modifier away from the
+    // ⌘T that opens one that keeps everything. ⌥ is already this island's
+    // "variant of" modifier (⌥⌘B against ⌘B).
+    //
+    // **Every claimant checked, because ⌘W was lost this way once.**
+    // - **Tauri's default macOS menu**, which this app installs by setting
+    //   none (tauri 2.11.5 app.rs:2245). muda 0.19.3
+    //   `items/predefined.rs:301-339` is the whole accelerator list: ⌘C/X/V,
+    //   ⌘Z, ⇧⌘Z, ⌘Y, ⌘A, ⌘M, ⌃⌘F, ⌘H, ⌥⌘H, ⌘W, Alt+F4, ⌘Q. The only ⌥ chord
+    //   in it is ⌥⌘H, so unlike ⌘W this one reaches the webview.
+    // - **Upstream's window handler** (app/AppShell.tsx): returns immediately
+    //   on `event.altKey`, so it claims no ⌥ chord at all. Its ⇧⌘K/N/O/A and
+    //   ⌘K are untouched by this.
+    // - **The app's other global maps**: ⌘, (useSettingsShortcuts), ⌘±/⌘0
+    //   (useWebviewZoomShortcuts, which also returns on ⌥), ⌘R
+    //   (useReloadShortcut), ⌘[ / ⌘] / ⌃⌘←→ (useBackForwardControls), ⌘F
+    //   (useChannelFind), plain Escape (useMarkAsReadShortcuts). None is ⌥⌘T.
+    // - **This island's own maps**: ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→ here; ⌘K
+    //   (paletteKeys, which returns on ⌥); ⌘B/⇧⌘B (columnKeys, which returns
+    //   on ⌥); ⌥⌘B/⇧⌥⌘B (paneKeys, which resolves only "b"/"∫"/"ı").
+    //
+    // ⇧ is not ignored: ⇧⌥⌘T is nobody's and claiming it by accident would
+    // take a chord this check was never run for.
+    if (input.shiftKey === true) return null;
+    // "†" is what macOS reports for ⌥t when the ⌥ composition still applies —
+    // the same reading `paneKeys.ts` accepts "∫" for. Caps lock reports "T"
+    // for the unshifted chord, and losing this to caps lock would be a bug
+    // nobody would think to look for.
+    const altLetter = input.key.toLowerCase();
+    if (altLetter === "t" || altLetter === "†") {
+      return { type: "open-scratch-terminal" };
+    }
+    return null;
   }
 
   // ⇧⌘W closes a terminal tab, and ⌘W deliberately does not.

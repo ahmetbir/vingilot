@@ -60,6 +60,8 @@ function ctx(overrides = {}) {
       worktree("main:p1", { role: "primary" }),
       worktree("wt-1", { branch: "vingilot/palette" }),
     ],
+    worktreeCwd: "/Users/o/vingilot-worktrees/main-p1",
+    worktreeCwdPending: false,
     worktreesCollapsed: false,
     ...overrides,
   };
@@ -175,6 +177,39 @@ test("a new terminal tab needs a worktree, and a new worktree needs a project", 
   assert.equal(
     row(actionSource(ctx(), ""), "action:new-worktree").blocked,
     null,
+  );
+});
+
+test("the scratch shell is offered, and says how it differs from the tab above it", () => {
+  const scratch = row(actionSource(ctx(), ""), "action:scratch-terminal");
+  assert.equal(scratch.blocked, null);
+  assert.equal(scratch.detail.endsWith("⌥⌘T"), true);
+  // The only thing separating these two rows is what happens afterwards, so
+  // the row that keeps nothing has to say so where it is read.
+  assert.match(scratch.detail, /keeps nothing/);
+  assert.match(scratch.detail, /no tmux session/);
+  assert.notEqual(
+    scratch.label,
+    row(actionSource(ctx(), ""), "action:new-terminal-tab").label,
+  );
+});
+
+test("the scratch shell is refused rather than opened somewhere arbitrary", () => {
+  const none = ctx({
+    selectedRepoId: null,
+    selectedWorktreeId: null,
+    worktreeCwd: null,
+  });
+  assert.match(
+    row(actionSource(none, ""), "action:scratch-terminal").blocked,
+    /no worktree is open/,
+  );
+  // A worktree selected but not yet located: still blocked, and never told as
+  // "this worktree has no checkout" — the lookup simply has not answered.
+  const pending = ctx({ worktreeCwd: null, worktreeCwdPending: true });
+  assert.match(
+    row(actionSource(pending, ""), "action:scratch-terminal").blocked,
+    /not been resolved yet/,
   );
 });
 

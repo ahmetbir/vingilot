@@ -63,6 +63,7 @@ import {
   rightChoices,
 } from "@/features/runs/lib/paneModel";
 import type { RunSummary } from "@/features/runs/lib/runModel";
+import type { ScratchSession } from "@/features/runs/lib/scratchTerminal";
 import { resolveKey } from "@/features/runs/lib/terminalKeys";
 import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
 import type {
@@ -75,6 +76,7 @@ import { PaneDivider } from "@/features/runs/ui/PaneDivider";
 import { PaneFrame } from "@/features/runs/ui/PaneFrame";
 import { PaneLabel, PanePicker } from "@/features/runs/ui/PanePicker";
 import { paneEntry } from "@/features/runs/ui/paneRegistry";
+import { ScratchTerminal } from "@/features/runs/ui/ScratchTerminal";
 import { Terminal } from "@/features/runs/ui/Terminal";
 import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
@@ -112,17 +114,29 @@ interface WorkSurfaceProps {
    * through: this component hosts panes, it does not decide what their acts
    * mean — `RunsScreen` owns the dialogs they open. */
   onPaneAct: (act: PaneAct) => void;
+  /** The scratch shell drawn over this surface, or `null`. Owned by
+   * `RunsScreen` for the reason `terminals` is: this component unmounts on the
+   * way to the landing view, and a shell it owned would be left running with
+   * nothing tracking it. */
+  scratch: ScratchSession | null;
+  /** The chord's door to the scratch shell — a toggle, so ⌥⌘T is also the way
+   * out of what ⌥⌘T opened. */
+  onToggleScratch: () => void;
+  onCloseScratch: () => void;
 }
 
 export function WorkSurface({
   documents,
+  onCloseScratch,
   onPaneAct,
   onSelectWorktree,
   onTabCommand,
+  onToggleScratch,
   paneContext,
   panes,
   reachable,
   runs,
+  scratch,
   selectedWorktreeId,
   tabs,
   terminals,
@@ -215,6 +229,17 @@ export function WorkSurface({
         onTabCommand({ type: "new" });
         return;
       }
+      // Before the tab guards below, because a scratch shell is not a tab and
+      // has nothing to do with the strip: it needs no `tabs`, it does not care
+      // which pane the cursor is in, and it must be reachable from a worktree
+      // whose strip has not been created yet. The overlay's own listener
+      // claims this chord back once it is open (`ScratchTerminal.tsx`), so
+      // this arm only ever opens.
+      if (action.type === "open-scratch-terminal") {
+        event.preventDefault();
+        onToggleScratch();
+        return;
+      }
       if (action.type === "leave-terminal") {
         // Move focus off whatever currently has it (the terminal's own hidden
         // input, most commonly) — this key map only owns focus, not
@@ -261,7 +286,14 @@ export function WorkSurface({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [worktrees, onSelectWorktree, onTabCommand, toggleSolo, tabs]);
+  }, [
+    worktrees,
+    onSelectWorktree,
+    onTabCommand,
+    onToggleScratch,
+    toggleSolo,
+    tabs,
+  ]);
 
   const selectedWorktree =
     worktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
@@ -300,8 +332,13 @@ export function WorkSurface({
   }, [solo]);
 
   return (
+    // `relative` is what the scratch shell is positioned against, and it costs
+    // the layout nothing: a relative box with no offsets occupies exactly the
+    // space it did. The overlay is absolute inside it, so the two panes below
+    // keep their measured width — which under tmux is the same thing as their
+    // shells keeping their geometry.
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
       data-testid="work-surface"
     >
       <div className="flex min-h-0 flex-1 overflow-hidden" ref={surfaceRef}>
@@ -385,6 +422,17 @@ export function WorkSurface({
           />
         )}
       </div>
+      {scratch === null ? null : (
+        // Keyed by the session so a scratch opened somewhere else is a new
+        // xterm rather than the old one pointed at a new pty. Nothing about
+        // the terminals underneath is touched either way: they stay mounted,
+        // laid out, and the size they were.
+        <ScratchTerminal
+          key={scratch.sessionId}
+          onClose={onCloseScratch}
+          scratch={scratch}
+        />
+      )}
     </div>
   );
 }

@@ -78,6 +78,11 @@ interface TerminalProps {
   /** Bumped by the work surface's ⌘` handler; focusing only happens when
    * `active` is also true, so a background terminal never steals focus. */
   focusToken: number;
+  /** True for the scratch shell (`lib/scratchTerminal.ts`): the session is
+   * spawned outside tmux, so closing it is the end of it and there is nothing
+   * to reattach to. Everything else about this component is the same — an
+   * xterm attached to a pty knows nothing about how long the pty lives. */
+  ephemeral?: boolean;
 }
 
 const XTERM_THEME = {
@@ -99,6 +104,7 @@ const MAX_FIT_FRAMES = 120;
 export function Terminal({
   active,
   cwd,
+  ephemeral = false,
   focusToken,
   sessionId,
 }: TerminalProps) {
@@ -158,7 +164,7 @@ export function Terminal({
       await subscribed;
       if (detached) return;
       try {
-        await ptyOpen(sessionId, shellCwd, cols, rows);
+        await ptyOpen(sessionId, shellCwd, cols, rows, ephemeral);
       } catch (error) {
         // Back to unopened, so being shown again retries rather than
         // stranding the pane with no shell and no explanation but this line.
@@ -247,7 +253,11 @@ export function Terminal({
       term.dispose();
       termRef.current = null;
     };
-  }, [sessionId, cwd]);
+    // `ephemeral` is here because it decides how the session is spawned, and a
+    // session's lifetime is fixed at spawn. It never changes for a given
+    // `sessionId` — a scratch id and a tab id cannot name each other
+    // (`lib/scratchTerminal.ts`) — so this dependency never actually fires.
+  }, [sessionId, cwd, ephemeral]);
 
   // Being shown is what measures this terminal, and a measurement is the only
   // thing that opens its session — so for a terminal that mounted hidden this

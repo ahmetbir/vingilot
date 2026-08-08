@@ -56,6 +56,13 @@ import {
   type PtyBacking,
 } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
+import type { Scratch } from "@/features/runs/lib/scratchTerminal";
+import {
+  closeScratch,
+  openScratch,
+  scratchBlocked,
+  scratchOnWorktree,
+} from "@/features/runs/lib/scratchTerminal";
 import {
   openTerminals,
   worktreeIndex,
@@ -393,6 +400,37 @@ export function RunsScreen() {
     for (const sessionId of closed) void ptyClose(sessionId);
   }, [tabLayout, index, worktreeActions.settled, worktreeActions.unreadable]);
 
+  // The scratch shell, which is deliberately **not** part of the tab layout
+  // above: entering it would put this session in the saved layout and in the
+  // worktree's strip at once, and give ⇧⌘W a claim on it
+  // (`lib/scratchTerminal.ts`). It is held here for the reason the layout is —
+  // `WorkSurface` unmounts on the way to the landing view — and it is one
+  // nullable value beside it, never inside it.
+  const [scratch, setScratch] = React.useState<Scratch>(null);
+  // The ordinal the next scratch takes. Only ever rises, so a closed shell's
+  // id is never handed to a later one — the same argument `nextN` makes for a
+  // strip, and the same race it defends against.
+  const nextScratch = React.useRef(1);
+
+  const applyScratch = React.useCallback(
+    (change: { closed: readonly string[]; scratch: Scratch }) => {
+      setScratch(change.scratch);
+      for (const sessionId of change.closed) void ptyClose(sessionId);
+    },
+    [],
+  );
+
+  // The owner went somewhere else. A shell kept alive behind a surface that no
+  // longer draws it is exactly the residue this terminal exists not to leave —
+  // and its header names a checkout that is no longer the one on screen.
+  React.useEffect(() => {
+    const change = scratchOnWorktree(scratch, selectedWorktreeId);
+    // Reference equality is the model's own "nothing happened" (staying put
+    // returns the same value), so this re-runs freely and acts only on a move.
+    if (change.scratch === scratch) return;
+    applyScratch(change);
+  }, [applyScratch, scratch, selectedWorktreeId]);
+
   // The other one: the owner closed a tab. Unlike a worktree switch, that is a
   // real close — the pty is killed and its tmux session ended.
   const runTabCommand = React.useCallback(
@@ -455,6 +493,48 @@ export function RunsScreen() {
     selectedRepo === null || selectedWorktree === null || worktreeRoot === null
       ? null
       : worktreeCwd(selectedRepo, selectedWorktree, worktreeRoot);
+
+  // Both doors to the scratch shell, over one rule. `scratchBlocked` is the
+  // same function the palette row's sentence comes from, so a chord cannot
+  // open a shell the palette says it will not, and neither of them can open
+  // one somewhere arbitrary.
+  const openScratchHere = React.useCallback(() => {
+    if (
+      selectedWorktreeId === null ||
+      selectedWorktreeCwd === null ||
+      scratchBlocked(selectedWorktreeId, selectedWorktreeCwd, !rootSettled) !==
+        null
+    ) {
+      return;
+    }
+    const change = openScratch(scratch, {
+      bindingId: selectedWorktreeId,
+      cwd: selectedWorktreeCwd,
+      nonce: nextScratch.current,
+    });
+    // Consumed only when it produced a new shell — reopening onto the one
+    // already running must not burn an ordinal, or the numbers would count
+    // key presses rather than shells.
+    if (change.scratch !== scratch) nextScratch.current += 1;
+    applyScratch(change);
+  }, [
+    applyScratch,
+    rootSettled,
+    scratch,
+    selectedWorktreeCwd,
+    selectedWorktreeId,
+  ]);
+
+  const closeScratchNow = React.useCallback(() => {
+    applyScratch(closeScratch(scratch));
+  }, [applyScratch, scratch]);
+
+  // ⌥⌘T both ways: a key that opens a surface and then does nothing is a key
+  // the owner presses twice looking for the way out.
+  const toggleScratch = React.useCallback(() => {
+    if (scratch !== null) closeScratchNow();
+    else openScratchHere();
+  }, [closeScratchNow, openScratchHere, scratch]);
 
   // What the panes are allowed to know about the worktree under them
   // (lib/paneModel.ts). `cwdPending` is the distinction that keeps a pane from
@@ -553,6 +633,8 @@ export function RunsScreen() {
     selectedWorktreeId,
     sidebarCollapsed: columns.sidebarCollapsed,
     solo: panes.state.solo,
+    worktreeCwd: selectedWorktreeCwd,
+    worktreeCwdPending: !rootSettled,
     worktrees: repoWorktrees,
     worktreesCollapsed: columns.worktreesCollapsed,
   };
@@ -595,6 +677,12 @@ export function RunsScreen() {
         case "new-terminal-tab":
           runTabCommand({ type: "new" });
           return;
+        case "open-scratch-terminal":
+          // Opens, never toggles: a row called "Scratch terminal" that closed
+          // one would be a row whose label lied about what Enter does. The
+          // chord is the toggle.
+          openScratchHere();
+          return;
         case "add-project":
           projectActions.addProject();
           return;
@@ -634,6 +722,7 @@ export function RunsScreen() {
       columns.toggleWorktrees,
       openPlanWorktree,
       openPrune,
+      openScratchHere,
       panes.choose,
       panes.state.solo,
       panes.toggleSolo,
@@ -776,13 +865,16 @@ export function RunsScreen() {
               ) : (
                 <WorkSurface
                   documents={documents}
+                  onCloseScratch={closeScratchNow}
                   onPaneAct={runPaneAct}
                   onSelectWorktree={setSelectedWorktreeId}
                   onTabCommand={runTabCommand}
+                  onToggleScratch={toggleScratch}
                   paneContext={paneContext}
                   panes={panes}
                   reachable={reachable}
                   runs={runs}
+                  scratch={scratch}
                   selectedWorktreeId={selectedWorktreeId}
                   tabs={selectedTabs}
                   terminals={terminals}
@@ -817,6 +909,7 @@ export function RunsScreen() {
         reachable={reachable}
         repo={selectedRepo}
         run={ownerRun}
+        scratchOpen={scratch !== null}
         stopEngaged={stopEngaged}
         terminalBacking={terminalBacking}
         worktree={selectedWorktree}

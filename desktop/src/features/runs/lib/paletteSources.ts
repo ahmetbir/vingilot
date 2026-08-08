@@ -36,6 +36,7 @@ import {
   type PaletteMatch,
 } from "./paletteModel.ts";
 import { type Repo, type Worktree, worktreeSummary } from "./projects.ts";
+import { scratchBlocked } from "./scratchTerminal.ts";
 
 /** One entry of the pane registry, reduced to what the palette needs. Built by
  * the host from `paneRegistry.tsx`, availability already asked with the same
@@ -57,6 +58,14 @@ export interface PaletteContext {
   worktrees: readonly Worktree[];
   selectedRepoId: string | null;
   selectedWorktreeId: string | null;
+  /** Where the selected worktree is on disk, or `null` when that is not
+   * derivable — the fact a row that opens a shell has to be blocked on, since
+   * a worktree can be selected before its checkout has been located. */
+  worktreeCwd: string | null;
+  /** True while the home-directory lookup every cwd derives from has not
+   * answered. The distinction between "no checkout" and "not yet", which a
+   * blocked row's sentence has to keep. */
+  worktreeCwdPending: boolean;
   /** What the right slot may be given, with each pane's own availability. */
   paneChoices: readonly PaletteChoice[];
   /** How many of the open project's worktrees git reports as prunable. */
@@ -209,6 +218,25 @@ export const actionSource: PaletteSource = (ctx, query) => {
       id: "action:new-terminal-tab",
       kind: "action",
       label: "New terminal tab",
+    },
+    {
+      // The same rule the chord uses, asked once (`scratchTerminal.ts`) — two
+      // readings of "can this open" is one too many, and this is the one the
+      // owner reads.
+      blocked: scratchBlocked(
+        ctx.selectedWorktreeId,
+        ctx.worktreeCwd,
+        ctx.worktreeCwdPending,
+      ),
+      command: { type: "open-scratch-terminal" },
+      // The detail says the boundary, not just the chord: this row sits
+      // directly under "New terminal tab", and the only thing separating them
+      // is what happens afterwards.
+      detail: "a shell that keeps nothing — no tab, no tmux session · ⌥⌘T",
+      icon: "⌁",
+      id: "action:scratch-terminal",
+      kind: "action",
+      label: "Scratch terminal",
     },
     {
       blocked: null,

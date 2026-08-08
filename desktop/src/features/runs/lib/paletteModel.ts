@@ -45,6 +45,10 @@ export type PaletteCommand =
    * would be the palette taking a name on the owner's behalf. */
   | { type: "plan-to-worktree" }
   | { type: "new-terminal-tab" }
+  /** Open the scratch shell over the work surface. A different thing from the
+   * row above it, and the reason both are here: one keeps everything, the
+   * other keeps nothing (`scratchTerminal.ts`). */
+  | { type: "open-scratch-terminal" }
   | { type: "add-project" }
   | { type: "remove-project" }
   | { type: "prune-worktrees" }

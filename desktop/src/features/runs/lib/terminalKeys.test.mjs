@@ -44,7 +44,7 @@ test("shift+primary+digit is not a worktree switch (reserved for other shortcuts
   );
 });
 
-test("alt held takes every chord except the tab arrows out of this map", () => {
+test("alt held takes every chord except the tab arrows and the scratch shell out of this map", () => {
   assert.equal(
     resolveKey({ key: "1", primaryModifier: true, altKey: true }),
     null,
@@ -54,7 +54,65 @@ test("alt held takes every chord except the tab arrows out of this map", () => {
     null,
   );
   assert.equal(
-    resolveKey({ key: "t", primaryModifier: true, altKey: true }),
+    resolveKey({ key: "`", primaryModifier: true, altKey: true }),
+    null,
+  );
+  assert.equal(
+    resolveKey({ key: "w", primaryModifier: true, altKey: true }),
+    null,
+  );
+});
+
+test("alt+primary+t opens the scratch shell", () => {
+  assert.deepEqual(
+    resolveKey({ altKey: true, key: "t", primaryModifier: true }),
+    { type: "open-scratch-terminal" },
+  );
+});
+
+test("the scratch chord survives caps lock and macOS's option composition", () => {
+  // Caps lock reports "T" for the unshifted chord; ⌥t composes to "†" when
+  // the option layer still applies, the same reading paneKeys accepts "∫" for.
+  assert.deepEqual(
+    resolveKey({ altKey: true, key: "T", primaryModifier: true }),
+    { type: "open-scratch-terminal" },
+  );
+  assert.deepEqual(
+    resolveKey({ altKey: true, key: "†", primaryModifier: true }),
+    { type: "open-scratch-terminal" },
+  );
+});
+
+test("the scratch chord needs both modifiers and refuses shift", () => {
+  // ⌥T alone is a dagger the owner is typing; ⌘T is a terminal tab, which is
+  // the opposite of this; ⇧⌥⌘T is nobody's and was never checked for
+  // claimants, so claiming it by ignoring shift would be taking it blind.
+  assert.equal(
+    resolveKey({ altKey: true, key: "t", primaryModifier: false }),
+    null,
+  );
+  assert.deepEqual(resolveKey({ key: "t", primaryModifier: true }), {
+    type: "new-terminal-tab",
+  });
+  assert.equal(
+    resolveKey({
+      altKey: true,
+      key: "T",
+      primaryModifier: true,
+      shiftKey: true,
+    }),
+    null,
+  );
+});
+
+test("a held-down scratch chord opens one shell, not thirty", () => {
+  assert.equal(
+    resolveKey({
+      altKey: true,
+      key: "t",
+      primaryModifier: true,
+      repeat: true,
+    }),
     null,
   );
 });
@@ -174,13 +232,17 @@ test("arrows without both modifiers are left alone", () => {
   assert.equal(resolveKey({ key: "ArrowRight", primaryModifier: false }), null);
 });
 
-test("alt+primary with a non-arrow key resolves to nothing", () => {
+test("alt+primary with a key that is neither an arrow nor the scratch chord resolves to nothing", () => {
   assert.equal(
     resolveKey({ altKey: true, key: "ArrowUp", primaryModifier: true }),
     null,
   );
   assert.equal(
-    resolveKey({ altKey: true, key: "`", primaryModifier: true }),
+    resolveKey({ altKey: true, key: "b", primaryModifier: true }),
+    null,
+  );
+  assert.equal(
+    resolveKey({ altKey: true, key: "1", primaryModifier: true }),
     null,
   );
 });

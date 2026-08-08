@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { persistenceCopy } from "./terminalPersistence.ts";
+import { persistenceCopy, SCRATCH_PERSISTENCE } from "./terminalPersistence.ts";
 
 test("an unknown backing claims nothing at all", () => {
   // A default here would be a claim. Neither answer is safe to guess: one
@@ -58,4 +58,51 @@ test("the two modes never read the same", () => {
   assert.ok(tmux && direct);
   assert.notEqual(tmux.label, direct.label);
   assert.notEqual(tmux.detail, direct.detail);
+});
+
+test("the persistence claim names the terminals it is about", () => {
+  // "terminals: persistent (tmux)" was a sentence the scratch shell could hide
+  // inside — it is on the same bar, and it is a terminal. Naming the subject in
+  // the *label* is what keeps the claim from covering a shell that keeps
+  // nothing.
+  for (const backing of ["tmux", "app-process"]) {
+    const copy = persistenceCopy(backing);
+    assert.ok(copy);
+    assert.match(copy.label, /^worktree terminals:/);
+    assert.doesNotMatch(copy.label, /scratch/i);
+  }
+});
+
+test("the scratch copy claims no persistence of any kind", () => {
+  assert.match(SCRATCH_PERSISTENCE.label, /nothing is kept/);
+  assert.match(SCRATCH_PERSISTENCE.label, /closing it ends it/);
+  for (const overclaim of [
+    /persistent/i,
+    /survive/i,
+    /still there/i,
+    /keeps running/i,
+  ]) {
+    assert.doesNotMatch(SCRATCH_PERSISTENCE.label, overclaim);
+    assert.doesNotMatch(SCRATCH_PERSISTENCE.detail, overclaim);
+  }
+});
+
+test("the scratch copy says what ends it — both ways", () => {
+  // Closing it is the obvious one; quitting the app is the one an owner who
+  // has read the line beside it would otherwise assume the opposite of.
+  assert.match(SCRATCH_PERSISTENCE.detail, /closing it ends it/);
+  assert.match(SCRATCH_PERSISTENCE.detail, /quitting the app/);
+  assert.match(SCRATCH_PERSISTENCE.detail, /no tmux session/);
+  assert.match(SCRATCH_PERSISTENCE.detail, /no tab in the strip/);
+});
+
+test("the scratch copy disclaims the line it sits beside", () => {
+  // The two are rendered side by side, and the failure this guards is a reader
+  // taking one line as covering both shells.
+  assert.match(SCRATCH_PERSISTENCE.detail, /not one of this worktree's/);
+  assert.notEqual(SCRATCH_PERSISTENCE.label, persistenceCopy("tmux").label);
+  assert.notEqual(
+    SCRATCH_PERSISTENCE.label,
+    persistenceCopy("app-process").label,
+  );
 });

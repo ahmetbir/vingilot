@@ -17,6 +17,12 @@
 //! and dies with it. That is a worse experience but an honest one — the status
 //! bar says "this session only" rather than implying a persistence that is
 //! not there.
+//!
+//! **And it is what a scratch shell asks for on purpose.** `Lifetime` is how a
+//! caller says so: an ephemeral session takes the same direct-spawn arm as a
+//! machine with no tmux, so "leaves nothing behind" is a property of what was
+//! started rather than of a teardown that has to run. There is no per-session
+//! tmux, no session to find in `tmux ls`, and nothing for a crash to strand.
 
 use std::fmt::Write as _;
 use std::process::{Command, Stdio};
@@ -41,6 +47,24 @@ const CANDIDATES: &[&str] = &[
     "/usr/local/bin/tmux",
     "/usr/bin/tmux",
 ];
+
+/// How long a session is meant to last — the one thing that decides whether
+/// tmux is used for it at all.
+///
+/// **Why this is a parameter and not a preference.** A scratch shell's whole
+/// contract is that it leaves nothing behind, and the only way to keep that
+/// promise across a crash, a `kill -9`, or a quit the app never got to run
+/// teardown for is to never create the thing that would survive. Closing a
+/// tmux-backed session on the way out is cleanup, and cleanup is a promise
+/// that holds until the one time it does not.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Lifetime {
+    /// A worktree's terminal tab. Outlives this app wherever tmux allows it.
+    Persistent,
+    /// A scratch shell. A child of this app, which dies with it — by
+    /// construction, not by cleanup.
+    Ephemeral,
+}
 
 /// What is keeping a terminal's shell alive — and therefore the most the UI is
 /// allowed to claim about it.
@@ -303,21 +327,28 @@ fn mouse_on_args(session_id: &str) -> [String; 5] {
     ]
 }
 
-/// Plan the spawn for one terminal tab.
+/// Plan the spawn for one terminal.
 ///
 /// `-A` attaches to the named session or creates it, which is what makes this
 /// idempotent across app restarts. `-D` detaches any other client first: two
 /// clients attached to one session force the smaller of their two window
 /// sizes onto both, which is the same geometry-clobbering failure the fit
 /// guard exists to prevent, arriving by another route.
+///
+/// **An ephemeral session takes the same branch as a machine with no tmux on
+/// it.** Not a near-copy of it: the two are one arm, so a spawn option added
+/// to the direct-shell plan cannot reach one and miss the other, and the
+/// scratch terminal inherits the fallback's tested behaviour rather than a
+/// second implementation of it.
 pub(crate) fn plan_spawn(
     tmux: Option<&str>,
     shell: &str,
     session_id: &str,
     cwd: &str,
+    lifetime: Lifetime,
 ) -> SpawnPlan {
-    match tmux {
-        Some(tmux) => {
+    match (lifetime, tmux) {
+        (Lifetime::Persistent, Some(tmux)) => {
             let mut args = vec![
                 "new-session".to_string(),
                 "-A".to_string(),
@@ -337,7 +368,7 @@ pub(crate) fn plan_spawn(
                 backing: Backing::Tmux,
             }
         }
-        None => SpawnPlan {
+        (Lifetime::Ephemeral, _) | (Lifetime::Persistent, None) => SpawnPlan {
             program: shell.to_string(),
             args: Vec::new(),
             backing: Backing::AppProcess,
@@ -584,7 +615,13 @@ mod tests {
 
     #[test]
     fn with_tmux_the_shell_is_spawned_under_it() {
-        let plan = plan_spawn(Some("/opt/homebrew/bin/tmux"), "/bin/zsh", "wt_7", "/tmp/w");
+        let plan = plan_spawn(
+            Some("/opt/homebrew/bin/tmux"),
+            "/bin/zsh",
+            "wt_7",
+            "/tmp/w",
+            Lifetime::Persistent,
+        );
         assert_eq!(plan.program, "/opt/homebrew/bin/tmux");
         assert_eq!(
             plan.args,
@@ -619,7 +656,13 @@ mod tests {
         // wheel reaches a tmux that ignores it and the history is intact but
         // unreachable. Same anchored per-session target as `status`: the server
         // is shared with sessions the owner started by hand.
-        let plan = plan_spawn(Some("tmux"), "/bin/zsh", "wt_7", "/tmp/w");
+        let plan = plan_spawn(
+            Some("tmux"),
+            "/bin/zsh",
+            "wt_7",
+            "/tmp/w",
+            Lifetime::Persistent,
+        );
         let mouse = plan
             .args
             .iter()
@@ -636,7 +679,13 @@ mod tests {
     fn the_status_line_is_turned_off_for_the_session_being_spawned_and_no_other() {
         // The app draws its own status bar; tmux's underneath it duplicates it
         // and costs a row.
-        let plan = plan_spawn(Some("tmux"), "/bin/zsh", "wt_7", "/tmp/w");
+        let plan = plan_spawn(
+            Some("tmux"),
+            "/bin/zsh",
+            "wt_7",
+            "/tmp/w",
+            Lifetime::Persistent,
+        );
         assert!(plan.args.iter().any(|arg| arg == "status"));
         assert!(plan
             .args
@@ -651,7 +700,13 @@ mod tests {
         // anything but one of ours could reach one of his. Asserted over the
         // whole argument list rather than the one call site that builds it,
         // because the next spawn option added is the one that forgets.
-        let plan = plan_spawn(Some("tmux"), "/bin/zsh", "wt_7", "/tmp/w");
+        let plan = plan_spawn(
+            Some("tmux"),
+            "/bin/zsh",
+            "wt_7",
+            "/tmp/w",
+            Lifetime::Persistent,
+        );
         assert!(
             !plan.args.iter().any(|arg| arg == "-g"),
             "a server-wide option would change the owner's own tmux: {:?}",
@@ -673,13 +728,77 @@ mod tests {
 
     #[test]
     fn without_tmux_there_is_no_status_line_to_turn_off() {
-        let plan = plan_spawn(None, "/bin/zsh", "wt_7", "/tmp/w");
+        let plan = plan_spawn(None, "/bin/zsh", "wt_7", "/tmp/w", Lifetime::Persistent);
         assert!(plan.args.is_empty());
     }
 
     #[test]
+    fn a_scratch_shell_runs_outside_tmux_even_where_tmux_is_installed() {
+        // The whole contract of the scratch terminal: no tmux session, so
+        // there is nothing for a crash, a `kill -9`, or a quit that skipped
+        // teardown to leave behind in `tmux ls`.
+        let plan = plan_spawn(
+            Some("/opt/homebrew/bin/tmux"),
+            "/bin/zsh",
+            "vingilot-scratch.1",
+            "/tmp/w",
+            Lifetime::Ephemeral,
+        );
+        assert_eq!(plan.program, "/bin/zsh");
+        assert!(plan.args.is_empty());
+        assert_eq!(plan.backing, Backing::AppProcess);
+    }
+
+    #[test]
+    fn nothing_in_a_scratch_plan_names_a_tmux_session() {
+        // Asserted over the whole plan rather than over the branch that
+        // builds it: a spawn option added to the tmux arm must not be able to
+        // reach this one, and `new-session -s <name>` is the one argument
+        // that would create the thing this terminal promises not to create.
+        let plan = plan_spawn(
+            Some("tmux"),
+            "/bin/zsh",
+            "vingilot-scratch.1",
+            "/tmp/w",
+            Lifetime::Ephemeral,
+        );
+        let words: Vec<&str> = std::iter::once(plan.program.as_str())
+            .chain(plan.args.iter().map(String::as_str))
+            .collect();
+        assert!(
+            !words.iter().any(|word| word.contains(SESSION_PREFIX)),
+            "a scratch plan named a session: {words:?}"
+        );
+        assert!(!words.contains(&"new-session"), "{words:?}");
+    }
+
+    #[test]
+    fn the_two_lifetimes_are_two_different_spawns_on_the_same_machine() {
+        // The property the scratch terminal rests on, stated as a comparison:
+        // one id, one tmux, two answers. If these ever agree, either the
+        // scratch took a tmux session or every terminal lost its persistence.
+        let persistent = plan_spawn(
+            Some("tmux"),
+            "/bin/zsh",
+            "wt_7#1",
+            "/tmp/w",
+            Lifetime::Persistent,
+        );
+        let scratch = plan_spawn(
+            Some("tmux"),
+            "/bin/zsh",
+            "wt_7#1",
+            "/tmp/w",
+            Lifetime::Ephemeral,
+        );
+        assert_eq!(persistent.backing, Backing::Tmux);
+        assert_eq!(scratch.backing, Backing::AppProcess);
+        assert_ne!(persistent.program, scratch.program);
+    }
+
+    #[test]
     fn without_tmux_the_login_shell_is_spawned_directly() {
-        let plan = plan_spawn(None, "/bin/zsh", "wt_7", "/tmp/w");
+        let plan = plan_spawn(None, "/bin/zsh", "wt_7", "/tmp/w", Lifetime::Persistent);
         assert_eq!(plan.program, "/bin/zsh");
         assert!(plan.args.is_empty());
         assert_eq!(plan.backing, Backing::AppProcess);
@@ -690,7 +809,13 @@ mod tests {
         // -A is what makes a restart land on the same session instead of
         // stacking a new one beside it, and -D is what stops a stale client
         // from forcing its window size onto the reattached one.
-        let plan = plan_spawn(Some("tmux"), "/bin/zsh", "wt_7", "/tmp/w");
+        let plan = plan_spawn(
+            Some("tmux"),
+            "/bin/zsh",
+            "wt_7",
+            "/tmp/w",
+            Lifetime::Persistent,
+        );
         assert!(plan.args.contains(&"-A".to_string()));
         assert!(plan.args.contains(&"-D".to_string()));
     }

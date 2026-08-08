@@ -33,6 +33,13 @@
 //! a child of this app and dies with it. `pty_backing` reports which, and the
 //! UI must never claim more than it says.
 //!
+//! **Except for a session opened `ephemeral`**, which asks for the second of
+//! those unconditionally — the scratch terminal, a shell that must leave
+//! nothing behind. `pty_backing` is deliberately not told about it: it answers
+//! one question for the whole app run, and the scratch's own boundary is a
+//! sentence of its own (`features/runs/lib/terminalPersistence.ts`), never a
+//! reading of that one.
+//!
 //! **Trust boundary:** the PTY runs the owner's own shell in the owner's own
 //! worktree — the same risk class as them typing in Terminal.app (ADR-003's
 //! V1 trust model). Nothing here isolates or sandboxes the shell; UI copy
@@ -128,6 +135,14 @@ fn default_shell() -> String {
 /// from a real 80×24 here, so the refusal lives with the caller, which is the
 /// only side that knows whether anything was laid out
 /// (`features/runs/lib/terminalFit.ts`).
+///
+/// **`ephemeral` is the scratch terminal's whole backend.** It forces the
+/// direct-spawn plan (`tmux::Lifetime`), so the shell is a child of this app
+/// and there is no tmux session to outlive it — the UI's "nothing is kept" is
+/// then a description of what was started rather than of a teardown that has
+/// to run. It says nothing about the session id, which is namespaced on the
+/// caller's side (`features/runs/lib/scratchTerminal.ts`), and nothing about
+/// the tab layout, which this file has never known about.
 #[tauri::command]
 pub fn pty_open(
     app: AppHandle,
@@ -136,8 +151,28 @@ pub fn pty_open(
     cwd: String,
     cols: u16,
     rows: u16,
+    ephemeral: bool,
 ) -> Result<(), String> {
-    open(&app, &sessions, session, cwd, cols, rows)
+    open(
+        &app,
+        &sessions,
+        session,
+        cwd,
+        cols,
+        rows,
+        lifetime(ephemeral),
+    )
+}
+
+/// The boolean that crosses the IPC boundary, read as the one decision it
+/// stands for. Kept here rather than in `tmux.rs` so the wire shape and the
+/// spawn's vocabulary stay separable.
+fn lifetime(ephemeral: bool) -> tmux::Lifetime {
+    if ephemeral {
+        tmux::Lifetime::Ephemeral
+    } else {
+        tmux::Lifetime::Persistent
+    }
 }
 
 /// `pty_open`'s whole body, generic over the runtime so that `live.rs` can
@@ -153,6 +188,7 @@ fn open<R: Runtime>(
     cwd: String,
     cols: u16,
     rows: u16,
+    lifetime: tmux::Lifetime,
 ) -> Result<(), String> {
     if let Some((screen, next_seq)) = sessions.replay(&session) {
         // Deliberately no resize here. The `cols`/`rows` a reattaching view
@@ -175,7 +211,7 @@ fn open<R: Runtime>(
         })
         .map_err(|e| format!("open pty: {e}"))?;
 
-    let plan = tmux::plan_spawn(tmux::path(), &default_shell(), &session, &cwd);
+    let plan = tmux::plan_spawn(tmux::path(), &default_shell(), &session, &cwd, lifetime);
     let mut cmd = CommandBuilder::new(&plan.program);
     for arg in &plan.args {
         cmd.arg(arg);

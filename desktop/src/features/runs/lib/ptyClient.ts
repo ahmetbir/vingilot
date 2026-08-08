@@ -17,14 +17,22 @@ import {
 
 /** Session id = `<worktree binding id>#<tab ordinal>` (see mod.rs's file
  * header): "same tab of the same worktree ⇒ same session". Derived by
- * `lib/terminalTabs.ts`; opaque everywhere else. */
+ * `lib/terminalTabs.ts`; opaque everywhere else. A scratch shell's id is
+ * `lib/scratchTerminal.ts`'s and contains no `#`, which is what makes it
+ * unreachable from the tab model.
+ *
+ * `ephemeral` decides how the shell is spawned, and it is the scratch
+ * terminal's whole backend: it forces the direct spawn, so there is no tmux
+ * session to outlive the view. Passed on every call rather than defaulted —
+ * the caller that forgets is the caller that leaves a session behind. */
 export function ptyOpen(
   session: string,
   cwd: string,
   cols: number,
   rows: number,
+  ephemeral: boolean,
 ): Promise<void> {
-  return invoke("pty_open", { session, cwd, cols, rows });
+  return invoke("pty_open", { session, cwd, cols, rows, ephemeral });
 }
 
 export function ptyWrite(session: string, data: string): Promise<void> {

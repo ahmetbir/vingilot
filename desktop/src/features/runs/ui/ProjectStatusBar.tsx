@@ -23,7 +23,10 @@ import { worktreeSummary } from "@/features/runs/lib/projects";
 import type { PtyBacking } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import { wallClock } from "@/features/runs/lib/runModel";
-import { persistenceCopy } from "@/features/runs/lib/terminalPersistence";
+import {
+  persistenceCopy,
+  SCRATCH_PERSISTENCE,
+} from "@/features/runs/lib/terminalPersistence";
 import { StopAllButton } from "@/features/runs/ui/StopAllButton";
 
 interface ProjectStatusBarProps {
@@ -38,6 +41,14 @@ interface ProjectStatusBarProps {
   /** What is keeping terminals alive. `null` until the backend has answered
    * — the bar then says nothing about persistence rather than guessing. */
   terminalBacking: PtyBacking | null;
+  /** Whether a scratch shell is open right now.
+   *
+   * It gets a **second** sentence rather than sharing the one above: that one
+   * is about the worktree's terminal tabs and would be a lie about this shell,
+   * and there is no state of `PtyBacking` that could say so — a scratch is
+   * spawned outside tmux whatever the machine has. Only while one is open,
+   * because a claim about a shell that is not there is noise. */
+  scratchOpen: boolean;
   /** Whether STOP is latched. Owned by `RunsScreen`, which is what actually
    * pauses the runs. */
   stopEngaged: boolean;
@@ -51,6 +62,7 @@ export function ProjectStatusBar({
   reachable,
   repo,
   run,
+  scratchOpen,
   stopEngaged,
   terminalBacking,
   worktree,
@@ -96,6 +108,17 @@ export function ProjectStatusBar({
         )}
       </span>
       <span className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
+        {scratchOpen ? (
+          <>
+            <span
+              data-testid="scratch-persistence"
+              title={SCRATCH_PERSISTENCE.detail}
+            >
+              {SCRATCH_PERSISTENCE.label}
+            </span>
+            <span aria-hidden="true">·</span>
+          </>
+        ) : null}
         {persistence !== null ? (
           <>
             <span data-testid="terminal-persistence" title={persistence.detail}>

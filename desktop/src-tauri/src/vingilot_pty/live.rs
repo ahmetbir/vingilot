@@ -48,6 +48,10 @@ use super::{open, pty_close, pty_write, tmux, PtySessions, PTY_OUTPUT_EVENT};
 /// here, so the harness below is shared rather than duplicated.
 mod wheel;
 
+/// Section 7 — the scratch terminal — lives in `live/scratch.rs`, for the same
+/// reason and on the same terms.
+mod scratch;
+
 /// A geometry wide enough that a temp-directory path prints on one line. The
 /// assertions look for a path in the stream, and a pty wraps at its width.
 const COLS: u16 = 200;
@@ -321,6 +325,15 @@ impl Harness {
     }
 
     fn open(&self, id: &str, cwd: &str) {
+        self.open_with(id, cwd, tmux::Lifetime::Persistent);
+    }
+
+    /// A scratch shell — the terminal that must leave nothing behind.
+    fn open_scratch(&self, id: &str, cwd: &str) {
+        self.open_with(id, cwd, tmux::Lifetime::Ephemeral);
+    }
+
+    fn open_with(&self, id: &str, cwd: &str, lifetime: tmux::Lifetime) {
         self.opened
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -332,6 +345,7 @@ impl Harness {
             cwd.to_string(),
             COLS,
             ROWS,
+            lifetime,
         ) {
             panic!("could not open a terminal for {id} at {cwd}: {error}");
         }
