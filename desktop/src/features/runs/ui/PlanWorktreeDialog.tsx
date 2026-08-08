@@ -8,9 +8,16 @@
 // that field. A plan whose title yields no name leaves the field empty with
 // the reason beside it, rather than inventing one.
 //
-// **The plan is read when this opens, not when the palette row was drawn.**
-// The document is the owner's live text, and a name derived a minute ago is a
-// name for a plan he has since rewritten.
+// **The plan is handed in, live, and is never read back out of storage.**
+// `RunsScreen` opens the document (`lib/useDocument.ts`) and both doors onto
+// this dialog — the Plan pane's button and the palette's row — are given the
+// same value the pane's textarea is showing. This dialog used to read the
+// document from storage when it opened, which is a debounce behind: a plan
+// rewritten and acted on straight away briefed the worktree with the text the
+// owner had already replaced, and a plan typed from nothing was "empty" here
+// while the pane's own button offered the act. A flush before the read would
+// not have been a fix — it cannot cover what is typed after it, and the copy
+// taken at open never caught up afterwards either.
 //
 // **The outcome is reported in two parts, because it is two things.** A
 // worktree can be created and its brief refused — the branch it was opened
@@ -20,7 +27,6 @@
 
 import * as React from "react";
 
-import { documentKey } from "@/features/runs/lib/documents";
 import {
   BRIEF_FILE,
   briefText,
@@ -28,7 +34,6 @@ import {
   planOffer,
 } from "@/features/runs/lib/planBrief";
 import type { Repo } from "@/features/runs/lib/projects";
-import { readDocument } from "@/features/runs/lib/documentStore";
 import type { BriefedOutcome } from "@/features/runs/lib/useWorktreeActions";
 import {
   type WorktreeRefusal,
@@ -66,6 +71,9 @@ interface Props {
    * it. Called only when one exists. */
   onOpened: (path: string) => void;
   pending: boolean;
+  /** The project's plan as it is on screen this render — the workspace's own
+   * copy of the document, not a reading of storage. */
+  plan: string;
   refusal: WorktreeRefusal | null;
 }
 
@@ -75,31 +83,39 @@ export function PlanWorktreeDialog({
   onOpenChange,
   open,
   pending,
+  plan,
   refusal,
   repo,
   worktreeRoot,
 }: Props) {
-  const [plan, setPlan] = React.useState("");
-  const [branch, setBranch] = React.useState("");
+  /** What the owner typed into the branch field, or `null` while the offered
+   * name still stands. Not seeded from the offer: a piece of state holding a
+   * copy of the derived name is a copy that goes stale the moment the plan's
+   * title changes, which is the bug one line down from the one this file just
+   * had. */
+  const [edited, setEdited] = React.useState<string | null>(null);
   const [base, setBase] = React.useState(DEFAULT_BASE);
   /** A worktree that exists whose brief did not. The one outcome that is
    * neither a success to close on nor a refusal that changed nothing. */
   const [partial, setPartial] = React.useState<BriefedOutcome | null>(null);
 
-  // The plan as it is *now*: read on open, so a dialog reached from the
-  // palette and one reached from the pane are looking at the same text.
-  React.useEffect(() => {
-    if (!open) return;
-    const text = readDocument(documentKey("plan", repo.path));
-    const offered = planOffer(text);
-    setPlan(text);
-    setBranch(offered.branch);
+  // Opening — or a project changing under an open dialog — is what clears the
+  // last visit, and nothing else does: a name the owner typed here is his
+  // until he leaves, however the plan's title changes underneath it. React's
+  // own "adjust state when a prop changes", as in `lib/useDocument.ts`, so the
+  // reset lands in this render rather than after a frame showing the previous
+  // visit's refusal. Nothing here reads storage; `plan` is the live document.
+  const [visit, setVisit] = React.useState({ open, repo: repo.path });
+  if (visit.open !== open || visit.repo !== repo.path) {
+    setVisit({ open, repo: repo.path });
+    setEdited(null);
     setBase(DEFAULT_BASE);
     setPartial(null);
-  }, [open, repo.path]);
+  }
 
   const offer = planOffer(plan);
   const blocked = planBlocked(offer);
+  const branch = edited ?? offer.branch;
   const named = branch.trim();
   const landing =
     worktreeRoot === null || named === ""
@@ -159,7 +175,7 @@ export function PlanWorktreeDialog({
               <Input
                 data-testid="plan-worktree-branch"
                 id="plan-worktree-branch"
-                onChange={(event) => setBranch(event.target.value)}
+                onChange={(event) => setEdited(event.target.value)}
                 placeholder="from the plan's title"
                 value={branch}
               />

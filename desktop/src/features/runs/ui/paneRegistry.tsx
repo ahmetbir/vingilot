@@ -56,6 +56,7 @@ import {
   terminalAvailability,
 } from "@/features/runs/lib/paneModel";
 import type { RunSummary } from "@/features/runs/lib/runModel";
+import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import { AgentPanel } from "@/features/runs/ui/AgentPanel";
 import { EvidencePane } from "@/features/runs/ui/EvidencePane";
 import { NotesPane } from "@/features/runs/ui/NotesPane";
@@ -78,6 +79,13 @@ export interface PaneProps {
    * and a pane about the worktree (Diff) are both panes, and a host that
    * handed out only one of the two would decide for them which they are. */
   projectPath: string | null;
+  /** The open project's documents, already opened by the host
+   * (`useProjectDocuments`). A pane that edits one is a *view* of it, not its
+   * owner: the workspace acts on the plan too — it is what a worktree is
+   * briefed from — and a pane-owned document is one no dialog can read
+   * without going round through storage, a debounce behind what is on
+   * screen. */
+  documents: ProjectDocuments;
   runs: RunSummary[];
   reachable: boolean;
   workspaceId: string;
@@ -152,13 +160,14 @@ function AgentPane({ cwd }: PaneProps) {
   return <AgentPanel cwd={cwd} />;
 }
 
-function NotesPaneEntry({ projectPath }: PaneProps) {
-  return <NotesPane projectPath={projectPath} />;
+function NotesPaneEntry({ documents, projectPath }: PaneProps) {
+  return <NotesPane doc={documents.notes} projectPath={projectPath} />;
 }
 
-function PlanPaneEntry({ onPaneAct, projectPath }: PaneProps) {
+function PlanPaneEntry({ documents, onPaneAct, projectPath }: PaneProps) {
   return (
     <PlanPane
+      doc={documents.plan}
       onTurnIntoWorktree={() => onPaneAct({ type: "plan-to-worktree" })}
       projectPath={projectPath}
     />

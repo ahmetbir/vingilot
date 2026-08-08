@@ -16,17 +16,22 @@
 // from the plan's title and shown in a field the owner can edit, which is the
 // difference between offering a name and taking one.
 
-import { documentKey } from "@/features/runs/lib/documents";
 import {
   BRIEF_FILE,
   planBlocked,
   planOffer,
 } from "@/features/runs/lib/planBrief";
-import { useDocument } from "@/features/runs/lib/useDocument";
+import type { DocumentEditing } from "@/features/runs/lib/useDocument";
 import { DocumentEditor } from "@/features/runs/ui/DocumentEditor";
 import { Button } from "@/shared/ui/button";
 
 interface Props {
+  /** This project's plan, opened by the workspace (`useProjectDocuments`) —
+   * the same value the dialog this pane's button opens is given. It has to be
+   * one value: a button enabled from what is on screen, over a dialog that
+   * read the document back out of storage, is a button that offers an act on a
+   * plan the owner has already rewritten. */
+  doc: DocumentEditing;
   /** The project this plan belongs to, by its path on disk. `null` only on a
    * surface with no project; the pane's availability rule refuses that first. */
   projectPath: string | null;
@@ -34,10 +39,7 @@ interface Props {
   onTurnIntoWorktree: () => void;
 }
 
-export function PlanPane({ onTurnIntoWorktree, projectPath }: Props) {
-  const doc = useDocument(
-    projectPath === null ? null : documentKey("plan", projectPath),
-  );
+export function PlanPane({ doc, onTurnIntoWorktree, projectPath }: Props) {
   // Read from what is on screen, not from storage: the title the owner has
   // just typed is the title the button should be about, and storage is a
   // debounce behind it.

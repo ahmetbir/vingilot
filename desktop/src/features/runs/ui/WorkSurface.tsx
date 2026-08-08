@@ -69,6 +69,7 @@ import type {
   TabCommand,
   WorktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
+import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import type { Panes } from "@/features/runs/lib/usePanes";
 import { PaneDivider } from "@/features/runs/ui/PaneDivider";
 import { PaneFrame } from "@/features/runs/ui/PaneFrame";
@@ -100,6 +101,11 @@ interface WorkSurfaceProps {
    * `RunsScreen` — it owns the repo/worktree-root pair a cwd derives from, and
    * whether that root has been resolved at all yet. */
   paneContext: PaneContext;
+  /** The open project's documents, opened by `RunsScreen` and passed straight
+   * through. They are the workspace's rather than the panes' because the
+   * workspace acts on one of them — a plan is what a worktree is briefed from
+   * — and two readings of one document are two things that can disagree. */
+  documents: ProjectDocuments;
   /** The arrangement of this worktree's panes, and the only way to change it. */
   panes: Panes;
   /** What a pane asks the workspace to do (`PaneAct`). Passed straight
@@ -109,6 +115,7 @@ interface WorkSurfaceProps {
 }
 
 export function WorkSurface({
+  documents,
   onPaneAct,
   onSelectWorktree,
   onTabCommand,
@@ -363,6 +370,7 @@ export function WorkSurface({
         ) : (
           <RightPane
             context={paneContext}
+            documents={documents}
             frameRef={rightPaneRef}
             onChoose={panes.choose}
             onPaneAct={onPaneAct}
@@ -386,6 +394,7 @@ const PANE_BUTTON_CLASS =
 
 function RightPane({
   context,
+  documents,
   frameRef,
   onChoose,
   onPaneAct,
@@ -399,6 +408,7 @@ function RightPane({
   workspaceId,
 }: {
   context: PaneContext;
+  documents: ProjectDocuments;
   frameRef: React.RefObject<HTMLElement | null>;
   onChoose: Panes["choose"];
   onPaneAct: (act: PaneAct) => void;
@@ -477,6 +487,7 @@ function RightPane({
         // objective every time the owner pressed ⌘2.
         <Pane
           cwd={context.cwd}
+          documents={documents}
           key={`${right}:${entry.identity(context)}`}
           onChoosePane={onChoose}
           onPaneAct={onPaneAct}

@@ -19,7 +19,16 @@
 //   selected, nothing claimed;
 // - that a worktree which was created **whose brief was refused** is reported
 //   as both of those things, because that is the one outcome where a dialog
-//   that closed would be a lie.
+//   that closed would be a lie;
+// - that the plan the dialog acts on is **the one on screen**, through either
+//   door, and not the one storage happens to hold. The pane's button read live
+//   React state while the dialog read the document back out of storage, which
+//   is a debounce behind — so a plan rewritten and acted on straight away
+//   briefed the worktree with the text the owner had replaced, and a plan
+//   typed from nothing was offered by the pane and called empty by the dialog.
+//   Both are asserted here with document writes refused, which makes "the two
+//   readings differ" a state the test can stand in rather than a 600ms window
+//   it has to race.
 //
 // The backend is stubbed at the Tauri boundary the same way the agent is in
 // workspace-ask.spec.ts. The stub records its arguments, so the assertion
@@ -173,13 +182,40 @@ async function choosePane(page: Page, key: string) {
   await waitForAnimations(page);
 }
 
-/** A plan in the pane, saved. The dialog reads storage, so "saved" is the
- * state that has to be reached before it is opened — not a wait for time. */
+/** A plan in the pane, saved. Written and stored, so the tests below start
+ * from a document both the pane and storage agree about. */
 async function writePlan(page: Page, text: string) {
   await choosePane(page, "plan");
   await page.getByTestId("plan-editor").fill(text);
   await expect(page.getByTestId("plan-state")).toHaveText("saved");
 }
+
+/** Storage stops taking documents from here on.
+ *
+ * It is how "the pane's text and the stored text differ" is made a *state*
+ * rather than a 600ms window: with the write refused, storage keeps whatever
+ * it last took, for as long as the test needs, and no sleep or clock is
+ * involved. The pane says so on screen (`plan-state`), which is what the tests
+ * wait for — so by the time the dialog opens, the two readings are known to
+ * disagree.
+ *
+ * Only this app's document key is refused; the pane layout, the ask threads
+ * and everything else on the origin keep working. */
+async function refuseDocumentWrites(page: Page) {
+  await page.evaluate(() => {
+    const proto = Storage.prototype;
+    const setItem = proto.setItem;
+    proto.setItem = function patched(key: string, value: string) {
+      if (key === "vingilot-documents.v1") {
+        throw new DOMException("refused by the test", "QuotaExceededError");
+      }
+      setItem.call(this, key, value);
+    };
+  });
+}
+
+/** What the pane says when a write was attempted and refused. */
+const NOT_SAVED = /not saved/;
 
 async function openDialog(page: Page) {
   await page.getByTestId("plan-to-worktree").click();
@@ -307,6 +343,69 @@ test.describe("a plan becomes a worktree", () => {
     await expect(page.getByTestId("plan-to-worktree")).toBeDisabled();
   });
 
+  test("the worktree is briefed with the plan on screen, not the one in storage", async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await writePlan(
+      page,
+      "# First idea\n\nthe one he changed his mind about.\n",
+    );
+
+    // The plan is rewritten and storage does not take it. What is on screen is
+    // now the only copy of the owner's text.
+    await refuseDocumentWrites(page);
+    await page
+      .getByTestId("plan-editor")
+      .fill("# Second idea\n\nthe one he means.\n");
+    await expect(page.getByTestId("plan-state")).toHaveText(NOT_SAVED);
+    await expect(page.getByTestId("plan-branch-offer")).toHaveText(
+      "second-idea",
+    );
+
+    await openDialog(page);
+    // Offered from the plan he can see, not from the one that is stored.
+    await expect(page.getByTestId("plan-worktree-branch")).toHaveValue(
+      "second-idea",
+    );
+    await page.getByTestId("plan-worktree-create").click();
+    await expect(page.getByTestId("plan-worktree-dialog")).toBeHidden();
+
+    // And it is his text that crossed the Tauri boundary into the brief.
+    const sent = await page.evaluate(
+      () =>
+        (window as unknown as { __PLAN_SENT__?: Record<string, unknown> })
+          .__PLAN_SENT__,
+    );
+    expect(sent).toMatchObject({
+      branch: "second-idea",
+      name: "PLAN.md",
+      text: "# Second idea\n\nthe one he means.\n",
+    });
+  });
+
+  test("a plan typed and acted on at once is not called empty", async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await choosePane(page, "plan");
+    // Nothing has ever been stored for this project, and nothing will be.
+    await refuseDocumentWrites(page);
+    await page.getByTestId("plan-editor").fill("# Straight to it\n");
+    await expect(page.getByTestId("plan-state")).toHaveText(NOT_SAVED);
+
+    // The pane offers the act…
+    await expect(page.getByTestId("plan-to-worktree")).toBeEnabled();
+    await openDialog(page);
+    // …and the dialog it opens is about the same plan: not blocked, and named
+    // from the title the owner just typed.
+    await expect(page.getByTestId("plan-worktree-blocked")).toHaveCount(0);
+    await expect(page.getByTestId("plan-worktree-branch")).toHaveValue(
+      "straight-to-it",
+    );
+    await expect(page.getByTestId("plan-worktree-create")).toBeEnabled();
+  });
+
   test("the same act is reachable from the palette", async ({ page }) => {
     await openWorkspace(page);
     await writePlan(page, "# From the palette\n");
@@ -322,6 +421,24 @@ test.describe("a plan becomes a worktree", () => {
     await expect(page.getByTestId("plan-worktree-dialog")).toBeVisible();
     await expect(page.getByTestId("plan-worktree-branch")).toHaveValue(
       "from-the-palette",
+    );
+
+    // And this door reads the live plan too. The palette is the door where a
+    // stale reading is easiest to ship, because the Plan pane the owner just
+    // typed into need not even be the pane on screen when the row is run.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("plan-worktree-dialog")).toBeHidden();
+    await refuseDocumentWrites(page);
+    await page.getByTestId("plan-editor").fill("# Rewritten since\n");
+    await expect(page.getByTestId("plan-state")).toHaveText(NOT_SAVED);
+
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(page.getByTestId("palette")).toBeVisible();
+    await page.getByTestId("palette-input").fill("turn this plan");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("plan-worktree-dialog")).toBeVisible();
+    await expect(page.getByTestId("plan-worktree-branch")).toHaveValue(
+      "rewritten-since",
     );
   });
 });

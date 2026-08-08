@@ -21,6 +21,7 @@ import {
   createAutosave,
   type SaveState,
 } from "@/features/runs/lib/autosave";
+import { type DocumentKind, documentKey } from "@/features/runs/lib/documents";
 import { readDocument, writeDocument } from "@/features/runs/lib/documentStore";
 
 const browserClock: AutosaveClock = {
@@ -84,4 +85,39 @@ export function useDocument(key: string | null): DocumentEditing {
 
 function textFor(key: string | null): string {
   return key === null ? "" : readDocument(key);
+}
+
+/** Every document the open project carries, by kind. */
+export type ProjectDocuments = Record<DocumentKind, DocumentEditing>;
+
+/** Open a project's documents **in the workspace**, above the panes that edit
+ * them and above the dialogs that act on them.
+ *
+ * This is where they belong rather than in each pane, and the reason is a bug
+ * the pane-owned version could not avoid: the Plan pane held its own copy of
+ * the plan while `PlanWorktreeDialog` read the same document back out of
+ * storage, which is a debounce behind — so the worktree got briefed with the
+ * text the owner had already replaced, and the button that offered the act and
+ * the dialog that performed it could disagree about whether the plan was even
+ * empty. One reading, held here, is what makes those two the same value.
+ *
+ * A flush before the read would not have fixed it: it cannot cover what is
+ * typed after it, and the dialog's own reading would still be a copy. The live
+ * document is passed in instead.
+ *
+ * Both kinds are opened for the project whether or not a pane is showing
+ * either. They cost a state and a timer that never fires until something is
+ * edited, and the alternative — opening a document when its pane mounts — is
+ * exactly the arrangement that made the plan's text unreachable from anywhere
+ * else. */
+export function useProjectDocuments(
+  projectPath: string | null,
+): ProjectDocuments {
+  const notes = useDocument(
+    projectPath === null ? null : documentKey("notes", projectPath),
+  );
+  const plan = useDocument(
+    projectPath === null ? null : documentKey("plan", projectPath),
+  );
+  return { notes, plan };
 }

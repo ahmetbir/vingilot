@@ -8,11 +8,14 @@
 // expected to travel with the project, and this one does not — it is in this
 // app's storage on this machine.
 
-import { documentKey } from "@/features/runs/lib/documents";
-import { useDocument } from "@/features/runs/lib/useDocument";
+import type { DocumentEditing } from "@/features/runs/lib/useDocument";
 import { DocumentEditor } from "@/features/runs/ui/DocumentEditor";
 
 interface Props {
+  /** This project's notes, opened by the workspace (`useProjectDocuments`).
+   * Handed in rather than opened here so there is one reading of the document
+   * per project, whichever surface is looking at it. */
+  doc: DocumentEditing;
   /** The project these notes belong to, by its path on disk. `null` only on a
    * surface with no project — the pane's availability rule refuses that case
    * first, so the editor here is a fallback rather than a state to design
@@ -20,11 +23,7 @@ interface Props {
   projectPath: string | null;
 }
 
-export function NotesPane({ projectPath }: Props) {
-  const doc = useDocument(
-    projectPath === null ? null : documentKey("notes", projectPath),
-  );
-
+export function NotesPane({ doc, projectPath }: Props) {
   return (
     <DocumentEditor
       doc={doc}

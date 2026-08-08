@@ -93,6 +93,7 @@ import { useAskPending } from "@/features/runs/lib/useAskPending";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
+import { useProjectDocuments } from "@/features/runs/lib/useDocument";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
@@ -484,6 +485,12 @@ export function RunsScreen() {
   // same reason the tab layout is: that component unmounts on the way to the
   // landing view and would forget the arrangement on the way out.
   const panes = usePanes(selectedWorktreeId);
+  // The open project's notes and plan, opened here rather than in the panes
+  // that edit them. The Plan pane's button and the dialog it opens are then
+  // reading one value instead of two: the pane's own state and, a debounce
+  // later, storage — which briefed a worktree with the text the owner had
+  // already replaced (`lib/useDocument.ts`).
+  const documents = useProjectDocuments(paneFacts.projectPath);
 
   // The three dialogs the palette is a second door to. Held here rather than
   // in the columns that used to own them, so both doors open the *same*
@@ -768,6 +775,7 @@ export function RunsScreen() {
                 </main>
               ) : (
                 <WorkSurface
+                  documents={documents}
                   onPaneAct={runPaneAct}
                   onSelectWorktree={setSelectedWorktreeId}
                   onTabCommand={runTabCommand}
@@ -791,6 +799,7 @@ export function RunsScreen() {
               onOpened={openLocalWorktree}
               open={planningWorktree}
               pending={worktreeActions.pending}
+              plan={documents.plan.text}
               refusal={worktreeActions.refusal}
               repo={selectedRepo}
               worktreeRoot={worktreeRoot}
