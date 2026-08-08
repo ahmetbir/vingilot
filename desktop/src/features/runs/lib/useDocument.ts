@@ -4,10 +4,11 @@
 // Everything that decides anything is next door: `documentStore.ts` says where
 // the text lives, `autosave.ts` says when it is written and what the owner is
 // told. This hook is only the wiring, and it has exactly one job of its own —
-// **calling `stop()` when the editor's life ends**, which is the effect
-// cleanup below. A hook that returned the machine and left that to a component
-// would be a hook that moved the losing-the-last-keystroke bug rather than
-// fixing it.
+// **calling `stop()` at every ending it can see**: the editor's own (the
+// effect cleanup below) and the window's (`pagehide`/`beforeunload`), which is
+// not the same ending and is not covered by the first. A hook that returned
+// the machine and left either to a component would be a hook that moved the
+// losing-the-last-keystroke bug rather than fixing it.
 //
 // The text is held here rather than read back out of storage on every render:
 // storage is behind a debounce, so a render that read from it would show the
@@ -66,7 +67,36 @@ export function useDocument(key: string | null): DocumentEditing {
       write: (text) => (key === null ? false : writeDocument(key, text)),
     });
     machine.current = autosave;
+    // The window door, which the unmount door does not cover: **quitting the
+    // app unmounts nothing**. React tears a tree down when a component goes,
+    // and closing a window or ending the process is not a component going —
+    // the cleanup below never runs, and the pending text goes with the page.
+    //
+    // Both events, because they are not the same promise: `pagehide` is the
+    // page-lifecycle one WebKit fires when a page is really going away,
+    // `beforeunload` the older one. Measured in the real bundle, either alone
+    // is enough for a reload; both are registered because a webview that fires
+    // only one of them still has to write.
+    //
+    // **Neither covers a quit, and this is not hedging.** On macOS the main
+    // window's close is intercepted and the window merely hidden (`lib.rs`'s
+    // `CloseRequested` arm), so the page is not torn down there at all; the
+    // real ending is `ExitRequested`, which stops the Rust side and ends the
+    // process (`src-tauri/src/shutdown.rs`) without navigating the webview.
+    // Nothing in this page is promised a turn then. `CEILING_MS` is the bound
+    // that holds there, and it is set from that.
+    //
+    // `stop()` is idempotent, so a teardown that fires both events writes once
+    // and a page that comes back from the back/forward cache keeps typing into
+    // a machine with nothing outstanding.
+    const flush = () => {
+      autosave.stop();
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
     return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
       // The unmount door. Every way this editor can end goes through here: the
       // pane being swapped, ⌥⌘B taking the right side away, the project
       // changing, the workspace screen closing.

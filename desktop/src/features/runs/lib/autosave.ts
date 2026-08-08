@@ -36,10 +36,24 @@ export type SaveState = "failed" | "saved" | "unsaved";
  * stale for as long as it takes to notice it. */
 export const DEBOUNCE_MS = 600;
 
-/** After the first unwritten keystroke, whatever the typing is doing. Four
- * seconds of prose is the most this machine will ever hold and not have
- * written. */
-export const CEILING_MS = 4000;
+/** After the first unwritten keystroke, whatever the typing is doing.
+ *
+ * **This is the only bound that survives the app being killed rather than
+ * closed**, which is what it is set from. `useDocument` flushes on unmount and
+ * on the window's own teardown (`pagehide`/`beforeunload`), and those cover
+ * every ending the page is told about — but quitting is not one of them here.
+ * This app's shutdown path (`src-tauri/src/shutdown.rs`, and the `RunEvent`
+ * arms in `lib.rs`) stops the Rust side and then ends the process outright;
+ * the webview is never navigated, so no unload event of any kind is promised.
+ * The honest worst case at a ⌘Q is therefore "whatever was typed since the
+ * last write", and this number is it.
+ *
+ * 1500ms rather than the 4000 it was: four seconds of unbroken typing is a
+ * paragraph, and losing a paragraph to a quit is the failure this whole module
+ * exists to prevent. What it costs is a write every 1.5s while someone types
+ * without pausing — one `setItem` of a document that is at most 40 000
+ * characters — against 4s. That is not a trade worth a paragraph. */
+export const CEILING_MS = 1500;
 
 export interface AutosaveClock {
   now: () => number;

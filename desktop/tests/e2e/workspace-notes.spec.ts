@@ -12,6 +12,12 @@
 //   The unit test can only prove the machine flushes when told to; this proves
 //   the component tells it, which is the half that was missing when this bug
 //   shipped in other apps.
+// - that a note **survives the page going away with the write still pending**.
+//   The unmount flush cannot cover that one: quitting the app unmounts
+//   nothing, so the only thing that can write is the window-level flush, and
+//   whether it is really registered on the window is not something a unit test
+//   can see. The edit and the teardown are dispatched inside one task here, so
+//   the debounce provably has not fired — the test is not racing a timer.
 // - that a note **survives a reload**, which is the whole claim of "a project
 //   keeps its notes".
 // - that the pane says where the note is kept, and never says "saved" before
@@ -126,6 +132,40 @@ async function choosePane(page: Page, key: string) {
   await waitForAnimations(page);
 }
 
+/** Type into a document editor and tear the page down in the same breath.
+ *
+ * The edit is dispatched the way the browser dispatches one — the native value
+ * setter, then an `input` event — so React's own handler runs and the autosave
+ * timer is armed. The reload is queued on a 0ms timer from inside that same
+ * task, so **no 600ms debounce can possibly have fired in between**: this is a
+ * page ending with the owner's keystrokes still pending, with nothing raced
+ * and no sleep. Nothing unmounts on the way out, which is exactly the case
+ * quitting the app is.
+ *
+ * Returns nothing: what is asserted afterwards is what came back out of
+ * storage on the other side of the reload. */
+async function typeAndTearDown(page: Page, testId: string, text: string) {
+  await page.evaluate(
+    ({ testId, text }) => {
+      const editor = document.querySelector(`[data-testid="${testId}"]`);
+      if (!(editor instanceof HTMLTextAreaElement)) {
+        throw new Error(`no textarea at ${testId}`);
+      }
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(editor, text);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      setTimeout(() => {
+        window.location.reload();
+      }, 0);
+    },
+    { testId, text },
+  );
+  await page.waitForLoadState("load");
+}
+
 /** ⌥⌘B — the right pane's box goes, and with it the editor inside it. One
  * keypress, so it lands well inside the autosave's window. */
 async function hideRightPane(page: Page) {
@@ -196,6 +236,32 @@ test.describe("a project keeps its notes", () => {
     await openProject(page, OTHER.id);
     await expect(page.getByTestId("notes-editor")).toHaveValue(
       "ask about the relay",
+    );
+  });
+
+  test("a note still inside the debounce survives the page going away", async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await choosePane(page, "notes");
+    await expect(page.getByTestId("notes-editor")).toBeVisible();
+
+    // Nothing unmounts here — the page simply ends, which is what quitting the
+    // app does to it. Only a window-level flush can have written this.
+    await typeAndTearDown(
+      page,
+      "notes-editor",
+      "the sentence the quit must not eat",
+    );
+
+    await expect(page.getByTestId("runs-screen")).toBeVisible();
+    await stubBackend(page);
+    await page.goto("/#/");
+    await page.goto("/#/workspace");
+    await openProject(page, REPO.id);
+    await choosePane(page, "notes");
+    await expect(page.getByTestId("notes-editor")).toHaveValue(
+      "the sentence the quit must not eat",
     );
   });
 
