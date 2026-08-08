@@ -104,16 +104,48 @@ fn isolated_tmux_socket() -> &'static Path {
     })
 }
 
+/// Every tmux socket under the directory these tests own, by full path.
+///
+/// **The isolation has to be an argument, not an environment.** `TMUX_TMPDIR`
+/// is process-wide and set from a test thread while 2300 other tests run —
+/// a `set_var` beside the `getenv` every `Command::spawn` does. If that value
+/// is ever lost, an unqualified `kill-server` does not fail: it finds the
+/// default socket and ends the owner's own sessions, which on this machine
+/// means a day's work in a terminal he is watching.
+///
+/// So the target comes from reading our own directory rather than from the
+/// environment at call time. An empty directory yields nothing to kill, which
+/// is the correct answer to "I cannot prove which socket is mine".
+fn test_tmux_sockets() -> Vec<std::path::PathBuf> {
+    let mut sockets = Vec::new();
+    let Ok(entries) = std::fs::read_dir(isolated_tmux_socket()) else {
+        return sockets;
+    };
+    for entry in entries.flatten() {
+        let Ok(found) = std::fs::read_dir(entry.path()) else {
+            continue;
+        };
+        sockets.extend(found.flatten().map(|socket| socket.path()));
+    }
+    sockets
+}
+
 /// End the tmux server these tests started, and only that one.
 fn kill_test_tmux_server() {
     let socket_dir = isolated_tmux_socket();
     let Some(tmux) = tmux::path() else { return };
-    let _ = Command::new(tmux)
-        .arg("kill-server")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    // `-S <path>` names the socket file itself, so this cannot resolve to any
+    // server but the one whose socket we just listed out of our own directory.
+    for socket in test_tmux_sockets() {
+        let _ = Command::new(tmux)
+            .arg("-S")
+            .arg(&socket)
+            .arg("kill-server")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
     // tmux does not always unlink its socket when the server ends, so the
     // named file is removed by name and the directory that held it with
     // `remove_dir` — the `rmdir` of the standard library, which refuses a
@@ -656,7 +688,20 @@ fn tmux_says(args: &[&str]) -> String {
     let Some(tmux) = tmux::path() else {
         return String::new();
     };
-    match Command::new(tmux).args(args).stdin(Stdio::null()).output() {
+    // Addressed by socket path for the same reason `kill_test_tmux_server` is:
+    // these arguments include `kill-session`, so a query helper that resolved
+    // to the default socket would reach the owner's sessions. No socket of
+    // ours means no server of ours, and nothing to say about it.
+    let Some(socket) = test_tmux_sockets().into_iter().next() else {
+        return String::new();
+    };
+    match Command::new(tmux)
+        .arg("-S")
+        .arg(&socket)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+    {
         Ok(done) if done.status.success() => {
             String::from_utf8_lossy(&done.stdout).trim().to_string()
         }
