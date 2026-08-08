@@ -61,8 +61,16 @@ const SCRATCH_PREFIX = "vingilot-scratch.";
  * `nonce` only ever rises, for the same reason a strip's `nextN` does: closing
  * kills the pty, and if that kill lost a race a reused id would attach the new
  * scratch to the old one's still-live shell. Rising costs one integer and makes
- * that unreachable. Nothing across app runs needs to be unique — an ephemeral
- * session cannot survive one. */
+ * that unreachable.
+ *
+ * **It rises within a mount, and the caller owns the rest.** This once read
+ * "an ephemeral session cannot survive an app run", which is true and was the
+ * wrong bound: the session survived something far weaker — a remount of the
+ * screen holding the counter, which happens on a route change or a reload.
+ * The ordinals restarted at 1 while the shell was still registered, and
+ * `pty_open` replayed it instead of spawning. What makes an id ephemeral is
+ * that something ends the session, so `RunsScreen` closes it when it unmounts;
+ * the rising nonce defends a race, not a lifetime. */
 export function scratchSessionId(nonce: number): string {
   return `${SCRATCH_PREFIX}${nonce}`;
 }

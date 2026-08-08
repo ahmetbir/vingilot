@@ -420,6 +420,30 @@ export function RunsScreen() {
     [],
   );
 
+  // This screen going away is the third door, and nothing was watching it.
+  //
+  // `RunsScreen` unmounts on any route change, on a reload, and on the
+  // community remount — none of which is an app run, and none of which closed
+  // the shell. It kept running behind nothing, and `nextScratch` is a ref, so
+  // the remount started the ordinals at 1 again: `pty_open` found that id still
+  // registered, took its replay branch, and returned **before** the spawn and
+  // before the cwd was applied. The next ⌥⌘T then drew the previous worktree's
+  // live shell, with its scrollback and its real cwd, under a header printing
+  // the new worktree's path.
+  //
+  // Read through a ref because a cleanup closes over the render it was created
+  // in, and the session that has to be ended is whichever one is open at the
+  // moment the screen goes — not whichever one existed when this effect ran.
+  const scratchNow = React.useRef<Scratch>(null);
+  scratchNow.current = scratch;
+  React.useEffect(
+    () => () => {
+      const open = scratchNow.current;
+      if (open !== null) void ptyClose(open.sessionId);
+    },
+    [],
+  );
+
   // The owner went somewhere else. A shell kept alive behind a surface that no
   // longer draws it is exactly the residue this terminal exists not to leave —
   // and its header names a checkout that is no longer the one on screen.
