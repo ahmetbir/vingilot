@@ -88,6 +88,7 @@ import type {
   PaletteChoice,
   PaletteContext,
 } from "@/features/runs/lib/paletteSources";
+import { useAskPending } from "@/features/runs/lib/useAskPending";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
@@ -468,6 +469,8 @@ export function RunsScreen() {
   // Whatever the registry's panes need asked of the world. This screen runs
   // them and knows what none of them is about (lib/usePaneProbes.ts).
   const probe = usePaneProbes(paneProbes(), paneFacts);
+  // Whether a turn is already out, from the store both doors into one write to.
+  const askInFlight = useAskPending();
   const paneContext: PaneContext = { ...paneFacts, probe };
   // Which pane sits beside the terminal, how wide it is, and whether it is
   // showing — per worktree, and held here rather than in `WorkSurface` for the
@@ -614,6 +617,10 @@ export function RunsScreen() {
       cwd: paneFacts.cwd,
       cwdPending: paneFacts.cwdPending,
       harness: probe(AGENT_HARNESS_PROBE),
+      // Subscribed, not polled: this screen re-renders on a 2s tick, and a
+      // guard that is up to two seconds stale is a guard a second question
+      // walks straight past.
+      inFlight: askInFlight,
     },
     context: paletteContext,
     onCommand: runPaletteCommand,

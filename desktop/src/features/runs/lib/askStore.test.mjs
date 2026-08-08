@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  pendingAskId,
+  pendingAsk,
   readThread,
   resetAskPending,
   settleAsk,
@@ -30,7 +30,17 @@ test("a question is stored the moment it is asked, not when it is answered", () 
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.question, "why is this slow");
   assert.equal(rows[0]?.answer, null);
-  assert.equal(pendingAskId(), id);
+  assert.equal(pendingAsk()?.id, id);
+  resetAskPending();
+});
+
+test("the mark names the directory the running turn is in", () => {
+  resetAskPending();
+  const storage = shim();
+  startAsk("/tmp/wt/other", "why", 1, storage);
+  // A refusal shown in a *different* worktree has to say where the turn that
+  // blocks it is running, so the pending mark carries it.
+  assert.equal(pendingAsk()?.cwd, "/tmp/wt/other");
   resetAskPending();
 });
 
@@ -40,17 +50,41 @@ test("settling writes the answer and releases the pending mark", () => {
   const id = startAsk("/tmp/wt/a", "why", 1, storage);
   settleAsk("/tmp/wt/a", id, { answer: "because" }, storage);
   assert.equal(readThread("/tmp/wt/a", storage)[0]?.answer, "because");
-  assert.equal(pendingAskId(), null);
+  assert.equal(pendingAsk(), null);
 });
 
-test("one question at a time — a second is refused rather than queued", () => {
+test("one turn at a time — a second question is kept and refused, never dropped", () => {
   resetAskPending();
   const storage = shim();
   const first = startAsk("/tmp/wt/a", "one", 1, storage);
   const second = startAsk("/tmp/wt/a", "two", 2, storage);
   assert.notEqual(first, null);
+  // Not started: the mark is still the first turn's.
   assert.equal(second, null);
-  assert.equal(readThread("/tmp/wt/a", storage).length, 1);
+  assert.equal(pendingAsk()?.id, first);
+  // But written, with the reason it never ran on it. A question the owner
+  // typed and watched disappear is the failure this guards.
+  const rows = readThread("/tmp/wt/a", storage);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1]?.question, "two");
+  assert.equal(rows[1]?.answer, null);
+  assert.match(rows[1]?.refusal ?? "", /one adapter runs at a time/);
+  assert.notEqual(rows[1]?.id, rows[0]?.id);
+  resetAskPending();
+});
+
+test("the refused question does not settle when the running one comes back", () => {
+  resetAskPending();
+  const storage = shim();
+  const first = startAsk("/tmp/wt/a", "one", 1, storage);
+  startAsk("/tmp/wt/a", "two", 2, storage);
+  settleAsk("/tmp/wt/a", first, { answer: "because" }, storage);
+  const rows = readThread("/tmp/wt/a", storage);
+  assert.equal(rows[0]?.answer, "because");
+  assert.equal(rows[1]?.answer, null);
+  assert.match(rows[1]?.refusal ?? "", /one adapter runs at a time/);
+  // And the door is open again for the question he now has to retype.
+  assert.equal(pendingAsk(), null);
   resetAskPending();
 });
 
@@ -103,5 +137,5 @@ test("a storage that refuses every write costs the thread, never the render", ()
   const id = startAsk("/tmp/wt/a", "why", 1, refusing);
   assert.notEqual(id, null);
   settleAsk("/tmp/wt/a", id, { answer: "fine" }, refusing);
-  assert.equal(pendingAskId(), null);
+  assert.equal(pendingAsk(), null);
 });

@@ -20,6 +20,13 @@
 // asked, and it is a constant here so a UI cannot drift into implying the
 // workspace explained the codebase first.
 //
+// **A question that cannot run yet is refused, not swallowed.** One turn runs
+// at a time (`askStore.ts`), and the palette closes on Enter — so a second
+// question typed while the first is still out would vanish between the two: no
+// row, no refusal, and nothing on screen distinguishing it from the one that
+// worked. `inFlight` is here so the panel says that *before* Enter, in the
+// same place every other reason to refuse is said.
+//
 // **A mode that cannot answer says so before it takes the question.** Every
 // refusal below is produced from the same probe reading the Agent pane's
 // availability uses (`paneModel.ts`'s `AGENT_HARNESS_PROBE`), so the palette
@@ -61,6 +68,11 @@ export interface AskInputs {
   cwd: string | null;
   cwdPending: boolean;
   harness: ProbeReading;
+  /** The turn already running anywhere in this app, or `null` — `askStore.ts`'s
+   * `pendingAsk`. Not narrowed to this directory: the guard is one adapter for
+   * the whole app, and a refusal that did not name the other directory would
+   * read as this worktree being stuck. */
+  inFlight: { cwd: string } | null;
 }
 
 export interface Ask {
@@ -82,15 +94,22 @@ export function askState({
   cwd,
   cwdPending,
   harness,
+  inFlight,
   question,
 }: AskInputs): Ask {
   const sent = cwd === null ? [] : [cwd];
   const note = cwd === null ? ASK_NO_SCOPE_NOTE : ASK_SCOPE_NOTE;
-  const blocked = askBlocked({ cwd, cwdPending, harness, question });
+  const blocked = askBlocked({ cwd, cwdPending, harness, inFlight, question });
   return { blocked, note, question, sent };
 }
 
-function askBlocked({ cwd, cwdPending, harness, question }: AskInputs) {
+function askBlocked({
+  cwd,
+  cwdPending,
+  harness,
+  inFlight,
+  question,
+}: AskInputs) {
   if (cwd === null) {
     return cwdPending
       ? "still working out where this worktree is on disk."
@@ -107,6 +126,14 @@ function askBlocked({ cwd, cwdPending, harness, question }: AskInputs) {
   }
   if (harness.answer === "unknown") {
     return "this build could not ask whether an ACP agent is configured, so a question typed here would have nowhere to go.";
+  }
+  // Named before the missing question, for the reason the missing agent is:
+  // the owner's next move is to wait for the answer he is already owed, not
+  // to finish typing into a mode that would refuse him at Enter.
+  if (inFlight !== null) {
+    return inFlight.cwd === cwd
+      ? "a turn is already running here, and one adapter runs at a time. Its answer lands in the Agent pane."
+      : `a turn is already running in ${inFlight.cwd}, and one adapter runs at a time.`;
   }
   return question === "" ? "type a question." : null;
 }

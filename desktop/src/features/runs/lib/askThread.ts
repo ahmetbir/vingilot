@@ -191,3 +191,10 @@ export function exchangeState(
 /** What a row with no answer and nothing in flight says for itself. */
 export const UNANSWERED_NOTE =
   "no answer was recorded — this app or the agent stopped before one came back.";
+
+/** What a question refused before it ever ran says for itself. It is written
+ * onto the exchange rather than shown once and forgotten: a question typed
+ * while a turn is running has to end up *somewhere*, and the thread is the one
+ * place the owner already knows to look. */
+export const NOT_ASKED_NOTE =
+  "not asked — a turn was already running when this was typed, and one adapter runs at a time. Ask it again now that the one above it has come back.";

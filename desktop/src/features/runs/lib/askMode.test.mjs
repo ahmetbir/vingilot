@@ -9,6 +9,7 @@ function inputs(over = {}) {
     cwd: "/tmp/wt/spike",
     cwdPending: false,
     harness: READY,
+    inFlight: null,
     question: "why does the build fail",
     ...over,
   };
@@ -84,6 +85,31 @@ test("an unaskable build refuses rather than taking a question into a void", () 
     inputs({ harness: { answer: "unknown", detail: null } }),
   );
   assert.match(ask.blocked ?? "", /nowhere to go/);
+});
+
+test("a question asked while a turn is running is refused, not taken", () => {
+  // The failure this holds: Enter closes the palette, so a question accepted
+  // here and dropped by the store would be nowhere at all.
+  const ask = askState(inputs({ inFlight: { cwd: "/tmp/wt/spike" } }));
+  assert.match(ask.blocked ?? "", /already running here/);
+  assert.match(ask.blocked ?? "", /one adapter runs at a time/);
+});
+
+test("a turn running somewhere else says where, rather than blaming this worktree", () => {
+  const ask = askState(inputs({ inFlight: { cwd: "/tmp/wt/other" } }));
+  assert.match(ask.blocked ?? "", /already running in \/tmp\/wt\/other/);
+  // The scope block still describes where *this* question would go.
+  assert.deepEqual(ask.sent, ["/tmp/wt/spike"]);
+});
+
+test("the running turn is named before the missing question", () => {
+  // With `?` alone and a turn out, the useful sentence is the one that says
+  // waiting is the next move — not one asking for a question that would be
+  // refused the moment it was typed.
+  const ask = askState(
+    inputs({ inFlight: { cwd: "/tmp/wt/spike" }, question: "" }),
+  );
+  assert.match(ask.blocked ?? "", /already running here/);
 });
 
 test("the missing agent is named before the missing question", () => {

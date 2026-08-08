@@ -37,16 +37,13 @@ import {
   type TraceKind,
   turnSummary,
 } from "@/features/runs/lib/agentTurn";
-import {
-  pendingAskId,
-  readThread,
-  subscribeToAsks,
-} from "@/features/runs/lib/askStore";
+import { readThread, subscribeToAsks } from "@/features/runs/lib/askStore";
 import {
   type AskExchange,
   exchangeState,
   UNANSWERED_NOTE,
 } from "@/features/runs/lib/askThread";
+import { useAskPending } from "@/features/runs/lib/useAskPending";
 
 const TRACE_CLASS: Record<TraceKind, string> = {
   message: "text-foreground",
@@ -117,23 +114,18 @@ function Exchange({
  * most twenty rows, and a cache here would be a second answer about what the
  * conversation is. */
 function useAskThread(cwd: string | null) {
-  const [thread, setThread] = React.useState<{
-    exchanges: AskExchange[];
-    pending: string | null;
-  }>({ exchanges: [], pending: null });
+  const pending = useAskPending();
+  const [exchanges, setExchanges] = React.useState<AskExchange[]>([]);
 
   React.useEffect(() => {
     function sync() {
-      setThread({
-        exchanges: cwd === null ? [] : readThread(cwd),
-        pending: pendingAskId(),
-      });
+      setExchanges(cwd === null ? [] : readThread(cwd));
     }
     sync();
     return subscribeToAsks(sync);
   }, [cwd]);
 
-  return thread;
+  return { exchanges, pending };
 }
 
 export function AgentPanel({ cwd }: Props) {
@@ -202,7 +194,7 @@ export function AgentPanel({ cwd }: Props) {
             <Exchange
               exchange={exchange}
               key={exchange.id}
-              pending={thread.pending}
+              pending={thread.pending?.id ?? null}
             />
           ))}
         </section>

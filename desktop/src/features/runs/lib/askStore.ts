@@ -21,6 +21,7 @@ import {
   type AskExchange,
   type AskThreads,
   capThreads,
+  NOT_ASKED_NOTE,
   parseThreads,
   settleExchange,
 } from "./askThread.ts";
@@ -85,41 +86,60 @@ function notify(): void {
   for (const listener of [...listeners]) listener();
 }
 
-let pending: string | null = null;
+/** The one turn this app has running, whichever surface started it. */
+export interface AskInFlight {
+  /** The exchange the turn is running for. */
+  id: string;
+  /** The directory it was started in. Kept because a refusal has to name it:
+   * the guard is one adapter for the whole app, not one per directory, so the
+   * turn that blocks a question is often not in the worktree on screen. */
+  cwd: string;
+}
+
+let inFlight: AskInFlight | null = null;
 let seq = 0;
 
-/** The exchange a turn is in flight for, or `null`. One at a time on purpose:
- * a second question asked while the first is running would be a second adapter
- * process started in the same directory, and the owner asked for neither. */
-export function pendingAskId(): string | null {
-  return pending;
+/** The turn in flight, or `null`. One at a time on purpose: a second turn
+ * started while the first runs is a second adapter process — a second login
+ * and a second billed turn on a hosted adapter — and the owner asked for
+ * neither. Both doors into a turn claim this same mark, so it cannot say one
+ * thing while a surface believes another. */
+export function pendingAsk(): AskInFlight | null {
+  return inFlight;
 }
 
 /** Record the question and mark it in flight. Returns the exchange's id, which
- * `settleAsk` needs, or `null` when one is already running. */
+ * `settleAsk` needs, or `null` when a turn was already running.
+ *
+ * **A `null` still wrote the question**, as an exchange refused on the spot.
+ * Surfaces refuse before they get here (`askMode.ts` for the palette, the Run
+ * button's own disabled state for the pane), so this is the losing side of a
+ * race — and a question that loses a race must still be somewhere the owner
+ * can find it, because from where he is sitting it looked exactly like the one
+ * that won. */
 export function startAsk(
   cwd: string,
   question: string,
   now: number = Date.now(),
   storage: StorageLike = defaultStorage(),
 ): string | null {
-  if (pending !== null) return null;
   // The clock alone is not an identity: two questions asked in the same
   // millisecond would share a row, and settling one would settle both.
   seq += 1;
   const id = `${now}-${seq}`;
+  const busy = inFlight !== null;
   const exchange: AskExchange = {
     answer: null,
     askedAt: now,
     cwd,
     id,
     question,
-    refusal: null,
+    refusal: busy ? NOT_ASKED_NOTE : null,
   };
   writeThreads(appendExchange(readThreads(storage), exchange), storage);
-  pending = id;
+  if (!busy) inFlight = { cwd, id };
   notify();
-  return id;
+  return busy ? null : id;
 }
 
 export function settleAsk(
@@ -129,11 +149,11 @@ export function settleAsk(
   storage: StorageLike = defaultStorage(),
 ): void {
   writeThreads(settleExchange(readThreads(storage), cwd, id, outcome), storage);
-  if (pending === id) pending = null;
+  if (inFlight?.id === id) inFlight = null;
   notify();
 }
 
 /** For tests, which share one module instance across cases. */
 export function resetAskPending(): void {
-  pending = null;
+  inFlight = null;
 }
