@@ -12,6 +12,11 @@
 //   the question anyway;
 // - that a question and its answer **land somewhere the owner can go back to**,
 //   including after a reload, rather than in a toast;
+// - that a question **storage refuses is still on screen**, with the fact that
+//   it is not being kept said in as many words. The write used to be swallowed
+//   here, and because every surface reads this conversation back out of
+//   storage, that did not cost the thread its next restart — it cost the
+//   question, on the spot and without a word;
 // - that the pane's Run button and the palette's Enter are **one guard**, which
 //   is only visible while a turn is actually out — so the stub can hold one
 //   open, which is the state the real adapter is in for tens of seconds.
@@ -289,6 +294,38 @@ test.describe("ask about this project without leaving it", () => {
     await expect(
       await page.evaluate(() => window.localStorage.getItem("vingilot-ask.v1")),
     ).toBeNull();
+  });
+
+  test("a question storage will not keep is still on screen, and says it is not kept", async ({
+    page,
+  }) => {
+    await openWorktree(page, "ready");
+    // Storage stops taking the ask thread from here on. Every surface reads
+    // the conversation back out of it, so a swallowed write left the owner
+    // with a question typed, a turn running, and nothing on screen at all.
+    await page.evaluate(() => {
+      const proto = Storage.prototype;
+      const setItem = proto.setItem;
+      proto.setItem = function patched(key: string, value: string) {
+        if (key === "vingilot-ask.v1") {
+          throw new DOMException("refused by the test", "QuotaExceededError");
+        }
+        setItem.call(this, key, value);
+      };
+    });
+
+    await openPalette(page);
+    await page.getByTestId("palette-input").fill("? why is the build red");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("palette")).toBeHidden();
+
+    const thread = page.getByTestId("ask-thread");
+    await expect(thread).toContainText("why is the build red");
+    await expect(thread).toContainText(ANSWER);
+    // And it is never passed off as kept.
+    await expect(page.getByTestId("ask-thread-unstored")).toContainText(
+      "could not write to its own storage",
+    );
   });
 
   test("a turn started in the pane is the same turn the palette refuses", async ({

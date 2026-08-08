@@ -46,7 +46,11 @@ import {
   turnSummary,
 } from "@/features/runs/lib/agentTurn";
 import { ask } from "@/features/runs/lib/askRunner";
-import { readThread, subscribeToAsks } from "@/features/runs/lib/askStore";
+import {
+  asksUnstored,
+  readThread,
+  subscribeToAsks,
+} from "@/features/runs/lib/askStore";
 import {
   type AskExchange,
   exchangeState,
@@ -127,16 +131,21 @@ function Exchange({
 function useAskThread(cwd: string | null) {
   const pending = useAskPending();
   const [exchanges, setExchanges] = React.useState<AskExchange[]>([]);
+  // Whether what is drawn below is only in memory. Read at the same moment the
+  // rows are, from the same notification, so the thread and the promise made
+  // about it cannot come from two different instants.
+  const [kept, setKept] = React.useState(true);
 
   React.useEffect(() => {
     function sync() {
       setExchanges(cwd === null ? [] : readThread(cwd));
+      setKept(!asksUnstored());
     }
     sync();
     return subscribeToAsks(sync);
   }, [cwd]);
 
-  return { exchanges, pending };
+  return { exchanges, kept, pending };
 }
 
 export function AgentPanel({ cwd }: Props) {
@@ -204,6 +213,15 @@ export function AgentPanel({ cwd }: Props) {
           <h3 className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
             asked and run here
           </h3>
+          {thread.kept ? null : (
+            <p
+              className="text-2xs text-amber-600 dark:text-amber-500"
+              data-testid="ask-thread-unstored"
+            >
+              not kept — this app could not write to its own storage, so this
+              conversation is here until the app closes.
+            </p>
+          )}
           {thread.exchanges.map((exchange) => (
             <Exchange
               exchange={exchange}

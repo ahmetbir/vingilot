@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  asksUnstored,
   pendingAsk,
   readThread,
   resetAskPending,
@@ -126,16 +127,63 @@ test("threads are read back per directory, and an unknown one is empty", () => {
   assert.deepEqual(readThread("/tmp/wt/elsewhere", storage), []);
 });
 
-test("a storage that refuses every write costs the thread, never the render", () => {
-  resetAskPending();
-  const refusing = {
+function refusingStorage() {
+  return {
     getItem: () => null,
     setItem: () => {
       throw new Error("quota");
     },
   };
-  const id = startAsk("/tmp/wt/a", "why", 1, refusing);
+}
+
+test("a question storage refuses is still on the thread, and is not called kept", () => {
+  resetAskPending();
+  const refusing = refusingStorage();
+  const id = startAsk("/tmp/wt/a", "why is this slow", 1, refusing);
   assert.notEqual(id, null);
-  settleAsk("/tmp/wt/a", id, { answer: "fine" }, refusing);
+  // The question the owner typed is still the conversation. It used to be
+  // nowhere: every surface reads this thread back out of storage, so a
+  // swallowed write left a turn running against a question with no row.
+  const rows = readThread("/tmp/wt/a", refusing);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.question, "why is this slow");
+  // And it is never claimed to have landed.
+  assert.equal(asksUnstored(), true);
+
+  settleAsk("/tmp/wt/a", id, { answer: "because" }, refusing);
+  assert.equal(readThread("/tmp/wt/a", refusing)[0]?.answer, "because");
+  assert.equal(asksUnstored(), true);
   assert.equal(pendingAsk(), null);
+  resetAskPending();
+});
+
+test("a build with no storage at all is a refusal, not a silent success", () => {
+  resetAskPending();
+  const id = startAsk("/tmp/wt/a", "why", 1, null);
+  // The turn still starts, and the question is still readable — what is not
+  // done is calling a write that had nowhere to go a write that happened.
+  assert.notEqual(id, null);
+  assert.equal(asksUnstored(), true);
+  assert.equal(readThread("/tmp/wt/a", null)[0]?.question, "why");
+  resetAskPending();
+});
+
+test("storage that comes back keeps what was only in memory", () => {
+  resetAskPending();
+  const refusing = refusingStorage();
+  startAsk("/tmp/wt/a", "asked while the quota was full", 1, refusing);
+  assert.equal(asksUnstored(), true);
+
+  // The same conversation, written by the next question once storage takes
+  // one: the row refused earlier is carried by that write rather than left
+  // behind, because reads come from memory while it stands.
+  const working = shim();
+  startAsk("/tmp/wt/a", "asked after it freed up", 2, working);
+  assert.equal(asksUnstored(), false);
+  const rows = readThread("/tmp/wt/a", working);
+  assert.deepEqual(
+    rows.map((row) => row.question),
+    ["asked while the quota was full", "asked after it freed up"],
+  );
+  resetAskPending();
 });

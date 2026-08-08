@@ -16,6 +16,11 @@
 // owner typed; what is *not* persisted is the fact that a turn is running, so a
 // row with no answer after a restart reads as "no answer came back" rather than
 // as an ask that is still going (`askThread.ts`'s `exchangeState`).
+//
+// **And when storage will not take it, the conversation is still the
+// conversation.** A refused write kept nothing and said nothing, which lost the
+// question outright — see `unstored` below. It is held in memory instead, and
+// `asksUnstored` is what the pane says it with.
 
 import {
   appendExchange,
@@ -36,39 +41,74 @@ export interface StorageLike {
  * key rather than a migration. */
 const ASK_KEY = "vingilot-ask.v1";
 
-const NO_STORAGE: StorageLike = {
-  getItem: () => null,
-  setItem: () => {},
-};
-
-function defaultStorage(): StorageLike {
-  return (
-    (globalThis as { localStorage?: StorageLike }).localStorage ?? NO_STORAGE
-  );
+/** `null`, not a no-op shim, for the reason `documentStore.ts` gives: a store
+ * that takes writes and keeps nothing lets this app claim a question landed. */
+function defaultStorage(): StorageLike | null {
+  return (globalThis as { localStorage?: StorageLike }).localStorage ?? null;
 }
+
+/** The conversation as it stands when storage would not take it.
+ *
+ * **A refused write used to be swallowed here**, and what that cost was not the
+ * thread's next restart — it was the question. Everything that draws this
+ * conversation reads it back out of storage (the pane is usually not even
+ * mounted when the palette asks), so a write storage refused left the owner
+ * with a question typed, a turn running against it, and nothing on screen. Not
+ * an empty answer: no row at all, and no word about why.
+ *
+ * So a refusal keeps the whole conversation here instead. It is the same
+ * promise the document panes make — never claim it landed, never lose it
+ * quietly — with the one difference the medium forces: this is memory, so it
+ * goes when the app does, and `asksUnstored` is how the surface says so.
+ *
+ * A later write that succeeds clears it, and because reads come from here
+ * while it stands, that write carries the rows storage refused earlier. A
+ * quota that frees up therefore recovers the conversation whole. */
+let unstored: AskThreads | null = null;
 
 export function readThreads(
-  storage: StorageLike = defaultStorage(),
+  storage: StorageLike | null = defaultStorage(),
 ): AskThreads {
-  return parseThreads(storage.getItem(ASK_KEY));
+  if (unstored !== null) return unstored;
+  if (storage === null) return {};
+  try {
+    return parseThreads(storage.getItem(ASK_KEY));
+  } catch {
+    // A webview that refuses reads has told us nothing about what is stored,
+    // which is the same position as an unparseable one.
+    return {};
+  }
 }
 
+/** Write the whole conversation. **Returns whether storage took it** — a
+ * `false` means what is on screen is all there is, and the caller must not say
+ * otherwise. */
 export function writeThreads(
   threads: AskThreads,
-  storage: StorageLike = defaultStorage(),
-): void {
+  storage: StorageLike | null = defaultStorage(),
+): boolean {
+  const capped = capThreads(threads);
   try {
-    storage.setItem(ASK_KEY, JSON.stringify(capThreads(threads)));
+    if (storage === null) throw new Error("no storage on this build");
+    storage.setItem(ASK_KEY, JSON.stringify(capped));
   } catch {
-    // A refused write (quota, a private-mode webview) costs the thread its
-    // next restart. Throwing here would cost the render that produced it.
+    unstored = capped;
+    return false;
   }
+  unstored = null;
+  return true;
+}
+
+/** Whether the conversation on screen is only in memory. `true` means storage
+ * refused it and it goes when this app does. */
+export function asksUnstored(): boolean {
+  return unstored !== null;
 }
 
 /** One directory's conversation, oldest first. */
 export function readThread(
   cwd: string,
-  storage: StorageLike = defaultStorage(),
+  storage: StorageLike | null = defaultStorage(),
 ): AskExchange[] {
   return readThreads(storage)[cwd] ?? [];
 }
@@ -122,7 +162,7 @@ export function startAsk(
   cwd: string,
   question: string,
   now: number = Date.now(),
-  storage: StorageLike = defaultStorage(),
+  storage: StorageLike | null = defaultStorage(),
 ): string | null {
   // The clock alone is not an identity: two questions asked in the same
   // millisecond would share a row, and settling one would settle both.
@@ -147,14 +187,17 @@ export function settleAsk(
   cwd: string,
   id: string,
   outcome: { answer: string } | { refusal: string },
-  storage: StorageLike = defaultStorage(),
+  storage: StorageLike | null = defaultStorage(),
 ): void {
   writeThreads(settleExchange(readThreads(storage), cwd, id, outcome), storage);
   if (inFlight?.id === id) inFlight = null;
   notify();
 }
 
-/** For tests, which share one module instance across cases. */
+/** For tests, which share one module instance across cases: the turn mark and
+ * the memory a refused write left behind, which is the rest of this module's
+ * state. */
 export function resetAskPending(): void {
   inFlight = null;
+  unstored = null;
 }
