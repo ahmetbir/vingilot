@@ -22,7 +22,7 @@ Three columns, left to right (`ui/RunsScreen.tsx`):
 |---|---|---|
 | **Projects** (`ProjectsNav`) | the local checkouts the owner has added, plus a project-less landing view | pick what you are working on. `+ Add project` opens the native folder picker; the choice is validated as a git repository *before* any workspace state is written. **Removing a project forgets the path — it never touches the directory on disk.** |
 | **Worktrees** (`WorktreeColumn`) | that project's worktrees: its own checkout plus every `git worktree` | pick where you are working. New worktrees are `git worktree add`; closing one is `git worktree remove`, never a recursive delete. If git refuses because the tree is dirty, what is dirty is shown and nothing happens — that refusal is the feature. |
-| **Work surface** (`WorkSurface`) | the terminal on the left, a divider, and a pane on the right chosen from that pane's own header (`PanePicker`, out of `ui/paneRegistry.tsx`): **Diff**, **Agent**, **Evidence**, **Runs**, **Notes**, **Plan**, or a second **Terminal** | do the work. The terminal is fixed to the left because in iTerm the terminal *is* the work surface, not a drawer — and because a terminal that changed slots would change parents, which is a new xterm and a replayed session. Either side can have the whole surface. |
+| **Work surface** (`WorkSurface`) | the terminal on the left, a divider, and a pane on the right chosen from that pane's own header (`PanePicker`, out of `ui/paneRegistry.tsx`): **Diff**, **Agent**, **Team**, **Evidence**, **Runs**, **Notes**, **Plan**, or a second **Terminal** — with the **scratch shell** drawn over all of it when it is open | do the work. The terminal is fixed to the left because in iTerm the terminal *is* the work surface, not a drawer — and because a terminal that changed slots would change parents, which is a new xterm and a replayed session. Either side can have the whole surface. |
 
 A persistent `ProjectStatusBar` names where the owner is and what is backing
 the terminals.
@@ -40,6 +40,7 @@ Worktree and terminal chords (`lib/terminalKeys.ts`, `resolveKey`):
 | `⇧⌘W` | close the terminal tab |
 | `⌥⌘←` / `⌥⌘→` | move between this worktree's terminal tabs |
 | `⇧⌥⌘←` / `⇧⌥⌘→` | move the tab itself |
+| `⌥⌘T` | open the scratch shell — and, pressed again, close it |
 
 Columns and panes (`lib/columnKeys.ts`, `lib/paneKeys.ts`):
 
@@ -112,6 +113,69 @@ PTY in `cargo test` and checks that the shell's own `pwd` is the worktree,
 that a reattach replays what the view missed, that a tmux session outlives
 the client attached to it, and that closing a terminal leaves neither a
 running shell nor a zombie.
+
+## The scratch shell — a terminal you can throw away
+
+`⌥⌘T`, or `⌘K → scratch shell`. It opens **over** the work surface, runs one
+thing, and leaves nothing behind (`lib/scratchTerminal.ts`,
+`ui/ScratchTerminal.tsx`). There is exactly one at a time, and both doors reach
+the same one: a second `⌥⌘T` on the worktree it is already open on closes it
+rather than costing the owner whatever is running in it.
+
+It is drawn over the surface rather than laid out in it, and that is not a
+styling preference. Under tmux the sole attached client's size *is* the
+session's size, so a layout that squeezed the persistent terminals to make room
+would reflow every live shell in the strip and re-wrap its scrollback — the
+exact failure `terminalFit.ts` exists to prevent, arriving from a new direction.
+Nothing here unmounts, remeasures or resizes a terminal that is not its own, and
+nothing bumps a `focusToken`.
+
+**What it does not do**, said in the same breath as what it does:
+
+- **Nothing is kept.** No tmux session, no tab in the strip, no line in the
+  saved layout, no id a restart could find. Persistence is the defect here, not
+  the missing feature: a scratch terminal that survived anything would be a
+  terminal tab, and the workspace already has those.
+- **No isolation**, exactly as for the terminal tabs above. It is the owner's
+  login shell with the owner's `$PATH`, keys and filesystem. The header names
+  the directory it starts in and that is all a directory means here.
+- **It ends when you leave, and it does not ask.** Closing it, going to another
+  worktree or project, leaving the workspace screen, and quitting the app all
+  end it — and whatever it is running ends with it, unasked: a tail, a build, a
+  long test run. The alternative was a confirmation before killing a live shell.
+  This is the other choice and it is the honest one for a terminal whose whole
+  point is being thrown away — a scratch shell that stops to ask permission is a
+  tab with extra steps — so the cost is said **up front**, in the footer under
+  the shell and in the palette row that opens it, rather than in a warning at
+  the moment it is too late to matter.
+
+The footer carries that sentence verbatim from `lib/terminalPersistence.ts`,
+beside the status bar's persistence line it must not be confused with. Both
+sentences live in one file for that reason: the way this drifts is one being
+rewritten without the other in view, and the status bar's old wording
+("terminals: persistent…") was a sentence a scratch shell could hide inside. So
+the worktree copy now names its subject and the scratch copy says what it is
+*not* covered by.
+
+**How "leaves nothing behind" is actually secured**, rather than promised:
+
+| residue | how it is avoided |
+|---|---|
+| a tmux session | asked for the direct spawn at `pty_open` (`Lifetime::Ephemeral`), so there is no session to strand — not by killing one afterwards |
+| the saved layout | never enters `TabLayout` at all: a scratch is one nullable value held beside it |
+| the worktree's strip | follows from the above — `applyTabCommand`/`closeTab`, and so `⇧⌘W` and the tab bar, have no name for this session |
+| colliding with a tab's shell | a tab's session id is `` `${bindingId}#${n}` `` and always contains a `#`; a scratch id contains none. That is the whole proof, for every binding id the coordinator could ever produce |
+
+Proven, not asserted: `lib/scratchTerminal.test.mjs` for the model,
+`vingilot_pty`'s live tests for a shell that leaves no tmux session behind, and
+`desktop/tests/e2e/workspace-scratch.spec.ts` over a real bundle for the three
+things only a live document can settle — that closing it puts the keyboard back
+on the control it was taken from (from both doors, which capture at different
+moments in one commit), that the path in the header is the path that crossed the
+boundary to `pty_open` and the plan asked for is the ephemeral one, and that
+opening and closing one adds no tab, leaves the saved layout byte-identical, and
+really closes the pty — including when the owner walks away to another project,
+which is the half of the promise that is invisible on screen.
 
 ## The diff viewer, and where it stops
 
@@ -236,7 +300,12 @@ surface on the one screen this fork exists for.
 | **projects** | every project in the workspace, plus **Deck** (the project-less landing view) |
 | **worktrees** | the open project's worktrees, labelled with the role and the run that owns them |
 | **panes** | every pane in the registry — "show the Diff pane beside the terminal" |
-| **actions** | New worktree…, Turn this plan into a worktree…, New terminal tab, Add project…, Remove *&lt;project&gt;*…, Prune missing worktrees…, and the four layout toggles — each labelled by what it will do next ("Hide the sidebar" / "Show the sidebar") and carrying its own chord |
+| **actions** | New worktree…, Turn this plan into a worktree…, New terminal tab, **Scratch shell**, Add project…, Remove *&lt;project&gt;*…, Prune missing worktrees…, and the four layout toggles — each labelled by what it will do next ("Hide the sidebar" / "Show the sidebar") and carrying its own chord |
+
+The scratch row's detail leads with the lifetime — "a shell that ends when you
+close it or leave this worktree — keeps nothing: no tab, no tmux session" —
+because a row that led with what it *keeps not* would have the owner reading to
+the end of the line to find out what he is about to lose.
 
 **One scorer over the union, not one per source** (`lib/paletteModel.ts`).
 Nothing in the sort reads a row's `kind`; the five match tiers are 150 points
@@ -307,9 +376,10 @@ an ask would be unaskable until the owner joined one; the question carries a
 path on this machine, and a channel publishes that path to a server; and the
 answer comes from a local adapter that holds no key, so landing it in a channel
 would mean signing an agent's words with the owner's identity — a forged author
-in a signed, hash-chained log. Buzz's own agents post under their own pubkeys
-for exactly this reason. The seam that would change this is an identity for the
-local agent plus a channel to post into.
+in a signed, hash-chained log. Upstream's *deployed* agents post under their own
+pubkeys for exactly this reason (see *Two agent surfaces* below, which is the
+same argument read from the other end). The seam that would change this is an
+identity for the local agent plus a channel to post into.
 
 **One turn at a time, and a second question is refused in words.** The Agent
 pane's Run button and the palette's Enter claim the same mark (`pendingAsk`),
@@ -335,6 +405,102 @@ Everything the ask mode can refuse, in the order it is checked:
 keeps the whole thread in memory and the pane says that is where it is; the
 next write storage does take carries the rows it refused earlier, so a quota
 that frees up recovers the conversation whole.
+
+## The team thread — talking to a Buzz agent team about one worktree
+
+A pane on the registry (`lib/teamThread.ts`, `lib/teamThreadStore.ts`,
+`lib/useTeamThread.ts`, `ui/TeamThreadPane.tsx`). Choose a team, open a thread,
+and the conversation is a **Buzz channel on the relay** — upstream's own
+messaging, not a fourth store in this island. Choosing the team is part of the
+pane rather than a global setting, because the question "which team is this
+worktree's" is per worktree.
+
+**What is sent is one line.** The pane prints it before a word is typed, and the
+sentence and the message are the same string (`SCOPE_PREFIX`) so a scope claim
+cannot be assembled separately from the send:
+
+> Each message goes to the relay with one line in front of it —
+> `worktree: /path/to/the/worktree` — and nothing else: not the diff, not the
+> plan, not the run's transcript. The branch is not in the message either, but
+> it is in the name of the channel this thread lives in, and this path is in
+> that channel's description, where everyone in it can read them. The team's
+> agents **are not started in this directory** and may not be able to open it at
+> all; the path is text in your message, and they read whatever they can reach
+> themselves.
+
+The last clause is what this pane has to say that ask-mode does not. Ask-mode
+runs a local adapter *in* the directory; a team member is a managed agent
+somewhere else entirely, and a path in a message is a string it may have no way
+to resolve. The branch clause is there because the pane's own channel naming
+puts the branch on the relay: enumerating it as "not sent" would have been true
+of the message and false of the thread.
+
+**Availability is answered honestly, and "could not ask" is never rendered as
+"no".** Three questions, each asked live rather than once, because all three
+change while the owner is looking at them:
+
+| state | what it says |
+|---|---|
+| no community joined | this conversation is held on the relay, so with none there is nowhere for it to be |
+| the team list could not be read | *could not ask* which teams are configured — no answer rather than an answer of none, and the pane stays open |
+| no team configured | says so, names `Agents → Teams`, and offers nothing to type into |
+| the relay's state is unknown | says the question could not be put; the thread stays open and a send that cannot leave will say so itself |
+| the relay is unreachable | the pane can neither show the thread nor take a message; the channel and everything in it are on the relay, and a half-written message is kept on this machine |
+
+**Opening a thread has two halves, and a failure says which one it reached.**
+The channel is created and this worktree's pointer written *first*; the members
+are deployed *after*. A deploy that fails therefore leaves a working thread, so
+the trouble sentence says "the thread is open, but its members could not be
+deployed into it — the channel is there and you can send in it, and nobody may
+answer". It used to say "the thread could not be opened" for both halves, which
+printed a flat contradiction above a live composer.
+
+**What it keeps is a pointer, never a message.** `teamThreadStore.ts` holds
+which channel a worktree's thread is, and the draft store holds what is
+half-typed (on the keystroke, out of the React heap, so a relay reinit that
+remounts the whole community subtree does not eat it). Every message lives on
+the relay. Changing team asks first and names the channel it would stop pointing
+at; nothing is deleted, the members keep running, and choosing that team again
+adopts the existing thread rather than deploying a second one.
+
+### Two agent surfaces, and why that is the design rather than an untidiness
+
+Ask-mode keeps its conversation locally; the team thread puts its conversation
+on the relay. That difference is **a consequence of who is speaking**, and
+anyone who "tidies" the two stores together will forge an author.
+
+> **The plan's premise was wrong and the survey corrected it.** The plan
+> (`docs/plans/2026-08-08-scratch-and-team-thread.md`) said *"a Buzz agent team
+> does have its own identity."* It does not. A team is a local JSON record —
+> `{id, name, description, instructions, personaIds[]}` (`managed_agents/teams.rs`)
+> — with no key of its own, mirrored to the relay as a kind:30176 addressable
+> event **signed with the owner's keys** (`commands/teams.rs`). A persona is a
+> definition and has no key either.
+
+What does hold a key is each **managed agent instance**, minted at deploy time
+with `Keys::generate()` (`commands/agents.rs`). Deploying a team is a fan-out
+into one such agent per persona. So the true form of the argument is:
+
+> **The members of a team each post under their own pubkey; the team as such
+> never posts.**
+
+That is weaker than what the plan assumed and it is still enough, because the
+thing being ruled out is *forged authorship*, not anonymity. The local ACP
+adapter holds **no key at all**, so landing its answers in a channel would sign
+an agent's words with the owner's identity in a hash-chained log — which is why
+ask-mode is local. A deployed team member signs its own, so the relay is exactly
+where that conversation belongs — which is why this pane is not local. Nothing
+about the pane's design depended on a team having a key; the only thing that had
+to be true is that the words in the channel are not attributed to the owner.
+
+Proven over a real bundle in `desktop/tests/e2e/workspace-team.spec.ts`: that
+the scope on screen is the literal line the signed kind:9 event carries (read
+off `sign_event`, which is where every relay message this app publishes is
+signed), that it goes to a channel by `h` tag rather than into any store of the
+pane's own, that a `list_teams` which *throws* reads as "could not ask" rather
+than as "no teams", that a failed send keeps every character, that a failed
+deploy does not call its own thread unopened, and that changing team asks first
+and comes back without a second deploy.
 
 ## The two documents a project carries — Notes and Plan
 
@@ -516,6 +682,22 @@ file.
 - **No agent judgement is claimed.** The proof used a stub that speaks ACP and
   decides nothing, because no adapter was installed — see the bullet above and
   *The Agent tab* further up.
+- **The scratch shell keeps nothing, and is not going to.** No persistence, no
+  isolation, no second one, no confirmation before it ends. Each of those is a
+  decision rather than a gap: persistence would make it a terminal tab,
+  isolation is outside V1's trust model for every shell in this app, and a
+  confirmation would make the throwaway thing the ceremonious one. What has to
+  outlive a keystroke belongs in one of the worktree's terminal tabs.
+- **The team thread does not put a team in the worktree.** Its members are
+  managed agents running wherever they run; the message carries a *path*, and
+  whether anything on the other end can open it is not this pane's claim to
+  make. There is no file access, no diff, no transcript and no plan in what is
+  sent, and the pane enumerates that on screen rather than in this document
+  alone.
+- **Neither surface reads the other.** The ask thread is local because its
+  speaker has no key; the team thread is on the relay because its speakers have
+  their own. They are not two implementations of one thing waiting to be merged
+  — see *Two agent surfaces* above before touching either store.
 
 ## Where things live
 
@@ -525,15 +707,18 @@ file.
     and key maps, the diff model, the agent turn model, the pane model and
     layout, the palette (`paletteKeys`, `paletteModel`, `paletteSources`,
     `paletteStore`, `usePalette`), ask mode and its thread
-    (`askMode`, `askThread`, `askStore`, `askRunner`), and the document
+    (`askMode`, `askThread`, `askStore`, `askRunner`), the document
     substrate (`documents`, `documentStore`, `autosave`, `useDocument`,
-    `planBrief`). All pure modules carry their `.test.mjs`
-    next to them; desktop's own `pnpm test` glob runs them.
+    `planBrief`), the scratch shell (`scratchTerminal`,
+    `terminalPersistence`), and the team thread (`teamThread`,
+    `teamThreadStore`, `teamDraftStore`, `useTeamThread`). All pure modules
+    carry their `.test.mjs` next to them; desktop's own `pnpm test` glob runs
+    them.
   - `ui/` — `RunsScreen` (the three columns), `ProjectsNav`, `WorktreeColumn`,
     `WorkSurface` and the pane host (`PaneFrame`, `PaneDivider`, `PanePicker`,
     `paneRegistry`), `Terminal`, `TerminalTabStrip`, `WorktreeDiffPanel`,
     `AgentPanel`, `CommandPalette`, `DocumentEditor`, `NotesPane`, `PlanPane`,
-    `PlanWorktreeDialog`,
+    `ScratchTerminal`, `TeamThreadPane`, `PlanWorktreeDialog`,
     `NewWorktreeDialog`, `ProjectStatusBar`, plus the pre-existing `RunList`,
     `DeckPane`, `RunDetail`, `BudgetBar`, `StopAllButton` (hold-to-engage),
     `UnreachableBanner`, `RunsLoadingFallback`.

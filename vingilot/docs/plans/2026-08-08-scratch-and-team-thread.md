@@ -22,9 +22,28 @@ a Nostr event signed with a key and published to a community. The local ACP adap
 key**, so landing its answers in a channel would mean signing an agent's words with the
 owner's identity — a forged author in a signed, hash-chained log.
 
-**A Buzz agent team does have its own identity.** Upstream's agents post under their own
-pubkeys for precisely this reason. So a conversation with a team is the case the relay was
-built for, and this pane should use it rather than growing a third local store.
+> **Corrected 2026-08-08, after Task 2's upstream survey.** The paragraph this replaces said
+> *"A Buzz agent team does have its own identity."* That is false, and it was written before
+> anyone had read `managed_agents/teams.rs`. A team is a local JSON record — `{id, name,
+> description, instructions, personaIds[]}` — with no key of its own, mirrored to the relay as
+> a kind:30176 addressable event **signed with the owner's keys** (`commands/teams.rs`). A
+> persona is a definition and has no key either. What the survey changed: nothing about where
+> the thread lives, and everything about the sentence that justifies it — see below. The
+> corrected form is what `teamThread.ts` carries and what `workbench.md` records; this file is
+> corrected too so a later reader does not inherit the wrong premise from the plan.
+
+**Each member of a team posts under its own pubkey; the team as such never posts.** What holds
+a key is the **managed agent instance**, minted at deploy time with `Keys::generate()`
+(`commands/agents.rs`). Deploying a team is a fan-out into one such agent per persona, and each
+of those signs its own messages. So a conversation with a team's members is the case the relay
+was built for, and this pane should use it rather than growing a third local store.
+
+That is a weaker premise than the one it replaces and it is still enough, because the thing
+being ruled out is *forged authorship*, not anonymity: the local ACP adapter holds no key at
+all, so landing its answers in a channel would sign an agent's words with the owner's identity.
+A deployed team member signs its own. Nothing about the pane's design depended on the team
+itself having a key — the only thing that had to be true is that the words in the channel are
+not attributed to the owner.
 
 That the two agent surfaces persist differently is therefore **a consequence of who is
 speaking**, not an inconsistency. Say so in the code and in `workbench.md`, so the next person
