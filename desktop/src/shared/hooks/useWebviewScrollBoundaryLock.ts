@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { pathOwnsTheWheel } from "@/shared/lib/wheelOwner";
+
 const BOUNDARY_EPSILON_PX = 1;
 const CONVERSATION_SCROLL_SELECTOR = "[data-buzz-conversation-scroll]";
 const SCROLLABLE_OVERFLOW_VALUES = new Set(["auto", "scroll", "overlay"]);
@@ -79,6 +81,14 @@ function isConversationScroller(element: HTMLElement) {
  * allowed to receive the gesture so their own local elastic affordance can
  * remain; every other boundary — including all horizontal ones — is locked and
  * cannot chain to the viewport.
+ *
+ * Elements that read the wheel themselves rather than scroll with it — the
+ * terminal, whose scrollback is tmux's and whose wheel is a mouse report on the
+ * pty's wire — mark themselves with `wheelOwnerProps`
+ * (`shared/lib/wheelOwner.ts`). Over one of those the gesture is still
+ * cancelled but never confiscated, because this listener sits above everything
+ * and swallowing the event there is indistinguishable, downstream, from the
+ * wheel never having happened.
  */
 export function useWebviewScrollBoundaryLock(enabled = true) {
   React.useEffect(() => {
@@ -95,6 +105,21 @@ export function useWebviewScrollBoundaryLock(enabled = true) {
       }
 
       const path = event.composedPath();
+
+      // A gesture that is an input, not a scroll (`shared/lib/wheelOwner.ts`).
+      // The default action is still cancelled — over a terminal a rubber-band
+      // is exactly as unwanted as anywhere else — but the event is not
+      // confiscated: this listener runs at window capture, above the whole
+      // tree, so `stopPropagation()` here means xterm never sees the wheel and
+      // never reports it to the pty. Cancelling the default costs the owner
+      // nothing: xterm.js does not read `defaultPrevented`, and it moves its
+      // own viewport by assigning `scrollTop` rather than by letting the
+      // browser scroll it.
+      if (pathOwnsTheWheel(path)) {
+        event.preventDefault();
+        return;
+      }
+
       let firstScrollable: HTMLElement | null = null;
 
       for (const target of path) {

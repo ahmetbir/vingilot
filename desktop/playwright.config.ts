@@ -140,6 +140,7 @@ export default defineConfig({
         "**/workspace-ask.spec.ts",
         "**/workspace-notes.spec.ts",
         "**/workspace-plan.spec.ts",
+        "**/terminal-wheel.spec.ts",
       ],
       use: {
         ...devices["Desktop Chrome"],

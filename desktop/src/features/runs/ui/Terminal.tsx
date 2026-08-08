@@ -30,6 +30,14 @@
 // and re-wraps its scrollback. So this waits — being shown is what measures
 // it, and being measured is what opens it (features/runs/lib/terminalFit.ts).
 // A worktree the owner never looks at costs no shell at all.
+//
+// **The wheel here is an input, not a scroll.** Under tmux the scrollback is
+// tmux's: there is nothing in this subtree for the browser to move, and xterm
+// turns the gesture into a mouse report that goes out on the pty. So the
+// container claims the gesture (`shared/lib/wheelOwner.ts`) — without that
+// claim the shell's boundary lock consumes every wheel at window capture, one
+// layer above xterm, and the terminal cannot scroll at all
+// (tests/e2e/terminal-wheel.spec.ts).
 
 import "@xterm/xterm/css/xterm.css";
 
@@ -53,6 +61,7 @@ import {
   type SessionPhase,
   type TerminalGeometry,
 } from "@/features/runs/lib/terminalFit";
+import { wheelOwnerProps } from "@/shared/lib/wheelOwner";
 
 interface TerminalProps {
   /** The PTY session id: `<worktree binding id>#<tab ordinal>` (mod.rs: "same
@@ -265,7 +274,11 @@ export function Terminal({
           waiting for this worktree's checkout…
         </p>
       ) : (
-        <div className="flex-1 overflow-hidden px-2 py-1" ref={containerRef} />
+        <div
+          className="flex-1 overflow-hidden px-2 py-1"
+          ref={containerRef}
+          {...wheelOwnerProps}
+        />
       )}
     </div>
   );
