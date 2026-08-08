@@ -9,20 +9,25 @@
 // takes focus on open and hands it back on close, which is the whole of what a
 // one-field surface needs.
 //
-// **While it is open, the palette owns the keyboard.** Every keydown that
-// reaches the field has its propagation stopped, because the surfaces
-// underneath bind ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→ and Esc at the window — and a
-// palette that let ⌘2 through would switch worktrees behind itself while the
-// owner was typing "2" into a filter. The one exception is ⌘K, which is
-// resolved in the capture phase before this handler ever runs
-// (`lib/usePalette.ts`), so the key that opened this closes it.
+// **While it is open, the palette owns the keyboard — wherever focus is.**
+// The listener is on `window`, in the capture phase, for the life of an open
+// palette. It was on the field, and that was wrong in three states the design
+// itself produces: one ⇥ from the field, one ⇧⇥ onto the scrim, and a click on
+// a blocked row, which is kept clickable on purpose. In each of those, focus
+// is off the field, so a handler on the field answered for nothing — Esc fell
+// through to the terminal's own window listener instead of closing this, and
+// ⇧⌘B rearranged the columns underneath an open palette.
 //
-// The handler is on the field rather than on the box around it, and that is
-// where the keyboard is: the field takes focus on open and the list is walked
-// with the arrows rather than tabbed through, so nothing else inside here ever
-// holds it. It also keeps the box a plain container — an element with a
-// keydown listener and no role of its own is a thing a screen reader cannot
-// describe.
+// Capture on `window` is what puts this ahead of the chords the surfaces
+// underneath bind (`lib/useColumns.ts`, `ui/WorkSurface.tsx`,
+// `ui/WorktreeDiffPanel.tsx` — all bubble-phase `window` listeners), so a ⌘2
+// typed into a filter cannot switch worktrees behind it. The one exception is
+// ⌘K, resolved by a capture listener registered first (`lib/usePalette.ts`),
+// so the key that opened this closes it.
+//
+// Propagation is stopped for every key, resolved or not; the *default action*
+// is not, so the field still receives everything typed into it and React's
+// `onChange` (an `input` event, a separate dispatch) still fires.
 //
 // **A blocked row is drawn and refuses.** Its reason replaces its detail line
 // and Enter on it does nothing — the alternative is a row that disappears,
@@ -91,6 +96,10 @@ function Row({
         className={`flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
           active ? "bg-muted" : "hover:bg-muted/60"
         } ${blocked === null ? "" : "opacity-60"}`}
+        // Where Enter would land, readable from outside React. The background
+        // tint says the same thing to a person looking at it, and a test that
+        // asserted on a Tailwind class would be asserting on a paint choice.
+        data-active={active ? "true" : undefined}
         data-blocked={blocked === null ? undefined : "true"}
         data-kind={kind}
         data-testid={`palette-row-${id}`}
@@ -148,6 +157,7 @@ export function CommandPalette({ palette }: { palette: Palette }) {
     open,
     query,
     run,
+    runCursor,
     setCursor,
     setQuery,
     view,
@@ -164,6 +174,32 @@ export function CommandPalette({ palette }: { palette: Palette }) {
     };
   }, [open]);
 
+  // See this file's header: window, capture phase, only while open.
+  React.useEffect(() => {
+    if (!open) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      const action = resolvePaletteListKey({
+        altKey: event.altKey,
+        key: event.key,
+        primaryModifier: hasPrimaryShortcutModifier(event),
+        repeat: event.repeat,
+        shiftKey: event.shiftKey,
+      });
+      if (action !== null) {
+        event.preventDefault();
+        if (action.type === "close") close();
+        else if (action.type === "move") moveCursor(action.delta);
+        else if (action.type === "refocus") inputRef.current?.focus();
+        else runCursor();
+      }
+      event.stopPropagation();
+    }
+
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [close, moveCursor, open, runCursor]);
+
   // Keeps the cursor's row in view when the arrows walk past the fold. A
   // callback ref rather than an effect on `cursor`: the ref is attached to
   // whichever row is active, so it is called exactly when that row changes and
@@ -173,27 +209,6 @@ export function CommandPalette({ palette }: { palette: Palette }) {
   }, []);
 
   if (!open) return null;
-
-  function handleKeyDown(event: React.KeyboardEvent) {
-    // ⌘K is the capture-phase listener's, and it has already run.
-    if (!hasPrimaryShortcutModifier(event.nativeEvent)) {
-      const action = resolvePaletteListKey({
-        altKey: event.altKey,
-        key: event.key,
-        primaryModifier: false,
-        repeat: event.repeat,
-        shiftKey: event.shiftKey,
-      });
-      if (action !== null) {
-        event.preventDefault();
-        if (action.type === "close") close();
-        else if (action.type === "move") moveCursor(action.delta);
-        else run(cursor);
-      }
-    }
-    // Every key, resolved or not: see this file's header.
-    event.stopPropagation();
-  }
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center p-6">
@@ -218,7 +233,6 @@ export function CommandPalette({ palette }: { palette: Palette }) {
           className="w-full shrink-0 border-b border-border/60 bg-transparent px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
           data-testid="palette-input"
           onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={handleKeyDown}
           placeholder="Go somewhere, or do something…"
           ref={inputRef}
           spellCheck={false}

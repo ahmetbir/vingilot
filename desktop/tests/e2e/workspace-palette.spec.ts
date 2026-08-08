@@ -16,6 +16,14 @@
 // test below that presses ⌘K also asserts that upstream's dialog stayed shut —
 // and the last one asserts it still opens everywhere else, because a claim
 // that took the key from the whole app would not be the claim that was made.
+//
+// The second thing only a browser can say is **where focus is**. The palette's
+// keys were bound to its field, and a review found three reachable states with
+// focus off it — one ⇥, one ⇧⇥, and a click on a blocked row, which this
+// design keeps clickable on purpose. In all three, Esc did nothing and ⇧⌘B
+// rearranged the columns underneath. Two tests below press those keys from
+// those states, and each ends by proving the chord still works once the
+// palette is gone, so what they assert is deference and not a dead key.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -104,11 +112,78 @@ test.describe("one key to go anywhere and do anything", () => {
     await expect(upstreamSearch(page)).toBeHidden();
   });
 
-  test("Esc closes it and hands the keyboard back", async ({ page }) => {
+  test("Esc closes it from wherever focus went", async ({ page }) => {
     await openWorkspace(page);
+
+    // In the field, where the palette puts focus itself.
     await openPalette(page);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("palette")).toBeHidden();
+
+    // After ⇥, which the palette answers for by coming straight back — the
+    // list is walked with the arrows, and a Tab that left put focus on
+    // controls the scrim is drawn over.
+    await openPalette(page);
+    await page.keyboard.press("Tab");
+    await expect(page.getByTestId("palette-input")).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(page.getByTestId("palette-input")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("palette")).toBeHidden();
+
+    // And from the state this surface produces itself: a blocked row is kept
+    // clickable on purpose, and clicking one leaves the focus there.
+    await openPalette(page);
+    await page.getByTestId("palette-input").fill("prune");
+    const blocked = page.getByTestId("palette-row-action:prune-worktrees");
+    await expect(blocked).toHaveAttribute("data-blocked", "true");
+    // `force` because the row carries `aria-disabled`, which Playwright reads
+    // as "not enabled" — but `aria-disabled` is advisory, the element is a
+    // live button, and a real mouse press on it lands and takes focus. That is
+    // the state under test, so the check has to be skipped rather than obeyed.
+    await blocked.click({ force: true });
+    await expect(page.getByTestId("palette")).toBeVisible();
+    await expect(blocked).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("palette")).toBeHidden();
+  });
+
+  test("while it is open, the chords underneath it do not reach the workspace", async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await page.getByTestId("projects-nav-repo-repo-left").click();
+    await expect(page.getByTestId("worktree-column")).toBeVisible();
+
+    // ⇧⌘B hides the worktree column when nothing is in front of it — that is
+    // workspace-columns.spec.ts's subject, and it is what makes this test able
+    // to fail rather than able to pass.
+    await openPalette(page);
+    await page.keyboard.press("ControlOrMeta+Shift+b");
+    await expect(page.getByTestId("palette")).toBeVisible();
+    await expect(page.getByTestId("worktree-column")).toBeVisible();
+
+    // Including with focus off the field — the case a handler bound to the
+    // field could not see, and the one that rearranged the columns behind an
+    // open palette.
+    await page.getByTestId("palette-input").fill("prune");
+    // `force`: see the Esc test above — `aria-disabled` is not `disabled`.
+    await page
+      .getByTestId("palette-row-action:prune-worktrees")
+      .click({ force: true });
+    await expect(
+      page.getByTestId("palette-row-action:prune-worktrees"),
+    ).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+Shift+b");
+    await expect(page.getByTestId("palette")).toBeVisible();
+    await expect(page.getByTestId("worktree-column")).toBeVisible();
+
+    // The column still answers to the chord once the palette is out of the
+    // way, so what was proved above is deference and not deadness.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("palette")).toBeHidden();
+    await page.keyboard.press("ControlOrMeta+Shift+b");
+    await expect(page.getByTestId("worktree-column")).toBeHidden();
   });
 
   test("an empty query is the workspace, not an empty box", async ({
@@ -158,13 +233,45 @@ test.describe("one key to go anywhere and do anything", () => {
   }) => {
     await openWorkspace(page);
     await openPalette(page);
-    await page.getByTestId("palette-input").fill("proj");
     const rows = page.getByTestId("palette-list").getByRole("button");
-    const first = await rows.first().getAttribute("data-testid");
+    // The empty query lists the sources in their own order, so the two
+    // projects are rows 0 and 1 and the second one is a different workspace
+    // from the first — which is what makes the Enter below able to fail.
+    await expect(rows.nth(0)).toHaveAttribute(
+      "data-testid",
+      "palette-row-project:repo-left",
+    );
+    await expect(rows.nth(1)).toHaveAttribute(
+      "data-testid",
+      "palette-row-project:repo-right",
+    );
+    await expect(rows.nth(0)).toHaveAttribute("data-active", "true");
+    await expect(rows.nth(1)).not.toHaveAttribute("data-active", "true");
+
     await page.keyboard.press("ArrowDown");
-    // Wrapping, so the cursor cannot be driven off either end.
+    await expect(rows.nth(1)).toHaveAttribute("data-active", "true");
+    await expect(rows.nth(0)).not.toHaveAttribute("data-active", "true");
+
+    // Enter runs the row the cursor is on, not the one the palette opened on:
+    // "buzzard" is repo-right, "vingilot" is repo-left.
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("palette")).toBeHidden();
+    await expect(
+      page.getByTestId("worktree-column").getByRole("heading"),
+    ).toHaveText("buzzard");
+  });
+
+  test("the cursor wraps rather than falling off the end", async ({ page }) => {
+    await openWorkspace(page);
+    await openPalette(page);
+    const rows = page.getByTestId("palette-list").getByRole("button");
+    const last = (await rows.count()) - 1;
+    expect(last).toBeGreaterThan(0);
+
     await page.keyboard.press("ArrowUp");
-    await expect(rows.first()).toHaveAttribute("data-testid", first ?? "");
+    await expect(rows.nth(last)).toHaveAttribute("data-active", "true");
+    await page.keyboard.press("ArrowDown");
+    await expect(rows.nth(0)).toHaveAttribute("data-active", "true");
   });
 
   test("a pane is chosen from the palette, and the pane host agrees", async ({

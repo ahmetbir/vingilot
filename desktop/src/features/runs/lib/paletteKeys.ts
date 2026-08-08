@@ -74,10 +74,14 @@ export function resolvePaletteKey(input: KeyInput): PaletteKeyAction | null {
 export type PaletteListAction =
   | { type: "close" }
   | { type: "move"; delta: number }
+  | { type: "refocus" }
   | { type: "run" };
 
-/** Resolves one keydown made while the palette is open and its input has
- * focus.
+/** Resolves one keydown made while the palette is open — wherever focus is.
+ * The caller binds this over the whole window, not over the field: a blocked
+ * row is clickable on purpose and keeps the focus the click gave it, and a map
+ * that only answered for the field would leave Esc dead in a state the design
+ * itself produces.
  *
  * Anything with the primary modifier or ⌥ held falls through untouched: those
  * chords belong to the maps above, and ⌘K in particular has to reach
@@ -92,6 +96,13 @@ export function resolvePaletteListKey(
   // action thirty times.
   if (input.key === "ArrowDown") return { delta: 1, type: "move" };
   if (input.key === "ArrowUp") return { delta: -1, type: "move" };
+  // Tab belongs to the palette, and all it does is come back. This surface is
+  // one field and a list walked with the arrows, so there is nothing here to
+  // tab *to* — while a Tab that left put focus on controls the scrim is drawn
+  // over, where a later Space or Enter would press a button the owner cannot
+  // see. Resolved before the repeat guard because a held Tab moves focus on
+  // every repeat, and ⇧⇥ is the same answer as ⇥ for the same reason.
+  if (input.key === "Tab") return { type: "refocus" };
   if (input.repeat === true) return null;
   if (input.key === "Escape") return { type: "close" };
   // ⇧↵ is not a second Enter. Nothing here binds it, and resolving it as one

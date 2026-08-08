@@ -71,6 +71,10 @@ export interface Palette {
    * leaves the palette open — its own sentence is already on screen saying
    * why, and closing would look like it had worked. */
   run: (index: number) => void;
+  /** Run the row the cursor is on now. Separate from `run` because the key
+   * listener that calls it is bound once for the life of an open palette and
+   * must not carry the cursor it was bound with. */
+  runCursor: () => void;
 }
 
 const EMPTY_VIEW: PaletteView = { recentCount: 0, rows: [] };
@@ -131,6 +135,11 @@ export function usePalette({
     latest.current.onCommand(command);
   }, []);
 
+  const runCursor = React.useCallback(
+    () => run(latest.current.safeCursor),
+    [run],
+  );
+
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const action = resolvePaletteKey({
@@ -173,6 +182,7 @@ export function usePalette({
     open,
     query,
     run,
+    runCursor,
     setCursor: setCursorState,
     setQuery,
     view,

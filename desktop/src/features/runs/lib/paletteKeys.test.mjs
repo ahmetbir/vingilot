@@ -86,6 +86,19 @@ test("the list keys fall through whenever a modifier is held", () => {
   );
 });
 
+test("tab, in either direction and while held, comes back to the field", () => {
+  // The three states the field-only handler used to lose: ⇥ off the field,
+  // ⇧⇥ onto the scrim, and — the one the design produces itself — a click on
+  // a blocked row. Resolving ⇥ is what keeps focus somewhere Esc answers for.
+  assert.deepEqual(resolvePaletteListKey({ key: "Tab" }), { type: "refocus" });
+  assert.deepEqual(resolvePaletteListKey({ key: "Tab", shiftKey: true }), {
+    type: "refocus",
+  });
+  assert.deepEqual(resolvePaletteListKey({ key: "Tab", repeat: true }), {
+    type: "refocus",
+  });
+});
+
 test("a plain letter is what the owner is typing, not a command", () => {
   assert.equal(resolvePaletteListKey({ key: "a" }), null);
   assert.equal(resolvePaletteListKey({ key: " " }), null);
