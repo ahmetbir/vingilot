@@ -75,7 +75,7 @@ test("the persistence claim names the terminals it is about", () => {
 
 test("the scratch copy claims no persistence of any kind", () => {
   assert.match(SCRATCH_PERSISTENCE.label, /nothing is kept/);
-  assert.match(SCRATCH_PERSISTENCE.label, /closing it ends it/);
+  assert.match(SCRATCH_PERSISTENCE.label, /closing it or leaving ends it/);
   for (const overclaim of [
     /persistent/i,
     /survive/i,
@@ -87,13 +87,28 @@ test("the scratch copy claims no persistence of any kind", () => {
   }
 });
 
-test("the scratch copy says what ends it — both ways", () => {
+test("the scratch copy says every way it ends, not only the deliberate one", () => {
   // Closing it is the obvious one; quitting the app is the one an owner who
-  // has read the line beside it would otherwise assume the opposite of.
-  assert.match(SCRATCH_PERSISTENCE.detail, /closing it ends it/);
-  assert.match(SCRATCH_PERSISTENCE.detail, /quitting the app/);
+  // has read the line beside it would otherwise assume the opposite of. The
+  // other two are the ones he walks into: `scratchOnWorktree` ends the shell
+  // when he goes to another worktree, and `RunsScreen`'s unmount ends it when
+  // he leaves the screen. A copy naming only the first two is a copy that lets
+  // a running build die unannounced.
+  assert.match(SCRATCH_PERSISTENCE.detail, /when you close it/);
+  assert.match(SCRATCH_PERSISTENCE.detail, /another worktree or project/);
+  assert.match(SCRATCH_PERSISTENCE.detail, /leave this screen/);
+  assert.match(SCRATCH_PERSISTENCE.detail, /quit the app/);
   assert.match(SCRATCH_PERSISTENCE.detail, /no tmux session/);
   assert.match(SCRATCH_PERSISTENCE.detail, /no tab in the strip/);
+});
+
+test("the scratch copy says the command running in it goes too", () => {
+  // The half a lifetime sentence leaves out: what is *lost* when the shell
+  // ends. A `tail -f` or a build dies with it, and the label is where that has
+  // to be said, because the label is what gets read.
+  assert.match(SCRATCH_PERSISTENCE.label, /what it is running/);
+  assert.match(SCRATCH_PERSISTENCE.detail, /whatever it is running/);
+  assert.match(SCRATCH_PERSISTENCE.detail, /unasked/);
 });
 
 test("the scratch copy disclaims the line it sits beside", () => {

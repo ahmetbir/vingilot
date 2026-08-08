@@ -45,6 +45,17 @@ const APP_PROCESS: PersistenceCopy = {
 
 /** What the scratch shell is, said in its own sentence.
  *
+ * **It names every door that ends it, including the ones the owner walks
+ * through without meaning to.** Closing it is the obvious one. Going to another
+ * worktree ends it too (`scratchTerminal.ts`'s `scratchOnWorktree`), and so does
+ * leaving this screen (`RunsScreen`'s unmount) — and a shell running `tail -f`
+ * or a build dies with them, with nothing asked and nothing to undo. The
+ * alternative was to warn before ending a shell with something live in it; this
+ * copy is the other choice, and it is the honest one for a terminal whose whole
+ * point is being thrown away: a scratch shell that stops to ask permission is a
+ * tab with extra steps. Saying so up front is what makes that trade the owner's
+ * rather than a surprise, so this sentence must keep saying it.
+ *
  * Not a reading of `PtyBacking` and deliberately not a function of it: a
  * scratch shell asks for the direct spawn whatever tmux is on the machine
  * (`vingilot_pty/tmux.rs`'s `Lifetime::Ephemeral`), so there is one answer and
@@ -53,8 +64,9 @@ const APP_PROCESS: PersistenceCopy = {
  * terminal whose whole point is not having any. */
 export const SCRATCH_PERSISTENCE: PersistenceCopy = {
   detail:
-    "The scratch shell is not one of this worktree's terminals. It has no tab in the strip, no tmux session behind it, and nothing about it is written down: closing it ends it, and so does quitting the app. The persistence line beside this one is about the worktree's terminal tabs, not about this.",
-  label: "scratch shell: nothing is kept — closing it ends it",
+    "The scratch shell is not one of this worktree's terminals. It has no tab in the strip, no tmux session behind it, and nothing about it is written down. It ends when you close it, when you go to another worktree or project, when you leave this screen, and when you quit the app — and whatever it is running at the time ends with it, unasked: a tail, a build, a long test run. Anything that has to outlive that belongs in one of this worktree's terminal tabs, which is what the line beside this one is about.",
+  label:
+    "scratch shell: nothing is kept — closing it or leaving ends it, and what it is running",
 };
 
 /** The copy for a backing, or `null` when the backing is not known yet.

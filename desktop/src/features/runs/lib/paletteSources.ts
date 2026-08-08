@@ -232,7 +232,8 @@ export const actionSource: PaletteSource = (ctx, query) => {
       // The detail says the boundary, not just the chord: this row sits
       // directly under "New terminal tab", and the only thing separating them
       // is what happens afterwards.
-      detail: "a shell that keeps nothing — no tab, no tmux session · ⌥⌘T",
+      detail:
+        "a shell that ends when you close it or leave this worktree — keeps nothing: no tab, no tmux session · ⌥⌘T",
       icon: "⌁",
       id: "action:scratch-terminal",
       kind: "action",

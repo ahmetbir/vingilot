@@ -188,6 +188,9 @@ test("the scratch shell is offered, and says how it differs from the tab above i
   // the row that keeps nothing has to say so where it is read.
   assert.match(scratch.detail, /keeps nothing/);
   assert.match(scratch.detail, /no tmux session/);
+  // And the door says the lifetime, not only the absence of one: the row is
+  // read before the shell exists, which is the last moment saying so is free.
+  assert.match(scratch.detail, /ends when you close it or leave this worktree/);
   assert.notEqual(
     scratch.label,
     row(actionSource(ctx(), ""), "action:new-terminal-tab").label,
