@@ -7,11 +7,26 @@
 // else: what a diff is `lib/worktreeDiff.ts`, how a patch line is classified
 // `lib/runModel.ts`'s `diffView`, what a refusal says `lib/worktreePlan.ts`.
 //
-// **Read when asked, never polled.** A `git diff` over a real worktree is
-// several subprocesses; running that every two seconds because a tab is open
-// would put a permanent load on the machine to answer a question nobody asked
-// twice. The panel reads when it opens, when the base changes, and when the
-// owner presses Read again.
+// **It keeps up with the work.** The owner watches an agent edit files in the
+// terminal beside this pane, and a diff frozen at the moment it was opened is
+// worse than no diff: it looks current. So it re-reads on a cadence, when the
+// window comes back, and whenever the owner asks — and it *says* when it last
+// read (`Freshness`), because the whole complaint was a view that was stale
+// without looking it.
+//
+// **On a cadence the read pays for itself.** A `worktree_diff` is one git
+// subprocess per changed file and costs real time (measured numbers in
+// `lib/diffRefresh.ts`), so the gap between reads is derived from what the
+// last one cost rather than picked: git gets a fixed *share* of one core, and
+// a worktree with two hundred changed files slows the pane down instead of
+// pinning the machine. Every scheduling decision is in `diffRefresh.ts`; this
+// file only supplies the clock and the answers.
+//
+// **A refresh must not move the owner.** The file he has open is followed by
+// path across a re-read, the list does not blank while one is in flight, and a
+// re-read that git refused leaves the last good answer on screen with a line
+// saying it could not be renewed. A refresh that scrolled him back to the top
+// of a 400-file list would have replaced one annoyance with a worse one.
 //
 // **What is missing is on screen, not in a comment.** A binary file, a patch
 // cut at the backend's line or byte cap, files past the file cap: each says so
@@ -28,6 +43,16 @@ import {
   nextFileIndex,
   resolveDiffKey,
 } from "@/features/runs/lib/diffKeys";
+import {
+  began,
+  ended,
+  freshnessLabel,
+  indexAfterRefresh,
+  type RefreshState,
+  type RefreshTrigger,
+  shouldRead,
+  UNREAD,
+} from "@/features/runs/lib/diffRefresh";
 import type { Worktree } from "@/features/runs/lib/projects";
 import { diffView } from "@/features/runs/lib/runModel";
 import type { DiffLineKind } from "@/features/runs/lib/runModel";
@@ -56,6 +81,33 @@ const CHANGE_CLASS: Record<string, string> = {
   D: "text-destructive",
   U: "text-amber-600 dark:text-amber-400",
 };
+
+/** How often the pane *wonders* whether it is due, which is not how often it
+ * reads — `shouldRead` answers that against a gap derived from the last read's
+ * cost. A pump this cheap (one subtraction, no render) can be regular where
+ * the read cannot, so a gap of any length is honoured to within a second
+ * without a timer being rescheduled every time something else triggers a
+ * read. */
+const PUMP_MS = 1_000;
+
+/** How often the "read 12s ago" line re-counts. Its own component, so this is
+ * one `<span>` re-rendering per second and never the patch beside it — a
+ * 2000-line diff re-rendered on a clock would cost more than the git it is
+ * reporting on. */
+const FRESHNESS_TICK_MS = 1_000;
+
+/** Is this window on screen at all? Visibility, not focus: the app sitting on
+ * a second monitor while the owner types elsewhere is being watched, and that
+ * is exactly the case this pane was built for. Minimised, occluded or on
+ * another Space is not.
+ *
+ * Outside a browser (a unit runner) there is no document and no pane; the
+ * answer there is that nobody is looking. */
+function onScreen(): boolean {
+  return (
+    typeof document !== "undefined" && document.visibilityState !== "hidden"
+  );
+}
 
 interface Props {
   /** The worktree's own directory, or `null` before the desktop shell has
@@ -90,33 +142,145 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
   const [diff, setDiff] = React.useState<WorktreeDiff | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const [reading, setReading] = React.useState(false);
+  const [readAt, setReadAt] = React.useState<number | null>(null);
   const [cursor, setCursor] = React.useState(0);
   const [open, setOpen] = React.useState(0);
 
+  // The schedule lives in a ref, not in state: every read would otherwise
+  // re-render the patch twice (once to say it started, once to say it
+  // stopped) for a number nothing on screen shows. What the owner does see —
+  // `reading`, `readAt` — is state, and only that.
+  const clock = React.useRef<RefreshState>(UNREAD);
+  // What is on screen now, so an answer can be placed against it: the paths in
+  // list order, and the base they were read against.
+  const shownPaths = React.useRef<string[]>([]);
+  const shownBase = React.useRef<string | null>(null);
+  // Which read is the current one. An explicit press outranks a read already
+  // in flight (a Read button that silently did nothing would be worse), so the
+  // superseded answer has to be identifiable and dropped.
+  const generation = React.useRef(0);
+  // The ref the unprompted reads use, without making them depend on it: the
+  // pump and the wake-ups are mounted once and must not be torn down and
+  // rebuilt every time the box is typed in.
+  const base = React.useRef(request.base);
+  base.current = request.base;
+  // Only false once this pane is really gone; re-armed on mount for the
+  // double-mount a dev build does.
+  const alive = React.useRef(true);
+  React.useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  /** The only place git is asked. Reads against `base.current`, decides
+   * nothing about *whether* to — `shouldRead` has already said yes. */
+  const read = React.useCallback(async () => {
+    if (cwd === null) return;
+    const asked = base.current;
+    // A base the owner changed is a different question, so the answer that is
+    // up cannot stand in for it while the new one is fetched. Re-reading the
+    // same base is a refresh, and keeps everything.
+    const fresh = asked !== shownBase.current;
+    const mine = generation.current + 1;
+    generation.current = mine;
+    clock.current = began(clock.current);
+    setReading(true);
+    if (fresh) {
+      setDiff(null);
+      setRefusal(null);
+      shownPaths.current = [];
+    }
+
+    const startedAt = Date.now();
+    const result = await gitWorktreeDiff(cwd, asked);
+    const endedAt = Date.now();
+    // A superseded read touches neither the screen nor the schedule: its
+    // duration would set a gap for a question nobody is asking any more.
+    if (generation.current !== mine || !alive.current) return;
+    clock.current = ended(clock.current, {
+      now: endedAt,
+      ok: result.ok,
+      tookMs: endedAt - startedAt,
+    });
+    setReading(false);
+
+    if (!result.ok) {
+      setRefusal(explainWorktreeError(result.error).message);
+      // A refusal is not an answer about this worktree. On a refresh the last
+      // good list stays up with a line saying it could not be renewed; only a
+      // question that has never been answered shows nothing.
+      return;
+    }
+
+    const paths = result.value.files.map((file) => file.path);
+    if (fresh) {
+      setOpen(0);
+      setCursor(0);
+    } else {
+      // Followed by path, not by position: an agent that creates a file sorts
+      // it into the middle of the list and would otherwise slide the patch
+      // being read out from under the reader.
+      const was = shownPaths.current;
+      setOpen((at) => indexAfterRefresh(paths, was[at] ?? null, at));
+      setCursor((at) => indexAfterRefresh(paths, was[at] ?? null, at));
+    }
+    shownPaths.current = paths;
+    shownBase.current = asked;
+    setDiff(result.value);
+    setRefusal(null);
+    setReadAt(endedAt);
+  }, [cwd]);
+
+  /** Read if the schedule allows it. The single door: the mount, the pump and
+   * the wake-ups all come through here, which is what makes "one read in
+   * flight" a property of the pane rather than of each caller. */
+  const maybeRead = React.useCallback(
+    (trigger: RefreshTrigger) => {
+      if (
+        !shouldRead(clock.current, {
+          now: Date.now(),
+          onScreen: onScreen(),
+          trigger,
+        })
+      ) {
+        return;
+      }
+      void read();
+    },
+    [read],
+  );
+
+  // Opened, or asked. `request` changes on mount, on a new base and on every
+  // press of Read — and this pane is keyed by worktree in the registry, so a
+  // worktree switch arrives as a mount rather than as a trigger of its own.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `request.nonce` is what makes pressing Read with an unchanged base a fresh ask; the value is not otherwise read here
+  React.useEffect(() => {
+    maybeRead(request.nonce === 0 ? "opened" : "asked");
+  }, [maybeRead, request.base, request.nonce]);
+
+  // The cadence.
   React.useEffect(() => {
     if (cwd === null) return;
-    let cancelled = false;
-    setReading(true);
-    void (async () => {
-      const result = await gitWorktreeDiff(cwd, request.base);
-      if (cancelled) return;
-      setReading(false);
-      if (result.ok) {
-        setDiff(result.value);
-        setRefusal(null);
-        setCursor(0);
-        setOpen(0);
-      } else {
-        // The previous file list stays out of the way: it described a
-        // question that was answered, and this one was not.
-        setDiff(null);
-        setRefusal(explainWorktreeError(result.error).message);
-      }
-    })();
+    const handle = setInterval(() => maybeRead("tick"), PUMP_MS);
+    return () => clearInterval(handle);
+  }, [cwd, maybeRead]);
+
+  // Back from somewhere. Both events, because they are different absences:
+  // `visibilitychange` fires for a window that was minimised or on another
+  // Space, `focus` for one that was merely behind another — and the second
+  // never gates a read, it only prompts one.
+  React.useEffect(() => {
+    if (cwd === null) return;
+    const wake = () => maybeRead("shown");
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
     return () => {
-      cancelled = true;
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
     };
-  }, [cwd, request]);
+  }, [cwd, maybeRead]);
 
   const files = diff?.files ?? [];
   const count = files.length;
@@ -195,19 +359,38 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
           value={draft}
         />
         <button
+          // Not disabled while a read is in flight, and its label does not
+          // change: reads now happen every few seconds on their own, and a
+          // button that dimmed and renamed itself each time would flicker for
+          // the whole session. A press during a read supersedes it — see
+          // `generation`. Activity is reported once, next door.
           className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
           data-testid="worktree-diff-read"
-          disabled={reading || cwd === null}
+          disabled={cwd === null}
           type="submit"
         >
-          {reading ? "reading…" : "Read"}
+          Read
         </button>
+        <Freshness readAt={readAt} reading={reading} />
         {summary === null ? null : (
           <span className="min-w-0 basis-full truncate text-xs text-muted-foreground">
             {summary.headline}
           </span>
         )}
       </form>
+
+      {/* A refresh git refused, over a list that is still the last true
+          answer. The full refusal below is for a question that has never been
+          answered at all; this one exists so a worktree that vanished mid-read
+          does not silently keep showing yesterday's diff as current. */}
+      {refusal === null || diff === null ? null : (
+        <p
+          className="shrink-0 border-b border-border/60 bg-destructive/10 px-4 py-1.5 text-2xs text-destructive"
+          data-testid="worktree-diff-stale"
+        >
+          could not re-read — {refusal}
+        </p>
+      )}
 
       {summary?.omission == null ? null : (
         <p
@@ -223,7 +406,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
           this worktree has no directory on this machine yet, so there is
           nothing to read.
         </p>
-      ) : refusal !== null ? (
+      ) : refusal !== null && diff === null ? (
         <p
           className="px-4 py-3 text-sm text-destructive"
           data-testid="worktree-diff-refusal"
@@ -287,7 +470,14 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex shrink-0 items-baseline gap-2 border-b border-border/60 px-4 py-1.5">
-              <span className="min-w-0 flex-1 truncate font-mono text-xs">
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-xs"
+                // Named so a spec can ask which file is open without reading
+                // an index out of the list beside it — which is the whole
+                // point when what is under test is that the index moved and
+                // the file did not.
+                data-testid="worktree-diff-open"
+              >
                 {shown === null ? "" : fileLabel(shown)}
               </span>
               <span className="shrink-0 text-3xs uppercase tracking-[0.14em] text-muted-foreground">
@@ -319,5 +509,49 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
         </div>
       )}
     </div>
+  );
+}
+
+/** How old the answer on screen is, counted up once a second.
+ *
+ * **Its own component on purpose.** The clock has to advance without the patch
+ * beside it re-rendering — a diff is up to 2000 `<span>`s, and re-rendering
+ * them every second to move one number would cost more than the git this line
+ * is reporting on.
+ *
+ * It counts while a read is in flight rather than replacing itself with a
+ * spinner: what the owner needs to know is how old what he is *looking at* is,
+ * and that does not stop being true because a newer answer is on its way. The
+ * dot is the activity. */
+function Freshness({
+  readAt,
+  reading,
+}: {
+  readAt: number | null;
+  reading: boolean;
+}) {
+  const [, count] = React.useState(0);
+  React.useEffect(() => {
+    const handle = setInterval(() => count((n) => n + 1), FRESHNESS_TICK_MS);
+    return () => clearInterval(handle);
+  }, []);
+
+  return (
+    <span
+      className="flex shrink-0 items-center gap-1 text-2xs tabular-nums text-muted-foreground"
+      data-testid="worktree-diff-freshness"
+      title={
+        readAt === null
+          ? "this worktree has not been read yet"
+          : `last read at ${new Date(readAt).toLocaleTimeString()}`
+      }
+    >
+      <span
+        aria-hidden="true"
+        className={`h-1.5 w-1.5 rounded-full ${reading ? "bg-emerald-500" : "bg-transparent"}`}
+        data-reading={reading ? "true" : "false"}
+      />
+      {freshnessLabel(readAt, Date.now())}
+    </span>
   );
 }
