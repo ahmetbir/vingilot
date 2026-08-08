@@ -113,8 +113,13 @@ export const RELAY_ASKING = "Connecting to the relay…";
 export const RELAY_UNKNOWN =
   "This app could not tell whether the relay is reachable. That is no answer rather than an answer of no, so the thread stays open and a send that cannot leave will say so itself.";
 
+/** What an unreachable relay costs, said as what this pane *does* — which is
+ * put everything away. `canSend` refuses on a blocked reading, so the composer
+ * is not rendered at all: the old sentence ("nothing typed here would go
+ * anywhere") described typing into a box that is not on screen, and left the
+ * thread's disappearance unexplained beside it. */
 export const RELAY_UNREACHABLE =
-  "The relay is not reachable. This conversation lives there and not in this app, so nothing typed here would go anywhere until it is back.";
+  "The relay is not reachable. This conversation lives there and not in this app, so until it is back this pane can neither show the thread nor take a message for it. Nothing is lost by waiting: the channel and everything said in it are on the relay, and anything half-written here is kept on this machine.";
 
 /** The pane's own verdict, from the three questions it asks the world live.
  *
@@ -180,13 +185,54 @@ export function scopeLine(cwd: string): string {
 
 /** What the pane prints above the composer, quoting the line it will actually
  * send. Ask-mode's rule, kept word for word: state the context that goes, then
- * enumerate what does not — and here, one thing more that ask-mode does not
- * have to say. A managed agent is spawned once in `~/.buzz` (or `$HOME`) and
+ * enumerate what does not — and here, two things more that ask-mode does not
+ * have to say.
+ *
+ * The first: a managed agent is spawned once in `~/.buzz` (or `$HOME`) and
  * never in a per-message directory (`managed_agents/mod.rs`), so the path is
  * text in a message rather than somewhere the team is standing. Saying "scoped
- * to this worktree" without that would be the pane's one real lie. */
+ * to this worktree" without that would be the pane's one real lie.
+ *
+ * The second is a correction. This used to enumerate "not the branch" among the
+ * things that do not go, and that was false in the plainest way: this pane names
+ * the thread's channel after the worktree's branch (`threadChannelName`) and
+ * writes the path into its description (`threadChannelDescription`), both on the
+ * relay, in a channel every deployed member is in. The enumeration is about the
+ * *message* and the branch is not in one — but "what the team is told" is the
+ * claim being made, and by that measure the branch was told. So the sentence
+ * says where. */
 export function scopeSentence(cwd: string): string {
-  return `Each message goes to the relay with one line in front of it — ${scopeLine(cwd)} — and nothing else: not the diff, not the branch, not the plan, not the run's transcript. The team's agents are not started in this directory and may not be able to open it at all; the path is text in your message, and they read whatever they can reach themselves.`;
+  return `Each message goes to the relay with one line in front of it — ${scopeLine(cwd)} — and nothing else: not the diff, not the plan, not the run's transcript. The branch is not in the message either, but it is in the name of the channel this thread lives in, and this path is in that channel's description, where everyone in it can read them. The team's agents are not started in this directory and may not be able to open it at all; the path is text in your message, and they read whatever they can reach themselves.`;
+}
+
+/** Which step refused, which is the whole of what the sentence below says.
+ *
+ * **`deploy` is not a nicety.** Opening a thread is two acts — a channel is
+ * created and its pointer written, then one agent per member is deployed into it
+ * — and only the first decides whether there is a thread. A failure in the
+ * second used to be reported as "the thread could not be opened", printed
+ * *inside the thread that had just been opened*, next to a composer that worked.
+ * A sentence contradicted by what is around it teaches the owner to stop reading
+ * the sentences. */
+export type TeamThreadStep = "open" | "deploy" | "send";
+
+/** What to say before the reason whatever refused gave.
+ *
+ * Each one names its step rather than saying "an error", and each says where
+ * that leaves him — for `send`, that the text is still in the composer, because
+ * text being kept is only useful if he knows to look for it rather than retyping
+ * it. The words are about the team's *members*: a team has no key and posts
+ * nothing (see this file's header), so it is the members that are deployed and
+ * the members that could fail to be. */
+export function troubleSentence(step: TeamThreadStep): string {
+  switch (step) {
+    case "open":
+      return "the thread could not be opened: ";
+    case "deploy":
+      return "the thread is open, but its members could not be deployed into it — the channel is there and you can send in it, and nobody may answer: ";
+    case "send":
+      return "this message did not go and is still in the composer — send it again when you want: ";
+  }
 }
 
 /** A message as it will be sent, or `null` for one there is no point sending.

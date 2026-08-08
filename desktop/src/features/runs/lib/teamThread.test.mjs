@@ -22,6 +22,7 @@ import {
   teamAvailability,
   threadChannelDescription,
   threadChannelName,
+  troubleSentence,
 } from "./teamThread.ts";
 
 const READY = { community: true, relay: "reachable", teams: 2 };
@@ -68,6 +69,18 @@ test("an unreachable relay is its own sentence, distinct from the other two", ()
   assert.equal(reading.reason, RELAY_UNREACHABLE);
   assert.notEqual(reading.reason, NO_TEAMS);
   assert.notEqual(reading.reason, NO_COMMUNITY);
+});
+
+test("the unreachable sentence describes a pane with nothing to type into", () => {
+  // `canSend` is false here, and the pane renders no composer and no thread at
+  // all on a blocked reading — so a sentence about what "nothing typed here"
+  // would do was about a box that is not on screen, and said nothing about the
+  // conversation having gone with it.
+  assert.equal(canSend(readTeamThread(facts({ relay: "unreachable" }))), false);
+  assert.doesNotMatch(RELAY_UNREACHABLE, /nothing typed here/);
+  assert.match(RELAY_UNREACHABLE, /neither show the thread nor take a message/);
+  // And it says what survives the wait, which is the owner's actual question.
+  assert.match(RELAY_UNREACHABLE, /half-written here is kept/);
 });
 
 test("a team list that could not be asked is never rendered as none", () => {
@@ -163,10 +176,62 @@ test("the sentence quotes the line it will actually send", () => {
   assert.ok(sentence.includes(scopeLine("/tmp/vingilot-left")));
   // And it enumerates what does not go, ask-mode's rule.
   assert.match(sentence, /not the diff/);
-  assert.match(sentence, /not the branch/);
   assert.match(sentence, /not the plan/);
   // Plus the one thing ask-mode does not have to say.
   assert.match(sentence, /not started in this directory/);
+});
+
+test("the sentence does not claim the branch is kept from the team", () => {
+  // It used to enumerate "not the branch" among the things that do not go —
+  // while this pane names the thread's channel after the branch and writes the
+  // path into its description, both on the relay and both readable by every
+  // member deployed into it. Whatever is true of the message body, that is not
+  // a worktree kept to oneself, so the claim goes and the channel is named.
+  const sentence = scopeSentence("/tmp/vingilot-left");
+  assert.doesNotMatch(sentence, /not the branch,/);
+  assert.match(sentence, /name of the channel/);
+  assert.match(sentence, /description/);
+  // The channel really is named after the branch — the fact the sentence is
+  // answering to, asserted here rather than assumed.
+  assert.match(
+    threadChannelName("binding-1", "team-1", "Launch Team", "feat/parser"),
+    /feat-parser/,
+  );
+});
+
+// --- what refused, and where that leaves him -------------------------------
+
+test("a failed deploy never says the thread could not be opened", () => {
+  // The channel is created and its pointer written *before* the members are
+  // deployed, so a failure in the second half happens with the thread open and
+  // this sentence printed inside it. "Could not be opened" there is contradicted
+  // by everything around it.
+  const deploy = troubleSentence("deploy");
+  assert.doesNotMatch(deploy, /could not be opened/);
+  assert.match(deploy, /the thread is open/);
+  assert.match(deploy, /you can send in it/);
+  // And it says the consequence, which is the part he would otherwise find out
+  // by waiting for an answer that is not coming.
+  assert.match(deploy, /nobody may answer/);
+});
+
+test("the three steps never read as each other", () => {
+  const [open, deploy, send] = ["open", "deploy", "send"].map(troubleSentence);
+  assert.equal(new Set([open, deploy, send]).size, 3);
+  assert.match(open, /could not be opened/);
+  // The send sentence's job is to say where the text is, because text being
+  // kept is only useful if he knows to look for it rather than retyping it.
+  assert.match(send, /still in the composer/);
+  assert.doesNotMatch(send, /thread/);
+});
+
+test("every step's sentence is about the members, never about the team", () => {
+  // A team holds no key and posts nothing; what is deployed, and what can fail
+  // to be, is one agent per member (`teamThread.ts`'s header).
+  for (const step of ["open", "deploy", "send"]) {
+    assert.doesNotMatch(troubleSentence(step), /the team could not/);
+  }
+  assert.match(troubleSentence("deploy"), /its members could not be deployed/);
 });
 
 test("a composed message carries the scope line and the words, in that order", () => {

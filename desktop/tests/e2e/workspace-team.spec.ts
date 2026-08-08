@@ -192,6 +192,13 @@ async function stubBackend(page: Page) {
       // Every managed agent this app mints goes through here, so this counter
       // is what a claim about "no new agent processes" can be settled against.
       if (name === "create_managed_agent") window.__DEPLOYS__ += 1;
+      // The deploy's own first step, failing wholesale — which happens *after*
+      // the channel exists and its pointer is written, and is therefore the
+      // case a sentence saying "the thread could not be opened" would be
+      // printed inside an open thread.
+      if (window.__FAIL_DEPLOY__ === true && name === "list_managed_agents") {
+        return Promise.reject(new Error("the agent store could not be read"));
+      }
       if (name === "sign_event") {
         window.__SIGNED__?.push(args);
         // A relay hiccup, made to order. Signing is the first step of the
@@ -281,8 +288,11 @@ test.describe("talk to a team about this worktree", () => {
     const scope = page.getByTestId("team-scope");
     await expect(scope).toContainText(SCOPE_LINE);
     await expect(scope).toContainText("not the diff");
-    await expect(scope).toContainText("not the branch");
     await expect(scope).toContainText("not the plan");
+    // The branch is not in the message and is not claimed to be kept from the
+    // team either: it is in the name of the channel this pane makes, which the
+    // sentence now says rather than enumerating away.
+    await expect(scope).toContainText("name of the channel");
     // The thing this pane has to say that ask-mode does not: the path is text,
     // not a directory the team is standing in.
     await expect(scope).toContainText("not started in this directory");
@@ -366,6 +376,33 @@ test.describe("talk to a team about this worktree", () => {
       .toBe(`${SCOPE_LINE}\n\n${QUESTION}`);
     // Accepted, and only now is the composer empty.
     await expect(composer).toHaveValue("");
+  });
+
+  test("a deploy that fails does not call the thread it opened unopened", async ({
+    page,
+  }) => {
+    await openWorktree(page);
+    await page.evaluate(() => {
+      window.__FAIL_DEPLOY__ = true;
+    });
+    await choosePane(page, "team");
+    await page.getByTestId(`team-choice-${TEAM.id}`).click();
+    await page.getByTestId("team-open").click();
+
+    // The channel was made and this worktree's pointer written before the
+    // members were deployed, so what is on screen is a working thread.
+    await expect(page.getByTestId("team-composer")).toBeVisible({
+      timeout: 15_000,
+    });
+    const trouble = page.getByTestId("team-trouble");
+    await expect(trouble).toContainText("the thread is open");
+    await expect(trouble).toContainText("nobody may answer");
+    await expect(trouble).toContainText("the agent store could not be read");
+    // The sentence this test exists for: it used to say the opposite of the
+    // composer sitting under it.
+    await expect(trouble).not.toContainText("could not be opened");
+    // And the failure really was before any member was minted.
+    expect(await page.evaluate(() => window.__DEPLOYS__)).toBe(0);
   });
 
   test("a half-written message survives the pane being torn down and rebuilt", async ({
@@ -465,5 +502,8 @@ declare global {
     __DEPLOYS__: number;
     /** When true, signing a kind:9 fails — a send that does not leave. */
     __FAIL_SENDS__?: boolean;
+    /** When true, the deploy's first call fails — an open whose channel was
+     * made and whose members were not. */
+    __FAIL_DEPLOY__?: boolean;
   }
 }

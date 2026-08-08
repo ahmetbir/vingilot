@@ -26,6 +26,7 @@ import {
   canSend,
   scopeSentence,
   splitScope,
+  troubleSentence,
 } from "@/features/runs/lib/teamThread";
 import type { TeamThread } from "@/features/runs/lib/useTeamThread";
 import { useTeamThread } from "@/features/runs/lib/useTeamThread";
@@ -464,16 +465,15 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
 }
 
 /** What refused, in the words of whatever refused it. Named by step, so a
- * failed deploy and a failed send are not one sentence about "an error". */
+ * thread that could not be made, a thread whose members could not be deployed,
+ * and a message that did not go are not one sentence about "an error". The
+ * words are `teamThread.ts`'s, where they can be tested against the states this
+ * component only renders. */
 function Trouble({ thread }: { thread: TeamThread }) {
   if (thread.trouble === null) return null;
   return (
     <p className="pt-2 text-xs text-destructive" data-testid="team-trouble">
-      {thread.trouble.step === "open"
-        ? "the thread could not be opened: "
-        : // Says where the text is, because the text being kept is only useful
-          // if he knows to look for it rather than retyping it.
-          "this message did not go and is still in the composer — send it again when you want: "}
+      {troubleSentence(thread.trouble.step)}
       {thread.trouble.message}
     </p>
   );

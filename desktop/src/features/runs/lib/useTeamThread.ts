@@ -70,6 +70,7 @@ import {
   relayReach,
   type TeamCount,
   type TeamThreadReading,
+  type TeamThreadStep,
   threadChannelDescription,
   threadChannelName,
 } from "./teamThread.ts";
@@ -105,8 +106,9 @@ export interface TeamThreadRow {
 /** What the pane could not do, said in the words of whatever refused. */
 export interface TeamThreadTrouble {
   /** The step that failed, so the sentence can name it rather than saying
-   * "something went wrong". */
-  step: "open" | "send";
+   * "something went wrong" — and, between `open` and `deploy`, so that it does
+   * not say the opposite of what is on screen (`troubleSentence`). */
+  step: TeamThreadStep;
   message: string;
 }
 
@@ -337,6 +339,9 @@ export function useTeamThread(input: {
     setDeployFailures([]);
     const teamId = team.id;
     void (async () => {
+      // Which half of the open a failure lands in. Read in the `catch`, where
+      // the only other evidence would be the shape of an error message.
+      let threadExists = false;
       try {
         const opened = await createChannel.mutateAsync({
           channelType: "stream",
@@ -355,6 +360,7 @@ export function useTeamThread(input: {
         // still refuses if the owner chose another team while this was in
         // flight.
         rememberChannel(bindingId, teamId, opened.id);
+        threadExists = true;
         const result = await createChannelManagedAgents(
           opened.id,
           resolved.resolvedPersonas.map((persona) =>
@@ -368,7 +374,13 @@ export function useTeamThread(input: {
           })),
         );
       } catch (error) {
-        setTrouble({ message: reasonOf(error), step: "open" });
+        // The batch deploy reports a member that failed in its own `failures`,
+        // so what reaches here after the channel exists is a step in front of
+        // them — listing this app's agents, reading the channel's members —
+        // failing wholesale. The thread is still open, and saying otherwise
+        // beside a working composer is the sentence this distinction removes.
+        const step: TeamThreadStep = threadExists ? "deploy" : "open";
+        setTrouble({ message: reasonOf(error), step });
       } finally {
         setOpening(false);
       }
