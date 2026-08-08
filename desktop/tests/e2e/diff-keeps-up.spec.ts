@@ -381,15 +381,24 @@ test.describe("the diff keeps up with the work", () => {
       .toBeGreaterThan(before);
   });
 
-  test("coming back to the window reads at once, ahead of the cadence", async ({
+  test("coming back to the window obeys the cadence rather than jumping it", async ({
     page,
   }) => {
     await openDiffPane(page);
     await expect(page.getByTestId("worktree-diff-file-0")).toBeVisible();
 
-    // Six hundred milliseconds of git buys twelve seconds of quiet. Every
-    // wait below is well inside that, so a read that happens is one the
-    // cadence cannot account for.
+    // Six hundred milliseconds of git buys twelve seconds of quiet. Every wait
+    // below is well inside that, so a read that happens is one the cadence
+    // cannot account for — and the point of this test is that none does.
+    //
+    // This asserted the opposite until the wake-up floor was removed. Letting a
+    // wake-up through on MIN_GAP_MS made alternating with an editor every few
+    // seconds — the workflow the pane exists for — cost 15% of a core at these
+    // read times and 45% at 2.5s ones, against a module built around 5%. The
+    // exemption bought nothing either: an absence long enough for the worktree
+    // to have moved outlasts the gap on its own, so it reads immediately
+    // anyway. What it actually bought was re-reading after a three-second
+    // tab-out.
     await setStub(page, { delayMs: 600 });
 
     const beforeShown = await settled(page);
@@ -400,20 +409,24 @@ test.describe("the diff keeps up with the work", () => {
       "the cadence read during a wait it was not due for",
     ).toBe(beforeShown);
     await setVisibility(page, "visible");
-    await expect
-      .poll(async () => (await calls(page)).length, { timeout: 2_500 })
-      .toBeGreaterThan(beforeShown);
+    await page.waitForTimeout(2_500);
+    expect(
+      (await calls(page)).length,
+      "coming back inside the gap read anyway",
+    ).toBe(beforeShown);
 
     // Focus is the other absence, and the one macOS reports for a window that
     // was merely behind another: still `visible`, so nothing above would have
-    // fired. It never gates a read — a diff on a second monitor is being
-    // watched — it only prompts one.
-    const beforeFocus = await quiet(page);
-    await page.waitForTimeout(3_500);
-    expect((await calls(page)).length).toBe(beforeFocus);
+    // fired. It gates nothing and now prompts nothing either — a diff on a
+    // second monitor is being watched, and ⌘-tabbing back to one is not news.
+    const beforeFocus = (await calls(page)).length;
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.waitForTimeout(2_500);
+    expect((await calls(page)).length).toBe(beforeFocus);
+
+    // The gap itself still ends: waited out, the pump reads without being asked.
     await expect
-      .poll(async () => (await calls(page)).length, { timeout: 2_500 })
-      .toBeGreaterThan(beforeFocus);
+      .poll(async () => (await calls(page)).length, { timeout: 15_000 })
+      .toBeGreaterThan(beforeShown);
   });
 });

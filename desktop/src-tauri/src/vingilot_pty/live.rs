@@ -134,6 +134,18 @@ fn test_tmux_sockets() -> Vec<std::path::PathBuf> {
     sockets
 }
 
+/// Whether `TMUX_TMPDIR` still points at the directory this process made.
+///
+/// The weaker of the two proofs, and the only one available before the first
+/// socket exists. It is a real check rather than an assumption: the value is
+/// compared, so a lost or overwritten variable refuses instead of resolving to
+/// the default socket.
+fn tmux_tmpdir_is_ours() -> bool {
+    std::env::var_os("TMUX_TMPDIR")
+        .map(|set| Path::new(&set) == isolated_tmux_socket())
+        .unwrap_or(false)
+}
+
 /// End the tmux server these tests started, and only that one.
 fn kill_test_tmux_server() {
     let socket_dir = isolated_tmux_socket();
@@ -703,19 +715,29 @@ fn tmux_says(args: &[&str]) -> String {
         return String::new();
     };
     // Addressed by socket path for the same reason `kill_test_tmux_server` is:
-    // these arguments include `kill-session`, so a query helper that resolved
-    // to the default socket would reach the owner's sessions. No socket of
-    // ours means no server of ours, and nothing to say about it.
-    let Some(socket) = test_tmux_sockets().into_iter().next() else {
-        return String::new();
-    };
-    match Command::new(tmux)
-        .arg("-S")
-        .arg(&socket)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-    {
+    // these arguments include `kill-session`, so a helper that resolved to the
+    // default socket would reach the owner's sessions.
+    //
+    // But a *caller that creates the first session* runs before any socket of
+    // ours exists, and refusing there does not fail — it returns an empty
+    // string that reads like an answer, so a setup step silently does nothing
+    // and the test it was setting up fails somewhere else entirely. That is
+    // how this shape broke `wheel.rs`'s `session_left_behind_with_the_wheel_off`.
+    //
+    // So the safety check is: run only when the server can be shown to be ours,
+    // by an explicit socket path when one exists and otherwise by the socket
+    // *directory* still being the one this process set. If neither can be
+    // shown, refuse — leaking a test server is recoverable and reaching his
+    // is not.
+    let mut command = Command::new(tmux);
+    match test_tmux_sockets().into_iter().next() {
+        Some(socket) => {
+            command.arg("-S").arg(&socket);
+        }
+        None if tmux_tmpdir_is_ours() => {}
+        None => return String::new(),
+    }
+    match command.args(args).stdin(Stdio::null()).output() {
         Ok(done) if done.status.success() => {
             String::from_utf8_lossy(&done.stdout).trim().to_string()
         }
