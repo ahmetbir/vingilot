@@ -6,8 +6,9 @@ desktop app**, not in a sibling application. The former standalone Workbench
 into the island and its history remains on the `vingilot/workbench-shell`
 branch.
 
-Since workspace-v1 (2026-08-07) **Projects is the front door and Runs is a
-tab**. The sidebar item reads *Projects*; upstream's own relay-hosted repo
+Since workspace-v1 (2026-08-07) **Projects is the front door and Runs is one
+pane among several** — a tab then, a choice in the right pane's picker now.
+The sidebar item reads *Projects*; upstream's own relay-hosted repo
 screen was relabelled *Repos*, which is literally what it lists (ADR-001,
 naming decision). Nothing was deleted on either side.
 
@@ -21,7 +22,7 @@ Three columns, left to right (`ui/RunsScreen.tsx`):
 |---|---|---|
 | **Projects** (`ProjectsNav`) | the local checkouts the owner has added, plus a project-less landing view | pick what you are working on. `+ Add project` opens the native folder picker; the choice is validated as a git repository *before* any workspace state is written. **Removing a project forgets the path — it never touches the directory on disk.** |
 | **Worktrees** (`WorktreeColumn`) | that project's worktrees: its own checkout plus every `git worktree` | pick where you are working. New worktrees are `git worktree add`; closing one is `git worktree remove`, never a recursive delete. If git refuses because the tree is dirty, what is dirty is shown and nothing happens — that refusal is the feature. |
-| **Work surface** (`WorkSurface`) | five tabs: **Terminal** (default), **Diff**, **Agent**, **Evidence**, **Runs** | do the work. Terminal is the default because in iTerm the terminal *is* the work surface, not a drawer. |
+| **Work surface** (`WorkSurface`) | the terminal on the left, a divider, and a pane on the right chosen from that pane's own header (`PanePicker`, out of `ui/paneRegistry.tsx`): **Diff**, **Agent**, **Evidence**, **Runs**, **Notes**, **Plan**, or a second **Terminal** | do the work. The terminal is fixed to the left because in iTerm the terminal *is* the work surface, not a drawer — and because a terminal that changed slots would change parents, which is a new xterm and a replayed session. Either side can have the whole surface. |
 
 A persistent `ProjectStatusBar` names where the owner is and what is backing
 the terminals.
@@ -39,6 +40,25 @@ Worktree and terminal chords (`lib/terminalKeys.ts`, `resolveKey`):
 | `⇧⌘W` | close the terminal tab |
 | `⌥⌘←` / `⌥⌘→` | move between this worktree's terminal tabs |
 | `⇧⌥⌘←` / `⇧⌥⌘→` | move the tab itself |
+
+Columns and panes (`lib/columnKeys.ts`, `lib/paneKeys.ts`):
+
+| chord | does |
+|---|---|
+| `⌘B` | show or hide upstream's sidebar |
+| `⇧⌘B` | show or hide the worktree column |
+| `⌥⌘B` | give the terminal the whole surface, and back |
+| `⇧⌥⌘B` | give the right pane the whole surface, and back |
+
+The palette (`lib/paletteKeys.ts`), on `/workspace` only:
+
+| chord | does |
+|---|---|
+| `⌘K` | open the palette — and, pressed again, put it away |
+| `↑` / `↓` | move the cursor, wrapping rather than falling off either end |
+| `↵` | run the row under the cursor, or ask the question |
+| `⇥` | straight back to the field: there is nothing here to tab *to*, and a Tab that left would put focus on controls the scrim is drawn over |
+| `Esc` | close it, from wherever focus went — including a blocked row, which stays clickable on purpose |
 
 **`⌘W` is deliberately not bound.** It never reaches this app on macOS: Tauri
 installs its default application menu, whose Window submenu holds
@@ -177,15 +197,312 @@ installed `codex` CLI has no ACP mode), and nothing was installed to make one
 appear. So this proves the **wiring**, end to end, and says nothing about any
 real agent's judgement. Those are two different claims and are not merged here.
 
+## The palette — one key to go anywhere and do anything
+
+`⌘K` opens a palette centred over the work surface (`ui/CommandPalette.tsx`,
+`lib/usePalette.ts`). It is the workspace's verb surface, not a search box:
+everything the workspace can do is reachable from it, so a new action gets
+discoverability without needing a button somewhere.
+
+**`⌘K` was already bound in this app, and this map takes it on `/workspace`.**
+What was found before claiming it (`lib/paletteKeys.ts` carries the whole
+check):
+
+- **Tauri's default macOS menu**, which this app installs by setting none,
+  claims `⌘C/X/V`, `⌘Z`, `⇧⌘Z`, `⌘Y`, `⌘A`, `⌘M`, `⌘W`, `⌘Q`, `⌘H`, `⌥⌘H`,
+  `⌃⌘F` and Alt+F4 — and nothing else. `K` is not in it, so unlike `⌘W` this
+  chord does reach the webview.
+- **Upstream's own `⌘K`** is the community search dialog (the sidebar's
+  "Search everything ⌘K"), bound at window level on every screen but
+  `/settings`. It searches relay messages, so on `/workspace` it opened a
+  message search over a workspace it knows nothing about.
+- **Upstream's composer** claims `⌘K` at element level for the link editor —
+  on the channel screens, never on `/workspace`.
+
+So the island takes it **only on `/workspace`**, through upstream's own
+deference path: AppShell's handler returns early on `event.defaultPrevented`,
+which is exactly the case it documents. Nothing is taken away — every other
+screen keeps upstream's search on `⌘K`, and the sidebar's "Search everything"
+button still opens it on `/workspace` too. Extending upstream's dialog instead
+would have meant teaching a relay search about worktrees in three upstream
+files; a third key would have pointed the owner's muscle memory at the wrong
+surface on the one screen this fork exists for.
+
+**Four sources, each a pure function from query to candidates**
+(`lib/paletteSources.ts`):
+
+| source | rows |
+|---|---|
+| **projects** | every project in the workspace, plus **Deck** (the project-less landing view) |
+| **worktrees** | the open project's worktrees, labelled with the role and the run that owns them |
+| **panes** | every pane in the registry — "show the Diff pane beside the terminal" |
+| **actions** | New worktree…, Turn this plan into a worktree…, New terminal tab, Add project…, Remove *&lt;project&gt;*…, Prune missing worktrees…, and the four layout toggles — each labelled by what it will do next ("Hide the sidebar" / "Show the sidebar") and carrying its own chord |
+
+**One scorer over the union, not one per source** (`lib/paletteModel.ts`).
+Nothing in the sort reads a row's `kind`; the five match tiers are 150 points
+apart and every penalty is capped, so a substring match can never out-score a
+prefix match by being shorter. A palette that ranked within each source and
+then concatenated would put the fourth-best project above the perfect action,
+and the owner would learn to read the whole list — which is the list he opened
+the palette to avoid.
+
+**An action that cannot run is ranked down, never dropped.** Prune with
+nothing prunable, "Remove project" on the landing view, a pane with no worktree
+under it: all still listed, still findable by name, each carrying the sentence
+saying why it will not happen. Hiding them would answer "there is no such
+command", which is a different and false statement. Enter and a click on such a
+row both do nothing and leave the palette open, because the reason is already
+on screen.
+
+**An empty query is the workspace, not an empty box**: what was run recently
+comes first (up to 8, kept in `localStorage` under `vingilot-palette.v1` and
+surviving a restart), then every source in order.
+
+**While it is open, the chords underneath it do not reach the workspace** —
+`⇧⌘B` behind an open palette used to rearrange the columns under it, including
+when focus had gone to a blocked row.
+
+## Ask — a mode of the palette, and exactly what it sends
+
+Typing `?` as the **first** character switches the palette from *find* to
+*ask*: the text becomes a question about the directory the owner is in
+(`lib/askMode.ts`). A `?` anywhere else in a query is just a character in a
+filter. `?` rather than `/ask` because this surface's promise is one key and no
+ceremony, and because nothing in this workspace is named starting with `?`, so
+no row becomes unfindable.
+
+**What is sent with a question is one path.** The panel prints it before the
+question is asked, verbatim, and it is a constant in the model so no UI can
+drift into implying more:
+
+> **asked with**
+> `/path/to/the/worktree`
+> …and nothing else — not the diff, not the branch, not the file on screen,
+> not a description of the project. The agent is started in that directory and
+> reads whatever it opens there itself.
+
+That is the literal call: `agentClient.runAgent` takes a `cwd` and a prompt.
+Whether the agent then reads anything in that directory is the agent's own
+doing, through its own tools. This is the difference between *a model that was
+handed a directory path* and *a model that knows the codebase*, and the UI has
+to say which.
+
+**The answer lands in a conversation, not a toast** (`lib/askThread.ts`,
+`lib/askStore.ts`). One record per turn — a palette question and a prompt typed
+into the Agent pane's box are the same thing, because they are the same adapter
+run in the same directory. It is kept per directory in `localStorage`
+(`vingilot-ask.v1`): 8 directories, 20 exchanges each, answers cut at 4 000
+characters with a marker saying the rest was not kept. Each row carries the
+`cwd` it was asked with, so a thread read months later says what *that*
+question was sent with rather than what the surface would send today. The
+question is written the moment it is asked; the fact that a turn is running is
+not, so a row with no answer after a restart reads as "no answer came back"
+rather than as an ask still in flight.
+
+**Why not a Buzz channel.** Upstream's chat is the only message store in this
+app and it is a relay: every message is a Nostr event signed with the owner's
+key and published to a community. Three things follow, each deciding it on its
+own — the workspace runs against a local coordinator and needs no community, so
+an ask would be unaskable until the owner joined one; the question carries a
+path on this machine, and a channel publishes that path to a server; and the
+answer comes from a local adapter that holds no key, so landing it in a channel
+would mean signing an agent's words with the owner's identity — a forged author
+in a signed, hash-chained log. Buzz's own agents post under their own pubkeys
+for exactly this reason. The seam that would change this is an identity for the
+local agent plus a channel to post into.
+
+**One turn at a time, and a second question is refused in words.** The Agent
+pane's Run button and the palette's Enter claim the same mark (`pendingAsk`),
+so they cannot disagree — they did, and the palette started a second adapter
+process behind the pane's back, which on a hosted adapter is a second login and
+a second billed turn. The refusal is shown *before* Enter, and names where the
+running turn is, because the guard is one adapter for the whole app rather than
+one per directory.
+
+Everything the ask mode can refuse, in the order it is checked:
+
+| when | what it says |
+|---|---|
+| no worktree open | no worktree is open, so there is no directory to ask in |
+| the directory is still being resolved | still working out where this worktree is on disk |
+| the agent probe is still running | still asking this machine whether an ACP agent is configured |
+| no agent configured | the probe's own sentence, naming `VINGILOT_ACP_AGENT_COMMAND` / `BUZZ_ACP_AGENT_COMMAND` |
+| the probe could not answer | this build could not ask, so a question typed here would have nowhere to go |
+| a turn is already running | here, or in the other directory it names — "one adapter runs at a time" |
+| nothing typed after the `?` | type a question |
+
+**A question storage will not keep is still the conversation.** A refused write
+keeps the whole thread in memory and the pane says that is where it is; the
+next write storage does take carries the rows it refused earlier, so a quota
+that frees up recovers the conversation whole.
+
+## The two documents a project carries — Notes and Plan
+
+One substrate, two panes (`lib/documents.ts`, `lib/documentStore.ts`,
+`lib/autosave.ts`, `lib/useDocument.ts`). A document is markdown, per project,
+per kind; **Notes** is a note, **Plan** is a brief that can be turned into a
+worktree. They are separate documents, not one document with a flag.
+
+**Where they live: `localStorage`, under `vingilot-documents.v1`** — 24
+documents, 40 000 characters each, oldest save evicted first. What that was
+weighed against, and why each alternative lost:
+
+- *The coordinator's workspace state*, where `repos` and `deck.pins` live, is
+  CAS-versioned and could detect a conflicting write. But **the coordinator can
+  be down** — this screen renders a `reachable` flag precisely because it often
+  is — and a note pane that will not keep a note because a local service is not
+  running is not a note pane. It is also one blob read-modify-written, so an
+  autosave every few seconds would bump the revision under whoever is writing
+  pins, and it buys no sync: the coordinator is a process on 127.0.0.1.
+- *A file on disk* would show up in the owner's `git status` inside the
+  project, and outside it would need a new Rust command and a directory this
+  app decided to own without being asked. Writing a plan into a worktree is an
+  explicit act with a name (below), not where the document lives while it is
+  being typed.
+
+**Autosave, with the numbers said out loud.** The write happens 600 ms after
+the last keystroke, **or** 1 500 ms after the first unwritten one, whichever
+comes first — a trailing debounce alone never fires while someone is typing
+steadily, so a long paragraph would be a long unwritten one. The pane shows
+`saved`, `unsaved`, or `not saved`; the third is deliberately not folded into
+the second, because telling the owner "unsaved" about a document that cannot be
+saved at all would have him wait for a write that is never coming. **A write
+that did not happen is never reported as saved.**
+
+**Every ending flushes what is pending** — the pane being swapped, `⌥⌘B`
+taking the right side away, the project changing, the screen closing (all one
+unmount), plus the window's own `pagehide` and `beforeunload`. **A `⌘Q` is not
+one of them, and that is not hedging:** this app intercepts the main window's
+close and merely hides the window, and the real exit stops the Rust side and
+ends the process without navigating the webview, so no unload event is promised
+there. The honest worst case at a quit is *whatever was typed since the last
+write*, and the 1 500 ms ceiling is that bound. Measured in the shipping e2e
+bundle under Chromium: either window event alone covers a reload, and with both
+removed a note still inside the debounce is lost. **Not measured in the
+shipping WKWebView** — that is a different engine and no claim is made for it.
+
+**Two windows on the same project: last write wins, whole document.** There is
+no merge and no cross-window notification, and the store deliberately does not
+listen for `storage` events — a second window's write arriving into an editor
+mid-sentence would replace what the owner is typing, which is a worse failure
+than the one it fixes. Each window reads the document when its pane mounts and
+writes all of it when its own autosave fires, so paragraphs typed in the other
+window between those two moments are gone, not merged. The exposure is exactly
+"both windows have the same project's pane open and both are being typed into",
+and the losing window still shows its own text until it is remounted.
+
+Both panes say on screen where their document is kept, and neither implies more
+than is true: Notes says *"kept in this app on this machine — not in the
+project, and not on a server"*, and Plan says the same with the one thing that
+is different about it — *"it reaches a checkout only when you open a worktree
+from it."*
+
+## A plan becomes a worktree
+
+The act the owner asked for: **turn this plan into a worktree**
+(`lib/planBrief.ts`, `ui/PlanWorktreeDialog.tsx`,
+`src-tauri/src/vingilot_worktree/brief.rs`). Two doors — the Plan pane's button
+and the palette's *Turn this plan into a worktree…* — and **one dialog**, which
+is what reads the plan, so a palette row cannot act on a plan the owner has
+edited since the row was drawn.
+
+**The branch name is offered, never taken.** It is derived from the plan's
+title into an editable field, and what git is asked for is whatever is in that
+field when the button is pressed. Non-ASCII letters survive — git refs are
+UTF-8 and `dokümanlar` is a perfectly good branch name — while the *directory*
+under `~/.vingilot/worktrees/<project id>/` is reduced to ASCII separately,
+because that is a fact about paths, not about refs. Legality is git's answer,
+not this app's: a second copy of `check-ref-format` here would eventually
+disagree with git.
+
+**What crosses the Tauri boundary** is the repo path, the branch in the field,
+the base — `HEAD` by default, in a field of its own, because branching from
+where the project already is, is what is meant nine times in ten — the worktree
+path, the filename `PLAN.md`, and **the plan as
+it is on screen** — with a final newline added and nothing else, no header, no
+timestamp, no "generated by". The document is read live rather than out of
+storage, which is a debounce behind: the pane's button and the dialog once
+disagreed about the same plan, so a plan rewritten and acted on straight away
+briefed the worktree with the text the owner had already replaced, and a plan
+typed from nothing was offered by the pane and called empty by the dialog.
+
+`PLAN.md`, at the root, in capitals: whoever opens the checkout next — the
+owner in a shell, an agent handed the directory — has to find it without being
+told where to look, and root capitals is what every repository already uses for
+a document about the whole checkout. Not the plan's title (a name that varies
+cannot be found by convention), and not a dotfile (a hidden file is one nobody
+reads).
+
+**The order is the guarantee.** `git worktree add` first, and the brief only
+into the path git came back with — so a refused creation leaves no file
+anywhere, and the path written to is never one this app chose. The file is
+opened `create_new`, so "there was already a `PLAN.md` here" is the
+filesystem's answer rather than a check that could lose a race.
+
+Every refusal it can give:
+
+| refusal | what the owner is told |
+|---|---|
+| the plan is empty | the act is blocked before the dialog will act: "this project's plan is empty, and the worktree would carry an empty `PLAN.md`. Write what the work is first." |
+| no project open | the palette row is listed but blocked: "no project is open, so there is none for this to act on." |
+| the branch name is not a legal ref | `git will not accept "…" as a branch name.` — git's verdict, not a local rule |
+| the branch exists | `the branch "…" already exists. Pick another name — nothing was changed.` |
+| something is already at the path | it was left exactly as it is; move it yourself or use a different name |
+| the base names no commit | `"HEAD" names no commit in this repository.` |
+| the project is no longer a git repository | `… is not a git repository any more — nothing was changed.` |
+| no git on this machine | `no git on this machine that answers git --version.` |
+| **the worktree was made but the brief was not** | both facts, together: the worktree exists on its branch, the file it would have written was already there and was left alone, the plan is still in the Plan pane, and **nothing was removed**. The dialog stays open and Create is disabled, because re-pressing it would now fail on a branch that exists |
+| the filename is not a filename | `"…" is not a filename, so nothing was written.` — `..`, `docs/PLAN.md` and a leading dot are all refused before anything is opened |
+
+A worktree that was created is reported as created even when its brief was not.
+Failing the whole call would mean a refusal that describes a worktree which
+exists, on a branch that exists, and the only way to make that description true
+again is to remove them. **Nothing in this island removes anything to tidy up
+after itself.**
+
+**What is proved where, for all four of these surfaces.** The pure models carry
+`.test.mjs` files beside them and run in `pnpm test`. What only a running app
+can say is in six Playwright specs over the real `pnpm build:e2e` bundle —
+`workspace-palette`, `workspace-ask`, `workspace-notes`, `workspace-plan`,
+`workspace-columns`, `workspace-no-overlays` (the last two belong to the pane
+host underneath) — which assert against what is rendered and, where a boundary
+is involved, against **the arguments that crossed it**: the palette's key claim and its deference to upstream, the pane
+it switches to, an action that really runs, the scope line before a question is
+asked, the second question refused in words, a note surviving a reload and a
+note surviving the page ending mid-debounce, and the branch and plan text that
+`worktree_add_with_brief` was actually called with.
+
+What git does is proved in Rust instead, against **real repositories** the
+tests create and throw away (`vingilot_worktree/brief.rs`, over a `TempDir`
+under `TMPDIR` — never a repository the owner is working in): that the plan
+lands in the worktree it opened and not in the project, that a `PLAN.md`
+already on the base branch is never written over, that a refused creation
+writes no file anywhere, that a name which is a path cannot reach outside the
+worktree, and that a briefed worktree is still one `git worktree remove` will
+close — after refusing while the brief is uncommitted, like any other untracked
+file.
+
 ## What this workspace deliberately does not do
 
 - **No editor.** VS Code's real value in the owner's screenshots is *reading a
-  diff*, which the Diff tab covers. A text editor is a much larger commitment
+  diff*, which the Diff pane covers. A text editor is a much larger commitment
   and he did not ask for one.
+- **The Agent pane's real ACP backing is not built, on purpose.** The pane
+  speaks ACP to whatever `VINGILOT_ACP_AGENT_COMMAND` / `BUZZ_ACP_AGENT_COMMAND`
+  names, and **no adapter is installed on this machine** — `claude-agent-acp`,
+  `codex-acp` and `goose` are all absent, and the installed `codex` CLI has no
+  ACP mode. Installing one lives outside this repo and is the owner's call, so
+  nothing was installed and nothing is defaulted: with neither variable set the
+  pane says so and names both. Everything proved about the agent, and about
+  ask-mode, is therefore **wiring** — the turn, the transcript, the guard, the
+  diff that follows — proved against a stub that speaks ACP and decides
+  nothing. No claim about any real agent's judgement is made anywhere here.
 - **No Xcode.** A native iOS toolchain is not reproducible here, and a bad
   imitation of one is worse than alt-tabbing to the real thing.
-- **No notes.** Obsidian is a different product; a notes vault is not this
-  app's business.
+- **No notes vault.** There is a Notes pane now, and it is one note per
+  project — not Obsidian. No vault, no linking, no search across notes, no
+  files on disk: a document the project carries, kept in this app on this
+  machine. A notes *product* is still not this app's business.
 - **No `rm -rf`, anywhere, for any path.** Worktrees are removed with
   `git worktree remove`, which refuses a dirty tree. Named files go with
   `rm <file>`, empty directories with `rmdir`. This binds generated code and
@@ -193,30 +510,38 @@ real agent's judgement. Those are two different claims and are not merged here.
   is a stop-and-ask.
 - **No agent runs by default.** Running a real coding agent as a Run's command
   is configuration (`VINGILOT_CMD`), not code — and deliberately not wired up:
-  see the note under *Work products* below. The Agent tab is the other door and
-  is configuration too: with no `*_ACP_AGENT_COMMAND` set, nothing spawns.
-- **No agent judgement is claimed.** The Agent tab's proof used a stub that
-  speaks ACP and decides nothing, because no adapter was installed. See *The
-  Agent tab* above.
+  see the note under *Work products* below. The Agent pane and the palette's
+  ask mode are the other two doors, and both are configuration too: with no
+  `*_ACP_AGENT_COMMAND` set, nothing spawns and both say so.
+- **No agent judgement is claimed.** The proof used a stub that speaks ACP and
+  decides nothing, because no adapter was installed — see the bullet above and
+  *The Agent tab* further up.
 
 ## Where things live
 
 - **Island (fork-owned, additive):** `desktop/src/features/runs/**`
   - `lib/` — coordinator client, polling, run model, budget/legalNext,
     provision spec, reachability, projects/worktrees, the terminal tab model
-    and key maps, the diff model, the agent turn model. All pure modules carry
-    their `.test.mjs`
+    and key maps, the diff model, the agent turn model, the pane model and
+    layout, the palette (`paletteKeys`, `paletteModel`, `paletteSources`,
+    `paletteStore`, `usePalette`), ask mode and its thread
+    (`askMode`, `askThread`, `askStore`, `askRunner`), and the document
+    substrate (`documents`, `documentStore`, `autosave`, `useDocument`,
+    `planBrief`). All pure modules carry their `.test.mjs`
     next to them; desktop's own `pnpm test` glob runs them.
   - `ui/` — `RunsScreen` (the three columns), `ProjectsNav`, `WorktreeColumn`,
-    `WorkSurface`, `Terminal`, `TerminalTabStrip`, `WorktreeDiffPanel`,
-    `AgentPanel`,
+    `WorkSurface` and the pane host (`PaneFrame`, `PaneDivider`, `PanePicker`,
+    `paneRegistry`), `Terminal`, `TerminalTabStrip`, `WorktreeDiffPanel`,
+    `AgentPanel`, `CommandPalette`, `DocumentEditor`, `NotesPane`, `PlanPane`,
+    `PlanWorktreeDialog`,
     `NewWorktreeDialog`, `ProjectStatusBar`, plus the pre-existing `RunList`,
     `DeckPane`, `RunDetail`, `BudgetBar`, `StopAllButton` (hold-to-engage),
     `UnreachableBanner`, `RunsLoadingFallback`.
 - **Island (fork-owned, Rust):** `desktop/src-tauri/src/vingilot_pty/**` (the
   PTY sessions, their scrollback, tmux backing, and the live proof),
   `vingilot_repo/**` (read-only probe of a picked directory),
-  `vingilot_worktree/**` (worktree add/list/remove and the diff read),
+  `vingilot_worktree/**` (worktree add/list/remove, the diff read, and
+  `brief.rs` — a worktree opened with the plan that asked for it),
   `vingilot_agent/**` (the ACP client over an agent subprocess, which agent to
   run, the transcript, and the end-to-end proof).
 - **Touch-points (declared in `vingilot/seams.yaml`):** the sidebar nav entry,
@@ -246,7 +571,22 @@ composer with the reason inline) and recovers on its own when it returns.
 - Wall-clock budgets are enforced (solid meter — the reconciler pauses the
   run); token counts are observed only (dashed `≈`, absent entirely when no
   data exists). Illegal transitions are absent from the DOM, not disabled.
-- No global ⌘K in the Runs screen — Buzz owns that shortcut for search.
+- **⌘K is the island's on `/workspace` and upstream's everywhere else.** It was
+  upstream's on every screen until this branch; the claim is scoped to the one
+  screen and made through upstream's own `defaultPrevented` deference path, and
+  the sidebar's "Search everything" button still opens upstream's dialog from
+  the workspace. (This line used to read "no global ⌘K in the Runs screen —
+  Buzz owns that shortcut for search". It does not any more.)
+- **Six `localStorage` keys are this island's, all origin-scoped and all
+  local:** `vingilot-columns.v1` (which columns are collapsed),
+  `vingilot-panes.v1` (the pane arrangement), `vingilot-terminal-tabs.v1` (the
+  terminal tabs), `vingilot-palette.v1` (the palette's recents),
+  `vingilot-ask.v1` (the ask conversation), `vingilot-documents.v1` (Notes and
+  Plan). Each is versioned so a shape change
+  takes a new key rather than a migration — an older build reading a newer
+  library finds nothing rather than something it half-understands. None of them
+  is backed up, synced, or reachable from another machine, and the panes say
+  so.
 
 ## Deferred
 
