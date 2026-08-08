@@ -137,6 +137,7 @@ export default defineConfig({
         "**/workspace-no-overlays.spec.ts",
         "**/workspace-columns.spec.ts",
         "**/workspace-palette.spec.ts",
+        "**/workspace-ask.spec.ts",
       ],
       use: {
         ...devices["Desktop Chrome"],

@@ -78,7 +78,11 @@ import type {
   PaneFacts,
   PaneId,
 } from "@/features/runs/lib/paneModel";
-import { rightChoices } from "@/features/runs/lib/paneModel";
+import {
+  AGENT_HARNESS_PROBE,
+  rightChoices,
+} from "@/features/runs/lib/paneModel";
+import { ask } from "@/features/runs/lib/askRunner";
 import type { PaletteCommand } from "@/features/runs/lib/paletteModel";
 import type {
   PaletteChoice,
@@ -573,6 +577,17 @@ export function RunsScreen() {
         case "toggle-solo":
           panes.toggleSolo(command.side);
           return;
+        case "ask":
+          // The palette refuses an ask with no directory (`askMode.ts`), so
+          // this is the same fact read twice rather than a second rule.
+          if (selectedWorktreeCwd === null) return;
+          // Put the answer where it can be read as it arrives. A solo'd
+          // terminal is hiding the pane the answer lands in, and an answer
+          // behind a surface the owner cannot see is a toast with extra steps.
+          panes.choose("agent");
+          if (panes.state.solo === "left") panes.toggleSolo("left");
+          void ask(selectedWorktreeCwd, command.question);
+          return;
       }
     },
     [
@@ -580,16 +595,26 @@ export function RunsScreen() {
       columns.toggleWorktrees,
       openPrune,
       panes.choose,
+      panes.state.solo,
       panes.toggleSolo,
       projectActions.addProject,
       runTabCommand,
       selectedRepo,
+      selectedWorktreeCwd,
       selectLanding,
       selectRepo,
     ],
   );
 
   const palette = usePalette({
+    // The same probe reading the Agent pane's availability is built from, so
+    // the palette and the pane cannot come to disagree about whether this
+    // machine has an agent.
+    ask: {
+      cwd: paneFacts.cwd,
+      cwdPending: paneFacts.cwdPending,
+      harness: probe(AGENT_HARNESS_PROBE),
+    },
     context: paletteContext,
     onCommand: runPaletteCommand,
   });

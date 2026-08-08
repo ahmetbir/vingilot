@@ -4,9 +4,10 @@
 // Every decision here is somewhere else — what a chord means is
 // `paletteKeys.ts`, what can be offered is `paletteSources.ts`, how it is
 // ordered is `paletteModel.ts`, what a recent is and where it lives is
-// `paletteStore.ts`. What is left is the part that cannot be tested without
-// React, plus the one thing only a running app can settle: **how ⌘K is taken
-// from upstream's search dialog.**
+// `paletteStore.ts`, and what a leading `?` turns the query into is
+// `askMode.ts`. What is left is the part that cannot be tested without React,
+// plus the one thing only a running app can settle: **how ⌘K is taken from
+// upstream's search dialog.**
 //
 // **Capture phase, on `window`.** Upstream binds its ⌘K handler as a
 // bubble-phase `window` listener (app/AppShell.tsx), and a bubble listener on
@@ -34,6 +35,12 @@
 
 import * as React from "react";
 
+import {
+  type Ask,
+  type AskInputs,
+  askState,
+  readAsk,
+} from "@/features/runs/lib/askMode";
 import { resolvePaletteKey } from "@/features/runs/lib/paletteKeys";
 import {
   assembleView,
@@ -57,6 +64,10 @@ import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 export interface Palette {
   open: boolean;
   query: string;
+  /** The ask the query describes, or `null` while the query is a filter. When
+   * it is set the list is empty and the palette is answering a different
+   * question — see `askMode.ts`. */
+  ask: Ask | null;
   /** The row Enter would run. Always a valid index into `view.rows`, or 0 for
    * an empty list. */
   cursor: number;
@@ -71,9 +82,10 @@ export interface Palette {
    * leaves the palette open — its own sentence is already on screen saying
    * why, and closing would look like it had worked. */
   run: (index: number) => void;
-  /** Run the row the cursor is on now. Separate from `run` because the key
-   * listener that calls it is bound once for the life of an open palette and
-   * must not carry the cursor it was bound with. */
+  /** Run the row the cursor is on now — or, in ask mode, ask the question.
+   * Separate from `run` because the key listener that calls it is bound once
+   * for the life of an open palette and must not carry the cursor it was bound
+   * with. */
   runCursor: () => void;
 }
 
@@ -81,12 +93,17 @@ const EMPTY_VIEW: PaletteView = { recentCount: 0, rows: [] };
 
 interface Options {
   context: PaletteContext;
+  /** Where an ask would go, and whether anything is there to answer it. The
+   * harness reading is the pane registry's own probe, passed down rather than
+   * asked again — two answers to "is there an agent?" is one too many. */
+  ask: Omit<AskInputs, "question">;
   onCommand: (command: PaletteCommand) => void;
   /** Overridable for tests and for nothing else. */
   sources?: readonly PaletteSource[];
 }
 
 export function usePalette({
+  ask: askInputs,
   context,
   onCommand,
   sources = PALETTE_SOURCES,
@@ -104,9 +121,20 @@ export function usePalette({
   // project, worktree and pane, and this hook lives on a component that
   // re-renders on a 2s poll.
   const trimmed = query.trim();
-  const view = open
-    ? assembleView(paletteMatches(context, trimmed, sources), trimmed, recents)
-    : EMPTY_VIEW;
+  // Ask mode is the query's own shape, not a second piece of state: there is no
+  // way to be in it with a query that is not a question, and no way to leave it
+  // except by deleting the prefix — which is the same gesture that put it on.
+  const question = open ? readAsk(query) : null;
+  const ask =
+    question === null ? null : askState({ ...askInputs, question: question });
+  const view =
+    open && ask === null
+      ? assembleView(
+          paletteMatches(context, trimmed, sources),
+          trimmed,
+          recents,
+        )
+      : EMPTY_VIEW;
   // Clamped rather than corrected in an effect: a cursor past the end of a
   // list that just shrank must never be the index `run` reads, and an effect
   // would leave one render in which it is.
@@ -114,8 +142,8 @@ export function usePalette({
 
   // Read by callbacks that must not be rebound as the owner types — the key
   // listener below is bound over a screen rendering a live terminal.
-  const latest = React.useRef({ onCommand, rows: view.rows, safeCursor });
-  latest.current = { onCommand, rows: view.rows, safeCursor };
+  const latest = React.useRef({ ask, onCommand, rows: view.rows, safeCursor });
+  latest.current = { ask, onCommand, rows: view.rows, safeCursor };
 
   const setQuery = React.useCallback((next: string) => {
     setQueryState(next);
@@ -135,10 +163,25 @@ export function usePalette({
     latest.current.onCommand(command);
   }, []);
 
-  const runCursor = React.useCallback(
-    () => run(latest.current.safeCursor),
-    [run],
-  );
+  // Enter, whichever mode the palette is in. An ask records no recent — a
+  // recent is a row the owner ran, and a question is not a row; it has its own
+  // history, and it is a better one (`askThread.ts`).
+  const runCursor = React.useCallback(() => {
+    const pendingAsk = latest.current.ask;
+    if (pendingAsk === null) {
+      run(latest.current.safeCursor);
+      return;
+    }
+    // Blocked reads the same here as on a row: nothing happens and the palette
+    // stays open, because the sentence saying why is already on screen and
+    // closing would look like the question had gone somewhere.
+    if (pendingAsk.blocked !== null) return;
+    setOpen(false);
+    latest.current.onCommand({
+      question: pendingAsk.question,
+      type: "ask",
+    });
+  }, [run]);
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -171,6 +214,7 @@ export function usePalette({
   }, []);
 
   return {
+    ask,
     close,
     cursor: safeCursor,
     moveCursor: React.useCallback((delta: number) => {

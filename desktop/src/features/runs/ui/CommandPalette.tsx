@@ -32,9 +32,18 @@
 // **A blocked row is drawn and refuses.** Its reason replaces its detail line
 // and Enter on it does nothing — the alternative is a row that disappears,
 // which reads as a command that does not exist.
+//
+// **Ask mode is this same surface with the list replaced.** Same key, same
+// place, same field: a leading `?` turns what is typed into a question, and the
+// list into a statement of what that question would be asked *with*. It is not
+// a second overlay with its own rules, which is the confusion the palette
+// exists to remove — and the scope block is not decoration. It is the only
+// thing on screen that keeps "ask about this project" from reading as though
+// the workspace had explained the project first.
 
 import * as React from "react";
 
+import type { Ask } from "@/features/runs/lib/askMode";
 import { resolvePaletteListKey } from "@/features/runs/lib/paletteKeys";
 import type {
   MatchRange,
@@ -151,6 +160,7 @@ export function CommandPalette({ palette }: { palette: Palette }) {
   // solo takes the control that caused it off screen.
   const returnTo = React.useRef<Element | null>(null);
   const {
+    ask,
     close,
     cursor,
     moveCursor,
@@ -227,20 +237,26 @@ export function CommandPalette({ palette }: { palette: Palette }) {
         data-testid="palette"
       >
         <input
-          aria-label="go somewhere, or do something"
+          aria-label={
+            ask === null
+              ? "go somewhere, or do something"
+              : "ask about this worktree"
+          }
           autoCapitalize="none"
           autoCorrect="off"
           className="w-full shrink-0 border-b border-border/60 bg-transparent px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
           data-testid="palette-input"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Go somewhere, or do something…"
+          placeholder="Go somewhere, or do something… (? to ask)"
           ref={inputRef}
           spellCheck={false}
           type="text"
           value={query}
         />
 
-        {view.rows.length === 0 ? (
+        {ask !== null ? (
+          <AskPanel ask={ask} />
+        ) : view.rows.length === 0 ? (
           <p
             className="px-3 py-4 text-xs text-muted-foreground"
             data-testid="palette-empty"
@@ -272,6 +288,57 @@ export function CommandPalette({ palette }: { palette: Palette }) {
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+/** What the list is replaced by in ask mode: **what this question is being
+ * asked with**, stated before it is asked, and the reason it cannot be asked
+ * when there is one.
+ *
+ * The copy is `askMode.ts`'s and is printed verbatim. Nothing is composed here
+ * — a sentence about scope assembled in a component is a sentence no test can
+ * hold to, and the whole risk of this mode is a nice surface implying the model
+ * was handed more than a path. */
+function AskPanel({ ask }: { ask: Ask }) {
+  return (
+    <div className="flex flex-col gap-2 px-3 py-3" data-testid="palette-ask">
+      <p className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+        asked with
+      </p>
+      {ask.sent.length > 0 ? (
+        <ul className="flex flex-col gap-0.5" data-testid="palette-ask-sent">
+          {ask.sent.map((line) => (
+            <li
+              className="truncate font-mono text-2xs text-foreground"
+              key={line}
+            >
+              {line}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p
+        className="text-2xs text-muted-foreground"
+        data-testid="palette-ask-note"
+      >
+        {ask.note}
+      </p>
+      {ask.blocked === null ? (
+        <p
+          className="text-2xs text-muted-foreground/80"
+          data-testid="palette-ask-ready"
+        >
+          ↵ asks it, and the answer lands in the Agent pane.
+        </p>
+      ) : (
+        <p
+          className="text-2xs text-amber-600 dark:text-amber-500"
+          data-testid="palette-ask-blocked"
+        >
+          {ask.blocked}
+        </p>
+      )}
     </div>
   );
 }
