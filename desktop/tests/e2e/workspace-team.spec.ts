@@ -1,6 +1,6 @@
 // Talking to a Buzz agent team about a worktree, proved against a real render
 // (vingilot/docs/plans/2026-08-08-scratch-and-team-thread.md, Task 2;
-// vingilot/docs/plans/2026-08-09-team-thread-fidelity.md, Task 1).
+// vingilot/docs/plans/2026-08-09-team-thread-fidelity.md, Tasks 1 and 2).
 //
 // `teamThread.test.mjs` says what each sentence reads as; `teamThreadStore.test.mjs`
 // says what is kept and what is refused. What only a browser can say is the
@@ -13,6 +13,11 @@
 //   back would turn this red. The failure that made it matter: no upstream
 //   composer meant no mention autocomplete and no `p` tags, and `buzz-acp`
 //   dispatches on a mention filter, so the team could not hear him;
+// - that **the team can be addressed**: `@` in the hosted composer offers the
+//   deployed members by name, and the message that leaves carries their `p`
+//   tag. Both are asserted against a message sent the same way from
+//   `/channels/general`, because "the same as a normal channel" is the claim,
+//   not "a mention happens";
 // - that **what the scope sentence claims is what happens**. It no longer
 //   promises a line in front of each message, because nothing prepends one any
 //   more: the path is in the channel's description and the branch in its name.
@@ -62,6 +67,22 @@ const TEAM = {
   id: "team-launch",
   name: "Launch Team",
   personaIds: ["persona-planner", "persona-builder"],
+};
+
+/** A managed agent this app owns that is in no channel of this spec's. It is
+ * seeded so the mention assertions can tell the two candidate sources apart:
+ * the deployed members must arrive as *members* of the thread, and this one
+ * must arrive from the managed-agent list carrying "not in channel". */
+const SPARE_AGENT = {
+  name: "Sparebot",
+  pubkey: "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+};
+
+/** The same kind of agent, but a member of an ordinary channel — the other end
+ * of the comparison the mention test is built on. */
+const REF_AGENT = {
+  name: "Refbot",
+  pubkey: "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b",
 };
 
 async function mockCoordinator(page: Page) {
@@ -229,9 +250,24 @@ async function openThread(page: Page) {
   await expect(hostedComposer(page)).toBeVisible({ timeout: 15_000 });
 }
 
-async function openWorktree(page: Page, teams: TeamsMode = "seeded") {
+async function openWorktree(
+  page: Page,
+  teams: TeamsMode = "seeded",
+  managedAgents: {
+    channelNames?: string[];
+    name: string;
+    pubkey: string;
+  }[] = [],
+) {
   await page.setViewportSize({ height: 900, width: 1700 });
-  await installMockBridge(page, { personas: PERSONAS, teams: [TEAM] });
+  await installMockBridge(page, {
+    managedAgents: managedAgents.map((agent) => ({
+      ...agent,
+      status: "stopped" as const,
+    })),
+    personas: PERSONAS,
+    teams: [TEAM],
+  });
   await stubTeams(page, teams);
   await mockCoordinator(page);
   await page.goto("/#/workspace");
@@ -272,6 +308,41 @@ async function lastMessage(page: Page) {
     const messages = signed.filter((event) => event.kind === 9);
     return messages[messages.length - 1] ?? null;
   });
+}
+
+/** The tag names of an event, in order. What "the same event a channel would
+ * have sent" can actually be compared on: the pubkeys inside two different
+ * channels' messages differ by construction, the structure must not. */
+function tagShape(event: { tags?: string[][] } | null) {
+  return (event?.tags ?? []).map((tag) => tag[0]);
+}
+
+/** The pubkey the deploy minted for a team member, read back out of the list
+ * the app's own mention candidates are built from. Hardcoding one would assert
+ * against a fixture instead of against what was deployed. */
+async function deployedAgentPubkey(page: Page, name: string) {
+  return page.evaluate(async (agentName) => {
+    const internals = (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__;
+    const agents = (await internals.invoke("list_managed_agents")) as {
+      name: string;
+      pubkey: string;
+    }[];
+    return agents.find((agent) => agent.name === agentName)?.pubkey ?? null;
+  }, name);
+}
+
+/** Wait out the deploy. The channel — and therefore the composer — exists
+ * before its members do, so typing `@` the moment the composer appears would
+ * be asking for a candidate list that is still being written. */
+async function waitForDeploy(page: Page) {
+  await expect(page.getByTestId("team-deploying")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__DEPLOYS__)).toBe(2);
 }
 
 test.describe("talk to a team about this worktree", () => {
@@ -365,6 +436,125 @@ test.describe("talk to a team about this worktree", () => {
         }),
       )
       .toMatchObject({ app: "5.75rem", pane: /px$/ });
+  });
+
+  test("`@` offers the deployed team, from the two sources a channel uses", async ({
+    page,
+  }) => {
+    await openWorktree(page, "seeded", [SPARE_AGENT]);
+    await openThread(page);
+    await waitForDeploy(page);
+
+    const pane = page.getByTestId("team-thread");
+    await pane.getByTestId("message-input").fill("@");
+    const dropdown = pane.getByTestId("mention-autocomplete");
+    await expect(dropdown).toBeVisible();
+
+    for (const member of ["Planner", "Builder"]) {
+      const row = dropdown.locator("button", { hasText: member });
+      await expect(row).toBeVisible();
+      await expect(row.getByTestId("mention-agent-icon")).toBeVisible();
+      // **Source one: channel membership.** The deploy enrols each member with
+      // role "bot", so upstream reads them as members of this channel. An agent
+      // the deploy failed to enrol would still be offered — the managed-agent
+      // list is the other source — and would carry this label. Its absence is
+      // therefore what says the membership half worked, which a bare
+      // "Planner is in the list" would not.
+      await expect(row.getByText("not in channel")).toHaveCount(0);
+    }
+
+    // **Source two: the managed-agent list.** An agent of this app's that is in
+    // no channel is offered as well, and says so. Both halves of a normal
+    // channel's list are present, which is what makes this the same list.
+    const spare = dropdown.locator("button", { hasText: SPARE_AGENT.name });
+    await expect(spare).toBeVisible();
+    await expect(spare.getByText("not in channel")).toBeVisible();
+
+    // Selecting one puts the mention in the composer, as an agent mention.
+    // Waiting for the list to be *only* Planner is not decoration: the
+    // dropdown keeps rendering the previous query's rows until the debounce
+    // lands, so an Enter sent before it does picks off the older list.
+    await pane.getByTestId("message-input").fill("@Plan");
+    await expect(dropdown.locator("button")).toHaveCount(1);
+    await expect(dropdown.locator("button")).toContainText("Planner");
+    await pane.getByTestId("message-input").press("Enter");
+    await expect(pane.getByTestId("message-input")).toHaveText("@Planner ");
+    await expect(
+      pane
+        .getByTestId("message-input")
+        .locator(".agent-mention-highlight", { hasText: "Planner" }),
+    ).toBeVisible();
+  });
+
+  test("a mention sent from the pane is tagged the way a channel tags one", async ({
+    page,
+  }) => {
+    await openWorktree(page, "seeded", [
+      { ...REF_AGENT, channelNames: ["general"] },
+    ]);
+
+    // The baseline first: the same gesture on the route this pane is meant to
+    // be indistinguishable from. Both messages are read off `sign_event`, so
+    // what is compared is what crossed the boundary, not what was rendered.
+    await page.goto("/#/");
+    await page.getByTestId("channel-general").click();
+    await expect(page.getByTestId("chat-title")).toHaveText("general");
+    await page.getByTestId("message-input").fill(`@${REF_AGENT.name}`);
+    const routeDropdown = page
+      .getByTestId("message-composer")
+      .getByTestId("mention-autocomplete");
+    await expect(routeDropdown.locator("button")).toHaveCount(1);
+    await expect(routeDropdown.locator("button")).toContainText(REF_AGENT.name);
+    await page.getByTestId("message-input").press("Enter");
+    await page.keyboard.type(QUESTION);
+    await page.getByTestId("send-message").click();
+    await expect
+      .poll(async () => (await lastMessage(page))?.content ?? null, {
+        timeout: 15_000,
+      })
+      .toContain(QUESTION);
+    const fromChannel = await lastMessage(page);
+    expect(fromChannel?.tags).toContainEqual(["p", REF_AGENT.pubkey]);
+
+    // Now the same thing in the pane.
+    await page.goto("/#/workspace");
+    await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
+    await expect(page.getByTestId("work-surface")).toBeVisible();
+    await openThread(page);
+    await waitForDeploy(page);
+
+    const pane = page.getByTestId("team-thread");
+    await pane.getByTestId("message-input").fill("@Plan");
+    const paneDropdown = pane.getByTestId("mention-autocomplete");
+    await expect(paneDropdown.locator("button")).toHaveCount(1);
+    await expect(paneDropdown.locator("button")).toContainText("Planner");
+    await pane.getByTestId("message-input").press("Enter");
+    await page.keyboard.type(QUESTION);
+    await pane.getByTestId("send-message").click();
+    await expect
+      .poll(async () => (await lastMessage(page))?.content ?? null, {
+        timeout: 15_000,
+      })
+      .toContain(QUESTION);
+    const fromPane = await lastMessage(page);
+
+    // **The claim the task is judged on.** `buzz-acp` subscribes with
+    // `require_mention` (crates/buzz-acp/src/lib.rs, `SubscribeMode::Mentions`),
+    // and what it matches on is a `p` tag naming the agent. A message without
+    // one is a message the harness deliberately ignores, so this — not the chip
+    // in the composer — is what "the team can hear him" means.
+    const planner = await deployedAgentPubkey(page, "Planner");
+    expect(planner).not.toBeNull();
+    expect(fromPane?.tags).toContainEqual(["p", planner]);
+
+    // And it is the same event shape, not merely an event with a `p` in it.
+    expect(tagShape(fromPane)).toEqual(tagShape(fromChannel));
+    expect(tagShape(fromPane)).toEqual(["h", "p"]);
+
+    // The other member was not addressed: a mention is a mention, not a
+    // broadcast to everything the deploy put in the channel.
+    const builder = await deployedAgentPubkey(page, "Builder");
+    expect(fromPane?.tags).not.toContainEqual(["p", builder]);
   });
 
   test("with no team configured it says so, and nothing is hosted", async ({

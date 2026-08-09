@@ -17,16 +17,27 @@
 // (vingilot/docs/plans/2026-08-09-team-thread-fidelity.md). What is left here is
 // what the *pane* owns: which team, which channel, and opening one.
 //
+// **And one thing hosting alone did not buy.** Upstream's composer asks four
+// queries who can be mentioned, and this hook's deploy changes the answer to
+// three of them without going through any of the mutations that say so — see
+// `refreshDeployedTeam`, which is that sentence and nothing else. Until it ran,
+// the team was deployed and invisible: the autocomplete offered the *personas*
+// they were minted from, which mention nobody.
+//
 // **Why this is a hook and not a component.** The pane is a rendering of what
 // is below; keeping the questions here means the component is a function of an
 // answer, and the answer's shape is `teamThread.ts`'s, which is pure and
 // tested. It also keeps the component under its cap.
 
+import type { QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import { createChannelManagedAgents } from "@/features/agents/channelAgents";
 import type { CreateChannelManagedAgentInput } from "@/features/agents/channelAgents";
 import {
+  managedAgentsQueryKey,
+  relayAgentsQueryKey,
   useAvailableAcpRuntimes,
   usePersonasQuery,
 } from "@/features/agents/hooks";
@@ -41,6 +52,7 @@ import {
 import { useTeamsQuery } from "@/features/agents/teamHooks";
 import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
 import {
+  invalidateChannelState,
   useChannelsQuery,
   useCreateChannelMutation,
 } from "@/features/channels/hooks";
@@ -151,6 +163,7 @@ export function useTeamThread(input: {
   const channelsQuery = useChannelsQuery();
   const { globalConfig } = useGlobalAgentConfig();
   const createChannel = useCreateChannelMutation();
+  const queryClient = useQueryClient();
 
   const teams = teamsQuery.data ?? NO_TEAMS;
   const binding = bindingFor(bindings, bindingId);
@@ -258,11 +271,12 @@ export function useTeamThread(input: {
     setDeployFailures([]);
     const teamId = team.id;
     void (async () => {
-      // Which half of the open a failure lands in. Read in the `catch`, where
-      // the only other evidence would be the shape of an error message.
-      let threadExists = false;
+      // The channel, once there is one. Which half of the open a failure lands
+      // in is read off it in the `catch`, where the only other evidence would
+      // be the shape of an error message; the `finally` needs the id itself.
+      let opened: string | null = null;
       try {
-        const opened = await createChannel.mutateAsync({
+        const channel = await createChannel.mutateAsync({
           channelType: "stream",
           description: threadChannelDescription(team.name, cwd),
           name: threadChannelName(bindingId, teamId, team.name, worktreeLabel),
@@ -278,10 +292,10 @@ export function useTeamThread(input: {
         // recoverable; a thread nobody can name is not. `withThreadChannel`
         // still refuses if the owner chose another team while this was in
         // flight.
-        rememberChannel(bindingId, teamId, opened.id);
-        threadExists = true;
+        rememberChannel(bindingId, teamId, channel.id);
+        opened = channel.id;
         const result = await createChannelManagedAgents(
-          opened.id,
+          channel.id,
           resolved.resolvedPersonas.map((persona) =>
             deployInput(persona, runtimes, defaultRuntime, teamId),
           ),
@@ -298,9 +312,12 @@ export function useTeamThread(input: {
         // them — listing this app's agents, reading the channel's members —
         // failing wholesale. The thread is still open, and saying otherwise
         // beside a working composer is the sentence this distinction removes.
-        const step: TeamThreadStep = threadExists ? "deploy" : "open";
+        const step: TeamThreadStep = opened === null ? "open" : "deploy";
         setTrouble({ message: reasonOf(error), step });
       } finally {
+        // Also on the way out of a throw: a batch that failed part-way still
+        // minted and enrolled the members it got to.
+        if (opened !== null) void refreshDeployedTeam(queryClient, opened);
         setOpening(false);
       }
     })();
@@ -310,6 +327,7 @@ export function useTeamThread(input: {
     cwd,
     defaultRuntime,
     opening,
+    queryClient,
     rememberChannel,
     resolved,
     runtimes,
@@ -341,6 +359,38 @@ export function useTeamThread(input: {
     teams,
     trouble,
   };
+}
+
+/** Everything that has to be re-read once a team has been deployed into a
+ * channel — upstream's own set for the same act (`invalidateAgentQueries`,
+ * private to `features/agents/hooks.ts`, run on settle by every mutation that
+ * wraps this deploy). This hook cannot borrow those mutations: they take the
+ * channel id a render before the channel exists, and it does not exist until
+ * inside `openThread`'s callback.
+ *
+ * Why each, and why none of them heals on its own inside the half-minute in
+ * which he types his first message:
+ *
+ * - **the managed-agent list** is what *every* agent mention candidate is
+ *   gated on (`isAgentIdentityInManagedList`). Stale, the team's own agents
+ *   are not offered at all — what the autocomplete shows in their place is the
+ *   personas they were deployed from, which look the part and mention nobody.
+ *   Its poll only runs while an agent is already known to be running, which is
+ *   the state this deploy is what creates;
+ * - **the channel's members** decide whether those agents read as members or
+ *   as strangers to add before sending. That query has no poll and no event
+ *   path at all;
+ * - **the relay directory** carries their answer policy.
+ */
+async function refreshDeployedTeam(
+  queryClient: QueryClient,
+  channelId: string,
+) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey }),
+    queryClient.invalidateQueries({ queryKey: relayAgentsQueryKey }),
+    invalidateChannelState(queryClient, channelId),
+  ]);
 }
 
 function teamCount(query: {
