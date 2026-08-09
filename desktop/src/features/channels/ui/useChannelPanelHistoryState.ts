@@ -6,12 +6,14 @@ import {
   profilePanelViewFromSearch,
   type ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanelUtils";
+import { useIsHostedChannel } from "@/shared/context/HostedChannelContext";
 import {
   type HistorySearchSetterOptions,
   useHistorySearchState,
 } from "@/shared/hooks/useHistorySearchState";
 import {
   buildAutoSendClearPatch,
+  type ChannelSearchKey,
   CHANNEL_SEARCH_KEYS,
 } from "./channelSearchKeys";
 export type { ChannelSearchKey } from "./channelSearchKeys";
@@ -29,6 +31,9 @@ export type { ChannelSearchKey } from "./channelSearchKeys";
  * carries a sentinel `"1"` rather than an id), `autoSend` (draft auto-submit
  * trigger — cleared surgically after the auto-submit fires so `thread` and
  * all other panel state are preserved).
+ *
+ * Inside a hosted channel surface (`useIsHostedChannel`) the same values and
+ * setters are backed by component state instead — see `useLocalPanelState`.
  */
 
 export type PanelSetterOptions = HistorySearchSetterOptions;
@@ -40,8 +45,60 @@ export type PanelValueSetter = (
 
 const CHANNEL_MANAGEMENT_OPEN_VALUE = "1";
 
+/** The same `{applyPatch, values}` contract as `useHistorySearchState`, held in
+ * component state instead of the URL.
+ *
+ * For a channel surface hosted outside the channel route (a workspace pane):
+ * the panel keys name *one* open thread, *one* open profile, and the hosting
+ * route is shared by everything else on screen, so writing them to the URL
+ * would make two hosted surfaces fight over one thread panel — and would put a
+ * channel's panel state on a route that is not a channel's. `replace` is
+ * accepted and ignored: there is no history entry to replace when the state
+ * never reaches the URL, which also means back/forward does not close a hosted
+ * panel. That is the trade, and it is the smaller one.
+ */
+function useLocalPanelState<K extends string>(keys: readonly K[]) {
+  const [values, setValues] = React.useState<Record<K, string | null>>(() => {
+    const initial = {} as Record<K, string | null>;
+    for (const key of keys) {
+      initial[key] = null;
+    }
+    return initial;
+  });
+
+  const applyPatch = React.useCallback(
+    (
+      patch: Partial<Record<K, string | null>>,
+      _options?: HistorySearchSetterOptions,
+    ) => {
+      setValues((current) => {
+        let next = current;
+        for (const key of Object.keys(patch) as K[]) {
+          const patched = patch[key];
+          if (patched === undefined) continue;
+          const value = patched ?? null;
+          if (current[key] === value) continue;
+          if (next === current) next = { ...current };
+          next[key] = value;
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  return { applyPatch, values };
+}
+
 export function useChannelPanelHistoryState() {
-  const { applyPatch, values } = useHistorySearchState(CHANNEL_SEARCH_KEYS);
+  const isHostedChannel = useIsHostedChannel();
+  // Both stores are read on every render — a hook cannot be called
+  // conditionally — and only the chosen one is ever written to. Reading the URL
+  // in a hosted surface costs nothing: `useSearch` is non-strict, so a route
+  // that declares none of these keys simply answers null for all of them.
+  const urlState = useHistorySearchState(CHANNEL_SEARCH_KEYS);
+  const localState = useLocalPanelState<ChannelSearchKey>(CHANNEL_SEARCH_KEYS);
+  const { applyPatch, values } = isHostedChannel ? localState : urlState;
 
   const setOpenThreadHeadId = React.useCallback<PanelValueSetter>(
     (value, options) => applyPatch({ thread: value }, options),

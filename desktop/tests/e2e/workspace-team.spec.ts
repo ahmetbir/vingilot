@@ -1,24 +1,31 @@
 // Talking to a Buzz agent team about a worktree, proved against a real render
-// (vingilot/docs/plans/2026-08-08-scratch-and-team-thread.md, Task 2).
+// (vingilot/docs/plans/2026-08-08-scratch-and-team-thread.md, Task 2;
+// vingilot/docs/plans/2026-08-09-team-thread-fidelity.md, Task 1).
 //
-// `teamThread.test.mjs` says what each sentence reads as and what a message is
-// made of; `teamThreadStore.test.mjs` says what is kept and what is refused.
-// What only a browser can say is the claim the task is judged on:
+// `teamThread.test.mjs` says what each sentence reads as; `teamThreadStore.test.mjs`
+// says what is kept and what is refused. What only a browser can say is the
+// claim these tasks are judged on:
 //
-// - that **the scope on screen is the scope that is sent**. The sentence quotes
-//   one line and the message carries it, and this spec asserts both against a
-//   *literal* string rather than against the constant the renderer read — so a
-//   change to either side turns it red. What crossed the boundary is read off
-//   `sign_event`, which is where every relay message this app publishes is
-//   signed;
-// - that the conversation goes **to the relay**: the message is signed as a
-//   kind:9 channel event addressed to a channel that did not exist before the
-//   thread was opened, not written into any store of this pane's own;
+// - that the conversation in this pane **is upstream's**, not a second one
+//   built beside it. The assertions are on upstream-owned testids
+//   (`message-composer`, `message-row`) and on the *absence* of the island's
+//   old ones (`team-composer`, `team-send`) — a pane that grew its own composer
+//   back would turn this red. The failure that made it matter: no upstream
+//   composer meant no mention autocomplete and no `p` tags, and `buzz-acp`
+//   dispatches on a mention filter, so the team could not hear him;
+// - that **what the scope sentence claims is what happens**. It no longer
+//   promises a line in front of each message, because nothing prepends one any
+//   more: the path is in the channel's description and the branch in its name.
+//   The spec asserts the claim and asserts that a sent message carries the
+//   typed words and nothing else;
+// - that opening a thread reaches **the relay**: a channel that did not exist
+//   before, read off `sign_event`, which is where every relay message this app
+//   publishes is signed;
 // - that **"could not ask" is not "no"** — with `list_teams` throwing, the pane
 //   says it could not ask and stays open, rather than reporting a machine with
 //   no teams on it;
 // - that with no team configured the pane says so, in its own sentence, and
-//   offers nothing to type into.
+//   hosts nothing.
 //
 // The coordinator is mocked the same way workspace-ask.spec.ts mocks it, and
 // the pty commands are stubbed for the same reason: what is under test is one
@@ -34,14 +41,15 @@ const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 const COORDINATOR_ORIGIN = "http://127.0.0.1:7117";
 
 /** The main checkout *is* the repo, so this path is the worktree's cwd and
- * therefore the exact string the scope has to carry (`projects.ts`'s
+ * therefore the exact string the scope sentence has to carry (`projects.ts`'s
  * `worktreeCwd`). */
 const REPO = { id: "repo-left", name: "vingilot", path: "/tmp/vingilot-left" };
 
-/** Written out rather than composed from `SCOPE_PREFIX`: a spec that built the
+/** Written out rather than read off the product: a spec that built the
  * expectation the same way the product does would pass through any change to
- * either. */
-const SCOPE_LINE = "worktree: /tmp/vingilot-left";
+ * either. This is the line the pane used to put in front of every message and
+ * must not put there any more. */
+const OLD_SCOPE_LINE = "worktree: /tmp/vingilot-left";
 const QUESTION = "why is the build red";
 
 const PERSONAS = [
@@ -199,31 +207,26 @@ async function stubBackend(page: Page) {
       if (window.__FAIL_DEPLOY__ === true && name === "list_managed_agents") {
         return Promise.reject(new Error("the agent store could not be read"));
       }
-      if (name === "sign_event") {
-        window.__SIGNED__?.push(args);
-        // A relay hiccup, made to order. Signing is the first step of the
-        // publish, so refusing it here is a send that fails before anything
-        // leaves — which is exactly the case where the composer used to be
-        // emptied anyway.
-        const kind = (args as { kind?: number } | undefined)?.kind;
-        if (window.__FAIL_SENDS__ === true && kind === 9) {
-          return Promise.reject(new Error("the relay refused this message"));
-        }
-      }
+      if (name === "sign_event") window.__SIGNED__?.push(args);
       return passThrough(cmd, args, opts);
     };
   });
 }
 
-/** Open a thread with `TEAM` and wait until there is something to type into. */
+/** The hosted conversation: upstream's composer, inside this pane's slot for
+ * it. Asserting on `message-composer` rather than on anything of the island's
+ * is the point — it is the testid a copied component would not have. */
+function hostedComposer(page: Page) {
+  return page.getByTestId("team-thread").getByTestId("message-composer");
+}
+
+/** Open a thread with `TEAM` and wait until upstream's composer is standing. */
 async function openThread(page: Page) {
   await choosePane(page, "team");
   await expect(page.getByTestId("team-choice")).toBeVisible();
   await page.getByTestId(`team-choice-${TEAM.id}`).click();
   await page.getByTestId("team-open").click();
-  await expect(page.getByTestId("team-composer")).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(hostedComposer(page)).toBeVisible({ timeout: 15_000 });
 }
 
 async function openWorktree(page: Page, teams: TeamsMode = "seeded") {
@@ -272,7 +275,7 @@ async function lastMessage(page: Page) {
 }
 
 test.describe("talk to a team about this worktree", () => {
-  test("the scope on screen is the line the relay is actually sent", async ({
+  test("the pane hosts the real conversation, and sends exactly what was typed", async ({
     page,
   }) => {
     await openWorktree(page);
@@ -286,33 +289,47 @@ test.describe("talk to a team about this worktree", () => {
     await expect(page.getByTestId("team-members")).toContainText("Planner");
     await expect(page.getByTestId("team-members")).toContainText("Builder");
     const scope = page.getByTestId("team-scope");
-    await expect(scope).toContainText(SCOPE_LINE);
+    await expect(scope).toContainText(REPO.path);
     await expect(scope).toContainText("not the diff");
     await expect(scope).toContainText("not the plan");
     // The branch is not in the message and is not claimed to be kept from the
     // team either: it is in the name of the channel this pane makes, which the
-    // sentence now says rather than enumerating away.
+    // sentence says rather than enumerating away.
     await expect(scope).toContainText("name of the channel");
     // The thing this pane has to say that ask-mode does not: the path is text,
     // not a directory the team is standing in.
     await expect(scope).toContainText("not started in this directory");
+    // And the claim this task changed: nothing is put in front of a message.
+    await expect(scope).toContainText("what you type is what is sent");
 
     await page.getByTestId("team-open").click();
-    await expect(page.getByTestId("team-composer")).toBeVisible({
-      timeout: 15_000,
-    });
+
+    // **The conversation is upstream's.** These two testids belong to
+    // `MessageComposer` and `MessageRow`; the island owns neither, and a pane
+    // that reimplemented them would have to have copied the component to keep
+    // this green.
+    await expect(hostedComposer(page)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("team-composer")).toHaveCount(0);
+    await expect(page.getByTestId("team-send")).toHaveCount(0);
+
     // Nothing has been sent by opening a thread.
     expect(await lastMessage(page)).toBeNull();
 
-    await page.getByTestId("team-composer").fill(QUESTION);
-    await page.getByTestId("team-send").click();
+    await page
+      .getByTestId("team-thread")
+      .getByTestId("message-input")
+      .fill(QUESTION);
+    await page.getByTestId("team-thread").getByTestId("send-message").click();
 
-    // What crossed the boundary, against the literal the scope claims.
+    // What crossed the boundary: the words, and nothing in front of them. The
+    // pane used to prepend a `worktree:` line here; the scope sentence above no
+    // longer claims one, and this is the other half of that claim.
     await expect
       .poll(async () => (await lastMessage(page))?.content ?? null, {
         timeout: 15_000,
       })
-      .toBe(`${SCOPE_LINE}\n\n${QUESTION}`);
+      .toBe(QUESTION);
+    expect((await lastMessage(page))?.content).not.toContain(OLD_SCOPE_LINE);
 
     // And it went to the relay as a channel message, addressed to the channel
     // this pane opened — not to a store of its own.
@@ -320,13 +337,37 @@ test.describe("talk to a team about this worktree", () => {
     const channelTag = sent?.tags?.find((tag) => tag[0] === "h") ?? null;
     expect(channelTag).not.toBeNull();
 
-    // The thread shows what was said without repeating the scope in the bubble.
-    const thread = page.getByTestId("team-thread");
-    await expect(thread).toContainText(QUESTION);
-    await expect(thread).not.toContainText(SCOPE_LINE);
+    // It comes back in upstream's timeline, drawn by upstream's row.
+    await expect(
+      page.getByTestId("team-thread").getByTestId("message-row").last(),
+    ).toContainText(QUESTION);
+
+    // **The hosted surface measures its header onto the pane, not onto the
+    // app.** The channel screen writes `--buzz-channel-content-top-padding` on
+    // whatever its main inset is; left alone that is the app's `<main>`, and a
+    // pane would be resizing the app's chrome from inside a column. The app
+    // inset must still be carrying the untouched default.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const read = (element: Element | null) =>
+            element instanceof HTMLElement
+              ? element.style.getPropertyValue(
+                  "--buzz-channel-content-top-padding",
+                )
+              : null;
+          return {
+            app: read(document.querySelector("[data-buzz-glass-inset]")),
+            pane: read(
+              document.querySelector('[data-testid="team-thread-inset"]'),
+            ),
+          };
+        }),
+      )
+      .toMatchObject({ app: "5.75rem", pane: /px$/ });
   });
 
-  test("with no team configured it says so, and there is nothing to type into", async ({
+  test("with no team configured it says so, and nothing is hosted", async ({
     page,
   }) => {
     await openWorktree(page, "none");
@@ -339,43 +380,8 @@ test.describe("talk to a team about this worktree", () => {
       "Agents → Teams",
     );
     await expect(page.getByTestId("team-choice")).toBeHidden();
-    await expect(page.getByTestId("team-composer")).toBeHidden();
+    await expect(page.getByTestId("team-thread")).toHaveCount(0);
     expect(await lastMessage(page)).toBeNull();
-  });
-
-  test("a send that fails keeps every character he typed", async ({ page }) => {
-    await openWorktree(page);
-    await openThread(page);
-
-    await page.evaluate(() => {
-      window.__FAIL_SENDS__ = true;
-    });
-    const composer = page.getByTestId("team-composer");
-    await composer.fill(QUESTION);
-    await page.getByTestId("team-send").click();
-
-    // It says the send failed, in the words of whatever refused it, and says
-    // where the text is rather than leaving him to find out.
-    const trouble = page.getByTestId("team-trouble");
-    await expect(trouble).toContainText("did not go");
-    await expect(trouble).toContainText("still in the composer");
-    await expect(trouble).toContainText("the relay refused this message");
-
-    // And the paragraph is still there, to the character.
-    await expect(composer).toHaveValue(QUESTION);
-
-    // The retry is a second click, not a retype.
-    await page.evaluate(() => {
-      window.__FAIL_SENDS__ = false;
-    });
-    await page.getByTestId("team-send").click();
-    await expect
-      .poll(async () => (await lastMessage(page))?.content ?? null, {
-        timeout: 15_000,
-      })
-      .toBe(`${SCOPE_LINE}\n\n${QUESTION}`);
-    // Accepted, and only now is the composer empty.
-    await expect(composer).toHaveValue("");
   });
 
   test("a deploy that fails does not call the thread it opened unopened", async ({
@@ -391,9 +397,7 @@ test.describe("talk to a team about this worktree", () => {
 
     // The channel was made and this worktree's pointer written before the
     // members were deployed, so what is on screen is a working thread.
-    await expect(page.getByTestId("team-composer")).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(hostedComposer(page)).toBeVisible({ timeout: 15_000 });
     const trouble = page.getByTestId("team-trouble");
     await expect(trouble).toContainText("the thread is open");
     await expect(trouble).toContainText("nobody may answer");
@@ -405,38 +409,6 @@ test.describe("talk to a team about this worktree", () => {
     expect(await page.evaluate(() => window.__DEPLOYS__)).toBe(0);
   });
 
-  test("a half-written message survives the pane being torn down and rebuilt", async ({
-    page,
-  }) => {
-    await openWorktree(page);
-    await openThread(page);
-
-    const half = "the parser regressed when we";
-    await page.getByTestId("team-composer").fill(half);
-
-    // Out of the React heap and into storage on the keystroke — which is what a
-    // relay reinit needs, since it remounts the whole community subtree
-    // (`<AppReady key={communityKey}>`) and every `useState` under it.
-    expect(
-      await page.evaluate(() =>
-        window.localStorage.getItem("vingilot-team-draft.v1"),
-      ),
-    ).toContain(half);
-
-    // A real teardown: putting another pane in the slot unmounts this one and
-    // everything it held, and coming back builds a fresh hook. Route navigation
-    // is *not* enough here — the workspace screen survives it, so a spec that
-    // used it would pass with the draft still sitting in React state, which is
-    // the bug.
-    await choosePane(page, "notes");
-    await expect(page.getByTestId("team-composer")).toBeHidden();
-    await choosePane(page, "team");
-
-    await expect(page.getByTestId("team-composer")).toHaveValue(half);
-    // And nothing was sent by any of it.
-    expect(await lastMessage(page)).toBeNull();
-  });
-
   test("changing team asks first, and the thread comes back without a second team", async ({
     page,
   }) => {
@@ -445,19 +417,20 @@ test.describe("talk to a team about this worktree", () => {
     const deployed = await page.evaluate(() => window.__DEPLOYS__);
     expect(deployed).toBeGreaterThan(0);
 
-    // The control is not beside Send any more, and one click on it changes
-    // nothing — it asks, and names the channel it would let go of.
+    // The control is in the pane's chrome, not beside a Send button, and one
+    // click on it changes nothing — it asks, and names the channel it would let
+    // go of.
     await page.getByTestId("team-change").click();
     const confirm = page.getByTestId("team-change-confirm");
     await expect(confirm).toContainText("stops pointing at #wt-");
     await expect(confirm).toContainText("Nothing is deleted");
     await expect(confirm).toContainText("keep running");
-    await expect(page.getByTestId("team-composer")).toBeVisible();
+    await expect(hostedComposer(page)).toBeVisible();
 
     // Declining leaves the thread exactly where it was.
     await page.getByTestId("team-change-no").click();
     await expect(confirm).toBeHidden();
-    await expect(page.getByTestId("team-composer")).toBeVisible();
+    await expect(hostedComposer(page)).toBeVisible();
 
     // Accepting drops the pointer — and only the pointer.
     await page.getByTestId("team-change").click();
@@ -471,7 +444,7 @@ test.describe("talk to a team about this worktree", () => {
       "already has a thread",
     );
     await page.getByTestId("team-adopt").click();
-    await expect(page.getByTestId("team-composer")).toBeVisible();
+    await expect(hostedComposer(page)).toBeVisible();
 
     // Nothing was minted to get back into it.
     expect(await page.evaluate(() => window.__DEPLOYS__)).toBe(deployed);
@@ -500,8 +473,6 @@ declare global {
     __SIGNED__?: unknown[];
     /** How many managed agent processes have been minted since boot. */
     __DEPLOYS__: number;
-    /** When true, signing a kind:9 fails — a send that does not leave. */
-    __FAIL_SENDS__?: boolean;
     /** When true, the deploy's first call fails — an open whose channel was
      * made and whose members were not. */
     __FAIL_DEPLOY__?: boolean;

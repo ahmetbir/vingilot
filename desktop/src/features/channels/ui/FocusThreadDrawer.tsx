@@ -6,6 +6,7 @@ import {
   THREAD_FOCUS_SLIVER_WIDTH_PX,
 } from "@/features/channels/lib/threadFocusLayout";
 import { getThreadViewMode } from "@/features/channels/lib/threadViewModePreference";
+import { useIsHostedChannel } from "@/shared/context/HostedChannelContext";
 import { cn } from "@/shared/lib/cn";
 
 type FocusThreadDrawerProps = {
@@ -142,11 +143,27 @@ export function FocusThreadDrawer({
   const prefersReducedMotion = useReducedMotion();
   const travelPx = prefersReducedMotion ? 0 : THREAD_FOCUS_DRAWER_TRAVEL_PX;
   const drawerRef = React.useRef<HTMLDivElement>(null);
+  const overlayRef = React.useRef<HTMLDivElement>(null);
   const previousFocusRef = React.useRef<HTMLElement | null>(null);
+  const isHostedChannel = useIsHostedChannel();
 
   React.useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      // On the channel route this drawer covers the whole content area and is
+      // the app's top layer, so it takes Escape wherever it was pressed. Hosted
+      // in a pane it covers one pane and nothing else, while the surfaces that
+      // also want Escape — the workspace palette, the cheatsheet — sit above it
+      // and listen on the same window in the same phase. So a hosted drawer
+      // answers only for its own keystrokes: it grabs focus on mount, and
+      // `stopImmediatePropagation` below is what would otherwise make this the
+      // last word for the whole app.
+      if (
+        isHostedChannel &&
+        !overlayRef.current?.contains(event.target as Node | null)
+      ) {
+        return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
       onClose();
@@ -156,7 +173,7 @@ export function FocusThreadDrawer({
     return () => {
       window.removeEventListener("keydown", handleEscape, { capture: true });
     };
-  }, [onClose]);
+  }, [isHostedChannel, onClose]);
 
   React.useLayoutEffect(() => {
     previousFocusRef.current =
@@ -181,6 +198,7 @@ export function FocusThreadDrawer({
     <div
       className="absolute inset-0 z-41"
       data-testid="focus-thread-drawer-overlay"
+      ref={overlayRef}
     >
       <motion.button
         animate={{ opacity: 1 }}

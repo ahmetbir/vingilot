@@ -6,15 +6,12 @@ import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHead
 import { useChannelPaneHandlers } from "@/features/channels/useChannelPaneHandlers";
 import { useMessageEventProfilePubkeys } from "@/features/channels/useMessageEventProfilePubkeys";
 import { useMessageOwnerProfiles } from "@/features/channels/useMessageOwnerProfiles";
+import { useChannelContextParentResolver } from "@/features/channels/useChannelContextParentResolver";
 import { useThreadTargetSync } from "@/features/channels/useThreadTargetSync";
 import {
   useChannelMembersQuery,
   useJoinChannelMutation,
 } from "@/features/channels/hooks";
-import {
-  MSG_PREFIX,
-  THREAD_PREFIX,
-} from "@/features/channels/readState/readStateFormat";
 import { ChannelScreenEmptyState } from "@/features/channels/ui/ChannelScreenEmptyState";
 import { ChannelScreenHeader } from "@/features/channels/ui/ChannelScreenHeader";
 import { ChannelPane } from "@/features/channels/ui/ChannelScreenLazyViews";
@@ -104,7 +101,6 @@ export function ChannelScreen({
     getChannelReadAt,
     getMessageReadAt,
     markMessageRead,
-    setContextParentResolver,
     openBrowseChannels,
     openCreateChannel,
     openChannelManagement: openGlobalChannelManagement,
@@ -213,18 +209,7 @@ export function ChannelScreen({
     }
     markChannelRead(activeChannelId, activeReadAt, { topLevelOnly: true });
   }, [activeChannel?.isMember, activeChannelId, activeReadAt, markChannelRead]);
-  React.useEffect(() => {
-    if (!activeChannelId) {
-      setContextParentResolver(null);
-      return;
-    }
-    setContextParentResolver((contextId) =>
-      contextId.startsWith(THREAD_PREFIX) || contextId.startsWith(MSG_PREFIX)
-        ? activeChannelId
-        : null,
-    );
-    return () => setContextParentResolver(null);
-  }, [activeChannelId, setContextParentResolver]);
+  useChannelContextParentResolver(activeChannelId);
   const {
     activeChannelTitle,
     activeDmAvatarUrl,

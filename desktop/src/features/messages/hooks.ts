@@ -32,6 +32,7 @@ import {
   recordTimeoutFromRejection,
 } from "@/features/moderation/lib/timeoutStore";
 import { relayClient, setVisibleChannel } from "@/shared/api/relayClient";
+import { useIsHostedChannel } from "@/shared/context/HostedChannelContext";
 import { customEmojiQueryKey } from "@/features/custom-emoji/hooks";
 import { channelsQueryKey } from "@/features/channels/hooks";
 import { reactionEmojiUrl } from "@/shared/api/customEmoji";
@@ -254,6 +255,7 @@ export function useChannelMessagesQuery(channel: Channel | null) {
 
 export function useChannelSubscription(channel: Channel | null) {
   const queryClient = useQueryClient();
+  const isHostedChannel = useIsHostedChannel();
   const channelId = channel?.id ?? null;
   const channelType = channel?.channelType ?? null;
   const refreshNewestWindow = useEffectEvent(async () => {
@@ -333,13 +335,21 @@ export function useChannelSubscription(channel: Channel | null) {
   // Notify the relay client which channel is currently visible so its live
   // subscriptions are replayed first on reconnect, reducing latency on
   // degraded networks.
+  //
+  // A hosted surface (a workspace pane) deliberately does not claim it. The
+  // slot holds one channel and means "the one the owner is looking at"; a
+  // workspace can show several channels at once, so any claim would be a guess,
+  // and the unmount of one pane would clear a claim another still holds. What
+  // is given up is reconnect replay *ordering* for panes — the subscription
+  // itself is unaffected.
   useEffect(() => {
+    if (isHostedChannel) return;
     if (!channelId || channelType === "forum") return;
     setVisibleChannel(channelId);
     return () => {
       setVisibleChannel(null);
     };
-  }, [channelId, channelType]);
+  }, [channelId, channelType, isHostedChannel]);
 
   useEffect(() => {
     if (!channelId || channelType === "forum") {

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { noProbes } from "./paneModel.ts";
+import * as teamThread from "./teamThread.ts";
 import {
   canSend,
-  composeTeamMessage,
   findThreadChannel,
   isThreadChannelName,
   NO_COMMUNITY,
@@ -13,10 +13,7 @@ import {
   RELAY_UNREACHABLE,
   readTeamThread,
   relayReach,
-  SCOPE_PREFIX,
-  scopeLine,
   scopeSentence,
-  splitScope,
   TEAMS_ASKING,
   TEAMS_UNKNOWN,
   teamAvailability,
@@ -166,19 +163,29 @@ test("a worktree with no nameable directory says there is nothing to be about", 
 
 // --- the scope, which is the thing the browser spec checks against ---------
 
-test("the scope line is the prefix and the path, and nothing else", () => {
-  assert.equal(scopeLine("/tmp/vingilot-left"), "worktree: /tmp/vingilot-left");
-  assert.equal(scopeLine("/x").startsWith(SCOPE_PREFIX), true);
-});
-
-test("the sentence quotes the line it will actually send", () => {
+test("the sentence names the worktree and enumerates what does not go", () => {
   const sentence = scopeSentence("/tmp/vingilot-left");
-  assert.ok(sentence.includes(scopeLine("/tmp/vingilot-left")));
-  // And it enumerates what does not go, ask-mode's rule.
+  assert.ok(sentence.includes("/tmp/vingilot-left"));
+  // Ask-mode's rule: state the context, then enumerate what is not sent.
   assert.match(sentence, /not the diff/);
   assert.match(sentence, /not the plan/);
   // Plus the one thing ask-mode does not have to say.
   assert.match(sentence, /not started in this directory/);
+});
+
+test("the sentence claims nothing is put in front of a message, and nothing can put it there", () => {
+  // The pane hosts upstream's composer, which sends what was typed. A sentence
+  // still promising a `worktree: …` line in front of every message would be
+  // describing a send path that no longer exists — and the way that promise
+  // came back would be a helper here quietly composing one again. Both halves
+  // are asserted: the claim, and the absence of anything able to make it true.
+  const sentence = scopeSentence("/tmp/vingilot-left");
+  assert.match(sentence, /what you type is what is sent/);
+  assert.doesNotMatch(sentence, /in front of it/);
+  assert.equal(teamThread.composeTeamMessage, undefined);
+  assert.equal(teamThread.splitScope, undefined);
+  assert.equal(teamThread.scopeLine, undefined);
+  assert.equal(teamThread.SCOPE_PREFIX, undefined);
 });
 
 test("the sentence does not claim the branch is kept from the team", () => {
@@ -190,7 +197,7 @@ test("the sentence does not claim the branch is kept from the team", () => {
   const sentence = scopeSentence("/tmp/vingilot-left");
   assert.doesNotMatch(sentence, /not the branch,/);
   assert.match(sentence, /name of the channel/);
-  assert.match(sentence, /description/);
+  assert.match(sentence, /this channel's description/);
   // The channel really is named after the branch — the fact the sentence is
   // answering to, asserted here rather than assumed.
   assert.match(
@@ -215,51 +222,23 @@ test("a failed deploy never says the thread could not be opened", () => {
   assert.match(deploy, /nobody may answer/);
 });
 
-test("the three steps never read as each other", () => {
-  const [open, deploy, send] = ["open", "deploy", "send"].map(troubleSentence);
-  assert.equal(new Set([open, deploy, send]).size, 3);
+test("the two steps never read as each other, and neither claims a send", () => {
+  const [open, deploy] = ["open", "deploy"].map(troubleSentence);
+  assert.equal(new Set([open, deploy]).size, 2);
   assert.match(open, /could not be opened/);
-  // The send sentence's job is to say where the text is, because text being
-  // kept is only useful if he knows to look for it rather than retyping it.
-  assert.match(send, /still in the composer/);
-  assert.doesNotMatch(send, /thread/);
+  // A message that does not leave is reported by the composer that took it —
+  // upstream's, in the words every other channel uses. This island reporting a
+  // failed send would be reporting a send it no longer makes.
+  assert.equal(troubleSentence("send"), undefined);
 });
 
 test("every step's sentence is about the members, never about the team", () => {
   // A team holds no key and posts nothing; what is deployed, and what can fail
   // to be, is one agent per member (`teamThread.ts`'s header).
-  for (const step of ["open", "deploy", "send"]) {
+  for (const step of ["open", "deploy"]) {
     assert.doesNotMatch(troubleSentence(step), /the team could not/);
   }
   assert.match(troubleSentence("deploy"), /its members could not be deployed/);
-});
-
-test("a composed message carries the scope line and the words, in that order", () => {
-  assert.equal(
-    composeTeamMessage("/tmp/wt", "  why is the build red  "),
-    "worktree: /tmp/wt\n\nwhy is the build red",
-  );
-});
-
-test("an empty message is not a message", () => {
-  assert.equal(composeTeamMessage("/tmp/wt", ""), null);
-  assert.equal(composeTeamMessage("/tmp/wt", "   \n  "), null);
-});
-
-test("the scope comes back off a message it was put on", () => {
-  const sent = composeTeamMessage("/tmp/wt", "why is the build red");
-  assert.deepEqual(splitScope(sent), {
-    body: "why is the build red",
-    scope: "/tmp/wt",
-  });
-});
-
-test("a message nobody scoped keeps every character it had", () => {
-  // What a team member wrote. Reading a scope off it would be inventing one.
-  assert.deepEqual(splitScope("the lockfile is stale"), {
-    body: "the lockfile is stale",
-    scope: null,
-  });
 });
 
 // --- the channel this all lands in -----------------------------------------

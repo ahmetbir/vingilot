@@ -3,22 +3,24 @@
 //
 // **Nothing here is new machinery.** The pane hosts upstream's surfaces rather
 // than reimplementing them, which is what the plan asked for once the survey
-// found that talking to a team already has a path: a channel, one managed agent
-// per persona deployed into it (`features/agents/channelAgents.ts`, the same
-// call `AddTeamToChannelDialog` makes), and upstream's own read/subscribe/send
-// for the messages. This file is the wiring and the ordering; every relay
-// operation in it is an import.
+// found that talking to a team already has a path: a channel, and one managed
+// agent per persona deployed into it (`features/agents/channelAgents.ts`, the
+// same call `AddTeamToChannelDialog` makes). This file is the wiring and the
+// ordering; every relay operation in it is an import.
+//
+// **What this hook stopped doing, 2026-08-10.** It used to read the channel's
+// messages and hold a draft, because the pane drew its own list and composer.
+// It does not any more: the pane mounts `ChannelRouteScreen` on the thread's
+// channel id, so reading, subscribing, drafting and sending are upstream's —
+// with upstream's mention autocomplete and upstream's mention tags, which is
+// the whole reason the team can now hear him
+// (vingilot/docs/plans/2026-08-09-team-thread-fidelity.md). What is left here is
+// what the *pane* owns: which team, which channel, and opening one.
 //
 // **Why this is a hook and not a component.** The pane is a rendering of what
 // is below; keeping the questions here means the component is a function of an
 // answer, and the answer's shape is `teamThread.ts`'s, which is pure and
 // tested. It also keeps the component under its cap.
-//
-// One thing to know about mounting it: `useChannelSubscription` tells the relay
-// client which channel is visible, which upstream's channel screen also does.
-// They never run together — the workspace is a route of its own and the channel
-// screen is not mounted under it — but a future surface that embedded both
-// would have two claims on one global, and this is where that would start.
 
 import * as React from "react";
 
@@ -39,32 +41,19 @@ import {
 import { useTeamsQuery } from "@/features/agents/teamHooks";
 import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
 import {
-  useChannelMembersQuery,
   useChannelsQuery,
   useCreateChannelMutation,
 } from "@/features/channels/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
-import {
-  useChannelMessagesQuery,
-  useChannelSubscription,
-  useSendMessageMutation,
-} from "@/features/messages/hooks";
-import { useIdentityQuery } from "@/shared/api/hooks";
 import type {
   AcpRuntime,
   AgentPersona,
   AgentTeam,
   Channel,
-  RelayEvent,
 } from "@/shared/api/types";
 import { useRelayConnection } from "@/shared/api/useRelayConnection";
-import {
-  KIND_STREAM_MESSAGE,
-  KIND_STREAM_MESSAGE_V2,
-} from "@/shared/constants/kinds";
 
 import {
-  composeTeamMessage,
   findThreadChannel,
   readTeamThread,
   relayReach,
@@ -75,13 +64,6 @@ import {
   threadChannelName,
 } from "./teamThread.ts";
 import {
-  draftFor,
-  readTeamDrafts,
-  type TeamDrafts,
-  withDraft,
-  writeTeamDrafts,
-} from "./teamDraftStore.ts";
-import {
   bindingFor,
   readTeamThreadBindings,
   type TeamThreadBindings,
@@ -90,18 +72,6 @@ import {
   withThreadChannel,
   writeTeamThreadBindings,
 } from "./teamThreadStore.ts";
-
-/** One row of the conversation, as this pane draws it. Deliberately thin:
- * upstream's timeline is a virtualised surface with threads, reactions and
- * media, and none of that is what a worktree thread is for. */
-export interface TeamThreadRow {
-  id: string;
-  pubkey: string;
-  content: string;
-  createdAt: number;
-  /** True for the owner's own messages — the only ones this app signed. */
-  mine: boolean;
-}
 
 /** What the pane could not do, said in the words of whatever refused. */
 export interface TeamThreadTrouble {
@@ -143,9 +113,6 @@ export interface TeamThread {
    * `forgetTeam` would drop. `false` means forgetting costs nothing but the
    * choice, which is why the pane only asks for confirmation when this is true. */
   hasThreadPointer: boolean;
-  messages: TeamThreadRow[];
-  /** Display names for the pubkeys in `messages`, as far as they are known. */
-  nameOf: (pubkey: string) => string | null;
   chooseTeam: (teamId: string) => void;
   /** Put the choice back. Drops this worktree's pointer and nothing else — the
    * channel and everything said in it stay on the relay. */
@@ -155,26 +122,10 @@ export interface TeamThread {
   /** Members that could not be deployed, by name and reason. A partial deploy
    * is reported as one: the thread exists and is short of an agent. */
   deployFailures: { name: string; error: string }[];
-  /** What is typed and not yet sent. Owned here rather than by the composer,
-   * because a `useState` in the composer is lost to the community remount a
-   * relay reconnect performs, and because a failed send must not take it. */
-  draft: string;
-  setDraft: (text: string) => void;
-  /** Sends `draft`. Takes no argument on purpose: the text that goes and the
-   * text on screen are one value, so there is no arrangement in which the
-   * composer is cleared of something other than what left. */
-  send: () => void;
-  sending: boolean;
   trouble: TeamThreadTrouble | null;
 }
 
 const NO_TEAMS: AgentTeam[] = [];
-const NO_MESSAGES: RelayEvent[] = [];
-
-/** Which kinds are a person (or an agent) saying something. Everything else a
- * channel carries — joins, edits, summaries — is machinery, and a worktree
- * thread that printed it would read as noise. */
-const SAID_KINDS = new Set([KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_V2]);
 
 export function useTeamThread(input: {
   bindingId: string | null;
@@ -186,16 +137,6 @@ export function useTeamThread(input: {
   const [bindings, setBindings] = React.useState<TeamThreadBindings>(() =>
     readTeamThreadBindings(),
   );
-  // Seeded from storage on every mount, which is what makes it survive the
-  // remount `<AppReady key={communityKey}>` performs on a relay reinit.
-  const [drafts, setDrafts] = React.useState<TeamDrafts>(() =>
-    readTeamDrafts(),
-  );
-  // The authority between renders, so a keystroke can be mirrored to storage
-  // *outside* the state updater. An updater is not guaranteed to run — React
-  // drops it for a fiber that has unmounted — and "the write only happens if
-  // the component is still there" is precisely the bug being fixed.
-  const draftsRef = React.useRef(drafts);
   const [opening, setOpening] = React.useState(false);
   const [trouble, setTrouble] = React.useState<TeamThreadTrouble | null>(null);
   const [deployFailures, setDeployFailures] = React.useState<
@@ -204,7 +145,6 @@ export function useTeamThread(input: {
 
   const { activeCommunity } = useCommunities();
   const connection = useRelayConnection();
-  const identityQuery = useIdentityQuery();
   const teamsQuery = useTeamsQuery();
   const personasQuery = usePersonasQuery();
   const runtimesQuery = useAvailableAcpRuntimes();
@@ -233,11 +173,6 @@ export function useTeamThread(input: {
       ? null
       : findThreadChannel(channelsQuery.data ?? [], bindingId, team.id);
 
-  useChannelSubscription(channel);
-  const messagesQuery = useChannelMessagesQuery(channel);
-  const membersQuery = useChannelMembersQuery(channel?.id ?? null);
-  const sendMessage = useSendMessageMutation(channel, identityQuery.data);
-
   const reading = readTeamThread({
     community: activeCommunity != null,
     relay: relayReach(connection),
@@ -257,22 +192,6 @@ export function useTeamThread(input: {
     runtimes,
     globalConfig.preferred_runtime,
   );
-
-  const ownPubkey = identityQuery.data?.pubkey ?? null;
-  const messages = React.useMemo(
-    () => rowsOf(messagesQuery.data ?? NO_MESSAGES, ownPubkey),
-    [messagesQuery.data, ownPubkey],
-  );
-
-  const names = React.useMemo(() => {
-    const lookup = new Map<string, string>();
-    for (const member of membersQuery.data ?? []) {
-      if (member.displayName !== null) {
-        lookup.set(member.pubkey, member.displayName);
-      }
-    }
-    return lookup;
-  }, [membersQuery.data]);
 
   const commit = React.useCallback((next: TeamThreadBindings) => {
     setBindings((current) => {
@@ -398,55 +317,11 @@ export function useTeamThread(input: {
     worktreeLabel,
   ]);
 
-  const setDraft = React.useCallback(
-    (text: string) => {
-      if (bindingId === null) return;
-      const next = withDraft(draftsRef.current, bindingId, text);
-      if (next === draftsRef.current) return;
-      draftsRef.current = next;
-      // Written on the keystroke, not on a debounce. A debounce is a window in
-      // which what is on screen is not what is stored, and a reconnect landing
-      // inside that window is the loss this store exists to prevent.
-      writeTeamDrafts(next);
-      setDrafts(next);
-    },
-    [bindingId],
-  );
-
-  const draft = draftFor(drafts, bindingId);
-
-  const send = React.useCallback(() => {
-    if (bindingId === null || channel === null || cwd === null) return;
-    const said = draftsRef.current[bindingId] ?? "";
-    const content = composeTeamMessage(cwd, said);
-    if (content === null) return;
-    setTrouble(null);
-    sendMessage.mutate(
-      { channelId: channel.id, content, targetChannel: channel },
-      {
-        // **The composer is cleared by the relay accepting it, and by nothing
-        // else.** A send that fails leaves every character where it was, with
-        // the sentence below saying it did not go, so the retry is a second
-        // click rather than typing the paragraph again.
-        onError: (error) =>
-          setTrouble({ message: reasonOf(error), step: "send" }),
-        // And only the text that actually left: an owner who kept typing while
-        // the send was in flight must not have those keystrokes cleared by an
-        // acknowledgement of the ones before them.
-        onSuccess: () => {
-          if ((draftsRef.current[bindingId] ?? "") !== said) return;
-          setDraft("");
-        },
-      },
-    );
-  }, [bindingId, channel, cwd, sendMessage, setDraft]);
-
   return {
     adoptThread,
     channel,
     chooseTeam,
     deployFailures,
-    draft,
     existingThread,
     forgetTeam,
     hasThreadPointer: binding?.channelId != null,
@@ -455,18 +330,13 @@ export function useTeamThread(input: {
       id: persona.id,
       name: persona.displayName,
     })),
-    messages,
     missingMembers: resolved.missingPersonaCount,
-    nameOf: (pubkey) => names.get(pubkey) ?? null,
     // "Not while we are still looking" is not "none": a runtime list in flight
     // must not read as a machine with no harness on it.
     noRuntime: !runtimesQuery.isLoading && defaultRuntime === null,
     openThread,
     opening,
     reading,
-    send,
-    sending: sendMessage.isPending,
-    setDraft,
     team,
     teams,
     trouble,
@@ -481,21 +351,6 @@ function teamCount(query: {
   // answer, and one with neither is no answer at all.
   if (query.data !== undefined) return query.data.length;
   return query.isError ? "unknown" : "asking";
-}
-
-function rowsOf(
-  events: RelayEvent[],
-  ownPubkey: string | null,
-): TeamThreadRow[] {
-  return events
-    .filter((event) => SAID_KINDS.has(event.kind))
-    .map((event) => ({
-      content: event.content,
-      createdAt: event.created_at,
-      id: event.id,
-      mine: ownPubkey !== null && event.pubkey === ownPubkey,
-      pubkey: event.pubkey,
-    }));
 }
 
 function deployInput(

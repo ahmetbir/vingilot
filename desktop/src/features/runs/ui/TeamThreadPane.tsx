@@ -8,32 +8,47 @@
 // in a channel would. `lib/teamThreadStore.ts` keeps two ids per worktree and
 // no message, ever.
 //
-// **What it draws, and what it deliberately does not.** Upstream's timeline is
-// virtualised and carries threads, reactions, edits, media and mentions; a
-// worktree thread wants none of that, and hosting `ChannelPane` would mean
-// hosting `ChannelScreen`'s whole orchestration inside a pane. So the messages
-// are read with upstream's own hooks (`useChannelMessagesQuery`,
-// `useChannelSubscription`) and drawn here in the island's plain text chrome —
-// the same relay events the rest of the app shows, rendered smaller. The thread
-// is a normal channel: everything this pane cannot do, the channel screen can.
+// **The pane owns chrome; upstream owns the conversation.** It used to draw its
+// own list and its own textarea "because a worktree thread wants none of"
+// upstream's timeline. That reasoning cost the owner the thing the pane is for:
+// no upstream composer meant no mention autocomplete and no `p` tags on send,
+// and `buzz-acp` dispatches on a mention filter — an unmentioned message is one
+// the harness deliberately ignores, so the team could not hear him
+// (vingilot/docs/plans/2026-08-09-team-thread-fidelity.md).
+//
+// So the conversation is `ChannelRouteScreen`, mounted on the thread's channel
+// id — the same component `/channels/$channelId` renders, not a copy of it. It
+// is already channel-id driven; the route reads the param above it and every
+// other prop is nullable. What the pane keeps is what only the pane knows:
+// which team, the scope sentence, and the states in which there is nothing to
+// host yet.
+//
+// **Two things make a hosted surface safe to mount here**, and both are in this
+// file rather than in upstream. `MainInsetProvider` re-points the measured
+// `--buzz-channel-content-top-padding` at this pane's own root instead of the
+// app's main inset, so a pane cannot resize the app's chrome; and
+// `HostedChannelProvider` tells the channel screen it is not the app's one
+// channel — see that context for the three remaining per-app slots it makes the
+// surface stop claiming.
 //
 // **Choosing the team is part of the pane**, per the plan — one team per
 // worktree, stored beside that worktree's tabs and panes, not a global setting.
 
 import * as React from "react";
 
-import { resolveComposerKey } from "@/features/runs/lib/composerKeys";
+import { ChannelRouteScreen } from "@/app/routes/ChannelRouteScreen";
 import {
   canSend,
   scopeSentence,
-  splitScope,
   troubleSentence,
 } from "@/features/runs/lib/teamThread";
 import type { TeamThread } from "@/features/runs/lib/useTeamThread";
 import { useTeamThread } from "@/features/runs/lib/useTeamThread";
 import { worktreeSummary } from "@/features/runs/lib/projects";
 import type { PaneProps } from "@/features/runs/ui/paneRegistry";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import type { Channel } from "@/shared/api/types";
+import { HostedChannelProvider } from "@/shared/context/HostedChannelContext";
+import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 
 export function TeamThreadPane({ cwd, worktree }: PaneProps) {
   const thread = useTeamThread({
@@ -95,7 +110,7 @@ function Body({ cwd, thread }: { cwd: string | null; thread: TeamThread }) {
   if (cwd === null) return null;
   if (thread.team === null) return <TeamChoice thread={thread} />;
   if (thread.channel === null) return <Preflight cwd={cwd} thread={thread} />;
-  return <Conversation cwd={cwd} thread={thread} />;
+  return <Conversation channel={thread.channel} cwd={cwd} thread={thread} />;
 }
 
 /** Which team, chosen here rather than in settings — a worktree is a piece of
@@ -354,23 +369,34 @@ function Scope({ cwd }: { cwd: string }) {
   );
 }
 
-function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
-  // The draft is the hook's, not this component's: a relay reinit remounts the
-  // whole community subtree, and a `useState` here would take the half-written
-  // paragraph with it. It is also not cleared by clicking Send — only by the
-  // relay accepting the message.
-  const draft = thread.draft;
-
-  function submit() {
-    if (draft.trim() === "") return;
-    thread.send();
-  }
+function Conversation({
+  channel,
+  cwd,
+  thread,
+}: {
+  channel: Channel;
+  cwd: string;
+  thread: TeamThread;
+}) {
+  // The pane's own root, handed to the hosted surface as its main inset. The
+  // channel screen measures its header and writes the height as a CSS variable
+  // on whatever this points at; on the route that is the app's `<main>`, and a
+  // pane that left it there would push the app's chrome around from inside a
+  // column. A custom property set here inherits to exactly the subtree that
+  // reads it.
+  const insetRef = React.useRef<HTMLDivElement>(null);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* The team control lives here, at the top and a pane's width away from
-          Send — not beside it, where an unconfirmed click used to cost the
-          thread pointer. */}
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      data-testid="team-thread-inset"
+      ref={insetRef}
+    >
+      {/* Everything above the conversation is the pane's: which team, what the
+          team is told, and what went wrong opening it. The team control is
+          here, at the top and a pane's width away from the composer — not
+          beside it, where an unconfirmed click used to cost the thread
+          pointer. */}
       <div
         className="flex shrink-0 flex-col gap-1 border-b border-border/60 px-4 py-2"
         data-testid="team-thread-header"
@@ -381,16 +407,7 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
           </span>
           <ChangeTeam thread={thread} />
         </div>
-        {thread.channel === null ? null : (
-          <span className="truncate text-2xs text-muted-foreground">
-            #{thread.channel.name}
-          </span>
-        )}
-      </div>
-      <div
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3"
-        data-testid="team-thread"
-      >
+        <Scope cwd={cwd} />
         {thread.opening ? (
           <p
             className="text-sm text-muted-foreground"
@@ -410,66 +427,28 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
               .join("; ")}
           </p>
         ) : null}
-        {thread.messages.length === 0 ? (
-          // Not "no messages": nothing has *arrived*. A thread opened a second
-          // ago and a relay that has not answered look the same from here.
-          <p className="text-sm text-muted-foreground">
-            nothing in this thread yet
-          </p>
-        ) : (
-          thread.messages.map((row) => (
-            <div className="flex flex-col gap-0.5" key={row.id}>
-              <span className="text-2xs text-muted-foreground">
-                {row.mine
-                  ? "you"
-                  : (thread.nameOf(row.pubkey) ?? truncatePubkey(row.pubkey))}
-              </span>
-              <span className="whitespace-pre-wrap break-words text-sm">
-                {splitScope(row.content).body}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
-      <div className="shrink-0 border-t border-border/60 px-4 py-2">
-        <Scope cwd={cwd} />
-        <textarea
-          className="mt-2 h-16 w-full resize-none rounded-lg border border-border/60 bg-transparent px-2 py-1 text-sm"
-          data-testid="team-composer"
-          onChange={(event) => thread.setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            // ⌘/⌃↵, not bare Enter: a message here carries a path and goes to
-            // a server, and a newline is the more likely keystroke. The chord
-            // is `lib/composerKeys.ts`'s rather than this handler's so the
-            // cheatsheet can find it — ⌘ *or* ⌃, which is why the modifier is
-            // read here and not by `hasPrimaryShortcutModifier`.
-            const action = resolveComposerKey({
-              altKey: event.altKey,
-              key: event.key,
-              primaryModifier: event.metaKey || event.ctrlKey,
-              repeat: event.repeat,
-              shiftKey: event.shiftKey,
-            });
-            if (action === null) return;
-            event.preventDefault();
-            submit();
-          }}
-          placeholder={`Ask ${thread.team?.name ?? "the team"} about this worktree…`}
-          value={draft}
-        />
-        <div className="flex items-center gap-2">
-          <button
-            className="rounded-lg border border-border/60 px-3 py-1 text-xs hover:bg-muted/40 disabled:opacity-50"
-            data-testid="team-send"
-            disabled={thread.sending || draft.trim() === ""}
-            onClick={submit}
-            type="button"
-          >
-            {thread.sending ? "sending…" : "Send ⌘↵"}
-          </button>
-        </div>
         <Trouble thread={thread} />
       </div>
+      <MainInsetProvider mainInsetRef={insetRef}>
+        <HostedChannelProvider>
+          <div
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            data-testid="team-thread"
+          >
+            {/* Every prop but the channel id is a route target this pane has
+                none of: a pane is not deep-linked to, and a forum channel is
+                never what a thread pane is pointed at. */}
+            <ChannelRouteScreen
+              autoSendDraftKey={null}
+              channelId={channel.id}
+              selectedPostId={null}
+              targetMessageId={null}
+              targetReplyId={null}
+              targetThreadRootId={null}
+            />
+          </div>
+        </HostedChannelProvider>
+      </MainInsetProvider>
     </div>
   );
 }

@@ -25,7 +25,9 @@
 // grow one. `teamThreadStore.ts` keeps a *pointer* (which channel a worktree's
 // thread is) and no message ever.
 //
-// Pure: the sentences, the reading, and what a message is made of. Every
+// Pure: the sentences, the reading, and what the thread's channel is called.
+// Nothing here composes a message any more — the pane hosts upstream's composer
+// and what the owner types is what is sent (`scopeSentence`). Every
 // question below is asked live by the pane rather than by a `PaneProbe`,
 // because a probe is asked once and all four of these change while the owner is
 // looking at them — a relay drops, a team is added in another window.
@@ -33,12 +35,6 @@
 import type { ConnectionState } from "@/shared/api/relayClientShared";
 
 import type { PaneAvailability, PaneContext } from "./paneModel.ts";
-
-/** The one line of context that rides in front of every message this pane
- * sends. Exported because the sentence that *describes* it and the message that
- * *carries* it must be the same string — a scope claim assembled separately
- * from the send is a claim about nothing. */
-export const SCOPE_PREFIX = "worktree: ";
 
 /** How many teams are configured, or why that is not a number yet.
  *
@@ -178,31 +174,32 @@ export function teamAvailability(ctx: PaneContext): PaneAvailability {
   };
 }
 
-/** The line itself. */
-export function scopeLine(cwd: string): string {
-  return `${SCOPE_PREFIX}${cwd}`;
-}
-
-/** What the pane prints above the composer, quoting the line it will actually
- * send. Ask-mode's rule, kept word for word: state the context that goes, then
- * enumerate what does not — and here, two things more that ask-mode does not
- * have to say.
+/** What the pane prints above the hosted conversation. Ask-mode's rule: state
+ * the context the team is given, then enumerate what is not — and here, two
+ * things more that ask-mode does not have to say.
  *
  * The first: a managed agent is spawned once in `~/.buzz` (or `$HOME`) and
  * never in a per-message directory (`managed_agents/mod.rs`), so the path is
- * text in a message rather than somewhere the team is standing. Saying "scoped
- * to this worktree" without that would be the pane's one real lie.
+ * text the team reads rather than somewhere it is standing. Saying "scoped to
+ * this worktree" without that would be the pane's one real lie.
  *
- * The second is a correction. This used to enumerate "not the branch" among the
- * things that do not go, and that was false in the plainest way: this pane names
- * the thread's channel after the worktree's branch (`threadChannelName`) and
- * writes the path into its description (`threadChannelDescription`), both on the
- * relay, in a channel every deployed member is in. The enumeration is about the
- * *message* and the branch is not in one — but "what the team is told" is the
- * claim being made, and by that measure the branch was told. So the sentence
- * says where. */
+ * The second is that the worktree is told once, in the channel, rather than on
+ * every message. **This sentence changed with the surface.** The pane used to
+ * own its composer and prepend `worktree: <cwd>` to every message; it now hosts
+ * upstream's composer, which sends what the owner typed and nothing else. There
+ * is no honest way to keep the prefix from here — a wrapper that rewrote his
+ * message would put a line he did not type into the timeline he is reading, on
+ * a surface whose whole point is being the same one as everywhere else. So the
+ * scope lives where it already lived too: the path in the channel's description
+ * (`threadChannelDescription`), the branch in the channel's name
+ * (`threadChannelName`), both on the relay and readable by every member.
+ *
+ * What that costs, stated rather than hidden: an agent reading the channel as a
+ * window of recent events sees the path only if it reads the channel's
+ * metadata. A thread whose members need the path in the words has to be told it
+ * in a message, by hand, like any other fact. */
 export function scopeSentence(cwd: string): string {
-  return `Each message goes to the relay with one line in front of it — ${scopeLine(cwd)} — and nothing else: not the diff, not the plan, not the run's transcript. The branch is not in the message either, but it is in the name of the channel this thread lives in, and this path is in that channel's description, where everyone in it can read them. The team's agents are not started in this directory and may not be able to open it at all; the path is text in your message, and they read whatever they can reach themselves.`;
+  return `This thread is about ${cwd}. The path is in this channel's description and the branch is in the name of the channel it lives in, both on the relay where every member can read them — neither is put in front of your messages: what you type is what is sent, and nothing else goes with it, not the diff, not the plan, not the run's transcript. The team's agents are not started in this directory and may not be able to open it at all; the path is text they are given, and they read whatever they can reach themselves.`;
 }
 
 /** Which step refused, which is the whole of what the sentence below says.
@@ -213,55 +210,27 @@ export function scopeSentence(cwd: string): string {
  * second used to be reported as "the thread could not be opened", printed
  * *inside the thread that had just been opened*, next to a composer that worked.
  * A sentence contradicted by what is around it teaches the owner to stop reading
- * the sentences. */
-export type TeamThreadStep = "open" | "deploy" | "send";
+ * the sentences.
+ *
+ * **There is no `send` step any more.** The pane hosts upstream's composer, so a
+ * message that does not leave is reported by the composer that took it, in the
+ * words and the place every other channel uses. A second sentence for it here
+ * would be this island claiming a failure it no longer sees. */
+export type TeamThreadStep = "open" | "deploy";
 
 /** What to say before the reason whatever refused gave.
  *
  * Each one names its step rather than saying "an error", and each says where
- * that leaves him — for `send`, that the text is still in the composer, because
- * text being kept is only useful if he knows to look for it rather than retyping
- * it. The words are about the team's *members*: a team has no key and posts
- * nothing (see this file's header), so it is the members that are deployed and
- * the members that could fail to be. */
+ * that leaves him. The words are about the team's *members*: a team has no key
+ * and posts nothing (see this file's header), so it is the members that are
+ * deployed and the members that could fail to be. */
 export function troubleSentence(step: TeamThreadStep): string {
   switch (step) {
     case "open":
       return "the thread could not be opened: ";
     case "deploy":
       return "the thread is open, but its members could not be deployed into it — the channel is there and you can send in it, and nobody may answer: ";
-    case "send":
-      return "this message did not go and is still in the composer — send it again when you want: ";
   }
-}
-
-/** A message as it will be sent, or `null` for one there is no point sending.
- *
- * The scope goes on every message rather than once at the top, because a thread
- * on a relay is read by an agent as a window of recent events — a path stated
- * only in the first message of a conversation is a path most of its turns never
- * see. */
-export function composeTeamMessage(cwd: string, body: string): string | null {
-  const said = body.trim();
-  if (said === "") return null;
-  return `${scopeLine(cwd)}\n\n${said}`;
-}
-
-/** The scope line off a message that carries one, for rendering a row without
- * repeating the path in every bubble. `null` for a message that has none —
- * which includes every message a team member wrote. */
-export function splitScope(content: string): {
-  scope: string | null;
-  body: string;
-} {
-  if (!content.startsWith(SCOPE_PREFIX)) return { body: content, scope: null };
-  const end = content.indexOf("\n");
-  if (end === -1)
-    return { body: "", scope: content.slice(SCOPE_PREFIX.length) };
-  return {
-    body: content.slice(end + 1).replace(/^\n+/, ""),
-    scope: content.slice(SCOPE_PREFIX.length, end),
-  };
 }
 
 /** Characters a channel name is reduced to. Not a relay constraint — the relay

@@ -17,7 +17,7 @@
 // at runtime and never appears here. That is why a chord belongs in a
 // `resolve*` module rather than in a component's own `onKeyDown`: a map this
 // file does not know about is a chord this sheet cannot print, and that is the
-// hole `cardKeys.ts` and `composerKeys.ts` were pulled out of.
+// hole `cardKeys.ts` was pulled out of.
 //
 // What is written down is the **sentence** for each action, because no module
 // holds one and a chord with no sentence is a chord nobody can use. A missing
@@ -47,7 +47,6 @@ import {
   resolveOpenCheatsheetKey,
 } from "./cheatsheetKeys.ts";
 import { resolveColumnKey } from "./columnKeys.ts";
-import { resolveComposerKey } from "./composerKeys.ts";
 import { resolveDiffKey } from "./diffKeys.ts";
 import { resolvePaletteKey, resolvePaletteListKey } from "./paletteKeys.ts";
 import { resolveDividerKey, resolvePaneKey } from "./paneKeys.ts";
@@ -84,7 +83,6 @@ const KEY_MAPS: readonly KeyMap[] = [
   { module: "divider", resolve: resolveDividerKey },
   { module: "palette-open", resolve: resolvePaletteListKey },
   { module: "deck", resolve: resolveCardKey },
-  { module: "composer", resolve: resolveComposerKey },
   {
     module: "diff",
     // The one map with an input shape of its own. `inField` false is the
@@ -291,11 +289,10 @@ const SECTIONS = [
     title: "The Diff pane",
   },
   { id: "deck", note: "on a focused card", title: "The deck" },
-  {
-    id: "team",
-    note: "in the team thread's composer",
-    title: "The team thread",
-  },
+  // No "team thread" section: that pane hosts upstream's composer now, and its
+  // keys are the ones every other channel has. A sheet built from this island's
+  // maps has nothing of its own to say about them, and inventing a section for
+  // someone else's chord is how a cheatsheet starts lying.
   {
     id: "elsewhere",
     // Deliberately a claim about the rows below rather than about coverage:
@@ -323,10 +320,6 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
   "column:toggle-column:column=worktrees": {
     section: "columns",
     what: "show or hide the worktree column",
-  },
-  "composer:send-message": {
-    section: "team",
-    what: "send what you have typed to the team — ⌃↵ does the same, and a bare ↵ is a newline",
   },
   "deck:move-card": {
     section: "deck",
