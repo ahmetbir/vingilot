@@ -79,8 +79,11 @@ export function useDocument(key: string | null): DocumentEditing {
     // only one of them still has to write.
     //
     // **Neither covers a quit, and this is not hedging.** On macOS the main
-    // window's close is intercepted and the window merely hidden (`lib.rs`'s
-    // `CloseRequested` arm), so the page is not torn down there at all; the
+    // window's close is intercepted and answered by dismissing what is stacked
+    // over the workspace or, with nothing stacked, by minimizing the window
+    // into the Dock — never by hiding it and never by closing it (`lib.rs`'s
+    // `CloseRequested` arm, priced in `src-tauri/src/vingilot_window/mod.rs`).
+    // Either way the page is not torn down there at all; the
     // real ending is `ExitRequested`, which stops the Rust side and ends the
     // process (`src-tauri/src/shutdown.rs`) without navigating the webview.
     // Nothing in this page is promised a turn then. `CEILING_MS` is the bound

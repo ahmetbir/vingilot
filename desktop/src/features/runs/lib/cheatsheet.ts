@@ -11,6 +11,14 @@
 // keeps what came back. Add a chord to `terminalKeys.ts` and it is on the
 // sheet; take one away and it leaves.
 //
+// **The bound on that, said plainly:** it holds for a chord on a key in
+// `KEY_SPACE` below, in a map in `KEY_MAPS` below. Both lists are hand-written,
+// and a chord on a key outside the first — `⌘;`, say — resolves perfectly well
+// at runtime and never appears here. That is why a chord belongs in a
+// `resolve*` module rather than in a component's own `onKeyDown`: a map this
+// file does not know about is a chord this sheet cannot print, and that is the
+// hole `cardKeys.ts` and `composerKeys.ts` were pulled out of.
+//
 // What is written down is the **sentence** for each action, because no module
 // holds one and a chord with no sentence is a chord nobody can use. A missing
 // sentence is a failure rather than a silent gap: the row is still drawn (a
@@ -18,23 +26,28 @@
 // to prevent), carrying its action's own name, and `cheatsheet.test.mjs` fails
 // the build until someone writes the line.
 //
-// **The chords that are not this island's are on it too**, in their own
-// section, because the question the sheet answers is "what does this key do
-// *here*" and the owner does not know which handler he is talking to. ⌘W is
-// the default macOS menu's and behaves the way
-// `desktop/src-tauri/src/vingilot_window/mod.rs` decides; the rest of that
-// menu's accelerators are muda's table, which this app installs by setting no
-// menu of its own and deliberately leaves alone. Neither can be generated from
-// anything in this repository — one is a dependency's constant and the other is
-// a native gesture — so they are written out below, and the test asserts the
-// island claims none of them. That check is the ⌘W failure, expressed as a
-// build error.
+// **Chords that are not this island's are on it too**, in their own section,
+// because the question the sheet answers is "what does this key do *here*" and
+// the owner does not know which handler he is talking to. Three kinds sit
+// there: ⌘W, which behaves the way
+// `desktop/src-tauri/src/vingilot_window/mod.rs` decides; the rest of the
+// default macOS menu's accelerators, which are muda's constant table, installed
+// because this app sets no menu of its own and deliberately leaves that one
+// alone; and the app's own chords that reach this screen from outside the
+// island — ⌃Space, ⌘+/⌘-/⌘0, ⌘, and ⌘R. None of them can be generated from
+// anything here: one is a native gesture, one is a dependency's constant, and
+// the rest live in maps written before this island and outside it. So they are
+// written out below, each sourced in `ELSEWHERE`'s comment, and the test
+// asserts the island resolves none of them. That check is the ⌘W failure,
+// expressed as a build error.
 
+import { resolveCardKey } from "./cardKeys.ts";
 import {
   resolveCheatsheetKey,
   resolveOpenCheatsheetKey,
 } from "./cheatsheetKeys.ts";
 import { resolveColumnKey } from "./columnKeys.ts";
+import { resolveComposerKey } from "./composerKeys.ts";
 import { resolveDiffKey } from "./diffKeys.ts";
 import { resolvePaletteKey, resolvePaletteListKey } from "./paletteKeys.ts";
 import { resolveDividerKey, resolvePaneKey } from "./paneKeys.ts";
@@ -70,6 +83,8 @@ const KEY_MAPS: readonly KeyMap[] = [
   { module: "pane", resolve: resolvePaneKey },
   { module: "divider", resolve: resolveDividerKey },
   { module: "palette-open", resolve: resolvePaletteListKey },
+  { module: "deck", resolve: resolveCardKey },
+  { module: "composer", resolve: resolveComposerKey },
   {
     module: "diff",
     // The one map with an input shape of its own. `inField` false is the
@@ -85,6 +100,12 @@ const LETTERS = "abcdefghijklmnopqrstuvwxyz";
  * Bounded on purpose: a sheet built by enumerating every key a browser can
  * report would be a sheet nobody can read, and every chord in this island is
  * on a digit, a letter, an arrow, or one of the named keys below.
+ *
+ * **The cost of the bound, stated rather than hoped away:** a map that answered
+ * on a key that is not in this list would resolve at runtime and never print,
+ * and nothing would fail. `⌘;` is the shape of it. Adding a chord means adding
+ * its key here too, and this list is the place to look when a chord works and
+ * the sheet does not know it.
  *
  * The three composed characters are what macOS reports when ⌥ still applies to
  * a letter — ⌥t is "†", ⌥b is "∫", ⇧⌥b is "ı" — which `terminalKeys.ts` and
@@ -269,9 +290,20 @@ const SECTIONS = [
     note: "with the caret outside a field",
     title: "The Diff pane",
   },
+  { id: "deck", note: "on a focused card", title: "The deck" },
+  {
+    id: "team",
+    note: "in the team thread's composer",
+    title: "The team thread",
+  },
   {
     id: "elsewhere",
-    note: "these are macOS's and the app's, not the workspace's",
+    // Deliberately a claim about the rows below rather than about coverage:
+    // this section is hand-written, so "all of the app's" is something it
+    // cannot promise. What it can promise is that the workspace answers to
+    // none of what is printed here, and `cheatsheet.test.mjs` generates that
+    // over the island's maps rather than reading it off the list.
+    note: "the workspace binds none of these — they are the macOS menu's and the app's",
     title: "Not the workspace's",
   },
 ] as const;
@@ -291,6 +323,14 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
   "column:toggle-column:column=worktrees": {
     section: "columns",
     what: "show or hide the worktree column",
+  },
+  "composer:send-message": {
+    section: "team",
+    what: "send what you have typed to the team — ⌃↵ does the same, and a bare ↵ is a newline",
+  },
+  "deck:move-card": {
+    section: "deck",
+    what: "move the card along the deck, without a mouse",
   },
   "diff:open-file": {
     section: "diff",
@@ -433,11 +473,35 @@ export const MENU_CHORDS: readonly string[] = [
   "⌃⌘F",
 ];
 
-/** The rows no map can generate: a native gesture this app intercepts, and a
- * dependency's constant table. Written out, sourced in the comment above, and
- * held to the same "say what it does *here*" standard as everything above —
- * ⌘W in particular, whose whole point is that what it does here is not what
- * its name says. */
+/** The rows no map here can generate: a native gesture this app intercepts, a
+ * dependency's constant table, and the app's own chords that reach this screen
+ * from outside the island. Written out, sourced below, and held to the same
+ * "say what it does *here*" standard as everything above — ⌘W in particular,
+ * whose whole point is that what it does here is not what its name says.
+ *
+ * The app's own, each read out of its handler rather than remembered:
+ *
+ * - `⌃Space` — `src-tauri/src/ptt_shortcut.rs:27`, the only chord this app
+ *   reserves with the whole system, and only while a huddle is connected and
+ *   its voice input is push-to-talk (`should_register`, same file).
+ * - `⌘+` / `⌘-` / `⌘0` — `app/useWebviewZoomShortcuts.ts`. It scales the root
+ *   font size between 0.75 and 1.5 and pins the webview's own zoom at 1, so
+ *   what moves is text on the rem scale and nothing else.
+ * - `⌘,` — `app/useSettingsShortcuts.ts`, which opens settings and, with them
+ *   already open, closes them.
+ * - `⌘R` — `app/useReloadShortcut.ts`, which closes the relay's sockets (or
+ *   gives up after 500 ms) and then reloads the webview.
+ *
+ * **This list is not the whole of "outside the island", and does not claim to
+ * be** — that is why the section's note is a claim about these rows rather
+ * than about coverage. Upstream's own window map (⌘K, ⇧⌘K, ⇧⌘N, ⇧⌘O, ⇧⌘A in
+ * `app/AppShell.tsx`, ⌘[ / ⌘] in
+ * `app/navigation/useBackForwardControls.ts`, Escape in
+ * `app/useMarkAsReadShortcuts.ts`) is mounted at the root route and so is
+ * technically live here, but every one of those chords is *about* a surface
+ * this screen does not show, and several are contested by the island's own
+ * maps in an order nothing in this repository asserts. Printing them as
+ * answers would be printing a guess. */
 const ELSEWHERE: readonly CheatRow[] = [
   {
     chords: ["⌘W"],
@@ -453,6 +517,20 @@ const ELSEWHERE: readonly CheatRow[] = [
   { chords: ["⌘M"], what: "minimize the window into the Dock" },
   { chords: ["⌘H", "⌥⌘H"], what: "hide this app, and hide the others" },
   { chords: ["⌃⌘F"], what: "full screen" },
+  {
+    chords: ["⌘+", "⌘-"],
+    what: "text bigger, and smaller — 0.75× to 1.5×, and only text sized on the rem scale moves",
+  },
+  { chords: ["⌘0"], what: "text back to its own size" },
+  { chords: ["⌘,"], what: "settings. Again to close them" },
+  {
+    chords: ["⌘R"],
+    what: "reload the app — the relay's sockets are closed first, then the page goes",
+  },
+  {
+    chords: ["⌃Space"],
+    what: "hold to talk, and only while a huddle is connected and set to push-to-talk. The one chord this app takes from the whole system rather than from a window",
+  },
 ];
 
 /** **The sheet.** Generated rows first, in section order, then the chords that
@@ -509,7 +587,7 @@ export const CHORD_ELISION = "…";
 
 /** The modifiers a chord can lead with, in the order `chordOf` writes them.
  * ⌃ is here although nothing in this island binds it, because the sheet also
- * carries the default menu's ⌃⌘F. */
+ * carries the default menu's ⌃⌘F and the app's own ⌃Space. */
 const MODIFIER_GLYPHS = "⇧⌥⌘⌃";
 
 /** A chord split into the boxes it is drawn as: one per modifier held, then

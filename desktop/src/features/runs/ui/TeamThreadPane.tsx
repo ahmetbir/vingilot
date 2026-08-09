@@ -22,6 +22,7 @@
 
 import * as React from "react";
 
+import { resolveComposerKey } from "@/features/runs/lib/composerKeys";
 import {
   canSend,
   scopeSentence,
@@ -437,12 +438,21 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
           data-testid="team-composer"
           onChange={(event) => thread.setDraft(event.target.value)}
           onKeyDown={(event) => {
-            // ⌘/Ctrl+Enter, not bare Enter: a message here carries a path and
-            // goes to a server, and a newline is the more likely keystroke.
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              submit();
-            }
+            // ⌘/⌃↵, not bare Enter: a message here carries a path and goes to
+            // a server, and a newline is the more likely keystroke. The chord
+            // is `lib/composerKeys.ts`'s rather than this handler's so the
+            // cheatsheet can find it — ⌘ *or* ⌃, which is why the modifier is
+            // read here and not by `hasPrimaryShortcutModifier`.
+            const action = resolveComposerKey({
+              altKey: event.altKey,
+              key: event.key,
+              primaryModifier: event.metaKey || event.ctrlKey,
+              repeat: event.repeat,
+              shiftKey: event.shiftKey,
+            });
+            if (action === null) return;
+            event.preventDefault();
+            submit();
           }}
           placeholder={`Ask ${thread.team?.name ?? "the team"} about this worktree…`}
           value={draft}

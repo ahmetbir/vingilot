@@ -12,6 +12,7 @@
 
 import * as React from "react";
 
+import { resolveCardKey } from "@/features/runs/lib/cardKeys";
 import { listEvidence } from "@/features/runs/lib/coordinatorClient";
 import type { Pin } from "@/features/runs/lib/deckPins";
 import { diffView } from "@/features/runs/lib/runModel";
@@ -142,15 +143,26 @@ export function PinnedCard({
     );
   }
 
+  // The chord itself is `lib/cardKeys.ts`'s, not this component's, so the
+  // cheatsheet can find it — a binding written into an `onKeyDown` is one the
+  // generated sheet cannot print. What stays here is the part that is about
+  // this card: an unplaced card has no place in the row to move along.
   function handleTitleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
     if (unplaced) return;
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
+    const action = resolveCardKey({
+      altKey: event.altKey,
+      key: event.key,
+      primaryModifier: event.metaKey || event.ctrlKey,
+      repeat: event.repeat,
+      shiftKey: event.shiftKey,
+    });
+    if (action === null) return;
+    event.preventDefault();
+    if (action.dir === -1) {
       onMoveLeft(pin.id);
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      onMoveRight(pin.id);
+      return;
     }
+    onMoveRight(pin.id);
   }
 
   return (

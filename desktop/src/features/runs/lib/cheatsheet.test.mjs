@@ -14,22 +14,38 @@ import {
   resolvedChords,
 } from "./cheatsheet.ts";
 
-/** Every chord printed on the sheet, section and row alike. */
-function printed() {
-  return cheatsheet().flatMap((section) =>
-    section.rows.flatMap((row) => [...row.chords]),
-  );
+/** Every generated row on the sheet, written as the chords it carries.
+ * `elsewhere` is left out because its rows are hand-written and this is the
+ * assertion about the generator; a generated row that *landed* there is caught
+ * all the same, by going missing from this list. */
+function generatedRows() {
+  return cheatsheet()
+    .filter((section) => section.id !== "elsewhere")
+    .flatMap((section) => section.rows.map((row) => row.chords.join(" ")))
+    .sort();
 }
 
-test("every chord the maps resolve is on the sheet", () => {
+test("every row the maps generate is on the sheet, whole", () => {
   // The headline. A chord that resolves and is not here is a chord the owner
   // can only find by pressing keys at random, which is the state this whole
   // surface exists to end — and the way it comes back is a map growing a chord
   // while the sheet does not.
-  const missing = resolvedChords()
-    .map((hit) => hit.chord)
-    .filter((chord) => !printed().includes(chord));
-  assert.deepEqual(missing, []);
+  //
+  // **It reads rows, and the first version read chord strings, which is not
+  // the same check.** Comparing resolved chords against every chord printed
+  // anywhere passes while a whole map's rows are missing, because some other
+  // row prints the same string: drop every `sheet-open` hit and the sheet
+  // loses "close this sheet" entirely, yet `Esc` is still printed by the
+  // palette, so nothing fails. A row is `<map>:<action>` — the identity
+  // `cheatsheet()` groups by — so grouping the same way and comparing the
+  // groups makes a missing row a missing row.
+  const byRow = new Map();
+  for (const hit of resolvedChords()) {
+    const id = `${hit.module}:${hit.action}`;
+    byRow.set(id, [...(byRow.get(id) ?? []), hit.chord]);
+  }
+  const expected = [...byRow.values()].map((chords) => chords.join(" ")).sort();
+  assert.deepEqual(generatedRows(), expected);
 });
 
 test("every generated row says what it does", () => {
@@ -68,7 +84,22 @@ test("the chords that are not the island's are on it too", () => {
   const chords = (elsewhere?.rows ?? []).flatMap((row) => [...row.chords]);
   // Every accelerator of the menu this app deliberately leaves alone, plus the
   // one that behaves differently here than its name says.
-  assert.deepEqual([...MENU_CHORDS].sort(), [...chords].sort());
+  const menuMissing = MENU_CHORDS.filter((chord) => !chords.includes(chord));
+  assert.deepEqual(menuMissing, []);
+  // And the app's own, which are not the menu's and not the island's: a
+  // shortcut the owner presses on this screen and cannot look up is the same
+  // failure as an island chord that is missing.
+  const appMissing = ["⌃Space", "⌘+", "⌘-", "⌘0", "⌘,", "⌘R"].filter(
+    (chord) => !chords.includes(chord),
+  );
+  assert.deepEqual(appMissing, []);
+  // The section's own subtitle, checked rather than asserted: it says the
+  // workspace binds none of what is printed here, so no chord the island's
+  // maps resolve may appear in it.
+  const claimed = resolvedChords()
+    .map((hit) => hit.chord)
+    .filter((chord) => chords.includes(chord));
+  assert.deepEqual(claimed, []);
   const closeWindow = (elsewhere?.rows ?? []).find((row) =>
     row.chords.includes("⌘W"),
   );
