@@ -97,6 +97,7 @@ import type {
   PaletteContext,
 } from "@/features/runs/lib/paletteSources";
 import { useAskPending } from "@/features/runs/lib/useAskPending";
+import { useCloseRequest } from "@/features/runs/lib/useCloseRequest";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
@@ -792,6 +793,35 @@ export function RunsScreen() {
     context: paletteContext,
     onCommand: runPaletteCommand,
   });
+
+  // ⌘W, and the red button with it. Neither reaches this app as a keydown
+  // (lib/closeRequest.ts's header), so what arrives is the close request the
+  // backend refused to act on, and this screen answers it by giving up
+  // whatever is stacked over the work surface. The four dialogs go together
+  // because only one of them can be open at a time by construction — see where
+  // they are declared above.
+  const dismissDialogs = React.useCallback(() => {
+    setCreatingWorktree(false);
+    openPlanWorktree(false);
+    setPrunePreview(null);
+    setRemovingProject(null);
+  }, [openPlanWorktree]);
+  useCloseRequest(
+    {
+      dialog:
+        creatingWorktree ||
+        planningWorktree ||
+        prunePreview !== null ||
+        removingProject !== null,
+      palette: palette.open,
+      scratch: scratch !== null,
+    },
+    {
+      dialog: dismissDialogs,
+      palette: palette.close,
+      scratch: closeScratchNow,
+    },
+  );
 
   const ownerRun =
     selectedWorktree?.owner_run_id !== null &&

@@ -39,6 +39,7 @@ mod util;
 mod vingilot_agent;
 mod vingilot_pty;
 mod vingilot_repo;
+mod vingilot_window;
 mod vingilot_worktree;
 #[cfg(target_os = "linux")]
 pub mod webkit_rendering;
@@ -313,6 +314,7 @@ pub fn run() {
         .manage(BuilderlabLogin::default())
         .manage(commands::pairing::PairingHandle::new())
         .manage(vingilot_pty::PtySessions::new())
+        .manage(vingilot_window::WindowLayers::new())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             #[cfg(target_os = "macos")]
@@ -664,6 +666,7 @@ pub fn run() {
             vingilot_pty::pty_close,
             vingilot_pty::pty_backing,
             vingilot_repo::repo_probe,
+            vingilot_window::window_set_dismissible,
             vingilot_worktree::worktree_list,
             vingilot_worktree::worktree_add,
             vingilot_worktree::brief::worktree_add_with_brief,
@@ -923,13 +926,30 @@ pub fn run() {
             label,
             event: WindowEvent::CloseRequested { api, .. },
             ..
-        } if label == "main" => {
-            // Keep the webview alive so Buzz can be reopened from its tray menu.
-            api.prevent_close();
-            if let Some(window) = app_handle.get_webview_window("main") {
-                if let Err(error) = window.hide() {
-                    eprintln!("buzz-desktop: failed to hide main window: {error}");
+        } => {
+            // ⌘W and the red button both land here, and neither may hide the
+            // window — see vingilot_window's header for what that cost once.
+            // The rule itself is that module's, and pure.
+            let dismissible = app_handle
+                .state::<vingilot_window::WindowLayers>()
+                .dismissible();
+            match vingilot_window::resolve_close_request(&label, dismissible) {
+                vingilot_window::CloseRequest::Dismiss => {
+                    api.prevent_close();
+                    if let Err(error) = app_handle.emit(vingilot_window::CLOSE_REQUESTED_EVENT, ())
+                    {
+                        eprintln!("buzz-desktop: failed to forward close request: {error}");
+                    }
                 }
+                vingilot_window::CloseRequest::Minimize => {
+                    api.prevent_close();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        if let Err(error) = window.minimize() {
+                            eprintln!("buzz-desktop: failed to minimize main window: {error}");
+                        }
+                    }
+                }
+                vingilot_window::CloseRequest::Close => {}
             }
         }
         RunEvent::ExitRequested { code, .. } => {
