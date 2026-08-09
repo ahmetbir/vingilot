@@ -145,7 +145,7 @@ function CollapsedRail({
       </button>
       <span
         aria-hidden="true"
-        className="text-3xs tabular-nums text-muted-foreground/70"
+        className="text-2xs tabular-nums text-muted-foreground/70"
       >
         {count}
       </span>
@@ -247,7 +247,7 @@ export function WorktreeColumn({
           {view.showFilter ? (
             <input
               aria-label={`filter the worktrees of ${repo.name}`}
-              className="mt-2 w-full rounded-md border border-border/60 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring"
+              className="mt-2 w-full rounded-md border border-border/60 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring"
               data-testid="worktree-filter"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="filter branches"
@@ -257,7 +257,7 @@ export function WorktreeColumn({
           ) : null}
 
           {worktrees.length === 0 ? (
-            <p className="px-2 py-4 text-xs text-muted-foreground">
+            <p className="px-2 py-4 text-sm text-muted-foreground">
               no worktrees yet
             </p>
           ) : (
@@ -295,7 +295,7 @@ export function WorktreeColumn({
                             {summary.label}
                           </span>
                           {shortcutDigit !== null ? (
-                            <span className="shrink-0 text-3xs text-muted-foreground/60">
+                            <span className="shrink-0 text-2xs text-muted-foreground/60">
                               ⌘{shortcutDigit}
                             </span>
                           ) : null}
@@ -349,7 +349,7 @@ export function WorktreeColumn({
           )}
 
           {view.filteredOut === 0 ? null : (
-            <p className="px-2 py-1 text-3xs text-muted-foreground/70">
+            <p className="px-2 py-1 text-2xs text-muted-foreground/70">
               {view.filteredOut} hidden by the filter
             </p>
           )}
@@ -382,7 +382,7 @@ export function WorktreeColumn({
               className="mt-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5"
               data-testid="worktree-column-refusal"
             >
-              <p className="text-xs text-destructive">
+              <p className="text-sm text-destructive">
                 {actions.refusal.message}
               </p>
               {actions.refusal.entries.length === 0 ? null : (
@@ -395,7 +395,7 @@ export function WorktreeColumn({
                 </ul>
               )}
               <button
-                className="mt-1 text-3xs uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+                className="mt-1 text-xs text-muted-foreground underline transition-colors hover:text-foreground"
                 data-testid="worktree-column-refusal-dismiss"
                 onClick={actions.dismissRefusal}
                 type="button"

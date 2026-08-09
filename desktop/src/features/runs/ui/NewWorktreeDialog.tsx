@@ -129,7 +129,7 @@ export function NewWorktreeDialog({
                 className="rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5"
                 data-testid="new-worktree-refusal"
               >
-                <p className="text-xs text-destructive">{refusal.message}</p>
+                <p className="text-sm text-destructive">{refusal.message}</p>
                 {refusal.entries.length === 0 ? null : (
                   <ul className="mt-1 flex flex-col gap-0.5 font-mono text-2xs text-muted-foreground">
                     {refusal.entries.map((entry) => (

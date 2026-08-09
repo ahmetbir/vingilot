@@ -88,7 +88,7 @@ export function ProjectsNav({
       </h2>
 
       {repos.length === 0 ? (
-        <p className="px-2 py-2 text-xs text-muted-foreground">
+        <p className="px-2 py-2 text-sm text-muted-foreground">
           no projects yet
         </p>
       ) : (
@@ -139,9 +139,9 @@ export function ProjectsNav({
           className="mt-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5"
           data-testid="projects-nav-error"
         >
-          <p className="text-xs text-destructive">{error}</p>
+          <p className="text-sm text-destructive">{error}</p>
           <button
-            className="mt-1 text-3xs uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+            className="mt-1 text-xs text-muted-foreground underline transition-colors hover:text-foreground"
             data-testid="projects-nav-error-dismiss"
             onClick={onDismissError}
             type="button"

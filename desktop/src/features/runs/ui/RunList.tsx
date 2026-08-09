@@ -181,7 +181,7 @@ export function RunList({
        * failed attempt. */}
       {!pinsReachable ? (
         <p
-          className="px-2 py-1 text-3xs text-muted-foreground"
+          className="px-2 py-1 text-sm text-muted-foreground"
           data-testid="run-list-pins-unreachable"
           role="status"
         >
@@ -190,7 +190,7 @@ export function RunList({
       ) : null}
 
       {runs.length === 0 ? (
-        <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+        <p className="px-2 py-6 text-center text-sm text-muted-foreground">
           no runs — start one from the Deck
         </p>
       ) : (
@@ -241,12 +241,12 @@ export function RunList({
                           {isPinned ? "pinned" : "pin"}
                         </button>
                       </div>
-                      <p className="pl-6 pr-2 text-3xs text-muted-foreground/70">
+                      <p className="pl-6 pr-2 text-2xs text-muted-foreground/70">
                         {rowMeta(run)}
                       </p>
                       {rowError !== null && rowError.id === run.id ? (
                         <p
-                          className="pl-6 pr-2 text-3xs text-destructive"
+                          className="pl-6 pr-2 text-2xs text-destructive"
                           role="alert"
                         >
                           {rowError.message}

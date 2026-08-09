@@ -78,7 +78,7 @@ export function PlanPane({ doc, onTurnIntoWorktree, projectPath }: Props) {
             </span>
           ) : null}
         </div>
-        <p className="text-2xs text-muted-foreground/80" data-testid="plan-act">
+        <p className="text-sm text-muted-foreground/80" data-testid="plan-act">
           {blocked ??
             `a new branch, checked out under this project, with this plan copied in as ${BRIEF_FILE}. The name is offered, and you can change it before anything is created.`}
         </p>

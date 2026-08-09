@@ -50,12 +50,12 @@ export function DeckConflict({
         your pin didn't apply — rev {revision} changed the pinned set first
       </p>
       {added.length > 0 ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-2xs text-muted-foreground">
           added there: {added.map((pin) => pinLabel(pin, runs)).join(", ")}
         </p>
       ) : null}
       {removed.length > 0 ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-2xs text-muted-foreground">
           removed there: {removed.map((pin) => pinLabel(pin, runs)).join(", ")}
         </p>
       ) : null}

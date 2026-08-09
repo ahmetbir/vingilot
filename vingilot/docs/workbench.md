@@ -79,6 +79,62 @@ wanted. `Enter` on a focused control (a tab button, a file row, a link)
 belongs to that control, not to this list; `j`/`k` do not, because every file
 row is itself a button.
 
+## The type scale
+
+The owner read the workspace after using it and said *"her yerde bi font
+sıkıntısı var — bazıları kücücük bazıları büyük"*. Nothing here was breaking a
+rule: every size was a legal rem token and `pnpm check:px-text` was green. What
+disagreed was **which** token, across panes written days apart — a pane header
+was `text-lg` on one surface and `text-xs` on another, a row's second line was
+`text-3xs` here and `text-xs` there. So the scale is written down, and the next
+pane inherits it instead of re-guessing.
+
+**Six roles, four sizes.** Nothing in `features/runs/**` uses a size outside
+this table.
+
+| role | what it is | token |
+|---|---|---|
+| **Title** | the name of the surface you are looking at — a column header, a pane's own heading, the pane-header strip's label and picker, a run's objective at the top of its detail | `text-sm` |
+| **Body** | anything the workspace says as a statement — an empty state, a refusal, a note, an agent's answer, a thread message — and every field the owner types into | `text-sm` |
+| **Row** | the primary line of a list row: a project, a worktree, a run, a palette row, a changed file, a menu item | `text-sm` |
+| **Control** | the label on a button, a tab, a form field, a disclosure | `text-xs` |
+| **Meta** | the quiet second line under a row, and anything that names or counts rather than states — a timestamp, a path, a count, a chip, a keyboard hint, the whole status bar | `text-2xs` |
+| **Eyebrow** | the uppercase heading over a list or a bar | `text-3xs uppercase tracking-[0.14em]` |
+
+Three riders, each of which settles a case that came up while applying it:
+
+- **Body and Row and Title are the same size on purpose.** They are all things
+  you read; only weight and colour separate them. The scale is about size —
+  weight, colour and case stay each surface's own.
+- **A line is Body if it makes a statement and Meta if it names, counts or
+  times something.** "control plane unreachable — pin toggles disabled" is
+  Body. "+340 −22", "as of 14:02", `~/src/vingilot` are Meta. A line
+  subordinate to the line directly above it is Meta whatever it says.
+- **Monospace takes its role's size, except output the app produced.** A patch,
+  an agent trace, an evidence row and a stderr dump are `text-xs` — they are
+  scanned in columns, not read in lines. A path, a branch name or a refusal's
+  file list is Meta (`text-2xs`); the Notes/Plan editor is a field the owner
+  writes prose into, so it is Body (`text-sm`).
+
+**The Eyebrow's styling belongs to the Eyebrow alone.** `uppercase` plus
+`tracking-[0.14em]` at any other size is the drift this section exists to stop,
+and it is checked (`lib/typeScale.test.mjs`) in both directions: an eyebrow at
+another size, and an 8px line that is not an eyebrow. Two `dismiss` links wore
+the eyebrow's styling as controls and now use the app's plain underlined-link
+idiom instead. The chip idiom — `text-2xs uppercase tracking-wide` inside a
+rounded border, as on `acp`/`int`, a run's status and STOP — is a separate,
+self-consistent thing and is left alone.
+
+**The terminal is exempt, and only the terminal.** xterm renders its own font
+at its own size inside `ui/Terminal.tsx`'s host element; a Tailwind size there
+would resize the cell grid and hand tmux a new column count for a session the
+owner never touched. The chrome *around* it — the tab strip, the scratch
+shell's header and footer, the "waiting for this worktree's checkout…" notice —
+is workspace type and takes the table above.
+
+`pnpm check:px-text` still gates arbitrary literals app-wide; this scale is the
+narrower rule that gates *token choice* inside the island.
+
 ## The terminal, and exactly what it does not promise
 
 A real PTY per tab, running **the owner's own login shell** in the worktree's

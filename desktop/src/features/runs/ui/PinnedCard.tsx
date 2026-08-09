@@ -207,7 +207,7 @@ export function PinnedCard({
 
       {unplaced ? (
         <>
-          <p className="text-3xs text-muted-foreground/70">
+          <p className="text-2xs text-muted-foreground/70">
             pinned on another device — place it where you like
           </p>
           <Button

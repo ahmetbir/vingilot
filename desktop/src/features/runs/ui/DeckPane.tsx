@@ -246,7 +246,7 @@ export function DeckPane({
        * word people use for it — the owner asked "where is the Deck?" while
        * looking straight at it. Naming it is the whole fix. */}
       <div className="flex items-baseline gap-2">
-        <h2 className="text-sm font-medium">Deck</h2>
+        <h2 className="text-sm font-semibold">Deck</h2>
         <span className="text-2xs text-muted-foreground">
           workspace home — start a run, pin what matters
         </span>
@@ -302,12 +302,12 @@ export function DeckPane({
         </Button>
       </form>
       {!reachable ? (
-        <p className="text-xs text-muted-foreground" role="status">
+        <p className="text-sm text-muted-foreground" role="status">
           control plane unreachable — Start Run disabled
         </p>
       ) : null}
       {error !== null ? (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="text-sm text-destructive" role="alert">
           {error}
         </p>
       ) : null}
@@ -320,7 +320,7 @@ export function DeckPane({
        * inert with no explanation on a workspace with zero pins. */}
       {!pinsReachable ? (
         <p
-          className="text-xs text-muted-foreground"
+          className="text-sm text-muted-foreground"
           data-testid="deck-pins-unreachable"
           role="status"
         >
@@ -335,7 +335,7 @@ export function DeckPane({
               PINNED
               <span className="text-muted-foreground/60">{pins.length}</span>
             </h2>
-            <span className="text-3xs text-muted-foreground/70">
+            <span className="text-2xs text-muted-foreground/70">
               {pinsReachable
                 ? "synced"
                 : pinsLastOk !== null

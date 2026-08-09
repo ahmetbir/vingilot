@@ -85,7 +85,7 @@ export function DocumentEditor({
             it is about to bite. */}
         {doc.text.length >= MAX_DOCUMENT_CHARS ? (
           <p
-            className="text-2xs text-amber-600 dark:text-amber-500"
+            className="text-sm text-amber-600 dark:text-amber-500"
             data-testid={`${testId}-full`}
           >
             this document is full at {MAX_DOCUMENT_CHARS} characters — nothing
@@ -93,7 +93,7 @@ export function DocumentEditor({
           </p>
         ) : null}
         <p
-          className="truncate font-mono text-3xs text-muted-foreground/70"
+          className="truncate font-mono text-2xs text-muted-foreground/70"
           data-testid={`${testId}-scope`}
         >
           {scope}

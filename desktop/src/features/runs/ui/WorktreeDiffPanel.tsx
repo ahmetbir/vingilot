@@ -345,13 +345,13 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
         }}
       >
         <label
-          className="text-2xs uppercase tracking-[0.14em] text-muted-foreground"
+          className="text-3xs uppercase tracking-[0.14em] text-muted-foreground"
           htmlFor="worktree-diff-base"
         >
           against
         </label>
         <input
-          className="min-w-0 max-w-40 flex-1 rounded-md border border-border/60 bg-transparent px-2 py-1 font-mono text-xs"
+          className="min-w-0 max-w-40 flex-1 rounded-md border border-border/60 bg-transparent px-2 py-1 font-mono text-sm"
           data-testid="worktree-diff-base"
           id="worktree-diff-base"
           onChange={(event) => setDraft(event.target.value)}
@@ -373,7 +373,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
         </button>
         <Freshness readAt={readAt} reading={reading} />
         {summary === null ? null : (
-          <span className="min-w-0 basis-full truncate text-xs text-muted-foreground">
+          <span className="min-w-0 basis-full truncate text-2xs text-muted-foreground">
             {summary.headline}
           </span>
         )}
@@ -385,7 +385,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
           does not silently keep showing yesterday's diff as current. */}
       {refusal === null || diff === null ? null : (
         <p
-          className="shrink-0 border-b border-border/60 bg-destructive/10 px-4 py-1.5 text-2xs text-destructive"
+          className="shrink-0 border-b border-border/60 bg-destructive/10 px-4 py-1.5 text-sm text-destructive"
           data-testid="worktree-diff-stale"
         >
           could not re-read — {refusal}
@@ -394,7 +394,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
 
       {summary?.omission == null ? null : (
         <p
-          className="shrink-0 border-b border-border/60 bg-amber-500/10 px-4 py-1.5 text-2xs text-amber-700 dark:text-amber-400"
+          className="shrink-0 border-b border-border/60 bg-amber-500/10 px-4 py-1.5 text-sm text-amber-700 dark:text-amber-400"
           data-testid="worktree-diff-omission"
         >
           {summary.omission}
@@ -453,12 +453,12 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
                     {changeMark(file.change)}
                   </span>
                   <span
-                    className="min-w-0 flex-1 truncate text-xs"
+                    className="min-w-0 flex-1 truncate text-sm"
                     title={fileLabel(file)}
                   >
                     {fileLabel(file)}
                   </span>
-                  <span className="shrink-0 font-mono text-3xs text-muted-foreground/80">
+                  <span className="shrink-0 font-mono text-2xs text-muted-foreground/80">
                     {file.binary
                       ? "bin"
                       : `+${file.additions} −${file.deletions}`}
@@ -471,7 +471,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex shrink-0 items-baseline gap-2 border-b border-border/60 px-4 py-1.5">
               <span
-                className="min-w-0 flex-1 truncate font-mono text-xs"
+                className="min-w-0 flex-1 truncate font-mono text-sm"
                 // Named so a spec can ask which file is open without reading
                 // an index out of the list beside it — which is the whole
                 // point when what is under test is that the index moved and
@@ -480,7 +480,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
               >
                 {shown === null ? "" : fileLabel(shown)}
               </span>
-              <span className="shrink-0 text-3xs uppercase tracking-[0.14em] text-muted-foreground">
+              <span className="shrink-0 text-2xs text-muted-foreground">
                 j / k move · enter opens
               </span>
             </div>

@@ -142,10 +142,10 @@ export function RunDetail({ runId }: RunDetailProps) {
           {run.status}
         </span>
         <ModeChip mode={run.mode} />
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">
+        <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {run.objective}
         </h1>
-        <span className="shrink-0 text-3xs text-muted-foreground/70">
+        <span className="shrink-0 text-2xs text-muted-foreground/70">
           {run.id}
         </span>
       </header>
@@ -165,7 +165,7 @@ export function RunDetail({ runId }: RunDetailProps) {
           </Button>
         ))}
         {conflict !== null ? (
-          <span className="text-xs text-destructive" role="alert">
+          <span className="text-sm text-destructive" role="alert">
             {conflict}
           </span>
         ) : null}
@@ -183,7 +183,7 @@ export function RunDetail({ runId }: RunDetailProps) {
           <ul className="mt-2 flex flex-col gap-1">
             {transitionsNewestFirst.map((transition) => (
               <li
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 px-3 py-1.5 text-xs"
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 px-3 py-1.5 text-sm"
                 key={transition.seq}
               >
                 <span className="text-muted-foreground/70">
@@ -195,7 +195,7 @@ export function RunDetail({ runId }: RunDetailProps) {
                 <span className="text-muted-foreground">
                   {transition.reason}
                 </span>
-                <span className="ml-auto shrink-0 text-3xs text-muted-foreground/70">
+                <span className="ml-auto shrink-0 text-2xs text-muted-foreground/70">
                   {new Date(transition.created_at).toLocaleTimeString()}
                 </span>
               </li>
@@ -220,7 +220,7 @@ export function RunDetail({ runId }: RunDetailProps) {
           return (
             <div className="mt-2 flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-xs">
               {truncatedCount > 0 ? (
-                <p className="text-3xs text-muted-foreground/70">
+                <p className="text-2xs text-muted-foreground/70">
                   {truncatedCount} earlier row
                   {truncatedCount === 1 ? "" : "s"} not shown
                 </p>
@@ -267,7 +267,7 @@ export function RunDetail({ runId }: RunDetailProps) {
                 </div>
               ))}
               {truncated ? (
-                <p className="mt-1 text-3xs text-muted-foreground/70">
+                <p className="mt-1 text-2xs text-muted-foreground/70">
                   diff truncated — see marker above for the full byte count
                 </p>
               ) : null}
@@ -277,7 +277,7 @@ export function RunDetail({ runId }: RunDetailProps) {
       </section>
 
       {!reachable ? (
-        <p className="text-xs text-muted-foreground" role="status">
+        <p className="text-sm text-muted-foreground" role="status">
           control plane unreachable — showing last-known state
         </p>
       ) : null}

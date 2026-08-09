@@ -158,7 +158,7 @@ export function PlanWorktreeDialog({
           <div className="flex flex-col gap-3 py-4">
             {blocked === null ? null : (
               <p
-                className="text-xs text-muted-foreground"
+                className="text-sm text-muted-foreground"
                 data-testid="plan-worktree-blocked"
               >
                 {blocked}
@@ -218,7 +218,7 @@ export function PlanWorktreeDialog({
                 className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5"
                 data-testid="plan-worktree-partial"
               >
-                <p className="text-xs text-amber-700 dark:text-amber-400">
+                <p className="text-sm text-amber-700 dark:text-amber-400">
                   The worktree was created on {partial.branch}, at{" "}
                   {partial.path} — but the plan was not copied into it:{" "}
                   {partial.briefRefusal?.message} Nothing was removed, and the
@@ -232,7 +232,7 @@ export function PlanWorktreeDialog({
                 className="rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5"
                 data-testid="plan-worktree-refusal"
               >
-                <p className="text-xs text-destructive">{refusal.message}</p>
+                <p className="text-sm text-destructive">{refusal.message}</p>
                 {refusal.entries.length === 0 ? null : (
                   <ul className="mt-1 flex flex-col gap-0.5 font-mono text-2xs text-muted-foreground">
                     {refusal.entries.map((entry) => (

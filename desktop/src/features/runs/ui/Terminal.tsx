@@ -38,6 +38,12 @@
 // claim the shell's boundary lock consumes every wheel at window capture, one
 // layer above xterm, and the terminal cannot scroll at all
 // (tests/e2e/terminal-wheel.spec.ts).
+//
+// **The workspace type scale stops at this container** (vingilot/docs/workbench.md,
+// "The type scale"). What is inside is a grid xterm measures its own cell box
+// from; a Tailwind text size on the host would resize that grid and hand tmux a
+// new column count for a session the owner did not touch. The chrome around it
+// — the tab strip, the scratch header, the notice below — is not exempt.
 
 import "@xterm/xterm/css/xterm.css";
 

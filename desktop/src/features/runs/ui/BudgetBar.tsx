@@ -26,7 +26,7 @@ export function BudgetBar({ now, run }: BudgetBarProps) {
           className="flex items-center gap-2"
           title="wall clock budget — enforced"
         >
-          <span className="w-12 shrink-0 text-2xs uppercase tracking-wide text-muted-foreground">
+          <span className="w-12 shrink-0 text-3xs uppercase tracking-[0.14em] text-muted-foreground">
             wall
           </span>
           <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
@@ -45,7 +45,7 @@ export function BudgetBar({ now, run }: BudgetBarProps) {
           className="flex items-center gap-2"
           title="token budget — observed only, not enforced"
         >
-          <span className="w-12 shrink-0 text-2xs uppercase tracking-wide text-muted-foreground">
+          <span className="w-12 shrink-0 text-3xs uppercase tracking-[0.14em] text-muted-foreground">
             tokens
           </span>
           <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-2xs text-muted-foreground">

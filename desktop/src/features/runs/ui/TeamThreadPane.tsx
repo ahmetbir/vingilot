@@ -82,7 +82,7 @@ function Verdict({ thread }: { thread: TeamThread }) {
   }
   return (
     <p
-      className="border-b border-border/60 px-4 py-2 text-xs text-muted-foreground"
+      className="border-b border-border/60 px-4 py-2 text-sm text-muted-foreground"
       data-testid="team-unsure"
     >
       {reading.note}
@@ -117,7 +117,7 @@ function TeamChoice({ thread }: { thread: TeamThread }) {
           type="button"
         >
           <span className="block text-sm font-medium">{team.name}</span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="block text-2xs text-muted-foreground">
             {team.personaIds.length}{" "}
             {team.personaIds.length === 1 ? "member" : "members"}
             {team.description === null || team.description === ""
@@ -152,7 +152,7 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
       <ChosenTeam thread={thread} />
       <Scope cwd={cwd} />
       {again === null && thread.lostChannel ? (
-        <p className="text-xs text-muted-foreground" data-testid="team-lost">
+        <p className="text-sm text-muted-foreground" data-testid="team-lost">
           A thread was opened here before and its channel is not in this
           community's list any more. Opening one now makes a new channel; the
           old one, if it still exists, is wherever it was.
@@ -160,14 +160,14 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
       ) : null}
       {again === null ? null : (
         <div className="flex flex-col gap-2" data-testid="team-existing">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             This worktree already has a thread with {thread.team?.name} on the
             relay: #{again.name}. Reopening it deploys nothing and starts
             nothing — it points this pane back at that channel, with everything
             already said in it.
           </p>
           <button
-            className="self-start rounded-lg border border-border/60 px-3 py-1.5 text-sm hover:bg-muted/40"
+            className="self-start rounded-lg border border-border/60 px-3 py-1.5 text-xs hover:bg-muted/40"
             data-testid="team-adopt"
             onClick={() => thread.adoptThread()}
             type="button"
@@ -177,7 +177,7 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
         </div>
       )}
       {thread.missingMembers > 0 ? (
-        <p className="text-xs text-destructive" data-testid="team-missing">
+        <p className="text-sm text-destructive" data-testid="team-missing">
           This team names {thread.missingMembers} agent
           {thread.missingMembers === 1 ? "" : "s"} that{" "}
           {thread.missingMembers === 1 ? "is" : "are"} no longer in My Agents.
@@ -186,7 +186,7 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
         </p>
       ) : null}
       {thread.noRuntime ? (
-        <p className="text-xs text-destructive" data-testid="team-no-runtime">
+        <p className="text-sm text-destructive" data-testid="team-no-runtime">
           No ACP runtime is available on this machine, so there is nothing to
           run a team member on.
         </p>
@@ -205,7 +205,7 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
       {again === null || confirmingSecond ? (
         <div className="flex flex-col gap-2">
           {again === null ? null : (
-            <p className="text-xs text-destructive" data-testid="team-second">
+            <p className="text-sm text-destructive" data-testid="team-second">
               Open a <em>second</em> thread with {thread.team?.name}? This makes
               another channel and starts a new agent process for each of its{" "}
               {thread.members.length}{" "}
@@ -217,7 +217,7 @@ function Preflight({ cwd, thread }: { cwd: string; thread: TeamThread }) {
           )}
           <div className="flex items-center gap-2">
             <button
-              className="self-start rounded-lg border border-border/60 px-3 py-1.5 text-sm hover:bg-muted/40 disabled:opacity-50"
+              className="self-start rounded-lg border border-border/60 px-3 py-1.5 text-xs hover:bg-muted/40 disabled:opacity-50"
               data-testid="team-open"
               disabled={blocked || thread.opening}
               onClick={() => thread.openThread()}
@@ -293,7 +293,7 @@ function ChangeTeam({ thread }: { thread: TeamThread }) {
 
   return (
     <div className="flex flex-col gap-2" data-testid="team-change-confirm">
-      <p className="text-xs text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         Change team? This pane stops pointing at
         {thread.channel === null
           ? " this worktree's thread"
@@ -333,7 +333,7 @@ function ChosenTeam({ thread }: { thread: TeamThread }) {
   return (
     <div className="flex flex-col gap-1" data-testid="team-members">
       <p className="text-sm font-medium">{thread.team?.name}</p>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         {thread.members.length === 0
           ? "no members this app can resolve"
           : `one agent per member, each with its own key: ${thread.members
@@ -347,7 +347,7 @@ function ChosenTeam({ thread }: { thread: TeamThread }) {
 /** The scope, stated in the words of the line that will actually be sent. */
 function Scope({ cwd }: { cwd: string }) {
   return (
-    <p className="text-xs text-muted-foreground" data-testid="team-scope">
+    <p className="text-sm text-muted-foreground" data-testid="team-scope">
       {scopeSentence(cwd)}
     </p>
   );
@@ -392,14 +392,14 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
       >
         {thread.opening ? (
           <p
-            className="text-xs text-muted-foreground"
+            className="text-sm text-muted-foreground"
             data-testid="team-deploying"
           >
             deploying this team's members into the thread…
           </p>
         ) : null}
         {thread.deployFailures.length > 0 ? (
-          <p className="text-xs text-destructive" data-testid="team-partial">
+          <p className="text-sm text-destructive" data-testid="team-partial">
             {thread.deployFailures.length} member
             {thread.deployFailures.length === 1 ? "" : "s"} could not be
             deployed, so this thread is short of{" "}
@@ -472,7 +472,7 @@ function Conversation({ cwd, thread }: { cwd: string; thread: TeamThread }) {
 function Trouble({ thread }: { thread: TeamThread }) {
   if (thread.trouble === null) return null;
   return (
-    <p className="pt-2 text-xs text-destructive" data-testid="team-trouble">
+    <p className="pt-2 text-sm text-destructive" data-testid="team-trouble">
       {troubleSentence(thread.trouble.step)}
       {thread.trouble.message}
     </p>

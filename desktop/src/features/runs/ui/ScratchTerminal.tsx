@@ -143,7 +143,7 @@ export function ScratchTerminal({ onClose, scratch }: ScratchTerminalProps) {
       />
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-popover shadow-2xl">
         <header className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2">
-          <span aria-hidden="true" className="text-xs text-muted-foreground">
+          <span aria-hidden="true" className="text-sm text-muted-foreground">
             ⌁
           </span>
           <span className="shrink-0 text-sm text-foreground">

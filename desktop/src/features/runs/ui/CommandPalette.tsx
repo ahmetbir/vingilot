@@ -118,7 +118,7 @@ function Row({
       >
         <span
           aria-hidden="true"
-          className="mt-0.5 w-4 shrink-0 text-center text-xs text-muted-foreground"
+          className="mt-0.5 w-4 shrink-0 text-center text-sm text-muted-foreground"
         >
           {icon}
         </span>
@@ -258,7 +258,7 @@ export function CommandPalette({ palette }: { palette: Palette }) {
           <AskPanel ask={ask} />
         ) : view.rows.length === 0 ? (
           <p
-            className="px-3 py-4 text-xs text-muted-foreground"
+            className="px-3 py-4 text-sm text-muted-foreground"
             data-testid="palette-empty"
           >
             nothing here matches <span className="font-semibold">{query}</span>.
@@ -319,7 +319,7 @@ function AskPanel({ ask }: { ask: Ask }) {
         </ul>
       ) : null}
       <p
-        className="text-2xs text-muted-foreground"
+        className="text-sm text-muted-foreground"
         data-testid="palette-ask-note"
       >
         {ask.note}
@@ -333,7 +333,7 @@ function AskPanel({ ask }: { ask: Ask }) {
         </p>
       ) : (
         <p
-          className="text-2xs text-amber-600 dark:text-amber-500"
+          className="text-sm text-amber-600 dark:text-amber-500"
           data-testid="palette-ask-blocked"
         >
           {ask.blocked}

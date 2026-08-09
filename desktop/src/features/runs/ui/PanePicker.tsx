@@ -29,7 +29,7 @@ interface PanePickerProps {
 export function PaneLabel({ entry }: { entry: PaneEntry }) {
   return (
     <span
-      className="flex shrink-0 items-center gap-1.5 px-1 py-1 text-xs font-medium text-foreground"
+      className="flex shrink-0 items-center gap-1.5 px-1 py-1 text-sm font-medium text-foreground"
       data-testid={`pane-label-${entry.id}`}
     >
       <span aria-hidden="true" className="text-muted-foreground">
@@ -52,7 +52,7 @@ export function PanePicker({ choices, current, onChoose }: PanePickerProps) {
       <DropdownMenuTrigger asChild>
         <button
           aria-label={`change the right pane — showing ${current.title}`}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
           data-testid="pane-picker"
           type="button"
         >
@@ -60,7 +60,7 @@ export function PanePicker({ choices, current, onChoose }: PanePickerProps) {
             {current.icon}
           </span>
           {current.title}
-          <span aria-hidden="true" className="text-2xs text-muted-foreground">
+          <span aria-hidden="true" className="text-muted-foreground">
             ▾
           </span>
         </button>
@@ -77,16 +77,13 @@ export function PanePicker({ choices, current, onChoose }: PanePickerProps) {
               key={entry.id}
               onSelect={() => onChoose(entry.id)}
             >
-              <span className="flex items-center gap-1.5 text-xs font-medium">
+              <span className="flex items-center gap-1.5 text-sm font-medium">
                 <span aria-hidden="true" className="text-muted-foreground">
                   {entry.icon}
                 </span>
                 {entry.title}
                 {entry.id === current.id ? (
-                  <span
-                    aria-hidden="true"
-                    className="text-2xs text-muted-foreground"
-                  >
+                  <span aria-hidden="true" className="text-muted-foreground">
                     ✓
                   </span>
                 ) : null}

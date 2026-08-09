@@ -101,7 +101,7 @@ function Exchange({
       data-testid={`ask-exchange-${exchange.id}`}
     >
       <p className="text-sm text-foreground">{exchange.question}</p>
-      <p className="truncate font-mono text-3xs text-muted-foreground/70">
+      <p className="truncate font-mono text-2xs text-muted-foreground/70">
         asked in {exchange.cwd}
       </p>
       {state === "answered" ? (
@@ -199,7 +199,7 @@ export function AgentPanel({ cwd }: Props) {
       data-testid="pane-agent"
     >
       <div className="flex flex-col gap-1">
-        <p className="text-xs text-muted-foreground">{boundaryNote}</p>
+        <p className="text-sm text-muted-foreground">{boundaryNote}</p>
         <p
           className="font-mono text-2xs text-muted-foreground/70"
           data-testid="agent-availability"
@@ -215,7 +215,7 @@ export function AgentPanel({ cwd }: Props) {
           </h3>
           {thread.kept ? null : (
             <p
-              className="text-2xs text-amber-600 dark:text-amber-500"
+              className="text-sm text-amber-600 dark:text-amber-500"
               data-testid="ask-thread-unstored"
             >
               not kept — this app could not write to its own storage, so this
@@ -252,13 +252,13 @@ export function AgentPanel({ cwd }: Props) {
           {runningHere ? "running…" : "Run"}
         </button>
         {cwd === null ? (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             this worktree has no directory this app can name.
           </span>
         ) : null}
         {elsewhere !== null ? (
           <span
-            className="min-w-0 truncate text-xs text-amber-600 dark:text-amber-500"
+            className="min-w-0 truncate text-sm text-amber-600 dark:text-amber-500"
             data-testid="agent-busy-elsewhere"
           >
             a turn is already running in {elsewhere}, and one adapter runs at a
@@ -266,7 +266,7 @@ export function AgentPanel({ cwd }: Props) {
           </span>
         ) : null}
         {turn !== null ? (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             {turnSummary(turn)} — open Diff to read what changed.
           </span>
         ) : null}
@@ -292,7 +292,7 @@ export function AgentPanel({ cwd }: Props) {
       {turn !== null && turn.stderr.trim().length > 0 ? (
         <details className="text-xs text-muted-foreground">
           <summary className="cursor-pointer">what the agent logged</summary>
-          <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-2xs">
+          <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">
             {turn.stderr}
           </pre>
         </details>

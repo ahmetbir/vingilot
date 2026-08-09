@@ -57,7 +57,7 @@ export function EvidencePane({ ownerRunId }: PaneProps) {
       ) : (
         <div className="flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/30 p-3 font-mono text-xs">
           {truncatedCount > 0 ? (
-            <p className="text-3xs text-muted-foreground/70">
+            <p className="text-2xs text-muted-foreground/70">
               {truncatedCount} earlier row{truncatedCount === 1 ? "" : "s"} not
               shown
             </p>
