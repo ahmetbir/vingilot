@@ -49,12 +49,98 @@ const SIZE = /\btext-(\[[^\]]*\]|3xs|2xs|xs|sm|base|lg|[2-9]?xl)\b/g;
 
 const SCALE = new Set(["text-sm", "text-xs", "text-2xs", "text-3xs"]);
 
-function sizeHits(text) {
-  const hits = [];
-  for (const [index, line] of text.split("\n").entries()) {
-    for (const match of line.matchAll(SIZE)) {
-      hits.push({ line: index + 1, text: line, token: match[0] });
+/** The offset just past the string or template literal opening at `open`.
+ * Substitutions are not descended into: a `${…}` holding its own backtick is
+ * not a thing this island writes, and skipping to the closing backtick can
+ * only ever widen the span that follows, never cut one short. */
+function endOfString(text, open) {
+  const quote = text[open];
+  for (let i = open + 1; i < text.length; i += 1) {
+    if (text[i] === "\\") {
+      i += 1;
+      continue;
     }
+    if (text[i] === quote) {
+      return i + 1;
+    }
+  }
+  return text.length;
+}
+
+/** The offset just past the JSX attribute value opening at `open` — a quoted
+ * string, a template literal, or a braced expression. Strings inside a braced
+ * expression are skipped whole, so a brace that is only ever a character in a
+ * class name or a message cannot close it early. */
+function endOfValue(text, open) {
+  if (/["'`]/.test(text[open])) {
+    return endOfString(text, open);
+  }
+  if (text[open] !== "{") {
+    return -1;
+  }
+  let depth = 0;
+  for (let i = open; i < text.length; i += 1) {
+    const ch = text[i];
+    if (/["'`]/.test(ch)) {
+      i = endOfString(text, i) - 1;
+      continue;
+    }
+    if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return i + 1;
+      }
+    }
+  }
+  return -1;
+}
+
+/** Every `className=…` value in a file, as [start, end) offsets. */
+function classNameSpans(text) {
+  const spans = [];
+  for (const match of text.matchAll(/className\s*=\s*/g)) {
+    const open = match.index + match[0].length;
+    const end = endOfValue(text, open);
+    if (end > open) {
+      spans.push({ start: open, end });
+    }
+  }
+  return spans;
+}
+
+/** Every text-size utility in a file, each carrying the whole class list it was
+ * written in rather than the physical line it landed on. A Tailwind class list
+ * wraps constantly here — a `cn()` split over arguments, a template literal, a
+ * formatter breaking one long string — and a check that reads a single line
+ * judges an element by a fragment of it: the size on one line and the styling
+ * on the next reads as both a miss and a false alarm. Outside a className (a
+ * stylesheet, a string constant) the line is the widest honest context there
+ * is, so that is what the hit carries. */
+function sizeHits(text) {
+  const spans = classNameSpans(text);
+  const lineStarts = [0];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "\n") {
+      lineStarts.push(i + 1);
+    }
+  }
+  const hits = [];
+  for (const match of text.matchAll(SIZE)) {
+    const at = match.index;
+    let line = lineStarts.length;
+    while (lineStarts[line - 1] > at) {
+      line -= 1;
+    }
+    const span = spans.find((it) => at >= it.start && at < it.end);
+    hits.push({
+      line,
+      token: match[0],
+      context: span
+        ? text.slice(span.start, span.end)
+        : text.slice(lineStarts[line - 1], lineStarts[line] ?? text.length),
+    });
   }
   return hits;
 }
@@ -83,8 +169,8 @@ test("the eyebrow's styling belongs to the eyebrow alone", () => {
   for (const file of sources()) {
     for (const hit of sizeHits(file.text)) {
       const eyebrowStyle =
-        hit.text.includes("uppercase") &&
-        hit.text.includes("tracking-[0.14em]");
+        hit.context.includes("uppercase") &&
+        hit.context.includes("tracking-[0.14em]");
       if (hit.token === "text-3xs" && !eyebrowStyle) {
         wrong.push(
           `${file.path}:${hit.line}: text-3xs without the eyebrow styling`,
@@ -99,10 +185,14 @@ test("the eyebrow's styling belongs to the eyebrow alone", () => {
 });
 
 test("the terminal's own box carries no text size", () => {
-  // xterm measures its cell box from this element's computed font. A Tailwind
-  // size here would resize the grid and hand tmux a new column count for a
-  // session the owner never touched — which is why the scale stops at this
-  // container and not at the pane around it.
+  // The type inside is xterm's own and is never inherited: @xterm/xterm 5.5.0
+  // defaults to `fontSize: 15` and writes it out explicitly wherever it counts
+  // — onto the element it measures a cell from, and onto `.xterm-rows` through
+  // a stylesheet it appends itself (lib/xterm.js; its css/xterm.css carries no
+  // font rule at all). A size on this host would therefore change nothing
+  // today. What this pins is the boundary, not a resize: app styling never
+  // starts creeping onto the element xterm owns, so the day something inside
+  // does read an inherited font is a day nobody has to find.
   const text = readFileSync(path.join(featureRoot, "ui/Terminal.tsx"), "utf8");
   const at = text.indexOf("ref={containerRef}");
   assert.notEqual(at, -1, "Terminal.tsx no longer has an xterm host element");
