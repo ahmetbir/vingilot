@@ -40,10 +40,17 @@
 // (tests/e2e/terminal-wheel.spec.ts).
 //
 // **The workspace type scale stops at this container** (vingilot/docs/workbench.md,
-// "The type scale"). What is inside is a grid xterm measures its own cell box
-// from; a Tailwind text size on the host would resize that grid and hand tmux a
-// new column count for a session the owner did not touch. The chrome around it
-// — the tab strip, the scratch header, the notice below — is not exempt.
+// "The type scale"). The type inside is xterm's own, and it is never inherited:
+// this file constructs XTerm with no `fontSize`, so xterm falls back to its own
+// default of 15 and then writes that out explicitly wherever it counts — onto
+// the element it measures a cell from, and onto `.xterm-rows` through a
+// stylesheet it appends itself (@xterm/xterm 5.5.0 lib/xterm.js; its
+// css/xterm.css carries no font rule at all). So a text size on this host would
+// change nothing today. The scale stops here to keep it that way: app styling
+// never begins creeping onto the element xterm owns, so the day something
+// inside does read an inherited font is a day nobody has to find
+// (lib/typeScale.test.mjs). The chrome around it — the tab strip, the scratch
+// header, the notice below — is not exempt.
 
 import "@xterm/xterm/css/xterm.css";
 

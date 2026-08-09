@@ -89,8 +89,8 @@ was `text-lg` on one surface and `text-xs` on another, a row's second line was
 `text-3xs` here and `text-xs` there. So the scale is written down, and the next
 pane inherits it instead of re-guessing.
 
-**Six roles, four sizes.** Nothing in `features/runs/**` uses a size outside
-this table.
+**Six roles, four sizes.** No `className` written in `features/runs/**` carries
+a size outside this table, and `lib/typeScale.test.mjs` keeps it that way.
 
 | role | what it is | token |
 |---|---|---|
@@ -125,12 +125,30 @@ idiom instead. The chip idiom — `text-2xs uppercase tracking-wide` inside a
 rounded border, as on `acp`/`int`, a run's status and STOP — is a separate,
 self-consistent thing and is left alone.
 
-**The terminal is exempt, and only the terminal.** xterm renders its own font
-at its own size inside `ui/Terminal.tsx`'s host element; a Tailwind size there
-would resize the cell grid and hand tmux a new column count for a session the
-owner never touched. The chrome *around* it — the tab strip, the scratch
-shell's header and footer, the "waiting for this worktree's checkout…" notice —
-is workspace type and takes the table above.
+**The scale governs what the island writes, not what it renders.** A shared
+component brings its own size in with it, and no className in this island
+mentions it: `@/shared/ui/button` is `text-sm` at its base (its `sm` and `xs`
+sizes step down to `text-xs`), `@/shared/ui/input` is `text-base` until
+`md:text-sm`, `@/shared/ui/dropdown-menu`'s items are `text-sm`. Island panes
+render all three — the dialogs, the deck cards, the pane picker — so the table
+above is not the whole answer to "what size is this line", only to "what size
+did we ask for". Those components are upstream files: making one of them agree
+with this scale is a change to Buzz's own type, which is a seam
+(`vingilot/seams.yaml`) and a decision about upstream, not a tidy-up.
+
+**The terminal is exempt, and only the terminal.** The type inside
+`ui/Terminal.tsx`'s host element is xterm's own, and it is never inherited:
+the component constructs XTerm with no `fontSize`, so xterm falls back to its
+own default of 15 and writes that out explicitly wherever it counts — onto the
+element it measures a cell from, and onto `.xterm-rows` through a stylesheet it
+appends itself (`@xterm/xterm` 5.5.0 `lib/xterm.js`; its `css/xterm.css` has no
+font rule at all). A Tailwind size on the host would therefore change nothing
+today. The exemption is a boundary, not a live hazard: it keeps app styling
+from starting to creep onto the element xterm owns, so the day something inside
+does read an inherited font is a day nobody has to find. `lib/typeScale.test.mjs`
+holds that line. The chrome *around* it — the tab strip, the scratch shell's
+header and footer, the "waiting for this worktree's checkout…" notice — is
+workspace type and takes the table above.
 
 `pnpm check:px-text` still gates arbitrary literals app-wide; this scale is the
 narrower rule that gates *token choice* inside the island.
