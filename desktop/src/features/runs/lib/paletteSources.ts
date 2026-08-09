@@ -40,11 +40,16 @@ import { scratchBlocked } from "./scratchTerminal.ts";
 
 /** One entry of the pane registry, reduced to what the palette needs. Built by
  * the host from `paneRegistry.tsx`, availability already asked with the same
- * `PaneContext` the work surface uses. */
+ * `PaneContext` the work surface uses.
+ *
+ * The registry's own glyph is deliberately not carried: in the palette the
+ * icon says *kind*, one shape repeated down the column, and a per-pane glyph
+ * there would make the four pane rows look like four unrelated things. The
+ * glyph is still the pane picker's, where each row is a different pane and
+ * nothing else. */
 export interface PaletteChoice {
   id: string;
   title: string;
-  icon: string;
   availability: PaneAvailability;
 }
 
@@ -101,18 +106,18 @@ const NO_PROJECT =
 export const projectSource: PaletteSource = (ctx, query) => {
   const candidates: Candidate[] = ctx.repos.map((repo) => ({
     blocked: null,
+    chord: null,
     command: { repoId: repo.id, type: "open-project" },
     detail: repo.id === ctx.selectedRepoId ? `${repo.path} · open` : repo.path,
-    icon: "▣",
     id: `project:${repo.id}`,
     kind: "project",
     label: repo.name,
   }));
   candidates.push({
     blocked: null,
+    chord: null,
     command: { type: "open-landing" },
     detail: "the project-less landing view — runs, lanes, the composer",
-    icon: "▣",
     id: "project:landing",
     kind: "project",
     label: "Deck",
@@ -129,15 +134,24 @@ function worktreeDetail(wt: Worktree): string {
   return parts.join(" · ");
 }
 
+/** ⌘1…⌘9 select the Nth worktree (`terminalKeys.ts`'s `switch-worktree`,
+ * indexed into the array `WorkSurface` is handed). This source is given that
+ * same array, so the row's place in it *is* the digit — which is why the chord
+ * is derived here rather than written down anywhere. Past nine there is no
+ * chord, because there is no ⌘10. */
+function worktreeChord(index: number): string | null {
+  return index < 9 ? `⌘${index + 1}` : null;
+}
+
 export const worktreeSource: PaletteSource = (ctx, query) => {
-  const candidates: Candidate[] = ctx.worktrees.map((wt) => ({
+  const candidates: Candidate[] = ctx.worktrees.map((wt, index) => ({
     blocked: null,
+    chord: worktreeChord(index),
     command: { bindingId: wt.binding_id, type: "open-worktree" },
     detail:
       wt.binding_id === ctx.selectedWorktreeId
         ? `${worktreeDetail(wt)} · open`
         : worktreeDetail(wt),
-    icon: "⌥",
     id: `worktree:${wt.binding_id}`,
     kind: "worktree",
     label: worktreeSummary(wt).label,
@@ -165,9 +179,9 @@ function paneBlocked(
 export const paneSource: PaletteSource = (ctx, query) => {
   const candidates: Candidate[] = ctx.paneChoices.map((choice) => ({
     blocked: paneBlocked(choice, ctx.selectedWorktreeId),
+    chord: null,
     command: { pane: choice.id, type: "choose-pane" },
     detail: `show the ${choice.title} pane beside the terminal`,
-    icon: choice.icon,
     id: `pane:${choice.id}`,
     kind: "pane",
     label: `${choice.title} pane`,
@@ -186,15 +200,16 @@ export const actionSource: PaletteSource = (ctx, query) => {
   const candidates: Candidate[] = [
     {
       blocked: project === null ? NO_PROJECT : null,
+      chord: null,
       command: { type: "new-worktree" },
       detail: "branch off this project into its own checkout",
-      icon: "+",
       id: "action:new-worktree",
       kind: "action",
       label: "New worktree…",
     },
     {
       blocked: project === null ? NO_PROJECT : null,
+      chord: null,
       // What the plan says, and what is in it, are not this source's to know:
       // the document is read when the dialog opens, which is the moment the
       // branch name has to be derived from. A row carrying a name read at
@@ -202,7 +217,6 @@ export const actionSource: PaletteSource = (ctx, query) => {
       // edited.
       command: { type: "plan-to-worktree" },
       detail: "a branch from this project's plan, with the plan copied into it",
-      icon: "◇",
       id: "action:plan-to-worktree",
       kind: "action",
       label: "Turn this plan into a worktree…",
@@ -212,9 +226,9 @@ export const actionSource: PaletteSource = (ctx, query) => {
         ctx.selectedWorktreeId === null
           ? "no worktree is open, so there is nowhere to open a shell."
           : null,
+      chord: "⌘T",
       command: { type: "new-terminal-tab" },
-      detail: "another shell in this worktree · ⌘T",
-      icon: "❯",
+      detail: "another shell in this worktree",
       id: "action:new-terminal-tab",
       kind: "action",
       label: "New terminal tab",
@@ -228,34 +242,34 @@ export const actionSource: PaletteSource = (ctx, query) => {
         ctx.worktreeCwd,
         ctx.worktreeCwdPending,
       ),
+      chord: "⌥⌘T",
       command: { type: "open-scratch-terminal" },
-      // The detail says the boundary, not just the chord: this row sits
-      // directly under "New terminal tab", and the only thing separating them
-      // is what happens afterwards.
+      // The detail says the boundary: this row sits directly under "New
+      // terminal tab", and the only thing separating them is what happens
+      // afterwards.
       detail:
-        "a shell that ends when you close it or leave this worktree — keeps nothing: no tab, no tmux session · ⌥⌘T",
-      icon: "⌁",
+        "a shell that ends when you close it or leave this worktree — keeps nothing: no tab, no tmux session",
       id: "action:scratch-terminal",
       kind: "action",
       label: "Scratch terminal",
     },
     {
       blocked: null,
+      chord: null,
       command: { type: "add-project" },
       detail: "point the workspace at a repository on this machine",
-      icon: "+",
       id: "action:add-project",
       kind: "action",
       label: "Add project…",
     },
     {
       blocked: project === null ? NO_PROJECT : null,
+      chord: null,
       command: { type: "remove-project" },
       detail:
         project === null
           ? "forgets a path — never touches the folder"
           : `forgets ${project.path} — never touches the folder`,
-      icon: "×",
       id: "action:remove-project",
       kind: "action",
       label: project === null ? "Remove project…" : `Remove ${project.name}…`,
@@ -267,21 +281,27 @@ export const actionSource: PaletteSource = (ctx, query) => {
           : ctx.prunable === 0
             ? "nothing to prune — git can still find every worktree's directory in this project."
             : null,
+      chord: null,
       command: { type: "prune-worktrees" },
       detail:
         ctx.prunable === 0
           ? "clears `.git/worktrees/` records for checkouts that are gone"
           : `clears ${ctx.prunable} record${ctx.prunable === 1 ? "" : "s"} in \`.git/worktrees/\` — no directory is removed`,
-      icon: "⌫",
       id: "action:prune-worktrees",
       kind: "action",
       label: "Prune missing worktrees…",
     },
+    // The four layout toggles carried nothing but their chord as a detail,
+    // which left the second line saying what the key column now says and the
+    // row saying nothing about *what* it moves. Each names the thing it acts
+    // on instead, which is also what makes it findable by that name — kept
+    // short, because the matcher will find a subsequence in any long enough
+    // sentence and a wordy second line buys those matches for every query.
     {
       blocked: null,
+      chord: "⌘B",
       command: { type: "toggle-sidebar" },
-      detail: "⌘B",
-      icon: "▤",
+      detail: "the app's own sidebar, on the left",
       id: "action:toggle-sidebar",
       kind: "action",
       label: ctx.sidebarCollapsed ? "Show the sidebar" : "Hide the sidebar",
@@ -290,9 +310,9 @@ export const actionSource: PaletteSource = (ctx, query) => {
       blocked: ctx.hasWorktreeColumn
         ? null
         : "there is no worktree column on the landing view.",
+      chord: "⇧⌘B",
       command: { type: "toggle-worktrees" },
-      detail: "⇧⌘B",
-      icon: "▥",
+      detail: "the worktree column, beside the projects",
       id: "action:toggle-worktrees",
       kind: "action",
       label: ctx.worktreesCollapsed
@@ -304,9 +324,9 @@ export const actionSource: PaletteSource = (ctx, query) => {
         ctx.selectedWorktreeId === null
           ? "no worktree is open, so there is no work surface to give away."
           : null,
+      chord: "⌥⌘B",
       command: { side: "left", type: "toggle-solo" },
-      detail: "⌥⌘B",
-      icon: "⤢",
+      detail: "the split between the terminal and the right pane",
       id: "action:solo-left",
       kind: "action",
       label:
@@ -319,9 +339,9 @@ export const actionSource: PaletteSource = (ctx, query) => {
         ctx.selectedWorktreeId === null
           ? "no worktree is open, so there is no work surface to give away."
           : null,
+      chord: "⇧⌥⌘B",
       command: { side: "right", type: "toggle-solo" },
-      detail: "⇧⌥⌘B",
-      icon: "⤢",
+      detail: "the same split, from the right pane's side",
       id: "action:solo-right",
       kind: "action",
       label:

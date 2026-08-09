@@ -643,7 +643,6 @@ export function RunsScreen() {
     const entry = paneEntry(id);
     return {
       availability: entry.availability(paneContext),
-      icon: entry.icon,
       id: entry.id,
       title: entry.title,
     };

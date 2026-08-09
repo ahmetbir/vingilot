@@ -34,13 +34,11 @@ function worktree(bindingId, overrides = {}) {
 const PANES = [
   {
     availability: { status: "available" },
-    icon: "±",
     id: "diff",
     title: "Diff",
   },
   {
     availability: { reason: "no ACP harness here.", status: "unavailable" },
-    icon: "◆",
     id: "agent",
     title: "Agent",
   },
@@ -183,7 +181,6 @@ test("a new terminal tab needs a worktree, and a new worktree needs a project", 
 test("the scratch shell is offered, and says how it differs from the tab above it", () => {
   const scratch = row(actionSource(ctx(), ""), "action:scratch-terminal");
   assert.equal(scratch.blocked, null);
-  assert.equal(scratch.detail.endsWith("⌥⌘T"), true);
   // The only thing separating these two rows is what happens afterwards, so
   // the row that keeps nothing has to say so where it is read.
   assert.match(scratch.detail, /keeps nothing/);
@@ -249,21 +246,44 @@ test("a toggle's label says which way it is about to go", () => {
   );
 });
 
-test("an action carries the chord that already does it", () => {
-  assert.equal(
-    row(actionSource(ctx(), ""), "action:new-terminal-tab").detail.endsWith(
-      "⌘T",
-    ),
-    true,
-  );
-  assert.equal(
-    row(actionSource(ctx(), ""), "action:toggle-worktrees").detail,
-    "⇧⌘B",
-  );
-  assert.equal(
-    row(actionSource(ctx(), ""), "action:solo-right").detail,
-    "⇧⌥⌘B",
-  );
+test("an action carries the chord that already does it, in its own field", () => {
+  const actions = actionSource(ctx(), "");
+  assert.equal(row(actions, "action:new-terminal-tab").chord, "⌘T");
+  assert.equal(row(actions, "action:scratch-terminal").chord, "⌥⌘T");
+  assert.equal(row(actions, "action:toggle-sidebar").chord, "⌘B");
+  assert.equal(row(actions, "action:toggle-worktrees").chord, "⇧⌘B");
+  assert.equal(row(actions, "action:solo-left").chord, "⌥⌘B");
+  assert.equal(row(actions, "action:solo-right").chord, "⇧⌥⌘B");
+  // An action nothing is bound to says nothing rather than borrowing one.
+  assert.equal(row(actions, "action:add-project").chord, null);
+});
+
+test("no chord is left buried in a detail line", () => {
+  // The chord had been a suffix on `detail` — matched as prose, wrapped with
+  // it, and read last. Every source is checked, not just the actions, because
+  // this is the shape the next row would copy.
+  const glyphs = /[⌘⌥⇧⌃]/;
+  for (const match of paletteMatches(ctx(), "")) {
+    assert.equal(
+      glyphs.test(match.candidate.detail),
+      false,
+      `${match.candidate.id} still carries a chord in its detail: ${match.candidate.detail}`,
+    );
+  }
+});
+
+test("a worktree carries the digit that already selects it, up to nine", () => {
+  // ⌘1…⌘9 index into the same array this source is handed
+  // (`terminalKeys.ts`'s switch-worktree, applied in `WorkSurface.tsx`), so
+  // the row's place in the list is the digit.
+  const many = ctx({
+    worktrees: Array.from({ length: 10 }, (_, n) => worktree(`wt-${n}`)),
+  });
+  const matches = worktreeSource(many, "");
+  assert.equal(row(matches, "worktree:wt-0").chord, "⌘1");
+  assert.equal(row(matches, "worktree:wt-8").chord, "⌘9");
+  // There is no ⌘10, so the tenth row claims nothing.
+  assert.equal(row(matches, "worktree:wt-9").chord, null);
 });
 
 test("a query filters every source through the same matcher", () => {

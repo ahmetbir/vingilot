@@ -28,6 +28,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
 // Matches RunsScreen.tsx's hardcoded dev workspace id.
@@ -323,6 +324,121 @@ test.describe("one key to go anywhere and do anything", () => {
     // The same dialog the column's "+ New worktree" row opens, not a second
     // copy of it.
     await expect(page.getByTestId("new-worktree-dialog")).toBeVisible();
+  });
+
+  test("a row's kind is a mark, and rows of one kind carry one mark", async ({
+    page,
+  }) => {
+    // The point of the icon column is that it is a *column*: the same shape
+    // repeated, so "these are projects" arrives before any label is read. Per
+    // row glyphs — which is what this surface had — cannot do that, and this
+    // test is the difference between the two, asserted on what is drawn rather
+    // than on which component was imported.
+    await openWorkspace(page);
+    await openPalette(page);
+
+    async function mark(testId: string) {
+      return page.getByTestId(testId).locator("svg").first().innerHTML();
+    }
+    const project = await mark("palette-row-project:repo-left");
+    expect(project.length).toBeGreaterThan(0);
+    expect(await mark("palette-row-project:repo-right")).toEqual(project);
+    expect(await mark("palette-row-pane:diff")).not.toEqual(project);
+    expect(await mark("palette-row-action:add-project")).not.toEqual(project);
+    expect(await mark("palette-row-action:add-project")).not.toEqual(
+      await mark("palette-row-pane:diff"),
+    );
+  });
+
+  test("the chord is keys beside the row, not glyphs inside its sentence", async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await page.getByTestId("projects-nav-repo-repo-left").click();
+    await openPalette(page);
+    await page.getByTestId("palette-input").fill("hide the worktrees");
+
+    const row = page.getByTestId("palette-row-action:toggle-worktrees");
+    await expect(row).toBeVisible();
+    // Three keys in three boxes. A `kbd` per key is what settings' own
+    // shortcut list draws, and it is what makes ⇧⌘B read as a chord rather
+    // than as a word at the end of a line.
+    await expect(row.locator("kbd")).toHaveText(["⇧", "⌘", "B"]);
+    // And the line under the label is a sentence about what moves, which is
+    // what the chord used to be sitting in place of.
+    await expect(row).toContainText("the worktree column, beside the projects");
+  });
+
+  test("a blocked row keeps its name, states why, and drops the chord", async ({
+    page,
+  }) => {
+    // No project open, so the worktree column does not exist to be toggled —
+    // and ⇧⌘B does nothing here either, which is why the row must not print
+    // it. The same row with a project open is the control: it is runnable, and
+    // then the keys are there.
+    await openWorkspace(page);
+    await openPalette(page);
+    await page.getByTestId("palette-input").fill("hide the worktrees");
+    const row = page.getByTestId("palette-row-action:toggle-worktrees");
+    await expect(row).toHaveAttribute("data-blocked", "true");
+    await expect(row).toContainText("no worktree column on the landing view");
+    await expect(row.locator("kbd")).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await page.getByTestId("projects-nav-repo-repo-left").click();
+    await openPalette(page);
+    await page.getByTestId("palette-input").fill("hide the worktrees");
+    await expect(row).not.toHaveAttribute("data-blocked", "true");
+    await expect(row.locator("kbd")).toHaveCount(3);
+  });
+
+  test("the cursor, the mouse and neither are three different paints", async ({
+    page,
+  }) => {
+    // The cursor and the hover were `bg-muted` and `bg-muted/60` — one colour
+    // at two strengths, which is not a difference anybody sees while typing.
+    // Both states exist at once only after the arrows move the cursor off the
+    // row the pointer is resting on (moving the mouse takes the cursor with
+    // it), so that is the arrangement built here — and a row nobody has been
+    // near is read alongside them as the third.
+    await openWorkspace(page);
+    await openPalette(page);
+    const rows = page.getByTestId("palette-list").getByRole("button");
+    // The list scrolls its cursor row into view as it mounts; hovering before
+    // that has settled aims at a row that then moves out from under the
+    // pointer.
+    await expect(rows.nth(0)).toHaveAttribute("data-active", "true");
+
+    const hovered = rows.nth(2);
+    await hovered.hover();
+    await expect(hovered).toHaveAttribute("data-active", "true");
+
+    await page.keyboard.press("ArrowDown");
+    const cursor = rows.nth(3);
+    const idle = rows.nth(5);
+    await expect(cursor).toHaveAttribute("data-active", "true");
+    await expect(hovered).not.toHaveAttribute("data-active", "true");
+
+    // `transition-colors` is 150ms, and both rows changed state one keystroke
+    // ago: read mid-transition, a row reports an interpolated colour that is
+    // neither state's.
+    await waitForAnimations(page);
+
+    const paint = (row: typeof cursor) =>
+      row.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return `${style.backgroundColor} / ${style.borderTopColor}`;
+      });
+    const painted = [
+      await paint(cursor),
+      await paint(hovered),
+      await paint(idle),
+    ];
+    expect(new Set(painted).size, painted.join(" · ")).toEqual(3);
+    // And only the cursor carries the second channel, so the two lit rows are
+    // told apart by shape as well as by shade.
+    expect(painted[1]).toContain("/ rgba(0, 0, 0, 0)");
+    expect(painted[0]).not.toContain("/ rgba(0, 0, 0, 0)");
   });
 
   test("an action that cannot run says so and refuses, rather than vanishing", async ({

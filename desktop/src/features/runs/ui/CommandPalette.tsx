@@ -40,13 +40,38 @@
 // exists to remove — and the scope block is not decoration. It is the only
 // thing on screen that keeps "ask about this project" from reading as though
 // the workspace had explained the project first.
+//
+// **The row is three columns, and every one of them is upstream's.** A kind
+// icon (`features/search/ui/SearchResultItem.tsx` picks its glyph from the
+// result's kind exactly this way), the label over its quiet second line, and
+// the chord as keys in the boxes settings' own shortcut list draws
+// (`features/settings/ui/KeyboardShortcutsCard.tsx`, and the Esc hint in
+// `TopbarSearch.tsx`). The outer columns are fixed, so the labels start on one
+// x and the chords end on another and the eye scans a column instead of
+// re-finding it per row.
+//
+// **Nothing here animates in.** Every transition in this file is
+// `transition-colors` on a state that changes after the surface is already up;
+// there is no enter animation, no opacity or transform ramp, and the field is
+// focused in the same commit that mounts it. This is the surface the owner
+// reaches for most, and a palette that has to finish arriving before it will
+// take a keystroke is a palette that drops the first thing he types.
 
 import * as React from "react";
+import {
+  Ban,
+  FolderGit2,
+  GitBranch,
+  PanelRight,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 
 import type { Ask } from "@/features/runs/lib/askMode";
 import { resolvePaletteListKey } from "@/features/runs/lib/paletteKeys";
 import type {
   MatchRange,
+  PaletteKind,
   PaletteMatch,
 } from "@/features/runs/lib/paletteModel";
 import type { Palette } from "@/features/runs/lib/usePalette";
@@ -84,6 +109,44 @@ function Marked({
   return <>{parts}</>;
 }
 
+/** One glyph per kind, repeated down the column, so "these four are panes"
+ * arrives from the shape rather than from four labels. Per-row glyphs were the
+ * opposite: every row a different mark, which is exactly the arrangement that
+ * cannot be scanned. A pane's own glyph still belongs to `PanePicker`, where
+ * each row *is* a different pane.
+ *
+ * Lucide, drawn in `currentColor` like every other icon in this app, so the
+ * same file serves both themes — a pair of images would be a second thing to
+ * keep in step. */
+const KIND_ICON: Record<PaletteKind, LucideIcon> = {
+  action: Zap,
+  pane: PanelRight,
+  project: FolderGit2,
+  worktree: GitBranch,
+};
+
+/** The chord, as keys. The box is settings' own (`KeyboardShortcutsCard`'s
+ * `KeyCombo`) at the meta size the workspace gives a keyboard hint.
+ *
+ * One box per key rather than one for the whole chord: `⇧⌥⌘B` in a single box
+ * is a word again, and a word in a box is what this column exists to stop the
+ * chord being. Keyed by the character because a chord never repeats a
+ * modifier. */
+function Chord({ chord }: { chord: string }) {
+  return (
+    <span className="mt-0.5 flex shrink-0 items-center gap-0.5">
+      {[...chord].map((key) => (
+        <kbd
+          className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-border/70 bg-muted/60 px-1 font-mono text-2xs text-muted-foreground"
+          key={key}
+        >
+          {key}
+        </kbd>
+      ))}
+    </span>
+  );
+}
+
 function Row({
   active,
   match,
@@ -97,14 +160,31 @@ function Row({
   onRun: () => void;
   rowRef: React.Ref<HTMLLIElement>;
 }) {
-  const { blocked, detail, icon, id, kind, label } = match.candidate;
+  const { blocked, chord, detail, id, kind, label } = match.candidate;
+  const Icon = KIND_ICON[kind];
   return (
     <li ref={rowRef}>
       <button
         aria-disabled={blocked !== null}
-        className={`flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-          active ? "bg-muted" : "hover:bg-muted/60"
-        } ${blocked === null ? "" : "opacity-60"}`}
+        // Three states, on two channels that cannot mask each other, because a
+        // row can be all three at once. **Where the cursor is** is the primary
+        // tint plus a ring of it — upstream's own selected row
+        // (`SearchResultItem.tsx`'s shell) — and **where the mouse is** is a
+        // plain muted wash, a different hue and a weaker one. Those two used to
+        // be `bg-muted` and `bg-muted/60`: the same colour at two strengths,
+        // which is a difference nobody sees while typing. The border is on
+        // every row, transparent when idle, so gaining it moves nothing.
+        //
+        // **Blocked is the other channel** — the reason line, in amber behind
+        // its own mark — and it deliberately no longer dims the row. Dimming
+        // was the whole signal, and it said "less" rather than "not, because…"
+        // while making the label he is hunting for harder to read than the
+        // runnable ones.
+        className={`flex w-full items-start gap-2.5 rounded-lg border px-2 py-1.5 text-left transition-colors ${
+          active
+            ? "border-primary/30 bg-primary/10"
+            : "border-transparent hover:bg-muted/60"
+        }`}
         // Where Enter would land, readable from outside React. The background
         // tint says the same thing to a person looking at it, and a test that
         // asserted on a Tailwind class would be asserting on a paint choice.
@@ -116,12 +196,12 @@ function Row({
         onMouseMove={onHover}
         type="button"
       >
-        <span
+        <Icon
           aria-hidden="true"
-          className="mt-0.5 w-4 shrink-0 text-center text-sm text-muted-foreground"
-        >
-          {icon}
-        </span>
+          className={`mt-0.5 h-4 w-4 shrink-0 ${
+            active ? "text-foreground" : "text-muted-foreground"
+          }`}
+        />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm text-foreground">
             {match.field === "label" ? (
@@ -130,24 +210,26 @@ function Row({
               label
             )}
           </span>
-          <span
-            className={`block truncate text-2xs ${
-              blocked === null
-                ? "text-muted-foreground/80"
-                : "text-amber-600 dark:text-amber-500"
-            }`}
-          >
-            {blocked === null ? (
-              match.field === "detail" ? (
+          {blocked === null ? (
+            <span className="block truncate text-2xs text-muted-foreground/80">
+              {match.field === "detail" ? (
                 <Marked ranges={match.ranges} text={detail} />
               ) : (
                 detail
-              )
-            ) : (
-              blocked
-            )}
-          </span>
+              )}
+            </span>
+          ) : (
+            <span className="flex min-w-0 items-center gap-1 text-amber-600 dark:text-amber-500">
+              <Ban aria-hidden="true" className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate text-2xs">{blocked}</span>
+            </span>
+          )}
         </span>
+        {/* A blocked row shows no chord, because the chord is blocked too: the
+         * key behind "Hide the worktrees" does nothing on the landing view
+         * either. Printing it there would teach a shortcut that does not
+         * work. */}
+        {blocked === null && chord !== null ? <Chord chord={chord} /> : null}
       </button>
     </li>
   );
@@ -303,7 +385,8 @@ export function CommandPalette({ palette }: { palette: Palette }) {
 function AskPanel({ ask }: { ask: Ask }) {
   return (
     <div className="flex flex-col gap-2 px-3 py-3" data-testid="palette-ask">
-      <p className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+      {/* One eyebrow appearance in this overlay — see `PaletteHeading`. */}
+      <p className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         asked with
       </p>
       {ask.sent.length > 0 ? (
@@ -344,10 +427,16 @@ function AskPanel({ ask }: { ask: Ask }) {
 }
 
 /** The only division the list ever has, and it exists only for the empty
- * query. A ranked list is not grouped — see `paletteModel.ts`. */
+ * query. A ranked list is not grouped — see `paletteModel.ts`.
+ *
+ * The size is the workspace's Eyebrow and is not negotiable here
+ * (`vingilot/docs/workbench.md`, "The type scale"); what a heading at 8px has
+ * left to be legible with is contrast and air, so it takes the full muted
+ * foreground rather than 70% of it, and enough room above to read as a break
+ * in the list rather than as the first row's own line. */
 function PaletteHeading({ children }: { children: React.ReactNode }) {
   return (
-    <li className="px-2 pb-0.5 pt-1.5 text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+    <li className="px-2 pb-1 pt-2.5 text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
       {children}
     </li>
   );

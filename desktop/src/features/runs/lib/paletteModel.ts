@@ -26,9 +26,10 @@
 // Pure: no React, no Tauri, no storage. `paletteSources.ts` builds the
 // candidates, `usePalette.ts` runs the commands.
 
-/** Which surface a row came from. Carried for the renderer's glyph and for
- * nothing else — **it is not an input to the ranking**, which is the whole
- * point of having one ranking. */
+/** Which surface a row came from. Carried so the renderer can draw one icon
+ * per kind and the eye can tell a project from an action without reading
+ * either — **it is not an input to the ranking**, which is the whole point of
+ * having one ranking. */
 export type PaletteKind = "project" | "worktree" | "pane" | "action";
 
 /** Everything the palette can do, as data. The host runs these; the model
@@ -68,11 +69,15 @@ export interface Candidate {
   kind: PaletteKind;
   /** What the row is called, and the first thing matched. */
   label: string;
-  /** The line under it: a path, a branch's state, what an action will do, the
-   * chord that already does it. Matched too, at a discount. */
+  /** The line under it: a path, a branch's state, what an action will do.
+   * Matched too, at a discount. */
   detail: string;
-  /** A glyph for the row. Text, like the rest of this island's chrome. */
-  icon: string;
+  /** The chord that already does this, in the app's own glyph form ("⇧⌥⌘B"),
+   * or `null` where nothing is bound. Its own field rather than a suffix on
+   * `detail`, because a chord written into a sentence is matched as prose,
+   * wraps with it, and is read last — and this is the surface the owner comes
+   * to precisely to learn the chord. The renderer draws it as keys. */
+  chord: string | null;
   /** `null` when this can run right now; otherwise the sentence saying why it
    * cannot. A blocked row is shown, ranked down, and refuses Enter. */
   blocked: string | null;

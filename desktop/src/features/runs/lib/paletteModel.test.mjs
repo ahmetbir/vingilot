@@ -16,9 +16,9 @@ function cand(
 ) {
   return {
     blocked,
+    chord: null,
     command: { type: "add-project" },
     detail,
-    icon: "•",
     id,
     kind,
     label,
