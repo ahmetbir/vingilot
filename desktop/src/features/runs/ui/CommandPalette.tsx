@@ -46,9 +46,10 @@
 // result's kind exactly this way), the label over its quiet second line, and
 // the chord as keys in the boxes settings' own shortcut list draws
 // (`features/settings/ui/KeyboardShortcutsCard.tsx`, and the Esc hint in
-// `TopbarSearch.tsx`). The outer columns are fixed, so the labels start on one
-// x and the chords end on another and the eye scans a column instead of
-// re-finding it per row.
+// `TopbarSearch.tsx`) — now `ui/Chord.tsx`, shared with the cheatsheet so the
+// two surfaces that show the owner a shortcut show him the same thing. The
+// outer columns are fixed, so the labels start on one x and the chords end on
+// another and the eye scans a column instead of re-finding it per row.
 //
 // **Nothing here animates in.** Every transition in this file is
 // `transition-colors` on a state that changes after the surface is already up;
@@ -75,6 +76,7 @@ import type {
   PaletteMatch,
 } from "@/features/runs/lib/paletteModel";
 import type { Palette } from "@/features/runs/lib/usePalette";
+import { Chord } from "@/features/runs/ui/Chord";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
 /** The matched characters, emphasised in place. Built from the ranges the
@@ -124,28 +126,6 @@ const KIND_ICON: Record<PaletteKind, LucideIcon> = {
   project: FolderGit2,
   worktree: GitBranch,
 };
-
-/** The chord, as keys. The box is settings' own (`KeyboardShortcutsCard`'s
- * `KeyCombo`) at the meta size the workspace gives a keyboard hint.
- *
- * One box per key rather than one for the whole chord: `⇧⌥⌘B` in a single box
- * is a word again, and a word in a box is what this column exists to stop the
- * chord being. Keyed by the character because a chord never repeats a
- * modifier. */
-function Chord({ chord }: { chord: string }) {
-  return (
-    <span className="mt-0.5 flex shrink-0 items-center gap-0.5">
-      {[...chord].map((key) => (
-        <kbd
-          className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-border/70 bg-muted/60 px-1 font-mono text-2xs text-muted-foreground"
-          key={key}
-        >
-          {key}
-        </kbd>
-      ))}
-    </span>
-  );
-}
 
 function Row({
   active,

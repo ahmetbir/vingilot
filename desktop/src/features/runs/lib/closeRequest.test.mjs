@@ -3,7 +3,12 @@ import { test } from "node:test";
 import { hasStackedSurface, resolveCloseRequest } from "./closeRequest.ts";
 
 /** Nothing on screen but the work surface. */
-const BARE = { dialog: false, palette: false, scratch: false };
+const BARE = {
+  cheatsheet: false,
+  dialog: false,
+  palette: false,
+  scratch: false,
+};
 
 test("a close request over the scratch shell takes the scratch shell", () => {
   assert.deepEqual(resolveCloseRequest({ ...BARE, scratch: true }), {
@@ -30,9 +35,39 @@ test("the palette opened over the scratch shell is what a close takes", () => {
   );
 });
 
+test("a close request over the cheatsheet takes the cheatsheet", () => {
+  assert.deepEqual(resolveCloseRequest({ ...BARE, cheatsheet: true }), {
+    type: "dismiss-cheatsheet",
+  });
+});
+
+test("the sheet is above the shell it was opened over and below the palette", () => {
+  // The order the sheet's own ⌘W row prints back to the owner. It reads the
+  // sheet away first, then the shell — one surface per request, in the order
+  // they are stacked.
+  assert.deepEqual(
+    resolveCloseRequest({ ...BARE, cheatsheet: true, scratch: true }),
+    { type: "dismiss-cheatsheet" },
+  );
+  assert.deepEqual(
+    resolveCloseRequest({
+      ...BARE,
+      cheatsheet: true,
+      palette: true,
+      scratch: true,
+    }),
+    { type: "dismiss-palette" },
+  );
+});
+
 test("a dialog outranks everything under it", () => {
   assert.deepEqual(
-    resolveCloseRequest({ dialog: true, palette: true, scratch: true }),
+    resolveCloseRequest({
+      cheatsheet: true,
+      dialog: true,
+      palette: true,
+      scratch: true,
+    }),
     { type: "dismiss-dialog" },
   );
 });
@@ -45,15 +80,17 @@ test("what the backend is told is exactly what would be dismissed", () => {
   // Every arrangement, so the two answers cannot disagree for any of them —
   // a disagreement is the window minimizing over a shell the owner meant to
   // close, or a ⌘W that does nothing at all.
-  for (const dialog of [false, true]) {
-    for (const palette of [false, true]) {
-      for (const scratch of [false, true]) {
-        const stacked = { dialog, palette, scratch };
-        assert.equal(
-          hasStackedSurface(stacked),
-          resolveCloseRequest(stacked) !== null,
-          `disagreed for ${JSON.stringify(stacked)}`,
-        );
+  for (const cheatsheet of [false, true]) {
+    for (const dialog of [false, true]) {
+      for (const palette of [false, true]) {
+        for (const scratch of [false, true]) {
+          const stacked = { cheatsheet, dialog, palette, scratch };
+          assert.equal(
+            hasStackedSurface(stacked),
+            resolveCloseRequest(stacked) !== null,
+            `disagreed for ${JSON.stringify(stacked)}`,
+          );
+        }
       }
     }
   }

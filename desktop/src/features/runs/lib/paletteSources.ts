@@ -254,6 +254,18 @@ export const actionSource: PaletteSource = (ctx, query) => {
       label: "Scratch terminal",
     },
     {
+      // Never blocked, and that is the point: this is the row for someone who
+      // does not know the chord, so a state in which it refused would be a
+      // state in which the workspace's keys are unfindable.
+      blocked: null,
+      chord: "⌘/",
+      command: { type: "open-cheatsheet" },
+      detail: "every chord this workspace binds, on one surface",
+      id: "action:cheatsheet",
+      kind: "action",
+      label: "Keyboard shortcuts",
+    },
+    {
       blocked: null,
       chord: null,
       command: { type: "add-project" },

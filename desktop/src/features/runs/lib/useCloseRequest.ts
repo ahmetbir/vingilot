@@ -69,6 +69,9 @@ export function useCloseRequest(
       if (action === null) return;
       if (action.type === "dismiss-dialog") latest.current.dismiss.dialog();
       if (action.type === "dismiss-palette") latest.current.dismiss.palette();
+      if (action.type === "dismiss-cheatsheet") {
+        latest.current.dismiss.cheatsheet();
+      }
       if (action.type === "dismiss-scratch") latest.current.dismiss.scratch();
     })
       .then((unlisten) => {

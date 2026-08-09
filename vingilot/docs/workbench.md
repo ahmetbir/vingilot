@@ -61,16 +61,29 @@ The palette (`lib/paletteKeys.ts`), on `/workspace` only:
 | `⇥` | straight back to the field: there is nothing here to tab *to*, and a Tab that left would put focus on controls the scrim is drawn over |
 | `Esc` | close it, from wherever focus went — including a blocked row, which stays clickable on purpose |
 
-**`⌘W` is deliberately not bound.** It never reaches this app on macOS: Tauri
-installs its default application menu, whose Window submenu holds
-`close_window` at `⌘W`, and macOS resolves menu key equivalents before the
-webview sees the event. Binding it here would close the owner's *window*
-while looking like it closed a tab. Taking it back would mean replacing the
-whole default menu — where `⌘Q`, `⌘C`, `⌘V` and `⌘A` also live for a
-WKWebView. One extra modifier is the cheaper trade.
+**`⌘W` is still not *bound*, and it is answered.** It never reaches this app as
+a keydown on macOS: Tauri installs its default application menu, whose Window
+submenu holds `close_window` at `⌘W`, and macOS resolves menu key equivalents
+before the webview sees the event. The menu is kept rather than replaced —
+`⌘Q`, `⌘C`, `⌘X`, `⌘V` and `⌘A` live in the same table for a WKWebView, losing
+one would be silent, and no `cargo test` can even construct a replacement
+(`src-tauri/src/vingilot_window/mod.rs` carries the whole pricing). What is
+answered instead is the **close request** that menu item raises: it takes
+whatever is stacked over the work surface — a dialog, else the palette, else
+the cheatsheet, else the scratch shell — and with nothing stacked the window
+**minimizes into the Dock, where the thumbnail is the way back. It never
+hides.** Hiding it is how the owner lost the window with no way back he could
+find.
 
 Auto-repeat is not a second press: a leaned-on `⌘T` would otherwise leave
 dozens of live shells, removable one click at a time.
+
+The cheatsheet (`lib/cheatsheetKeys.ts`), on `/workspace` only:
+
+| chord | does |
+|---|---|
+| `⌘/` | every chord in this table, on screen — and, pressed again, put away |
+| `Esc` | close it |
 
 Diff panel (`lib/diffKeys.ts`): `j` / `k` move the cursor through the changed
 files, `Enter` opens the one under it. A cursor is not a selection — opening
@@ -374,7 +387,7 @@ surface on the one screen this fork exists for.
 | **projects** | every project in the workspace, plus **Deck** (the project-less landing view) |
 | **worktrees** | the open project's worktrees, labelled with the role and the run that owns them |
 | **panes** | every pane in the registry — "show the Diff pane beside the terminal" |
-| **actions** | New worktree…, Turn this plan into a worktree…, New terminal tab, **Scratch shell**, Add project…, Remove *&lt;project&gt;*…, Prune missing worktrees…, and the four layout toggles — each labelled by what it will do next ("Hide the sidebar" / "Show the sidebar") and carrying its own chord |
+| **actions** | New worktree…, Turn this plan into a worktree…, New terminal tab, **Scratch shell**, **Keyboard shortcuts**, Add project…, Remove *&lt;project&gt;*…, Prune missing worktrees…, and the four layout toggles — each labelled by what it will do next ("Hide the sidebar" / "Show the sidebar") and carrying its own chord |
 
 The scratch row's detail leads with the lifetime — "a shell that ends when you
 close it or leave this worktree — keeps nothing: no tab, no tmux session" —
@@ -479,6 +492,69 @@ Everything the ask mode can refuse, in the order it is checked:
 keeps the whole thread in memory and the pane says that is where it is; the
 next write storage does take carries the rows it refused earlier, so a quota
 that frees up recovers the conversation whole.
+
+## The cheatsheet — what this key does *here*
+
+`⌘/`, or `⌘K → Keyboard shortcuts` (`lib/cheatsheet.ts`, `lib/cheatsheetKeys.ts`,
+`ui/KeyCheatsheet.tsx`). Every chord this workspace binds, on one surface,
+grouped by what it acts on: the workspace, the columns, the work surface, the
+divider, the terminal, the palette, the Diff pane — and then the chords that
+are **not** this island's.
+
+**It is generated, and that is the whole feature.** Nothing in
+`cheatsheet.ts` writes a chord down. `resolvedChords()` walks a bounded key
+space (letters, digits, the arrows, the named keys, every modifier
+combination) through every `resolve*` function in the island and keeps what
+came back, so adding a chord to `terminalKeys.ts` puts it on the sheet and
+removing one takes it off. A hand-written list is a list that goes stale, and
+the only way the owner finds out is by pressing a key that does nothing —
+which is worse than no sheet at all. What *is* written down is the **sentence**
+for each action, because no key module holds one; a chord whose sentence is
+missing is still drawn, carrying its own action name, and
+`lib/cheatsheet.test.mjs` fails the build until someone writes the line.
+
+**The chords that are not the island's are on it too**, because the question
+the sheet answers is "what does this key do *here*" and the owner cannot tell
+which handler he is talking to. Two kinds, neither generable from this
+repository:
+
+- **`⌘W`**, whose row is the whole point: it takes what is on top and, with
+  nothing stacked, minimizes — see the Key map above.
+- **The default macOS menu's own table** — `⌘Q`, `⌘C`, `⌘X`, `⌘V`, `⌘Z`,
+  `⇧⌘Z`, `⌘A`, `⌘M`, `⌘H`, `⌥⌘H`, `⌃⌘F` — copied from muda 0.19.3
+  `src/items/predefined.rs:301-341`, the menu this app installs by setting
+  none of its own and deliberately leaves alone. That list is also an
+  assertion: **no chord the island resolves may be one of them**, checked over
+  the generated set on every build. That check is the ⌘W failure turned into a
+  build error.
+
+**`⌘/` was checked against every claimant before it was taken**, which is the
+discipline ⌘W was lost for want of: muda's predefined table (no `Slash` — it
+exists in muda's accelerator *parser* and no predefined item asks for it),
+tauri's own `menu/menu.rs` (no accelerator of its own at all), the app's one
+global shortcut (`⌃Space`, push-to-talk), upstream's window handler and
+shortcut registry, and this island's own maps. `cheatsheetKeys.ts`'s header
+carries the reading, file and line. **`⇧` is tolerated on it**, because on the
+Turkish-Q layout the owner types on `/` is `⇧7`; `?` is not, because it is a
+different character and would put a `⌘?` on the sheet that nothing can press.
+
+The surface is the palette's, deliberately — same box over the work surface,
+same scrim, same eyebrow over a group, and the chords in the same `kbd` boxes
+(`ui/Chord.tsx`, which the palette's rows now draw with too). While it is up
+it holds the plain keys, so a stray `j` cannot reach the shell underneath, and
+lets every chord through, so the keys it describes still work while they are
+being read. `⌘1…⌘9` is drawn as its two ends — nine boxes in a row is a wall —
+but the row still carries all nine, and that is asserted.
+
+The table in *Key map* above is prose for a reader of this document; the sheet
+is the generated answer. If they disagree, the sheet is right.
+
+Proved over a real bundle in `desktop/tests/e2e/workspace-cheatsheet.spec.ts`:
+that `⌘/` really arrives over an open project with a terminal mounted, that
+the palette's row is a second door to the *same* sheet, that every generated
+section renders with its chords as keys, that the `⌘W` row says what it really
+does, and that a close request takes the sheet while leaving the palette above
+it alone.
 
 ## The team thread — talking to a Buzz agent team about one worktree
 
@@ -785,14 +861,18 @@ file.
     substrate (`documents`, `documentStore`, `autosave`, `useDocument`,
     `planBrief`), the scratch shell (`scratchTerminal`,
     `terminalPersistence`), and the team thread (`teamThread`,
-    `teamThreadStore`, `teamDraftStore`, `useTeamThread`). All pure modules
-    carry their `.test.mjs` next to them; desktop's own `pnpm test` glob runs
-    them.
+    `teamThreadStore`, `teamDraftStore`, `useTeamThread`), what a window close
+    request means (`closeRequest`, `useCloseRequest`), and the cheatsheet
+    (`cheatsheetKeys`, `useCheatsheet`, and `cheatsheet` — which imports every
+    key map above precisely so it can generate the sheet from them). All pure
+    modules carry their `.test.mjs` next to them; desktop's own `pnpm test`
+    glob runs them.
   - `ui/` — `RunsScreen` (the three columns), `ProjectsNav`, `WorktreeColumn`,
     `WorkSurface` and the pane host (`PaneFrame`, `PaneDivider`, `PanePicker`,
     `paneRegistry`), `Terminal`, `TerminalTabStrip`, `WorktreeDiffPanel`,
-    `AgentPanel`, `CommandPalette`, `DocumentEditor`, `NotesPane`, `PlanPane`,
-    `ScratchTerminal`, `TeamThreadPane`, `PlanWorktreeDialog`,
+    `AgentPanel`, `CommandPalette`, `KeyCheatsheet`, `Chord` (the kbd boxes
+    both of those draw a shortcut with), `DocumentEditor`, `NotesPane`,
+    `PlanPane`, `ScratchTerminal`, `TeamThreadPane`, `PlanWorktreeDialog`,
     `NewWorktreeDialog`, `ProjectStatusBar`, plus the pre-existing `RunList`,
     `DeckPane`, `RunDetail`, `BudgetBar`, `StopAllButton` (hold-to-engage),
     `UnreachableBanner`, `RunsLoadingFallback`.

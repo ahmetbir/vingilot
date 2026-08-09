@@ -97,6 +97,7 @@ import type {
   PaletteContext,
 } from "@/features/runs/lib/paletteSources";
 import { useAskPending } from "@/features/runs/lib/useAskPending";
+import { useCheatsheet } from "@/features/runs/lib/useCheatsheet";
 import { useCloseRequest } from "@/features/runs/lib/useCloseRequest";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { useColumns } from "@/features/runs/lib/useColumns";
@@ -121,6 +122,7 @@ import {
 import { localBindingId } from "@/features/runs/lib/projects";
 import { CommandPalette } from "@/features/runs/ui/CommandPalette";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
+import { KeyCheatsheet } from "@/features/runs/ui/KeyCheatsheet";
 import { PlanWorktreeDialog } from "@/features/runs/ui/PlanWorktreeDialog";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
@@ -596,6 +598,10 @@ export function RunsScreen() {
   // later, storage — which briefed a worktree with the text the owner had
   // already replaced (`lib/useDocument.ts`).
   const documents = useProjectDocuments(paneFacts.projectPath);
+  // ⌘/, and the palette row that is its second door. Held here rather than in
+  // the sheet itself so a close request can take it like any other stacked
+  // surface (`lib/closeRequest.ts`).
+  const sheet = useCheatsheet();
 
   // The three dialogs the palette is a second door to. Held here rather than
   // in the columns that used to own them, so both doors open the *same*
@@ -707,6 +713,9 @@ export function RunsScreen() {
           // chord is the toggle.
           openScratchHere();
           return;
+        case "open-cheatsheet":
+          sheet.show();
+          return;
         case "add-project":
           projectActions.addProject();
           return;
@@ -756,6 +765,7 @@ export function RunsScreen() {
       selectedWorktreeCwd,
       selectLanding,
       selectRepo,
+      sheet.show,
     ],
   );
 
@@ -807,6 +817,7 @@ export function RunsScreen() {
   }, [openPlanWorktree]);
   useCloseRequest(
     {
+      cheatsheet: sheet.open,
       dialog:
         creatingWorktree ||
         planningWorktree ||
@@ -816,6 +827,7 @@ export function RunsScreen() {
       scratch: scratch !== null,
     },
     {
+      cheatsheet: sheet.close,
       dialog: dismissDialogs,
       palette: palette.close,
       scratch: closeScratchNow,
@@ -950,6 +962,10 @@ export function RunsScreen() {
               worktreeRoot={worktreeRoot}
             />
           )}
+          {/* Before the palette, so the palette draws over it at the same
+           * z — ⌘K over an open sheet is a question about the workspace, and
+           * the order here is the order `closeRequest.ts` gives up. */}
+          <KeyCheatsheet sheet={sheet} />
           <CommandPalette palette={palette} />
         </div>
       </div>

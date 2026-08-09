@@ -50,6 +50,9 @@ export type PaletteCommand =
    * row above it, and the reason both are here: one keeps everything, the
    * other keeps nothing (`scratchTerminal.ts`). */
   | { type: "open-scratch-terminal" }
+  /** Put the keyboard cheatsheet on screen. Opens rather than toggles — the
+   * chord is the toggle (`useCheatsheet.ts`). */
+  | { type: "open-cheatsheet" }
   | { type: "add-project" }
   | { type: "remove-project" }
   | { type: "prune-worktrees" }

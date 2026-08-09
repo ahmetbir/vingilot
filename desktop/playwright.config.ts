@@ -143,6 +143,7 @@ export default defineConfig({
         "**/workspace-team.spec.ts",
         "**/workspace-scratch.spec.ts",
         "**/workspace-close-request.spec.ts",
+        "**/workspace-cheatsheet.spec.ts",
         "**/terminal-wheel.spec.ts",
         "**/diff-keeps-up.spec.ts",
       ],

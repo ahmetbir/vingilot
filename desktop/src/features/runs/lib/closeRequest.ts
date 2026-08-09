@@ -33,6 +33,8 @@ export interface StackedSurfaces {
   dialog: boolean;
   /** The command palette (⌘K). */
   palette: boolean;
+  /** The keyboard cheatsheet (⌘/). */
+  cheatsheet: boolean;
   /** The scratch shell (⌥⌘T) — the surface the owner pressed ⌘W over. */
   scratch: boolean;
 }
@@ -42,22 +44,29 @@ export interface StackedSurfaces {
 export type CloseRequestAction =
   | { type: "dismiss-dialog" }
   | { type: "dismiss-palette" }
+  | { type: "dismiss-cheatsheet" }
   | { type: "dismiss-scratch" };
 
 /** Resolves a close request against what is on screen.
  *
  * The order is the render order, outermost last. A dialog is modal over
- * everything including the palette; the palette opens over the scratch shell
- * (the palette is a second door to it, so it is on top of what it opened);
- * the scratch shell is over the work surface. Exactly one surface is
- * dismissed per request — a close that emptied the whole stack would cost the
- * owner three surfaces for one keystroke, and only one of them is the one he
- * was looking at. */
+ * everything including the palette; the palette opens over the cheatsheet and
+ * over the scratch shell (the palette is a second door to both, so it is on
+ * top of what it opened); the cheatsheet is drawn over the scratch shell,
+ * which is over the work surface. Exactly one surface is dismissed per
+ * request — a close that emptied the whole stack would cost the owner four
+ * surfaces for one keystroke, and only one of them is the one he was looking
+ * at.
+ *
+ * The cheatsheet's own row for ⌘W prints this order back to the owner
+ * (`cheatsheet.ts`'s `ELSEWHERE`), so a surface inserted here without a word
+ * there leaves the sheet describing a stack the app no longer has. */
 export function resolveCloseRequest(
   stacked: StackedSurfaces,
 ): CloseRequestAction | null {
   if (stacked.dialog) return { type: "dismiss-dialog" };
   if (stacked.palette) return { type: "dismiss-palette" };
+  if (stacked.cheatsheet) return { type: "dismiss-cheatsheet" };
   if (stacked.scratch) return { type: "dismiss-scratch" };
   return null;
 }
