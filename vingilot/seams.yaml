@@ -541,3 +541,10 @@ seams:
     removable_when: "Never, while the fork ships a mark of its own."
     status: "permanent"
     added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/*"
+    reason: "Upstream Playwright specs that assert on copy the product-name sweep renamed, reconciled with it. Seven files, and every edit is the same edit: the string the spec looks for is now the string the app renders (Set in Vingilot, Take me to Vingilot, Vingilot may briefly restart, Vingilot can restart it automatically, Vingilot couldn't access the clipboard, Welcome to Vingilot, and the harness label that went from the bare Buzz to Buzz Agent). No assertion was weakened, deleted or made less specific, and no spec's scope changed. Deliberately NOT changed in these files: the many install_hint values seeded as mock fixtures inside the specs themselves -- those seed and assert the same literal, so they are self-consistent and say nothing about the product's name. The glob also covers the fork's own specs already declared individually above; it is the tree Playwright's testDir points at and specs cannot live elsewhere without their own project wiring."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"

@@ -22,7 +22,7 @@ const COPY_SUCCESS_MESSAGE =
   "Signed response copied. Paste it into the Buzz admin console.";
 const PREVIEW_COPY_SUCCESS_MESSAGE = "Preview response copied.";
 const COPY_FAILURE_MESSAGE =
-  "Vingilot couldn’t access the clipboard. Try again.";
+  "Vingilot couldn't access the clipboard. Try again.";
 const EXPIRED_LINK_MESSAGE =
   "This binding link has expired. Request a new one from the requesting app.";
 const VERIFICATION_CODE_LENGTH = 6;
