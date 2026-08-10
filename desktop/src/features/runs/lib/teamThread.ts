@@ -453,11 +453,16 @@ export function threadChannelDescription(
  * build to be a thread this one can name and can find again — or `null` when
  * there is nothing to change, which is every channel this build opened.
  *
- * Both halves ride in one `update_channel`, and that is deliberate: it is one
- * kind:9002 event carrying both tags, so the name and the marker land together
- * or neither does. The failed case therefore costs nothing — the old name is
- * still there, and the old name is still what `isLegacyThreadChannelName`
- * finds.
+ * Both halves ride in one `update_channel`, and that is deliberate — one
+ * kind:9002 event carrying both tags is one thing to accept or reject. It is
+ * not atomic further in: the relay walks the tags and writes one
+ * `update_channel` row per tag, `name` before `about`
+ * (`buzz-relay/src/handlers/side_effects.rs`, `handle_edit_metadata`), so a
+ * failure between the two leaves the channel renamed with no marker — a name
+ * `isLegacyThreadChannelName` no longer recognises and no marker to match
+ * instead. What saves that case is the workspace pointer: while it survives,
+ * the next open finds the channel by id and this repair runs again, this time
+ * returning the marker alone.
  *
  * The name is only rewritten when an older build wrote it. A channel the owner
  * renamed himself keeps his name and gets the marker, because the marker is the
