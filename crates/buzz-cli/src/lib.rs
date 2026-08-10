@@ -1,4 +1,5 @@
 pub mod agent_management;
+mod broker;
 mod client;
 mod commands;
 mod error;
@@ -68,8 +69,12 @@ Buzz CLI — interact with a Buzz relay
 
 Configuration (flags override env vars):
   BUZZ_RELAY_URL     Relay base URL        [default: http://localhost:3000]
-  BUZZ_PRIVATE_KEY   Nostr private key (hex or nsec)  [required]
+  BUZZ_PRIVATE_KEY   Nostr private key (hex or nsec)  [required, except as below]
   BUZZ_AUTH_TAG      NIP-OA auth tag JSON  [optional]
+  BUZZ_BROKER_SOCKET Harness send-broker socket, set by the harness that spawned
+                     this shell. With no key, 'messages send' asks the harness to
+                     send as you and the key never enters this process; every
+                     other command still needs a key of its own.
 
 The 'pack' subcommand runs locally and does not require a relay connection.
 
@@ -172,7 +177,7 @@ pub enum OutputFormat {
 }
 
 #[derive(Subcommand)]
-enum Cmd {
+pub(crate) enum Cmd {
     /// Draft owner-reviewed agent creation and updates
     #[command(subcommand)]
     Agents(AgentsCmd),
@@ -1779,11 +1784,22 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         };
     }
 
-    // Auth: private key is required for all relay operations.
-    // The keypair IS the identity — no tokens, no other auth.
-    let private_key_str = cli.private_key.ok_or_else(|| {
-        CliError::Auth("BUZZ_PRIVATE_KEY is required (use --private-key or set env var)".into())
-    })?;
+    // Auth: the keypair IS the identity — no tokens, no other auth. It is
+    // resolved in exactly one order: an explicit --private-key, then
+    // BUZZ_PRIVATE_KEY (clap has already collapsed those two, flag winning),
+    // then — only when neither exists — the harness broker.
+    //
+    // The broker comes last so that nothing about a setup that has a key today
+    // changes: with a key present the socket is never even looked at, and this
+    // path is byte-for-byte what it was. See `broker` for what the broker will
+    // and will not stand in for.
+    let private_key_str = match broker::resolve(cli.private_key, broker::socket_from_env()) {
+        broker::Identity::Key(key) => key,
+        broker::Identity::Broker(socket) => {
+            return broker::run_without_key(cli.command, Some(socket))
+        }
+        broker::Identity::Neither => return broker::run_without_key(cli.command, None),
+    };
     let keys = Keys::parse(&private_key_str)
         .map_err(|e| CliError::Key(format!("invalid BUZZ_PRIVATE_KEY: {e}")))?;
 
