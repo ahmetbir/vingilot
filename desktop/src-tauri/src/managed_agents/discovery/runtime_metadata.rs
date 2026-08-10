@@ -5,8 +5,17 @@ pub(crate) struct KnownAcpRuntime {
     pub commands: &'static [&'static str],
     pub aliases: &'static [&'static str],
     pub avatar_url: &'static str,
-    /// Legacy MCP server binary field. Vestigial — all agents now use the bundled CLI
-    /// directly. Will be removed when runtime discovery is simplified.
+    /// MCP server this runtime is given at `session/new`, or `None` when it needs
+    /// none.
+    ///
+    /// `None` is a claim about the harness, not an absence of one: it says this
+    /// harness runs the `buzz` CLI in a shell that carries the harness's own
+    /// environment, so the CLI finds `BUZZ_PRIVATE_KEY` there. Goose and Claude
+    /// Code do. Codex sandboxes its subprocesses and does not, which is why it
+    /// carries `buzz-dev-mcp` — that server is spawned by the harness with the
+    /// credentials injected into *its* env, so its `shell` tool can authenticate
+    /// where the agent's own shell cannot. See [`effective_mcp_command`] for what
+    /// an unclassified command gets.
     pub mcp_command: Option<&'static str>,
     /// Whether to enable MCP hook tools (`_Stop`, `_PostCompact`) for this agent.
     pub mcp_hooks: bool,
@@ -81,9 +90,142 @@ impl KnownAcpRuntime {
     }
 }
 
+/// The MCP server given to a command that `KNOWN_ACP_RUNTIMES` does not classify.
+pub(crate) const UNCLASSIFIED_MCP_COMMAND: &str = "buzz-dev-mcp";
+
+/// The MCP server binary an agent on `runtime` should be spawned with.
+///
+/// A classified runtime answers for itself, including when the answer is "none".
+/// An unclassified command — every tier-2 preset, every custom harness — resolves
+/// to `buzz-dev-mcp`, because the honest reading of "this command is not in the
+/// table" is *we do not know whether this harness's shell carries the
+/// environment*, and the failure mode of guessing wrong is silent: the agent's
+/// `buzz messages send` exits 3 with `auth_error` and it has no other way to
+/// reply. The reverse mistake costs one idle stdio subprocess per agent.
+pub(crate) fn effective_mcp_command(runtime: Option<&KnownAcpRuntime>) -> &'static str {
+    match runtime {
+        Some(runtime) => runtime.mcp_command.unwrap_or(""),
+        None => UNCLASSIFIED_MCP_COMMAND,
+    }
+}
+
+/// Resolve the MCP server binary an agent on `command` should be spawned with.
+///
+/// `None` means the harness gets no MCP server — either because its runtime
+/// declares it needs none, or because the binary could not be found. Those two
+/// look identical to the harness but not to the operator, so the second is
+/// logged against `agent_label`: for a harness whose shell sanitises the
+/// environment, losing this path means losing every reply.
+///
+/// Resolution goes through `resolve_command`, which finds a bundled sidecar
+/// beside the running executable (`Vingilot.app/Contents/MacOS/buzz-dev-mcp`)
+/// as well as a source checkout's `target/{debug,release}`.
+pub(crate) fn resolve_mcp_command(command: &str, agent_label: &str) -> Option<std::path::PathBuf> {
+    let mcp_command = effective_mcp_command(super::known_acp_runtime(command));
+    if mcp_command.is_empty() {
+        return None;
+    }
+    let resolved = super::resolve_command(mcp_command);
+    if resolved.is_none() {
+        eprintln!(
+            "buzz-desktop: {agent_label}: mcp_command {mcp_command:?} not found; replies now \
+             depend on the harness's own shell carrying BUZZ_PRIVATE_KEY"
+        );
+    }
+    resolved
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::known_acp_runtime_exact;
+    use super::super::{known_acp_runtime, known_acp_runtime_exact};
+    use super::effective_mcp_command;
+
+    #[test]
+    fn unclassified_commands_get_the_credentialed_mcp_shell() {
+        // Every tier-2 preset command, plus a custom harness that is in no
+        // table at all. None of these is in KNOWN_ACP_RUNTIMES, so none of them
+        // was ever asked whether its shell carries BUZZ_PRIVATE_KEY.
+        for command in [
+            "kimi",
+            "hermes-acp",
+            "cursor-agent",
+            "omp",
+            "grok",
+            "opencode",
+            "amp-acp",
+            "openclaw",
+            "devin",
+            "some-harness-nobody-has-heard-of",
+        ] {
+            assert!(
+                known_acp_runtime(command).is_none(),
+                "{command} is expected to be unclassified"
+            );
+            assert_eq!(
+                effective_mcp_command(known_acp_runtime(command)),
+                "buzz-dev-mcp",
+                "{command} must be given the credentialed MCP shell"
+            );
+        }
+    }
+
+    /// The classification has to survive resolution: an unclassified harness
+    /// must come out of `resolve_mcp_command` holding a real path, and a runtime
+    /// that declared it needs none must come out empty-handed even when the
+    /// binary is sitting right there on PATH.
+    #[cfg(unix)]
+    #[test]
+    fn unclassified_harness_resolves_the_mcp_binary_a_classified_one_declines() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = crate::managed_agents::lock_path_mutex();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let planted = temp.path().join("buzz-dev-mcp");
+        std::fs::write(&planted, "#!/bin/sh\n").expect("write planted binary");
+        std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod planted binary");
+
+        let old_path = std::env::var_os("PATH").unwrap_or_default();
+        let new_path = std::env::join_paths(
+            std::iter::once(temp.path().to_path_buf()).chain(std::env::split_paths(&old_path)),
+        )
+        .expect("join PATH");
+        std::env::set_var("PATH", new_path);
+        super::super::clear_resolve_cache();
+
+        let kimi = super::resolve_mcp_command("kimi", "test agent");
+        let goose = super::resolve_mcp_command("goose", "test agent");
+
+        std::env::set_var("PATH", &old_path);
+        super::super::clear_resolve_cache();
+
+        assert!(
+            kimi.is_some_and(|path| path.ends_with("buzz-dev-mcp")),
+            "an unclassified harness must resolve the credentialed MCP binary"
+        );
+        assert!(
+            goose.is_none(),
+            "a runtime that declares it needs no MCP server must not be given one"
+        );
+    }
+
+    #[test]
+    fn classified_runtimes_keep_their_own_answer() {
+        // A runtime in the table has been asked and has answered; the default
+        // must not override either answer.
+        for (id, expected) in [
+            ("goose", ""),
+            ("claude", ""),
+            ("codex", "buzz-dev-mcp"),
+            ("buzz-agent", "buzz-dev-mcp"),
+        ] {
+            assert_eq!(
+                effective_mcp_command(known_acp_runtime_exact(id)),
+                expected,
+                "{id} must keep its declared mcp_command"
+            );
+        }
+    }
 
     #[test]
     fn vendor_metadata_distinguishes_cli_and_adapter_guidance() {

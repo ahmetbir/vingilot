@@ -94,10 +94,7 @@ pub(crate) fn spawn_config_hash(
     record.acp_command.hash(&mut hasher);
     descriptor.command.hash(&mut hasher);
     descriptor.args.hash(&mut hasher);
-    runtime_meta
-        .and_then(|r| r.mcp_command)
-        .unwrap_or("")
-        .hash(&mut hasher);
+    crate::managed_agents::effective_mcp_command(runtime_meta).hash(&mut hasher);
 
     // Effective env layering (baked floor → runtime metadata → definition env
     // → global → persona → agent). BTreeMap iteration is ordered, deterministic.

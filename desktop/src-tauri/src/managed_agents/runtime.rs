@@ -292,10 +292,9 @@ pub fn build_managed_agent_summary(
             env: Default::default(),
         }
     });
-    let effective_mcp_command = known_acp_runtime(&descriptor.command)
-        .and_then(|r| r.mcp_command)
-        .unwrap_or("")
-        .to_string();
+    let effective_mcp_command =
+        crate::managed_agents::effective_mcp_command(known_acp_runtime(&descriptor.command))
+            .to_string();
 
     Ok(ManagedAgentSummary {
         pubkey: record.pubkey.clone(),
@@ -524,22 +523,13 @@ pub fn spawn_agent_child(
         .map_err(|error| format!("failed to clone log handle: {error}"))?;
     let resolved_acp_command = resolve_command(&record.acp_command)
         .ok_or_else(|| missing_command_message(&record.acp_command, "ACP harness command"))?;
-    let effective_mcp_command = known_acp_runtime(effective_command)
-        .and_then(|r| r.mcp_command)
-        .unwrap_or("");
-    let resolved_mcp_command: Option<std::path::PathBuf> = if effective_mcp_command.is_empty() {
-        None
-    } else {
-        match resolve_command(effective_mcp_command) {
-            Some(path) => Some(path),
-            None => {
-                eprintln!(
-                    "buzz-desktop: mcp_command {effective_mcp_command:?} not found, skipping"
-                );
-                None
-            }
-        }
-    };
+    // The credentialed reply path: `buzz-dev-mcp` is handed the key in its own
+    // env by buzz-acp, so its `shell` tool can run `buzz` even when the agent's
+    // built-in shell sanitises the environment out. See `resolve_mcp_command`.
+    let resolved_mcp_command = crate::managed_agents::resolve_mcp_command(
+        effective_command,
+        &format!("agent {} ({})", record.name, record.pubkey),
+    );
     // Resolve agent command to a full path (DMG launches have minimal PATH).
     let resolved_agent_command = resolve_command(effective_command)
         .map(|p| p.display().to_string())

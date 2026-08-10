@@ -886,7 +886,11 @@ async fn create_session_and_apply_model(
     let combined_system_prompt = with_canvas(
         with_core(
             with_team(
-                framed_system_prompt(&ctx.cwd, ctx.base_prompt, ctx.system_prompt.as_deref()),
+                with_credentialed_shell(
+                    framed_system_prompt(&ctx.cwd, ctx.base_prompt, ctx.system_prompt.as_deref()),
+                    ctx.base_prompt,
+                    &ctx.mcp_servers,
+                ),
                 ctx.team_instructions.as_deref(),
             ),
             agent_core,
@@ -1249,6 +1253,50 @@ fn workspace_section(cwd: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Prepend the `[Tools]` note naming the shell that can authenticate `buzz`.
+///
+/// The base prompt tells the agent the `buzz` CLI is its primary interface and
+/// that its credentials are environment variables. That is only followable if
+/// the harness's own shell tool hands its environment to child processes. Claude
+/// Code's does; Codex's does not, and neither do harnesses that run commands
+/// through a sanitising layer. Those are given a `buzz-dev-mcp` MCP server with
+/// the credentials injected into *that server's* env — but nothing ever told the
+/// agent it was there, so it read `auth_error` (exit 3) as "I have no
+/// credentials" rather than "I used the wrong shell", and had no way to recover.
+///
+/// Emitted only when a server genuinely carries `BUZZ_PRIVATE_KEY` — an agent
+/// that has no such tool must not be pointed at one — and only alongside a base
+/// prompt, which is what introduced the CLI this note is about. Prepending puts
+/// it beside `[Workspace]`, the other section that grounds the base prompt in
+/// this machine rather than adding instructions of its own.
+fn with_credentialed_shell(
+    prompt: Option<String>,
+    base_prompt: Option<&str>,
+    mcp_servers: &[McpServer],
+) -> Option<String> {
+    let prompt = prompt?;
+    if base_prompt.is_none() {
+        return Some(prompt);
+    }
+    let Some(server) = mcp_servers.iter().find(|server| {
+        server
+            .env
+            .iter()
+            .any(|var| var.name == "BUZZ_PRIVATE_KEY" && !var.value.is_empty())
+    }) else {
+        return Some(prompt);
+    };
+    Some(format!(
+        "[Tools]\nThe `{}` MCP server's `shell` tool runs commands with your Buzz \
+         credentials in their environment. Your harness's own shell tool may not — \
+         several sanitise the environment before running anything. If `buzz` fails \
+         there with an auth error (exit code 3), your credentials are not missing: \
+         run the same command through that MCP `shell` tool instead. It is the \
+         reply path that always works.\n\n{prompt}",
+        server.name
+    ))
 }
 
 /// Append the team-owned instruction section after `[System]` and before core memory.
@@ -4166,6 +4214,113 @@ mod tests {
     fn test_workspace_section_relative_cwd_is_none() {
         assert!(workspace_section("relative/path").is_none());
         assert!(workspace_section("").is_none());
+    }
+
+    /// An MCP server carrying the credentials, as `build_mcp_servers` builds it.
+    fn credentialed_server(name: &str) -> McpServer {
+        use crate::EnvVar;
+
+        McpServer {
+            name: name.to_string(),
+            command: "buzz-dev-mcp".to_string(),
+            args: vec![],
+            env: vec![
+                EnvVar {
+                    name: "BUZZ_RELAY_URL".into(),
+                    value: "wss://relay.example".into(),
+                },
+                EnvVar {
+                    name: "BUZZ_PRIVATE_KEY".into(),
+                    value: "nsec1example".into(),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn test_credentialed_shell_note_names_the_server_that_holds_the_key() {
+        let framed = with_credentialed_shell(
+            Some("[Base]\nbase text".to_string()),
+            Some("base text"),
+            &[credentialed_server("buzz-dev-mcp")],
+        )
+        .expect("a framed prompt stays Some");
+        assert!(
+            framed.starts_with("[Tools]\n"),
+            "the note must lead the prompt: {framed}"
+        );
+        assert!(
+            framed.contains("`buzz-dev-mcp` MCP server's `shell` tool"),
+            "the note must name the server the harness was actually given: {framed}"
+        );
+        assert!(
+            framed.contains("exit code 3"),
+            "the note must name the failure it is the recovery for: {framed}"
+        );
+        assert!(
+            framed.ends_with("\n\n[Base]\nbase text"),
+            "the framed prompt must survive underneath: {framed}"
+        );
+    }
+
+    #[test]
+    fn test_credentialed_shell_note_omitted_without_a_credentialed_server() {
+        // No servers at all — every tier-1 harness that carries its own env.
+        assert_eq!(
+            with_credentialed_shell(Some("[Base]\nbase".to_string()), Some("base"), &[]),
+            Some("[Base]\nbase".to_string()),
+            "an agent with no MCP server must not be pointed at one"
+        );
+
+        // A server that exists but holds no key: pointing at its shell would
+        // send the agent from one unauthenticated shell to another.
+        let mut keyless = credentialed_server("some-other-mcp");
+        keyless.env.retain(|var| var.name != "BUZZ_PRIVATE_KEY");
+        assert_eq!(
+            with_credentialed_shell(
+                Some("[Base]\nbase".to_string()),
+                Some("base"),
+                std::slice::from_ref(&keyless)
+            ),
+            Some("[Base]\nbase".to_string()),
+            "a server without the key is not a credentialed shell"
+        );
+
+        // An empty key value is the same absence wearing a name.
+        let mut blank = credentialed_server("blank-mcp");
+        blank.env.iter_mut().for_each(|var| {
+            if var.name == "BUZZ_PRIVATE_KEY" {
+                var.value = String::new();
+            }
+        });
+        assert_eq!(
+            with_credentialed_shell(
+                Some("[Base]\nbase".to_string()),
+                Some("base"),
+                std::slice::from_ref(&blank)
+            ),
+            Some("[Base]\nbase".to_string()),
+            "an empty key must not advertise a working shell"
+        );
+    }
+
+    #[test]
+    fn test_credentialed_shell_note_needs_the_base_prompt_it_talks_about() {
+        // The note is guidance about the `buzz` CLI, which only the base prompt
+        // introduces. A persona-only agent gets the prompt back untouched.
+        assert_eq!(
+            with_credentialed_shell(
+                Some("[System]\npersona".to_string()),
+                None,
+                &[credentialed_server("buzz-dev-mcp")],
+            ),
+            Some("[System]\npersona".to_string())
+        );
+        // And nothing is invented out of no prompt at all.
+        assert_eq!(
+            with_credentialed_shell(None, Some("base"), &[credentialed_server("buzz-dev-mcp")]),
+            None
+        );
     }
 
     #[test]

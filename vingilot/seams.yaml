@@ -581,3 +581,52 @@ seams:
     removable_when: "Notification click routing is dispatched by target kind rather than by the absence of a channel id."
     status: "permanent"
     added: "2026-08-10"
+
+  # ---------------------------------------------------------------------------
+  # The credentialed reply path. An agent replies by shelling out to `buzz`,
+  # which reads BUZZ_PRIVATE_KEY from its environment -- which only works if the
+  # agent's own shell tool hands its environment to child processes. On the
+  # owner's work Mac, Kimi Code and Hermes Agent could not: their shell tools run
+  # commands through a sanitising layer, so every reply died with auth_error,
+  # exit 3, and the agent had no way to recover. Upstream already solved this for
+  # Codex by giving it a buzz-dev-mcp MCP server with the credentials injected
+  # into that server's own env, but only tier-1 runtimes were ever classified.
+  #
+  # These entries are NOT covered by the desktop/src-tauri/src/* sweep entry
+  # above: that one authorizes product-name and mark changes only.
+  # ---------------------------------------------------------------------------
+
+  - path: "desktop/src-tauri/src/managed_agents/discovery/runtime_metadata.rs"
+    reason: "Home of the fix. Adds effective_mcp_command, which turns 'this command is not in KNOWN_ACP_RUNTIMES' into buzz-dev-mcp rather than into nothing, and resolve_mcp_command, which resolves that binary and names the agent in the log when it is missing. Belongs here because KnownAcpRuntime::mcp_command -- the field the answer comes from -- is declared in this file, and its doc comment claimed the field was vestigial while it was in fact the only thing letting a sandboxed-shell harness reach the relay at all; the comment is corrected in the same change. The pure classifier also makes the decision testable without a spawn."
+    owner: "vingilot/agents"
+    removable_when: "Upstream classifies tier-2 presets and custom harnesses itself, or the harness stops depending on the agent's shell to carry credentials."
+    status: "temporary"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/managed_agents/discovery.rs"
+    reason: "One line: re-exports effective_mcp_command and resolve_mcp_command from the runtime_metadata submodule, beside the existing KnownAcpRuntime re-export. managed_agents/mod.rs does `pub use discovery::*`, so this is the only place the new functions can become reachable from runtime.rs and spawn_hash.rs."
+    owner: "vingilot/agents"
+    removable_when: "The classifier moves upstream or the module boundary changes."
+    status: "temporary"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/managed_agents/runtime.rs"
+    reason: "The two sites that ask what MCP server an agent gets. spawn_agent_child (which writes BUZZ_ACP_MCP_COMMAND into the harness env) now calls resolve_mcp_command, and build_managed_agent_summary (which is what the UI's mcpCommand field actually reads -- the persisted record field is dead at spawn) calls effective_mcp_command. Both were inline `known_acp_runtime(..).and_then(|r| r.mcp_command).unwrap_or(\"\")`, which is exactly the expression that answered 'none' for every unclassified harness. The private key is untouched: it continues to reach the MCP server only through buzz-acp's build_mcp_servers, never through a command line, a file, or a log. Net shorter than before, which the file's 1000-line ratchet required."
+    owner: "vingilot/agents"
+    removable_when: "The MCP command for a spawn is resolved by the harness rather than by the desktop."
+    status: "temporary"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/managed_agents/spawn_hash.rs"
+    reason: "One line, and it must move with the other two or the restart badge lies. The spawn hash digests what a launch would actually receive; leaving it on the old inline expression would mean an already-running preset agent shows no 'restart required' badge even though a restart is exactly what would give it the reply path. Consequence stated plainly: on first launch after this change, every running preset or custom-harness agent does show the badge, because for those agents a restart genuinely changes what runs."
+    owner: "vingilot/agents"
+    removable_when: "The MCP command stops being a spawn input the desktop derives."
+    status: "temporary"
+    added: "2026-08-10"
+
+  - path: "crates/buzz-acp/src/pool.rs"
+    reason: "The other half of the fix, and without it the desktop half is decoration. Adds with_credentialed_shell, a [Tools] section prepended to the framed system prompt naming the MCP server whose shell tool carries the credentials. The base prompt tells the agent the buzz CLI is its interface and the credentials are env vars; an agent whose own shell strips them reads auth_error as 'I have no credentials' and stops, because nothing ever told it another shell existed. Emitted only when a session MCP server genuinely carries a non-empty BUZZ_PRIVATE_KEY (an agent without one must not be pointed at a tool it does not have) and only alongside a base prompt, which is what introduced the CLI the note is about. It names the server and reads its env list rather than assuming buzz-dev-mcp, so it cannot advertise a shell the harness was not given. Prepended beside [Workspace], the other section that grounds the base prompt in this machine rather than adding instructions of its own. No key is logged or formatted -- only the server's name."
+    owner: "vingilot/agents"
+    removable_when: "Upstream's base prompt itself describes the credentialed shell, or every harness carries its environment into its shell."
+    status: "temporary"
+    added: "2026-08-10"
