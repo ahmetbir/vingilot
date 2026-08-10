@@ -1,12 +1,16 @@
-// The Projects screen's leftmost column: pick a project (a repo from Workspace
-// state, see projects.ts's `readRepos`) or fall back to the project-less
-// landing view (the Deck). Mirrors RunList's "+ New run" row style — this
-// replaces RunList as the screen's front door; RunList itself moves into
-// WorkSurface's Runs tab (see vingilot/docs/plans/2026-08-06-projects-and-terminal.md).
+// The Projects screen's leftmost column: pick a project (a repo from this
+// machine's own list, see `lib/useLocalProjects.ts`) or fall back to the
+// project-less landing view (the Deck). Mirrors RunList's "+ New run" row
+// style — this replaces RunList as the screen's front door; RunList itself
+// moves into WorkSurface's Runs tab (see
+// vingilot/docs/plans/2026-08-06-projects-and-terminal.md).
 //
 // It is also where projects are added and forgotten
-// (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 4), which until now
-// meant curl against the coordinator's mutations endpoint. The confirm before
+// (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 4). That used to mean
+// a compare-and-set write into the coordinator's workspace document, which is
+// why a machine with no coordinator could not add a project at all
+// (vingilot/docs/plans/2026-08-10-coordinator-optional.md, Task 1); it now
+// means a line in a file on this machine. The confirm before
 // a removal is a deliberate interruption and its exact words are a tested
 // promise (`lib/repoChoice.ts`'s `removeProjectConfirm`): **removing forgets
 // a path.** Nothing in this feature deletes, moves, or writes anything inside
@@ -50,6 +54,13 @@ interface ProjectsNavProps {
   onRemoveProject: (repo: Repo) => void;
   /** True while an add or a remove is in flight. */
   pending: boolean;
+  /** Said once, after this machine's list was seeded from a coordinator
+   * (`lib/localProjects.ts`'s `importNotice`). It is not an error and does not
+   * look like one: an import is a thing that went right, and the reason it is
+   * on screen at all is that a silent one is indistinguishable from a silent
+   * loss when it goes wrong. */
+  importNotice: string | null;
+  onDismissImportNotice: () => void;
   /** The last refusal, in words the owner can act on. */
   error: string | null;
   onDismissError: () => void;
@@ -64,10 +75,12 @@ interface ProjectsNavProps {
 export function ProjectsNav({
   confirming,
   error,
+  importNotice,
   onAddProject,
   onConfirmingChange,
   marks,
   onDismissError,
+  onDismissImportNotice,
   onRemoveProject,
   onSelectLanding,
   onSelectRepo,
@@ -154,6 +167,23 @@ export function ProjectsNav({
       >
         + Add project
       </button>
+
+      {importNotice === null ? null : (
+        <div
+          className="mt-1 rounded-lg border border-border bg-muted/60 px-2 py-1.5"
+          data-testid="projects-nav-import-notice"
+        >
+          <p className="text-sm text-foreground">{importNotice}</p>
+          <button
+            className="mt-1 text-xs text-muted-foreground underline transition-colors hover:text-foreground"
+            data-testid="projects-nav-import-notice-dismiss"
+            onClick={onDismissImportNotice}
+            type="button"
+          >
+            got it
+          </button>
+        </div>
+      )}
 
       {error === null ? null : (
         <div

@@ -46,7 +46,6 @@ import {
 import {
   DEFAULT_WORKTREE_ROOT_SUFFIX,
   groupWorktrees,
-  readRepos,
   type Repo,
   worktreeCwd,
 } from "@/features/runs/lib/projects";
@@ -99,7 +98,7 @@ import { useProjectDocuments } from "@/features/runs/lib/useDocument";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useAttentionNotices } from "@/features/runs/lib/useAttentionNotices";
-import { useProjectActions } from "@/features/runs/lib/useProjectActions";
+import { useLocalProjects } from "@/features/runs/lib/useLocalProjects";
 import { useScratchTerminal } from "@/features/runs/lib/useScratchTerminal";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import { useWorktreeSignals } from "@/features/runs/lib/useWorktreeSignals";
@@ -149,10 +148,29 @@ export function RunsScreen() {
     fetchWorkspaceSnapshot,
     POLL_INTERVAL_MS,
   );
-  const repos = React.useMemo(
-    () => readRepos(workspaceSnapshot ? workspaceSnapshot.state : null),
-    [workspaceSnapshot],
+  // What to do about a project that just left the list — closing its shells —
+  // needs the worktree grouping, which is derived from the list itself, so it
+  // cannot be defined above the hook that produces the list. The ref is how
+  // that knot is untied: it is assigned once the real callback exists, a few
+  // hundred lines down, and read only when a removal actually happens.
+  const handleProjectRemovedRef = React.useRef<(repoId: string) => void>(
+    () => {},
   );
+  const onProjectRemoved = React.useCallback(
+    (repoId: string) => handleProjectRemovedRef.current(repoId),
+    [],
+  );
+
+  // The project list is local and is the authority for what this screen shows
+  // (`lib/useLocalProjects.ts`). The workspace document is where it is PUSHED
+  // when a coordinator is reachable, and — once, on a machine whose list is
+  // still empty — where it is seeded from.
+  const projectActions = useLocalProjects({
+    onRemoved: onProjectRemoved,
+    snapshot: workspaceSnapshot,
+    workspaceId: WORKSPACE_ID,
+  });
+  const repos = projectActions.repos;
   // The moment reachability first flipped false — null while reachable.
   const [unreachableSince, setUnreachableSince] = React.useState<Date | null>(
     null,
@@ -439,11 +457,7 @@ export function RunsScreen() {
     },
     [grouped, tabLayout, selectedRepoId, selectLanding],
   );
-
-  const projectActions = useProjectActions({
-    onRemoved: handleProjectRemoved,
-    workspaceId: WORKSPACE_ID,
-  });
+  handleProjectRemovedRef.current = handleProjectRemoved;
 
   const terminals = React.useMemo(
     () => openTerminals(tabLayout, index, worktreeRoot),
@@ -774,9 +788,11 @@ export function RunsScreen() {
         <ProjectsNav
           confirming={removingProject}
           error={projectActions.error}
+          importNotice={projectActions.importNotice}
           onAddProject={projectActions.addProject}
           onConfirmingChange={setRemovingProject}
           onDismissError={projectActions.dismissError}
+          onDismissImportNotice={projectActions.dismissImportNotice}
           onRemoveProject={projectActions.removeProject}
           onSelectLanding={selectLanding}
           onSelectRepo={selectRepo}

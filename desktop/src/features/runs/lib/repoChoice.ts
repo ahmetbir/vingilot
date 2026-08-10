@@ -2,8 +2,8 @@
 // they can act on (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 4).
 //
 // Pure: no coordinator client, no Tauri, no React. `repoClient.ts` gets the
-// path and the probe, this module decides what they mean, and `repoStore.ts`
-// writes the result. Splitting it that way is what lets every refusal below
+// path and the probe, this module decides what they mean, and
+// `localProjects.ts` writes the result into this machine's own list. Splitting it that way is what lets every refusal below
 // be a test rather than a thing you have to click through.
 //
 // **Every refusal names the next action.** A wrong folder is the ordinary
