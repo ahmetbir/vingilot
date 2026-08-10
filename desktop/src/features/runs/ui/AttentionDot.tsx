@@ -11,10 +11,14 @@
 // still reserved, because a label that shifts left while git is slow is a row
 // moving for a reason the owner cannot see.
 //
-// Both themes: the four hues are the ones this island already uses for live,
-// waiting and dirty (`WorktreeColumn`'s old state dot, `rowDetail`'s amber),
-// and the quiet ring is drawn in `muted-foreground`, which is a theme token
-// rather than a fixed grey.
+// Both themes: emerald for working and amber for dirty are the island's own —
+// `RunList`'s `live` hue and the amber square this column already drew for an
+// uncommitted tree. Rose is new here. needs-you had no hue to inherit: the Runs
+// tab paints `paused`/`blocked` amber (`SEMANTIC_DOT_CLASS`'s `attn`), and on
+// this surface amber is spoken for by dirty. Amber therefore says one thing in
+// the run rail and another here, which is why the shapes above carry the state
+// and the hue only seconds them. The quiet ring is `muted-foreground`, a theme
+// token rather than a fixed grey.
 //
 // The words are the mark's own (`AttentionMark.sentence`), so the tooltip names
 // the signal the dot came from and cannot drift from it. The mark is
