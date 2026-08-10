@@ -27,6 +27,10 @@ import {
   persistenceCopy,
   SCRATCH_PERSISTENCE,
 } from "@/features/runs/lib/terminalPersistence";
+import {
+  type ControlPlaneKind,
+  controlPlaneStatus,
+} from "@/features/runs/lib/reachability";
 import { StopAllButton } from "@/features/runs/ui/StopAllButton";
 
 interface ProjectStatusBarProps {
@@ -37,7 +41,7 @@ interface ProjectStatusBarProps {
   /** The worktree's owner run, if it has one — for the wall-clock reading.
    * `null` when the worktree has no owner run, or none was selected. */
   run: RunSummary | null;
-  reachable: boolean;
+  controlPlane: ControlPlaneKind;
   /** What is keeping terminals alive. `null` until the backend has answered
    * — the bar then says nothing about persistence rather than guessing. */
   terminalBacking: PtyBacking | null;
@@ -57,9 +61,9 @@ interface ProjectStatusBarProps {
 }
 
 export function ProjectStatusBar({
+  controlPlane,
   onEngageStop,
   onReleaseStop,
-  reachable,
   repo,
   run,
   scratchOpen,
@@ -127,7 +131,7 @@ export function ProjectStatusBar({
             <span aria-hidden="true">·</span>
           </>
         ) : null}
-        <span>{reachable ? "synced" : "unreachable"}</span>
+        <span>{controlPlaneStatus(controlPlane)}</span>
         <StopAllButton
           engaged={stopEngaged}
           onEngage={onEngageStop}

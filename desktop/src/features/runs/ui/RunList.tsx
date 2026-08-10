@@ -30,6 +30,10 @@ import type {
   RunSummary,
   SemanticClass,
 } from "@/features/runs/lib/runModel";
+import {
+  controlPlaneKind,
+  pinsUnavailableNote,
+} from "@/features/runs/lib/reachability";
 import { usePolling } from "@/features/runs/lib/usePolling";
 
 interface RunListProps {
@@ -111,9 +115,16 @@ export function RunList({
     () => getWorkspace(workspaceId),
     [workspaceId],
   );
-  const { data: snapshot, reachable: pinsReachable } = usePolling(
-    fetchWorkspace,
-    2000,
+  const {
+    data: snapshot,
+    lastOk: pinsLastOk,
+    reachable: pinsReachable,
+  } = usePolling(fetchWorkspace, 2000);
+  // Why the toggles are inert, in the words that fit this machine: a
+  // coordinator that stopped answering and one that was never here are not
+  // the same sentence (`lib/reachability.ts`, Task 2).
+  const pinsNote = pinsUnavailableNote(
+    controlPlaneKind(pinsReachable, pinsLastOk !== null),
   );
   const pinnedIds = React.useMemo(
     () => new Set(readPins(snapshot ? snapshot.state : null).map((p) => p.id)),
@@ -149,7 +160,7 @@ export function RunList({
         message: `pin didn't apply — rev ${result.revision} changed first`,
       });
     } else if (result.kind === "unreachable") {
-      setRowError({ id, message: "control plane unreachable" });
+      setRowError({ id, message: pinsNote ?? "control plane not answering" });
     } else if (result.kind === "api") {
       setRowError({ id, message: result.detail });
     }
@@ -173,21 +184,21 @@ export function RunList({
         + New run
       </button>
 
-      {/* Row pin toggles disable the instant the control plane goes
-       * unreachable (`disabled={!pinsReachable || ...}` below) — before any
+      {/* Row pin toggles disable the instant the control plane stops
+       * answering (`disabled={!pinsReachable || ...}` below) — before any
        * write is ever attempted, so `rowError` (set inside `togglePin`'s
        * result handling) can't be the reason text for that state. This is
        * the reason: it renders from `pinsReachable` directly, not from a
        * failed attempt. */}
-      {!pinsReachable ? (
+      {pinsNote === null ? null : (
         <p
           className="px-2 py-1 text-sm text-muted-foreground"
-          data-testid="run-list-pins-unreachable"
+          data-testid="run-list-pins-unavailable"
           role="status"
         >
-          control plane unreachable — pin toggles disabled
+          {pinsNote}
         </p>
-      ) : null}
+      )}
 
       {runs.length === 0 ? (
         <p className="px-2 py-6 text-center text-sm text-muted-foreground">

@@ -11,6 +11,11 @@
 // unreachable-since clock, the STOP-all action, and the home-dir
 // resolution every terminal's cwd derives from.
 //
+// The polls' cadence is not a constant here either: on a machine where nothing
+// has ever answered, hammering 127.0.0.1 every 2s forever is noise against a
+// port that is not going to be listening (`lib/reachability.ts` decides when
+// that settles, and the banner says so in words).
+//
 // It is also where the collapsible chrome is bound (`lib/useColumns.ts`),
 // for the same reason: the flag is per project and must outlive both the
 // column it hides and any switch between projects. The pane arrangement
@@ -54,6 +59,10 @@ import {
   ptyClose,
   type PtyBacking,
 } from "@/features/runs/lib/ptyClient";
+import {
+  controlPlaneKind,
+  controlPlanePollMs,
+} from "@/features/runs/lib/reachability";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import {
   openTerminals,
@@ -116,7 +125,7 @@ import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
 import { TriageBoard } from "@/features/runs/ui/TriageBoard";
-import { UnreachableBanner } from "@/features/runs/ui/UnreachableBanner";
+import { ControlPlaneBanner } from "@/features/runs/ui/ControlPlaneBanner";
 import { paneEntry, paneProbes } from "@/features/runs/ui/paneRegistry";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
 import { WorktreeColumn } from "@/features/runs/ui/WorktreeColumn";
@@ -127,16 +136,22 @@ const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 const POLL_INTERVAL_MS = 2000;
 
 export function RunsScreen() {
+  // The cadence all three coordinator polls run at. State rather than a plain
+  // derivation because it is decided by what those polls report, and a value
+  // can only be chosen from what the previous tick found — it is adjusted
+  // during render below, the same way `useDocument` re-reads on a key change.
+  const [pollMs, setPollMs] = React.useState(POLL_INTERVAL_MS);
   const {
     data: runsData,
+    lastOk,
     reachable,
     retryNow,
-  } = usePolling(() => listRuns(WORKSPACE_ID), POLL_INTERVAL_MS);
+  } = usePolling(() => listRuns(WORKSPACE_ID), pollMs);
   const runs: RunSummary[] = runsData ?? [];
 
   const { data: worktreesData } = usePolling(
     React.useCallback(() => listWorktrees(WORKSPACE_ID), []),
-    POLL_INTERVAL_MS,
+    pollMs,
   );
   const worktrees = worktreesData ?? [];
 
@@ -146,7 +161,7 @@ export function RunsScreen() {
   );
   const { data: workspaceSnapshot } = usePolling(
     fetchWorkspaceSnapshot,
-    POLL_INTERVAL_MS,
+    pollMs,
   );
   // What to do about a project that just left the list — closing its shells —
   // needs the worktree grouping, which is derived from the list itself, so it
@@ -188,6 +203,20 @@ export function RunsScreen() {
     const handle = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(handle);
   }, []);
+
+  // Which of the two sentences the workspace is entitled to say, and how hard
+  // it should keep looking (`lib/reachability.ts`). `lastOk` is the whole of
+  // the evidence that a control plane exists on this machine: nothing
+  // configures one, so an answer is the only thing that can tell a coordinator
+  // that went down apart from a machine that never had one.
+  const controlPlane = controlPlaneKind(reachable, lastOk !== null);
+  const nextPollMs = controlPlanePollMs(
+    controlPlane,
+    unreachableSince,
+    now,
+    POLL_INTERVAL_MS,
+  );
+  if (nextPollMs !== pollMs) setPollMs(nextPollMs);
 
   // Workspace bootstrap: the dev workspace id is hardcoded above, but the
   // row may not exist yet on a fresh coordinator DB. GET first; if that
@@ -814,18 +843,18 @@ export function RunsScreen() {
               aria-label="workspace"
               className="flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-              <UnreachableBanner
-                intervalMs={POLL_INTERVAL_MS}
+              <ControlPlaneBanner
+                intervalMs={pollMs}
+                kind={controlPlane}
                 now={now}
                 onRetryNow={retryNow}
-                reachable={reachable}
                 since={unreachableSince}
               />
               {selectedRunId === null ? (
                 <DeckPane
                   board={{ model: signals.triage, onOpen: openWorktree }}
+                  controlPlane={controlPlane}
                   onOpenRun={openRun}
-                  reachable={reachable}
                   runs={runs}
                   workspaceId={WORKSPACE_ID}
                 />
@@ -875,7 +904,7 @@ export function RunsScreen() {
                   onToggleScratch={scratch.toggle}
                   paneContext={paneContext}
                   panes={panes}
-                  reachable={reachable}
+                  controlPlane={controlPlane}
                   runs={runs}
                   scratch={scratch.session}
                   selectedWorktreeId={selectedWorktreeId}
@@ -912,8 +941,8 @@ export function RunsScreen() {
        * screen and every tab — see ProjectStatusBar's own note. */}
       <ProjectStatusBar
         onEngageStop={() => void engageStop()}
+        controlPlane={controlPlane}
         onReleaseStop={releaseStop}
-        reachable={reachable}
         repo={selectedRepo}
         run={ownerRun}
         scratchOpen={scratch.session !== null}

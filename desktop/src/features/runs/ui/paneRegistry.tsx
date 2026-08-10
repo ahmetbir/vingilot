@@ -55,6 +55,7 @@ import {
   runsAvailability,
   terminalAvailability,
 } from "@/features/runs/lib/paneModel";
+import type { ControlPlaneKind } from "@/features/runs/lib/reachability";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import { teamAvailability } from "@/features/runs/lib/teamThread";
 import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
@@ -89,7 +90,10 @@ export interface PaneProps {
    * screen. */
   documents: ProjectDocuments;
   runs: RunSummary[];
-  reachable: boolean;
+  /** What the control plane is doing, as a state rather than a boolean:
+   * a pane that only knew `!reachable` could only say "unreachable", which
+   * on a machine that never had a coordinator is the lie Task 2 removed. */
+  controlPlane: ControlPlaneKind;
   workspaceId: string;
   /** Put another pane in this slot. The one thing a pane can ask of the host,
    * and it is here because a pane that wanted it had no way to say so: a

@@ -62,6 +62,7 @@ import {
   type PaneState,
   rightChoices,
 } from "@/features/runs/lib/paneModel";
+import type { ControlPlaneKind } from "@/features/runs/lib/reachability";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import type { ScratchSession } from "@/features/runs/lib/scratchTerminal";
 import { resolveKey } from "@/features/runs/lib/terminalKeys";
@@ -98,7 +99,7 @@ interface WorkSurfaceProps {
   tabs: WorktreeTabs | null;
   onTabCommand: (command: TabCommand) => void;
   runs: RunSummary[];
-  reachable: boolean;
+  controlPlane: ControlPlaneKind;
   /** What the panes are allowed to know about this worktree, assembled by
    * `RunsScreen` — it owns the repo/worktree-root pair a cwd derives from, and
    * whether that root has been resolved at all yet. */
@@ -126,6 +127,7 @@ interface WorkSurfaceProps {
 }
 
 export function WorkSurface({
+  controlPlane,
   documents,
   onCloseScratch,
   onPaneAct,
@@ -134,7 +136,6 @@ export function WorkSurface({
   onToggleScratch,
   paneContext,
   panes,
-  reachable,
   runs,
   scratch,
   selectedWorktreeId,
@@ -411,8 +412,8 @@ export function WorkSurface({
             frameRef={rightPaneRef}
             onChoose={panes.choose}
             onPaneAct={onPaneAct}
+            controlPlane={controlPlane}
             onSolo={toggleSolo}
-            reachable={reachable}
             right={layout.right}
             runs={runs}
             share={solo === null ? 1 - ratio : 1}
@@ -442,12 +443,12 @@ const PANE_BUTTON_CLASS =
 
 function RightPane({
   context,
+  controlPlane,
   documents,
   frameRef,
   onChoose,
   onPaneAct,
   onSolo,
-  reachable,
   right,
   runs,
   share,
@@ -456,12 +457,12 @@ function RightPane({
   workspaceId,
 }: {
   context: PaneContext;
+  controlPlane: ControlPlaneKind;
   documents: ProjectDocuments;
   frameRef: React.RefObject<HTMLElement | null>;
   onChoose: Panes["choose"];
   onPaneAct: (act: PaneAct) => void;
   onSolo: Panes["toggleSolo"];
-  reachable: boolean;
   right: PaneState["right"];
   runs: RunSummary[];
   share: number;
@@ -534,6 +535,7 @@ function RightPane({
         // Runs is a reading of the workspace and would lose a half-typed
         // objective every time the owner pressed ⌘2.
         <Pane
+          controlPlane={controlPlane}
           cwd={context.cwd}
           documents={documents}
           key={`${right}:${entry.identity(context)}`}
@@ -541,7 +543,6 @@ function RightPane({
           onPaneAct={onPaneAct}
           ownerRunId={context.ownerRunId}
           projectPath={context.projectPath}
-          reachable={reachable}
           runs={runs}
           worktree={worktree}
           workspaceId={workspaceId}
