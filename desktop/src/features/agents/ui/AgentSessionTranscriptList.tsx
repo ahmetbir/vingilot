@@ -23,7 +23,7 @@ import {
 } from "@/shared/ui/dialog";
 import { Toggle } from "@/shared/ui/toggle";
 import { AnimatedCount } from "@/shared/ui/AnimatedCount";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
+import { VingilotMark } from "@/features/vingilot-brand/VingilotMark";
 import type { PromptSection, TranscriptItem } from "./agentSessionTypes";
 import { TurnLivenessIndicator } from "./TurnLivenessIndicator";
 import { PromptSectionList as PromptContextSections } from "./PromptSectionAccordion";
@@ -208,12 +208,12 @@ export function AgentSessionTranscriptList({
       <div className={scrollContainerClassNames}>
         <div className="flex h-full min-h-40 flex-col items-center justify-center px-6 py-10 text-center">
           {isLoading ? (
-            <FuzzyLogo
-              ariaLabel="Waiting for ACP activity"
-              className="mx-auto text-muted-foreground"
-              fuzz={false}
-              loop
-            />
+            <>
+              {/* The mark is aria-hidden; the label the bee carried becomes a
+                  caption, since this branch renders no other text. */}
+              <span className="sr-only">Waiting for ACP activity</span>
+              <VingilotMark className="mx-auto h-6 w-auto text-muted-foreground" />
+            </>
           ) : (
             <>
               <Radio className="mx-auto h-4 w-4 text-muted-foreground" />

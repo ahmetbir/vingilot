@@ -8,6 +8,7 @@ import {
   importIdentity,
   persistCurrentIdentity,
 } from "@/shared/api/tauriIdentity";
+import { VingilotWordmark } from "@/features/vingilot-brand/VingilotWordmark";
 import type { IdentityStorage } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
@@ -20,7 +21,6 @@ import {
   useEncryptedBackupSession,
 } from "./EncryptedBackupCreator";
 import { IdentityKeyHelpDialog } from "./IdentityKeyHelpDialog";
-import { LandingBees } from "./LandingBees";
 import {
   NostrKeyImportForm,
   type NostrKeyImportStage,
@@ -175,7 +175,12 @@ export function MachineOnboardingFlow({
       data-testid="machine-onboarding-gate"
     >
       <StartupWindowDragRegion />
-      {page === "identity" ? <LandingBees /> : null}
+      {/* Upstream's LandingBees drew the corner mark plus a field of
+          thirty-eight flapping bees over this screen. Both are upstream's
+          product, and neither survives the rebrand: the identity now lives in
+          VingilotWordmark below, at hero size, so a second small mark pinned to
+          the corner would only repeat it. LandingBees.tsx itself is untouched —
+          the seam is this one call site. */}
       {isSecuritySubview ? (
         <div className="fixed inset-x-0 top-8 z-20 flex justify-center px-6">
           <Button
@@ -211,11 +216,7 @@ export function MachineOnboardingFlow({
               effect="mask-reveal-up"
               transitionKey="machine-identity"
             >
-              <img
-                alt="Buzz"
-                className="w-full max-w-[600px]"
-                src="/landing/buzz-wordmark.png"
-              />
+              <VingilotWordmark />
               <p className="mt-2 max-w-[560px] text-center text-2xl font-normal leading-none text-foreground">
                 Your people, your agents, your projects —<br />
                 all in one place.

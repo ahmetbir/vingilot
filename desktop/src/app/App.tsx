@@ -57,6 +57,7 @@ import { CommunityApplyErrorScreen } from "@/features/communities/ui/CommunityAp
 import { CommunityChangeOverlay } from "@/features/communities/ui/CommunityChangeOverlay";
 import { setAvatarProfileSyncQueryClient } from "@/features/profile/avatarProfileSync";
 import { EncryptedBackupProvider } from "@/features/settings/EncryptedBackupProvider";
+import { VingilotMark } from "@/features/vingilot-brand/VingilotMark";
 import { VingilotMarkAnimation } from "@/features/vingilot-brand/VingilotMarkAnimation";
 import { createBuzzQueryClient } from "@/shared/api/queryClient";
 import { isSharedIdentity as isSharedIdentityCmd } from "@/shared/api/tauri";
@@ -66,8 +67,6 @@ import {
   listenForDeepLinks,
 } from "@/shared/deep-link";
 import { cn } from "@/shared/lib/cn";
-import { BuzzMark } from "@/shared/ui/buzz-logo/BuzzMark";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
 const LOADING_TEXT = "Setting up your community...";
@@ -131,31 +130,27 @@ function useBootSplashHold(): BootSplashPhase {
   return phase;
 }
 
-// Animated Buzz mark for the loading gates. The static BuzzMark renders in
-// normal flow and sizes the box — it's plain SVG (no JS/SMIL), so it paints on
-// the very first frame even before scripting starts, avoiding a blank flash on
-// hard reload. The animated FuzzyLogo is layered on top and takes over once it
-// begins playing.
-function BeeLoader({
-  ariaLabel,
+// The Vingilot mark for the community-switch gate.
+//
+// Static, where upstream layered an animated FuzzyLogo over a static BuzzMark.
+// The gate this draws is not the cold boot gate: it only appears at all if a
+// switch between two already-configured communities takes longer than 300ms,
+// and the whole point of that delay is that most switches never show it. A
+// sprite sheet fetched to decorate a surface designed to be missed is the wrong
+// trade; the sailing mark stays on the cold boot gate, where there is a real
+// wait to fill. The mark is aria-hidden and every caller already captions
+// itself, so the ariaLabel prop upstream needed here is gone with it.
+function MarkLoader({
   className,
   tintClassName = "text-foreground",
 }: {
-  ariaLabel: string;
   className?: string;
   tintClassName?: string;
 }) {
   return (
-    <div className={cn("relative", tintClassName, className)}>
-      <BuzzMark className="block h-auto w-full" />
-      <FuzzyLogo
-        ariaLabel={ariaLabel}
-        className="absolute inset-0 h-full! w-full! [&>svg]:h-full [&>svg]:w-full [&>svg]:max-w-full"
-        fuzz
-        loop
-        loopRestSeconds={0}
-      />
-    </div>
+    <VingilotMark
+      className={cn("block h-auto w-full", tintClassName, className)}
+    />
   );
 }
 
@@ -198,8 +193,7 @@ function CommunitySwitchGate() {
       <StartupWindowDragRegion />
       <span className="sr-only">Switching community…</span>
       {showSpinner ? (
-        <BeeLoader
-          ariaLabel="Switching community…"
+        <MarkLoader
           className="h-auto w-20"
           tintClassName="text-muted-foreground"
         />

@@ -507,3 +507,37 @@ seams:
     removable_when: "The sign-out wipe stops reaching scopes this app shares with another install."
     status: "permanent"
     added: "2026-08-10"
+
+  # ---------------------------------------------------------------------------
+  # Product-name and mark sweep (ship-it, finishing pass). One entry per tree
+  # rather than one per file: the owner installed the renamed build and reported
+  # the rebrand as unfinished -- the app was called Vingilot but every screen it
+  # drew still said Buzz and drew upstream's bee. Renaming a product is not a
+  # feature landing in one place; it is a property of every surface at once, and
+  # there is no message catalogue or product-identity module in this codebase to
+  # override, so the strings and the marks are where they are rendered.
+  #
+  # These three entries authorize exactly one class of change and no other. See
+  # each `reason` for the line, which is the same line in all three.
+  # ---------------------------------------------------------------------------
+
+  - path: "desktop/src/*"
+    reason: "Renames the product in the copy the user reads and swaps upstream's bee for the fork's mark, across the frontend. Covers: prose naming the application, window/dialog titles, alt text, aria-labels, sr-only captions, notification and error bodies, onboarding copy, settings copy, and the components that draw the mark. Explicitly does NOT cover, and no string of these kinds was touched: the keychain service buzz-desktop, the agent nest ~/.buzz, the dev bundle identifier xyz.block.buzz.app.dev, the buzz CLI and its subcommands, the buzz-acp / buzz-agent / buzz-dev-mcp binaries, BUZZ_* env vars, event-kind and protocol vocabulary, relay hostnames and paths, the xyz.block.buzz product on the relay side, package names, the buzz / buzz-dark theme ids and their Shiki aliases, the Buzz Agent runtime's own label and vendor mark, or test fixtures asserting upstream strings. A narrower glob cannot express this: the sweep is a property of every user-facing surface, and those are spread across features/, shared/ and app/."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/*"
+    reason: "The same sweep, for the strings the native layer owns and the frontend cannot reach: tray menu items, the macOS sleep-assertion reason, the browser page the Builderlab callback serves, and the harness install/error guidance surfaced in Settings. Same boundary as the desktop/src/* entry above -- product name and mark only. Identifiers on this side were left alone deliberately and are named in that entry; the nest module, the keyring service and the managed-Node data directory are all in this tree and all untouched."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/public/app-icon@*x.png"
+    reason: "The two app-icon rasters the web layer loads by URL -- the Nostr bind dialog draws one beside the site it authenticates to, and the mobile-pairing QR code sets it as its centre image. Both were upstream's bee on yellow. Regenerated from the same source and the same script as every other mark (vingilot/brand/derive-mark.py now emits them from the shared icon plate), so there is no hand-cropped copy that can drift. Deliberately narrow rather than desktop/public/*: upstream's buzz.svg and landing/buzz-wordmark.png stay exactly where they are, still upstream's drawings, and buzz.svg is additionally a fixture three e2e specs load."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships a mark of its own."
+    status: "permanent"
+    added: "2026-08-10"

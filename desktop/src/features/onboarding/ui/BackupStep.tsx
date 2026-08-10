@@ -7,7 +7,7 @@ import type { IdentityStorage } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { Button } from "@/shared/ui/button";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
+import { VingilotMarkAnimation } from "@/features/vingilot-brand/VingilotMarkAnimation";
 import { Card } from "@/shared/ui/card";
 import { Spinner } from "@/shared/ui/spinner";
 import {
@@ -337,13 +337,10 @@ export function BackupStep({
           className="flex w-full flex-1 items-center justify-center py-10"
           data-testid="backup-intro-logo"
         >
-          <FuzzyLogo
-            ariaLabel="Creating your identity key"
-            className="w-20! text-foreground"
-            fuzz
-            loop
-            loopRestSeconds={0}
-          />
+          {/* The mark is aria-hidden, so the label the bee carried moves to a
+              caption of its own — the surface is a wait with no other text. */}
+          <span className="sr-only">Creating your identity key</span>
+          <VingilotMarkAnimation className="w-20 text-foreground" />
         </div>
       ) : (
         <div

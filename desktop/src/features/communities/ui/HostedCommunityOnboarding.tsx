@@ -32,7 +32,7 @@ import {
   ONBOARDING_INK_ICON_CLASS,
   ONBOARDING_PRIMARY_CTA_CLASS,
 } from "@/features/onboarding/ui/OnboardingChrome";
-import { BuzzMark } from "@/shared/ui/buzz-logo/BuzzMark";
+import { VingilotMark } from "@/features/vingilot-brand/VingilotMark";
 import {
   Dialog,
   DialogContent,
@@ -474,7 +474,9 @@ export function HostedCommunityOnboarding({
         surface="textured"
       >
         <div className="mx-auto flex w-full max-w-sm flex-col items-center py-2 text-center">
-          <BuzzMark className="mb-5 h-auto w-9 text-foreground" />
+          {/* Height-driven, not width-driven: the mark is portrait where the
+              bee was landscape, so a fixed width would grow the dialog header. */}
+          <VingilotMark className="mb-5 h-9 w-auto text-foreground" />
 
           {!auth ? (
             <>

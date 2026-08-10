@@ -29,6 +29,17 @@ this derivation. Three surfaces, three different jobs:
       owner's gradient remapped dark, inside the macOS rounded-square plate.
       See the ICON_* constants for why each of those three is not cosmetic.
 
+  desktop/public/app-icon@2x.png, desktop/public/app-icon@3x.png
+      The same plate, unrounded and full-bleed, at the two sizes the *web*
+      layer asks for it: the Nostr bind dialog draws the app's own icon beside
+      the site it is authenticating to, and the mobile-pairing QR code sets it
+      as its centre image. Deliberately square rather than rounded — a QR
+      centre with transparent corners lets the code's modules show through the
+      notches, and upstream's asset these replace was a full-bleed square too.
+      Rasters rather than the CSS mask the in-app marks use, because an app
+      icon is not tinted by the theme: it is a picture of the thing macOS puts
+      in the Dock, and it has to look the same in both.
+
 Keying note (this is the whole trick and it is narrow):
 the artwork's "white" is not 255. Luminance histogram of the source:
 
@@ -65,6 +76,14 @@ SOURCE = HERE / "source" / "mark-source.png"
 MARK_OUT = REPO / "desktop/src/features/vingilot-brand/mark.png"
 TRAY_OUT = REPO / "desktop/src-tauri/src/vingilot_brand/tray-mark.gray"
 ICON_OUT = REPO / "desktop/src-tauri/icons/vingilot-source.png"
+PUBLIC_ICON_DIR = REPO / "desktop/public"
+
+# Edge lengths of the full-bleed app-icon rasters the web layer loads by URL.
+# These are the sizes upstream's `app-icon@2x.png` / `@3x.png` already were:
+# the dialog renders the icon in a 56px box and the QR centre in 56px too, so
+# 112 is that box at 2x and 168 at 3x. Keyed by the `@Nx` suffix in the name.
+PUBLIC_ICON_SCALES = (2, 3)
+PUBLIC_ICON_BASE_EDGE = 56
 
 # Luminance window mapped to alpha 0..1. See the keying note above.
 KEY_LO = 245.0
@@ -199,9 +218,15 @@ def darkened_plate(source: Image.Image, box: tuple[int, int, int, int]) -> Image
     return flat.filter(ImageFilter.GaussianBlur(PLATE_SMOOTHING_RADIUS))
 
 
-def write_icon_source(
+def compose_plate(
     source: Image.Image, alpha: np.ndarray, box: tuple[int, int, int, int]
-) -> None:
+) -> Image.Image:
+    """The square icon plate: the keyed mark in white over the darkened gradient.
+
+    Square and opaque — the corners are NOT rounded here. Both consumers need
+    this same composition and they disagree only about the corners, so rounding
+    stays with the one that wants it.
+    """
     left, top, right, bottom = box
     mark = Image.fromarray(
         np.round(alpha[top:bottom, left:right] * 255).astype(np.uint8)
@@ -218,12 +243,29 @@ def write_icon_source(
         ((ICON_PLATE - mark.width) // 2, (ICON_PLATE - mark.height) // 2),
         mark,
     )
-    plate.putalpha(rounded_rect_alpha(ICON_PLATE, ICON_CORNER_RADIUS))
+    return plate
+
+
+def write_icon_source(plate: Image.Image) -> None:
+    rounded = plate.copy()
+    rounded.putalpha(rounded_rect_alpha(ICON_PLATE, ICON_CORNER_RADIUS))
 
     canvas = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
     offset = (ICON_SIZE - ICON_PLATE) // 2
-    canvas.paste(plate, (offset, offset))
+    canvas.paste(rounded, (offset, offset))
     canvas.save(ICON_OUT, optimize=True)
+
+
+def public_icon_paths() -> list[pathlib.Path]:
+    return [
+        PUBLIC_ICON_DIR / f"app-icon@{scale}x.png" for scale in PUBLIC_ICON_SCALES
+    ]
+
+
+def write_public_app_icons(plate: Image.Image) -> None:
+    for scale, out in zip(PUBLIC_ICON_SCALES, public_icon_paths()):
+        edge = PUBLIC_ICON_BASE_EDGE * scale
+        plate.resize((edge, edge), Image.LANCZOS).save(out, optimize=True)
 
 
 def main() -> None:
@@ -232,9 +274,11 @@ def main() -> None:
     box = alpha_bbox(alpha)
     write_mask(alpha, box)
     write_tray_alpha(alpha, box)
-    write_icon_source(source, alpha, box)
+    plate = compose_plate(source, alpha, box)
+    write_icon_source(plate)
+    write_public_app_icons(plate)
     print(f"mark bbox in source: {box}")
-    for out in (MARK_OUT, TRAY_OUT, ICON_OUT):
+    for out in (MARK_OUT, TRAY_OUT, ICON_OUT, *public_icon_paths()):
         print(f"wrote {out.relative_to(REPO)} ({out.stat().st_size} bytes)")
 
 

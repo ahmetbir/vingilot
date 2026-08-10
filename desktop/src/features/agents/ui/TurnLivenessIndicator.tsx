@@ -1,21 +1,27 @@
 import { motion, useReducedMotion } from "motion/react";
 
 import { cn } from "@/shared/lib/cn";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
+import { VingilotMark } from "@/features/vingilot-brand/VingilotMark";
 import { useTranscriptAnimationEnabled } from "./transcriptAnimationPreference";
 
 const MARKS = ["first", "second", "third"] as const;
 const STAGGER_SECONDS = 0.25;
 const CYCLE_SECONDS = 1.8;
 
-export function TurnLivenessIndicator({
-  className,
-  fuzz = false,
-}: {
-  className?: string;
-  /** Defaults to false — the indicator stays mounted for whole turns. */
-  fuzz?: boolean;
-}) {
+/**
+ * Three marks rising and fading in sequence while an agent's turn runs.
+ *
+ * The marks are static. Upstream drew each one with the animated FuzzyLogo, so
+ * every mark was playing its own morph inside a row that was already animating
+ * the row — and at this size that is the wrong place to spend it. The Vingilot
+ * mark is a sailing ship, and a ship at 20px reads as a silhouette whichever
+ * frame it is on: the sails do not separate below roughly 32px, measured when
+ * the menu-bar template image was sized. What carries "something is happening"
+ * here is the stagger, and the stagger is untouched.
+ *
+ * The `fuzz` prop is gone with the animation it selected; no caller passed it.
+ */
+export function TurnLivenessIndicator({ className }: { className?: string }) {
   const animationsEnabled = useTranscriptAnimationEnabled();
   const shouldReduceMotion = useReducedMotion();
   const showStaggeredRow = animationsEnabled && !shouldReduceMotion;
@@ -28,13 +34,7 @@ export function TurnLivenessIndicator({
         data-testid="turn-liveness-indicator"
         role="status"
       >
-        <FuzzyLogo
-          ariaLabel="Agent turn in progress"
-          className="text-foreground"
-          fuzz={fuzz}
-          loop
-          loopRestSeconds={2}
-        />
+        <VingilotMark className="h-6 w-auto text-foreground" />
       </div>
     );
   }
@@ -61,12 +61,7 @@ export function TurnLivenessIndicator({
             times: [0, 0.3, 0.7, 1],
           }}
         >
-          <FuzzyLogo
-            ariaLabel=""
-            className="w-5! text-foreground"
-            fuzz={fuzz}
-            pulse={false}
-          />
+          <VingilotMark className="h-5 w-auto text-foreground" />
         </motion.div>
       ))}
     </div>
