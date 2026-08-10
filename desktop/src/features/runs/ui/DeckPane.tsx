@@ -38,7 +38,6 @@ import type { RunMode, RunSummary } from "@/features/runs/lib/runModel";
 import type { TriageModel } from "@/features/runs/lib/triage";
 import {
   type ControlPlaneKind,
-  controlPlaneKind,
   pinsUnavailableNote,
   runsUnavailableNote,
 } from "@/features/runs/lib/reachability";
@@ -95,12 +94,19 @@ interface DeckPaneProps {
    * boolean because "unreachable" is the wrong word on a machine that never
    * had a coordinator (Task 2). */
   controlPlane: ControlPlaneKind;
+  /** The cadence the pin poll below runs at, decided by the host from
+   * `controlPlane` (`lib/reachability.ts`). Not this component's to choose: a
+   * Deck on its own 2s timer would keep hammering a port nothing is listening
+   * on long after the workspace had settled to 30s, which is most of the
+   * traffic the settled cadence exists to remove. */
+  pollMs: number;
 }
 
 export function DeckPane({
   board,
   controlPlane,
   onOpenRun,
+  pollMs,
   runs,
   workspaceId,
 }: DeckPaneProps) {
@@ -125,12 +131,14 @@ export function DeckPane({
     data: snapshot,
     lastOk: pinsLastOk,
     reachable: pinsReachable,
-  } = usePolling(fetchWorkspace, 2000);
-  // The pins poll is its own, so it gets its own reading of the same two
-  // states — a second answer to "has anything ever answered here", from the
-  // only poll that can answer it for this component.
-  const pinsControlPlane = controlPlaneKind(pinsReachable, pinsLastOk !== null);
-  const pinsNote = pinsUnavailableNote(pinsControlPlane);
+  } = usePolling(fetchWorkspace, pollMs);
+  // `pinsReachable`/`pinsLastOk` stay this poll's own: they say how fresh the
+  // pin *data* below is, and only this poll knows that. Which of the two
+  // sentences to print, though, is the host's reading — a state derived here
+  // would tick on this poll's own offset, so the deck could still be saying
+  // "not answering" while the banner directly above it said "no control plane
+  // on this machine", for as long as a settled cadence.
+  const pinsNote = pinsUnavailableNote(controlPlane);
   const pins = React.useMemo(
     () => readPins(snapshot ? snapshot.state : null),
     [snapshot],

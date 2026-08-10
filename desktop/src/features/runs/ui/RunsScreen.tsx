@@ -136,10 +136,15 @@ const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 const POLL_INTERVAL_MS = 2000;
 
 export function RunsScreen() {
-  // The cadence all three coordinator polls run at. State rather than a plain
-  // derivation because it is decided by what those polls report, and a value
-  // can only be chosen from what the previous tick found — it is adjusted
-  // during render below, the same way `useDocument` re-reads on a key change.
+  // The cadence EVERY coordinator poll in the app runs at — the three below,
+  // and the pin polls inside DeckPane and RunList, which take it as a prop
+  // rather than keeping timers of their own. A cadence only some of the polls
+  // obeyed would not be a policy: the settle to 30s exists to stop hammering a
+  // port nothing is listening on, and one 2s timer left behind keeps most of
+  // the hammer. State rather than a plain derivation because it is decided by
+  // what those polls report, and a value can only be chosen from what the
+  // previous tick found — it is adjusted during render below, the same way
+  // `useDocument` re-reads on a key change.
   const [pollMs, setPollMs] = React.useState(POLL_INTERVAL_MS);
   const {
     data: runsData,
@@ -855,6 +860,7 @@ export function RunsScreen() {
                   board={{ model: signals.triage, onOpen: openWorktree }}
                   controlPlane={controlPlane}
                   onOpenRun={openRun}
+                  pollMs={pollMs}
                   runs={runs}
                   workspaceId={WORKSPACE_ID}
                 />
@@ -905,6 +911,7 @@ export function RunsScreen() {
                   paneContext={paneContext}
                   panes={panes}
                   controlPlane={controlPlane}
+                  pollMs={pollMs}
                   runs={runs}
                   scratch={scratch.session}
                   selectedWorktreeId={selectedWorktreeId}

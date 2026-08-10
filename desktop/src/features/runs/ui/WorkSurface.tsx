@@ -100,6 +100,10 @@ interface WorkSurfaceProps {
   onTabCommand: (command: TabCommand) => void;
   runs: RunSummary[];
   controlPlane: ControlPlaneKind;
+  /** The cadence the coordinator polls inside the panes run at — passed with
+   * `controlPlane` rather than derived here, so every poll in the app settles
+   * together (`lib/reachability.ts`). */
+  pollMs: number;
   /** What the panes are allowed to know about this worktree, assembled by
    * `RunsScreen` — it owns the repo/worktree-root pair a cwd derives from, and
    * whether that root has been resolved at all yet. */
@@ -136,6 +140,7 @@ export function WorkSurface({
   onToggleScratch,
   paneContext,
   panes,
+  pollMs,
   runs,
   scratch,
   selectedWorktreeId,
@@ -414,6 +419,7 @@ export function WorkSurface({
             onPaneAct={onPaneAct}
             controlPlane={controlPlane}
             onSolo={toggleSolo}
+            pollMs={pollMs}
             right={layout.right}
             runs={runs}
             share={solo === null ? 1 - ratio : 1}
@@ -449,6 +455,7 @@ function RightPane({
   onChoose,
   onPaneAct,
   onSolo,
+  pollMs,
   right,
   runs,
   share,
@@ -463,6 +470,7 @@ function RightPane({
   onChoose: Panes["choose"];
   onPaneAct: (act: PaneAct) => void;
   onSolo: Panes["toggleSolo"];
+  pollMs: number;
   right: PaneState["right"];
   runs: RunSummary[];
   share: number;
@@ -542,6 +550,7 @@ function RightPane({
           onChoosePane={onChoose}
           onPaneAct={onPaneAct}
           ownerRunId={context.ownerRunId}
+          pollMs={pollMs}
           projectPath={context.projectPath}
           runs={runs}
           worktree={worktree}

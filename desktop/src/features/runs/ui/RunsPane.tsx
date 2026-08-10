@@ -26,6 +26,7 @@ import { RunList } from "@/features/runs/ui/RunList";
 export function RunsPane({
   controlPlane,
   ownerRunId,
+  pollMs,
   runs,
   workspaceId,
 }: PaneProps) {
@@ -60,8 +61,10 @@ export function RunsPane({
       >
         <RunList
           activeRunId={selectedRunId}
+          controlPlane={controlPlane}
           onSelectDeck={openDeck}
           onSelectRun={openRun}
+          pollMs={pollMs}
           runs={runs}
           workspaceId={workspaceId}
         />
@@ -74,6 +77,7 @@ export function RunsPane({
           <DeckPane
             controlPlane={controlPlane}
             onOpenRun={openRun}
+            pollMs={pollMs}
             runs={runs}
             workspaceId={workspaceId}
           />
