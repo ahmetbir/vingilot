@@ -34,7 +34,7 @@
 // this returns.
 
 import { isMainCheckout, type Worktree, worktreeSummary } from "./projects.ts";
-import type { RunStatus } from "./runModel.ts";
+import { endedBadly, type RunStatus } from "./runModel.ts";
 import { type WorktreeStat, usableStat } from "./worktreeStat.ts";
 
 /** Why a row sits where it does — and, for `dirty`, what the marker on it
@@ -249,12 +249,18 @@ export function worktreeColumnView(
 
 /** The line under a row's label.
  *
- * **Only ever a statement git made.** With a stat, the numbers are git's own
- * (`+`/`−` for tracked lines, a file count for anything untracked or binary,
- * where lines are not the unit). Without one, the coordinator's stored diff
- * evidence is used if the run produced any, then the run's status — and if
- * neither exists the row says nothing at all, because "clean" is a claim and
- * this app has not read the tree yet. */
+ * **Only ever a statement git made,** plus one the coordinator made. With a
+ * stat, the numbers are git's own (`+`/`−` for tracked lines, a file count for
+ * anything untracked or binary, where lines are not the unit). Without one, the
+ * coordinator's stored diff evidence is used if the run produced any, then the
+ * run's status — and if neither exists the row says nothing at all, because
+ * "clean" is a claim and this app has not read the tree yet.
+ *
+ * A clean tree whose run ended `failed` or `cancelled` says so beside the word
+ * "clean". Both facts are true and neither implies the other; the row is the
+ * only place left that carries the second, since the attention dot reports the
+ * tree and reads that tree as quiet (`attentionSignal.ts`). A dirty tree needs
+ * no such line: dirty outranked the run's status on the old status dot too. */
 export function rowDetail(row: WorktreeRow): string {
   const { stat, worktree } = row;
   if (stat === null) {
@@ -263,7 +269,10 @@ export function rowDetail(row: WorktreeRow): string {
     }
     return worktree.owner_run_status ?? "";
   }
-  if (!stat.dirty) return "clean";
+  if (!stat.dirty) {
+    const ended = endedBadly(worktree.owner_run_status);
+    return ended === null ? "clean" : `clean · ${ended}`;
+  }
 
   const parts: string[] = [];
   if (stat.additions > 0 || stat.deletions > 0) {

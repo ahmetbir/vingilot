@@ -96,6 +96,22 @@ test("a finished run leaves git as the only witness", () => {
   }
 });
 
+test("a clean tree under a run that failed does not claim no run is active", () => {
+  // The dot is quiet either way — the tree is what it reports, and the run
+  // ending did not change the tree — but the sentence is the only place the
+  // ending survives now that the column's destructive status dot is gone.
+  for (const status of ["failed", "cancelled"]) {
+    const mark = attentionMark(silence({ runStatus: status, stat: stat() }));
+    assert.equal(mark.state, "quiet", status);
+    assert.match(mark.sentence, new RegExp(status));
+  }
+  // A run that finished is not one of them: nothing happened worth naming.
+  assert.match(
+    attentionMark(silence({ runStatus: "completed", stat: stat() })).sentence,
+    /no run is active/,
+  );
+});
+
 test("git's dirty flag is what dirty means", () => {
   const mark = attentionMark(silence({ stat: stat({ dirty: true }) }));
   assert.equal(mark.state, "dirty");

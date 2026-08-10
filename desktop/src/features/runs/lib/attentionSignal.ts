@@ -25,7 +25,13 @@
 //              every 5s, single-flight, never blanked by a failed read
 //              (`useWorktreeStats.ts`).
 //   quiet      git answered *and* said clean, and no run is pressing. It is a
-//              real answer and worth drawing: "nothing needs you here."
+//              real answer and worth drawing: "nothing needs you here." A run
+//              that ended `failed` or `cancelled` leaves the tree quiet — the
+//              dot reports the tree, and a run ending does not change it — but
+//              it is not nothing, and the column's old status dot drew it in
+//              `destructive`. So the sentence names the ending, and `rowDetail`
+//              puts the same word on the row where no hover is needed to read
+//              it. Replacing a signal is not the same as dropping one.
 //
 // **What is deliberately absent, and why.**
 //
@@ -56,7 +62,7 @@
 // Pure: no React, no Tauri, no client. `useWorktreeSignals.ts` gathers the
 // signals, `ui/AttentionDot.tsx` draws exactly what comes out of here.
 
-import { type RunStatus, runAttention } from "./runModel.ts";
+import { endedBadly, type RunStatus, runAttention } from "./runModel.ts";
 import type { WorktreeStat } from "./worktreeStat.ts";
 
 /** What a dot can say. `null` — no dot — is the fifth outcome and lives in
@@ -123,16 +129,23 @@ export function attentionMark(signals: DotSignals): AttentionMark {
   // that has not answered leaves the row with no dot rather than a quiet one,
   // because "clean" is a claim and nothing has made it.
   if (signals.stat === null) return NO_MARK;
-  return signals.stat.dirty
-    ? {
-        sentence: "uncommitted changes — git's own count of this worktree",
-        state: "dirty",
-      }
-    : {
-        sentence:
-          "quiet — git says this worktree is clean and no run is active",
-        state: "quiet",
-      };
+  if (signals.stat.dirty) {
+    return {
+      sentence: "uncommitted changes — git's own count of this worktree",
+      state: "dirty",
+    };
+  }
+  // A clean tree is the only case where the old status dot said something this
+  // one does not: dirty outranked the run's status there too, so an amber
+  // square is what a failed run's dirty worktree already drew.
+  const ended = endedBadly(signals.runStatus);
+  return {
+    sentence:
+      ended === null
+        ? "quiet — git says this worktree is clean and no run is active"
+        : `quiet — git says this worktree is clean; the run that owns it ${ended}`,
+    state: "quiet",
+  };
 }
 
 const RANK: Record<AttentionState, number> = {

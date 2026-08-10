@@ -176,6 +176,20 @@ export function statusClass(s: RunStatus): SemanticClass {
   }
 }
 
+/** The status of a run that stopped without finishing — `failed` or
+ * `cancelled`, the two `statusClass` calls `stop` — and `null` for every other
+ * status and for a worktree no run owns.
+ *
+ * One definition with two readers on purpose: the worktree dot's sentence
+ * (`attentionSignal.ts`) and the row's own detail line (`worktreeAttention.ts`)
+ * both have to name this, and it is the same set the column's old status dot
+ * drew in `destructive` before the attention dot replaced it. The dot itself
+ * reports the state of the *tree*, which a run ending does not change, so this
+ * is what keeps the ending on the surface in words. */
+export function endedBadly(status: RunStatus | null): RunStatus | null {
+  return status !== null && statusClass(status) === "stop" ? status : null;
+}
+
 export type DiffLineKind = "add" | "del" | "hunk" | "meta" | "ctx";
 
 export interface DiffLine {
