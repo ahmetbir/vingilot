@@ -205,9 +205,10 @@ export function putDeckPins(
  *
  * `repos` is `unknown[]` rather than `Repo[]` on purpose: because the whole
  * array is replaced, the caller must send back every element it read,
- * including any it could not parse as a `Repo` (`localProjects.ts`'s
- * `pushPlan`, which is the only caller). Narrowing
- * this parameter would make dropping those elements the easy path. */
+ * including any it could not parse as a `Repo` — which is what
+ * `localProjects.ts`'s `pushDecision` builds for the one caller here
+ * (`useLocalProjects.ts`). Narrowing this parameter would make dropping those
+ * elements the easy path. */
 export function putRepos(
   workspaceId: string,
   expectedRevision: number,

@@ -68,7 +68,10 @@ export const LOCAL_PROJECTS_DISPLAY_PATH = "~/.vingilot/projects.json";
 export interface ImportRecord {
   /** ISO instant the import happened. */
   at: string;
-  /** How many projects came across. */
+  /** How many projects came across. Entries the coordinator held that this
+   * build cannot read as projects came across too (into `foreign`) but are not
+   * counted here: the sentence this feeds says "projects", and an entry this
+   * build cannot name is not one it can show him. */
   count: number;
   /** Whether the owner has read the notice. Persisted so the sentence appears
    * once and stays gone, rather than returning at every launch. */
@@ -200,13 +203,21 @@ export function removeLocalProject(
   return { ...doc, repos: doc.repos.filter((repo) => repo.id !== repoId) };
 }
 
-/** What the coordinator said about `repos`, as the seed decision needs it.
- * `answered: false` covers every non-answer alike — unreachable, a refusal, a
- * poll that has not come back yet — because the seed treats them identically:
- * a list that has not arrived cannot be imported from. */
+/** What the coordinator said, as the seed decision needs it. `answered: false`
+ * covers every non-answer alike — unreachable, a refusal, a poll that has not
+ * come back yet — because the seed treats them identically: a list that has
+ * not arrived cannot be imported from.
+ *
+ * The answer carries the workspace document itself and not a list read out of
+ * it, on purpose. There are two readers (`projects.ts`) and only one of them
+ * is right here: the seed is the moment the coordinator's array becomes the
+ * local file, so an entry dropped on the way in is dropped out of the thing
+ * the owner is then told to back up. Taking `state` puts that choice inside
+ * this function, where the reason for it is written down, instead of at a call
+ * site where the shorter name is the losing one. */
 export type CoordinatorRepos =
   | { answered: false }
-  | { answered: true; repos: readonly Repo[] };
+  | { answered: true; state: unknown };
 
 /** Why an import did not happen. Named rather than boolean because these are
  * four different situations and the tests are about telling them apart. */
@@ -238,7 +249,17 @@ export type SeedDecision =
  * 4. **It has something to import.** An empty `repos` array is a real answer
  *    but not an import: recording it would burn the one chance this list has
  *    to be seeded, for a coordinator that had not been given its projects
- *    yet.
+ *    yet. Entries this build cannot parse do not count as something to import
+ *    either — they would burn the seed for a list it could show nothing of.
+ *
+ * What crosses is the whole array, parseable or not: `foreign` comes across
+ * beside `repos`, so the file the owner is told to back up holds everything
+ * the coordinator held rather than the part this build happened to understand.
+ * `doc.foreign` is kept ahead of it — the local list is empty by condition 2,
+ * but a file can hold entries this build cannot read while holding no projects
+ * it can, and the recorded index survives on both sides. Two entries claiming
+ * one index cost their order and nothing else (`mergeForeignRepos` splices,
+ * never drops).
  *
  * `at` is passed in rather than read from a clock here — this module has no
  * side effects, and the timestamp ends up in a file the owner reads. */
@@ -250,14 +271,14 @@ export function seedOnceDecision(
   if (doc.imported !== null) return { seed: false, why: "already-imported" };
   if (doc.repos.length > 0) return { seed: false, why: "list-not-empty" };
   if (!coordinator.answered) return { seed: false, why: "no-answer" };
-  if (coordinator.repos.length === 0) {
-    return { seed: false, why: "nothing-to-import" };
-  }
+  const { foreign, repos } = readRepoEntries(coordinator.state);
+  if (repos.length === 0) return { seed: false, why: "nothing-to-import" };
   return {
     doc: {
       ...doc,
-      imported: { acknowledged: false, at, count: coordinator.repos.length },
-      repos: [...coordinator.repos],
+      foreign: [...doc.foreign, ...foreign],
+      imported: { acknowledged: false, at, count: repos.length },
+      repos: [...repos],
     },
     seed: true,
   };
@@ -270,9 +291,9 @@ export function seedOnceDecision(
 export function importNotice(doc: LocalProjects): string | null {
   const record = doc.imported;
   if (record === null || record.acknowledged) return null;
-  const projects = record.count === 1 ? "project" : "projects";
+  const projects = record.count === 1 ? "project was" : "projects were";
   return (
-    `${record.count} ${projects} were imported from the coordinator into ` +
+    `${record.count} ${projects} imported from the coordinator into ` +
     `${LOCAL_PROJECTS_DISPLAY_PATH}. That file is now what this workspace ` +
     "shows: it is read from here, backed up from here, and pushed to the " +
     "coordinator when one is running — never read back out of it."
