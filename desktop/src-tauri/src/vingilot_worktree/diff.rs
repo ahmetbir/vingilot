@@ -316,7 +316,7 @@ fn patch_for(worktree: &str, base: &str, file: &NumStat) -> Result<String, Workt
     Ok(ran.stdout)
 }
 
-fn no_index_args<'a>(path: &'a str) -> [&'a str; 8] {
+fn no_index_args(path: &str) -> [&str; 8] {
     [
         "diff",
         "--no-ext-diff",

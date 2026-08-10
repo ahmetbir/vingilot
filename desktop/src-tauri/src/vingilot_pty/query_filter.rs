@@ -407,7 +407,7 @@ impl QueryFilter {
     }
 
     fn flush(&mut self, out: &mut Vec<u8>) {
-        out.extend(self.pending.drain(..));
+        out.append(&mut self.pending);
     }
 
     fn discard(&mut self) {

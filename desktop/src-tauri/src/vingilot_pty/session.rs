@@ -81,14 +81,20 @@ impl PtySessions {
     /// id — a race between two `pty_open` calls for the same worktree. On
     /// conflict, the session that was just built is handed back so the
     /// caller can tear it down instead of leaking the spawned process.
+    ///
+    /// The handback is boxed. A `PtySession` holds a writer, a master and a
+    /// child handle, so returning it inline makes every call — overwhelmingly
+    /// the winning ones — carry a 128-byte `Result` for the sake of the race
+    /// that almost never happens. One allocation on the losing path is the
+    /// cheaper trade, and `-D warnings` refuses the inline form anyway.
     pub(crate) fn insert_if_absent(
         &self,
         session_id: String,
         session: PtySession,
-    ) -> Result<(), PtySession> {
+    ) -> Result<(), Box<PtySession>> {
         let mut sessions = self.lock();
         if sessions.contains_key(&session_id) {
-            return Err(session);
+            return Err(Box::new(session));
         }
         sessions.insert(session_id, session);
         Ok(())
