@@ -58,7 +58,12 @@ jobs:
       # so the certificate never joins the runner's login keychain and no step
       # can reach it once the build is done.
       - name: Import the signing certificate
-        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        # Asked of `secrets`, not `env`: the secret is not in the env context
+        # when this condition is evaluated, so reading it there decides whether
+        # to sign by looking at something that was never set. It happened to
+        # run; a skipped signing step would have produced an unsigned .dmg with
+        # nothing saying so.
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -88,15 +93,35 @@ jobs:
           fi
           echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
 
-      - name: Build the .dmg
+      # Tauri notarizes during the bundle when APPLE_ID, APPLE_PASSWORD and
+      # APPLE_TEAM_ID are present, and skips with a log line when they are not.
+      #
+      # **Present-but-empty is present.** The first version of this set all three
+      # to "" on a run that was not meant to notarize, on the assumption that
+      # empty reads as absent — it does not. Tauri found them, started
+      # notarizing, and died on `Team ID must be at least 3 characters`. The
+      # variables are therefore written into the environment only when they are
+      # wanted, rather than written blank when they are not.
+      - name: Ask for notarization
+        if: ${{ github.event_name == 'push' || inputs.notarize }}
         env:
-          # Tauri notarizes during the bundle when all three are present. Absent,
-          # it logs that it skipped and produces a signed-but-unnotarized .dmg —
-          # which is a real outcome, so the release notes below state which one
-          # this run produced rather than assuming.
-          APPLE_ID: ${{ (github.event_name == 'push' || inputs.notarize) && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ (github.event_name == 'push' || inputs.notarize) && secrets.APPLE_ID_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ (github.event_name == 'push' || inputs.notarize) && 'Z678QXV882' || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ]; then
+            echo "Notarization was asked for, but APPLE_ID or APPLE_ID_PASSWORD is not set." >&2
+            echo "Set both repository secrets, or run without notarization." >&2
+            exit 1
+          fi
+          {
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            # Not a secret: it is printed inside every signature this repo produces.
+            echo "APPLE_TEAM_ID=Z678QXV882"
+          } >> "$GITHUB_ENV"
+
+      - name: Build the .dmg
         run: |
           . ./bin/activate-hermit
           ./vingilot/scripts/build-dmg.sh aarch64-apple-darwin
