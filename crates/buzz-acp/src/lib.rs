@@ -1,6 +1,14 @@
 #![deny(unsafe_code)]
 
 mod acp;
+// The broker is a unix domain socket and nothing else: every caller below is
+// already `cfg(unix)`, and `cfg(not(unix))` builds its `broker_env` from an
+// empty vec. Compiled unconditionally the module is therefore reachable from
+// nowhere on Windows, and `-D warnings` reads that -- correctly -- as nineteen
+// dead items. Gate the module rather than sprinkling `allow(dead_code)`: the
+// truth is that there is no broker on a platform without unix sockets, and the
+// attribute says so once.
+#[cfg(unix)]
 mod broker;
 mod config;
 mod engram_fetch;
