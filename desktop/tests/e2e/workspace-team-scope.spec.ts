@@ -218,6 +218,15 @@ test("the scope earns its length once, and is put away for good after that", asy
 
   // The collapsed state says nothing *about* the scope — no summary stands in
   // for the enumeration. What is left is a door, not a claim.
+  //
+  // Two assertions with different reaches, and it is worth being exact about
+  // which one does what. The clause loop catches the enumeration being *moved*
+  // rather than put away — a whole clause left behind in the header. It does
+  // not catch a paraphrase, and cannot: verification put "what you type is what
+  // is sent" — a genuine fragment of the sentence — into the collapsed label
+  // and no clause matched, because a fragment is not a whole clause. What
+  // catches a paraphrase is the line under it: the control is asserted to read
+  // *exactly* the door, so any wording at all in its place is red.
   const header = page.getByTestId("team-thread-header");
   for (const clause of SCOPE_CLAUSES) {
     await expect(header).not.toContainText(clause);
