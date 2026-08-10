@@ -37,11 +37,12 @@ import {
   addLocalProject,
   importNotice,
   type LocalProjects,
-  pushPlan,
+  pushDecision,
   readLocalProjects,
   removeLocalProject,
   seedOnceDecision,
   serializeLocalProjects,
+  unreconciledNotice,
 } from "@/features/runs/lib/localProjects";
 import {
   loadLocalProjectsFile,
@@ -73,6 +74,11 @@ export interface LocalProjectStore {
    * loss when it goes wrong, which is why this is not optional. */
   importNotice: string | null;
   dismissImportNotice: () => void;
+  /** The standoff sentence, or `null`: a coordinator holding a list this
+   * machine has never taken, against a list that was started here. Not
+   * dismissible — it describes a state, and it goes away when the state
+   * does. */
+  coordinatorNotice: string | null;
 }
 
 interface Options {
@@ -151,14 +157,14 @@ export function useLocalProjects({
       return;
     }
 
-    const plan = pushPlan(doc, snapshot.state);
-    if (plan === null) return;
+    const push = pushDecision(doc, snapshot.state);
+    if (!push.push) return;
     if (pushedAt.current === snapshot.revision) return;
     pushedAt.current = snapshot.revision;
     // One direction: the local list is sent, and whatever comes back is not
     // applied to it. A lost CAS needs no retry here — the next poll reads the
     // winner's document and this runs again against it.
-    void putRepos(workspaceId, snapshot.revision, plan);
+    void putRepos(workspaceId, snapshot.revision, push.repos);
   }, [doc, snapshot, persist, workspaceId]);
 
   const addProject = React.useCallback(() => {
@@ -231,6 +237,10 @@ export function useLocalProjects({
 
   return {
     addProject,
+    coordinatorNotice:
+      doc === null || snapshot === null
+        ? null
+        : unreconciledNotice(doc, snapshot.state),
     dismissError,
     dismissImportNotice,
     error,

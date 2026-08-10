@@ -61,6 +61,11 @@ interface ProjectsNavProps {
    * loss when it goes wrong. */
   importNotice: string | null;
   onDismissImportNotice: () => void;
+  /** A coordinator holding a list this machine has never taken, against a list
+   * started here (`lib/localProjects.ts`'s `unreconciledNotice`). Not
+   * dismissible: it is a state rather than an event, and the sentence names
+   * the act that ends it. */
+  coordinatorNotice: string | null;
   /** The last refusal, in words the owner can act on. */
   error: string | null;
   onDismissError: () => void;
@@ -74,6 +79,7 @@ interface ProjectsNavProps {
 
 export function ProjectsNav({
   confirming,
+  coordinatorNotice,
   error,
   importNotice,
   onAddProject,
@@ -182,6 +188,15 @@ export function ProjectsNav({
           >
             got it
           </button>
+        </div>
+      )}
+
+      {coordinatorNotice === null ? null : (
+        <div
+          className="mt-1 rounded-lg border border-border bg-muted/60 px-2 py-1.5"
+          data-testid="projects-nav-coordinator-notice"
+        >
+          <p className="text-sm text-foreground">{coordinatorNotice}</p>
         </div>
       )}
 

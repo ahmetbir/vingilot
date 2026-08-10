@@ -787,6 +787,7 @@ export function RunsScreen() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ProjectsNav
           confirming={removingProject}
+          coordinatorNotice={projectActions.coordinatorNotice}
           error={projectActions.error}
           importNotice={projectActions.importNotice}
           onAddProject={projectActions.addProject}

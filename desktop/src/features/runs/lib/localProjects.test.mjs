@@ -5,11 +5,12 @@ import {
   addLocalProject,
   EMPTY_LOCAL_PROJECTS,
   importNotice,
-  pushPlan,
+  pushDecision,
   readLocalProjects,
   removeLocalProject,
   seedOnceDecision,
   serializeLocalProjects,
+  unreconciledNotice,
 } from "./localProjects.ts";
 
 const repository = { kind: "repository" };
@@ -24,6 +25,12 @@ const doc = (repos, imported = null, foreign = []) => ({
   repos,
   version: 1,
 });
+
+/** A document that has already taken a coordinator's list once — the state
+ * every push below is about, since a list never taken is a standoff rather
+ * than something to push. */
+const seeded = (repos) =>
+  doc(repos, { acknowledged: true, at: "2026-08-10T09:00:00.000Z", count: 1 });
 
 // ---------------------------------------------------------------------------
 // Reading the file
@@ -268,41 +275,119 @@ test("the notice goes away once it is read, and stays away", () => {
 // ---------------------------------------------------------------------------
 
 test("a coordinator that already agrees is not written to", () => {
-  const local = doc([repo("buzz", "/src/buzz")]);
-  assert.equal(pushPlan(local, { repos: [repo("buzz", "/src/buzz")] }), null);
+  const local = seeded([repo("buzz", "/src/buzz")]);
+  assert.deepEqual(
+    pushDecision(local, { repos: [repo("buzz", "/src/buzz")] }),
+    {
+      push: false,
+      why: "already-agrees",
+    },
+  );
 });
 
 test("a project added locally is pushed to the coordinator", () => {
-  const local = doc([repo("buzz", "/src/buzz"), repo("talon", "/src/talon")]);
-  assert.deepEqual(pushPlan(local, { repos: [repo("buzz", "/src/buzz")] }), [
+  const local = seeded([
     repo("buzz", "/src/buzz"),
     repo("talon", "/src/talon"),
   ]);
+  assert.deepEqual(
+    pushDecision(local, { repos: [repo("buzz", "/src/buzz")] }),
+    {
+      push: true,
+      repos: [repo("buzz", "/src/buzz"), repo("talon", "/src/talon")],
+    },
+  );
 });
 
 test("a project only the coordinator has is dropped, not pulled back", () => {
   // One direction: the local list is the authority, so a repo that is here
   // and not there was forgotten here.
-  const local = doc([repo("buzz", "/src/buzz")]);
+  const local = seeded([repo("buzz", "/src/buzz")]);
   assert.deepEqual(
-    pushPlan(local, {
+    pushDecision(local, {
       repos: [repo("buzz", "/src/buzz"), repo("stale", "/src/stale")],
     }),
-    [repo("buzz", "/src/buzz")],
+    { push: true, repos: [repo("buzz", "/src/buzz")] },
   );
 });
 
 test("a rename is a difference worth pushing", () => {
-  const local = doc([repo("buzz", "/src/buzz", "Buzz")]);
-  assert.deepEqual(pushPlan(local, { repos: [repo("buzz", "/src/buzz")] }), [
-    repo("buzz", "/src/buzz", "Buzz"),
-  ]);
+  const local = seeded([repo("buzz", "/src/buzz", "Buzz")]);
+  assert.deepEqual(
+    pushDecision(local, { repos: [repo("buzz", "/src/buzz")] }),
+    {
+      push: true,
+      repos: [repo("buzz", "/src/buzz", "Buzz")],
+    },
+  );
 });
 
 test("the push carries back entries this build could not read", () => {
-  const local = doc([repo("buzz", "/src/buzz")]);
-  assert.deepEqual(pushPlan(local, { repos: [{ from: "a newer client" }] }), [
-    { from: "a newer client" },
-    repo("buzz", "/src/buzz"),
-  ]);
+  const local = seeded([repo("buzz", "/src/buzz")]);
+  assert.deepEqual(
+    pushDecision(local, { repos: [{ from: "a newer client" }] }),
+    {
+      push: true,
+      repos: [{ from: "a newer client" }, repo("buzz", "/src/buzz")],
+    },
+  );
+});
+
+test("an empty machine pushes nothing to an empty coordinator", () => {
+  assert.deepEqual(pushDecision(EMPTY_LOCAL_PROJECTS, { repos: [] }), {
+    push: false,
+    why: "already-agrees",
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The standoff: a list started here, and a coordinator list never taken
+// ---------------------------------------------------------------------------
+
+test("a list this machine never took is not overwritten by one started here", () => {
+  // The order that loses his projects if this is written the obvious way: the
+  // new build ran while the coordinator was down, he added one project, and
+  // the coordinator came back holding the five that only it has.
+  const local = doc([repo("added-here", "/src/added-here")]);
+  assert.deepEqual(
+    pushDecision(local, {
+      repos: [repo("a", "/a"), repo("b", "/b"), repo("c", "/c")],
+    }),
+    { push: false, why: "never-seen-this-list" },
+  );
+});
+
+test("once the list has been taken, the local list is the authority again", () => {
+  const local = seeded([repo("added-here", "/src/added-here")]);
+  assert.deepEqual(
+    pushDecision(local, { repos: [repo("a", "/a"), repo("b", "/b")] }),
+    { push: true, repos: [repo("added-here", "/src/added-here")] },
+  );
+});
+
+test("a coordinator holding nothing is not a list to stand off against", () => {
+  const local = doc([repo("added-here", "/src/added-here")]);
+  assert.deepEqual(pushDecision(local, { repos: [] }), {
+    push: true,
+    repos: [repo("added-here", "/src/added-here")],
+  });
+});
+
+test("the standoff is said, with its count and the way out of it", () => {
+  const local = doc([repo("added-here", "/src/added-here")]);
+  const notice = unreconciledNotice(local, {
+    repos: [repo("a", "/a"), repo("b", "/b")],
+  });
+  assert.match(notice, /coordinator holds 2 projects/);
+  assert.match(notice, /Nothing was pushed to it and nothing was taken/);
+  assert.match(notice, /forget the project added here/);
+});
+
+test("nothing is said when there is no standoff", () => {
+  const local = seeded([repo("buzz", "/src/buzz")]);
+  assert.equal(unreconciledNotice(local, { repos: [repo("a", "/a")] }), null);
+  assert.equal(
+    unreconciledNotice(EMPTY_LOCAL_PROJECTS, { repos: [repo("a", "/a")] }),
+    null,
+  );
 });

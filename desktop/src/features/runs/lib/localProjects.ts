@@ -35,6 +35,13 @@
 // removed. And because a silent import is indistinguishable from a silent loss
 // when it goes wrong, the import is recorded in the document itself so the UI
 // can say it happened (`importNotice`).
+//
+// **And the push has to know about the seed**, which is the trap one layer
+// down: if he ran this build while the coordinator was down, added a project,
+// and the coordinator then came up holding the five only it has, the seed
+// correctly refuses (the list was already started) — and a push would then
+// replace those five with the one. So `pushDecision` refuses too, and
+// `unreconciledNotice` says what to do about it.
 
 import {
   type ForeignRepoEntry,
@@ -291,18 +298,60 @@ function sameRepos(a: readonly Repo[], b: readonly Repo[]): boolean {
   });
 }
 
-/** The `repos` array to write into the workspace document so the coordinator
- * agrees with this machine, or `null` when it already does and there is
- * nothing to send.
+export type PushRefusal = "already-agrees" | "never-seen-this-list";
+
+export type PushDecision =
+  | { push: true; repos: unknown[] }
+  | { push: false; why: PushRefusal };
+
+/** What to write into the workspace document so the coordinator agrees with
+ * this machine.
  *
  * The local list wins wholesale: a repo the coordinator holds and this machine
  * does not is a repo that was forgotten here, and the point of one direction
  * is that forgetting sticks. What is NOT overwritten is an entry this build
  * cannot parse — those are spliced back at their old positions
- * (`mergeForeignRepos`), the same losslessness `repoStore.ts` kept, because
- * the array is still the unit of change on the wire. */
-export function pushPlan(doc: LocalProjects, state: unknown): unknown[] | null {
+ * (`mergeForeignRepos`), because the array is still the unit of change on the
+ * wire.
+ *
+ * **`never-seen-this-list` is the one case where forgetting must not stick**,
+ * and it is the way the Mac mini loses his projects if this function is
+ * written the obvious way. Picture the order: the new build launches while the
+ * coordinator happens to be down, he adds one project, the coordinator comes
+ * up holding the five that only IT has. The seed refuses (the list was already
+ * started, correctly — merging has no key to merge on), and a push would then
+ * replace those five with the one. So a list this machine has never taken —
+ * `imported === null` while both sides hold something — is not pushed to at
+ * all. It is a standoff, and `unreconciledNotice` says how to end it. */
+export function pushDecision(doc: LocalProjects, state: unknown): PushDecision {
   const { foreign, repos } = readRepoEntries(state);
-  if (sameRepos(repos, doc.repos)) return null;
-  return mergeForeignRepos(doc.repos, foreign);
+  if (doc.imported === null && doc.repos.length > 0 && repos.length > 0) {
+    return { push: false, why: "never-seen-this-list" };
+  }
+  if (sameRepos(repos, doc.repos))
+    return { push: false, why: "already-agrees" };
+  return { push: true, repos: mergeForeignRepos(doc.repos, foreign) };
+}
+
+/** The sentence for the standoff above, or `null` when there is not one.
+ *
+ * It names the way out, and the way out is real: the seed's condition is an
+ * empty local list, so forgetting the projects added here puts this machine
+ * back in the state where the coordinator's list is imported wholesale. */
+export function unreconciledNotice(
+  doc: LocalProjects,
+  state: unknown,
+): string | null {
+  const decision = pushDecision(doc, state);
+  if (decision.push || decision.why !== "never-seen-this-list") return null;
+  const count = readRepoEntries(state).repos.length;
+  const projects = count === 1 ? "project" : "projects";
+  return (
+    `the coordinator holds ${count} ${projects} this machine has never ` +
+    "taken, and this list was started here before it ever answered. Nothing " +
+    "was pushed to it and nothing was taken from it — the two lists are left " +
+    `as they are. To take the coordinator's list instead, forget the ` +
+    `${doc.repos.length === 1 ? "project" : "projects"} added here: an empty ` +
+    "list is imported from the coordinator once, the next time it answers."
+  );
 }
