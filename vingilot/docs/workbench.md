@@ -963,11 +963,12 @@ file.
   confirmation would make the throwaway thing the ceremonious one. What has to
   outlive a keystroke belongs in one of the worktree's terminal tabs.
 - **The team thread does not put a team in the worktree.** Its members are
-  managed agents running wherever they run; the message carries a *path*, and
-  whether anything on the other end can open it is not this pane's claim to
-  make. There is no file access, no diff, no transcript and no plan in what is
-  sent, and the pane enumerates that on screen rather than in this document
-  alone.
+  managed agents running wherever they run; the *path* reaches them as the
+  channel's description and the branch as its name, never as a line in front of
+  a message, and whether anything on the other end can open it is not this
+  pane's claim to make. There is no file access, no diff, no transcript and no
+  plan in what is sent, and the pane enumerates that on screen rather than in
+  this document alone.
 - **Neither surface reads the other.** The ask thread is local because its
   speaker has no key; the team thread is on the relay because its speakers have
   their own. They are not two implementations of one thing waiting to be merged
