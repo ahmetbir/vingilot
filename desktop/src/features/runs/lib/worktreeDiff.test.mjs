@@ -7,6 +7,7 @@ import {
   diffSummary,
   fileLabel,
   fileNote,
+  labelParts,
   readWorktreeDiff,
 } from "./worktreeDiff.ts";
 
@@ -187,4 +188,44 @@ test("a rename shows both names, so +0 −0 is accountable", () => {
     "old/name.txt → new/name.txt",
   );
   assert.equal(fileLabel(file()), "src/a.ts");
+});
+
+test("the name is what a row cannot afford to elide", () => {
+  // The three fixture paths from the 16-inch measurement: identical for
+  // twenty-three characters, which is all a 163px row of text-sm shows. What
+  // tells them apart is entirely in `name`.
+  const paths = [
+    "desktop/src/features/runs/lib/paneModel.ts",
+    "desktop/src/features/runs/ui/WorktreeDiffPanel.tsx",
+    "desktop/src/features/runs/lib/diffLayout.ts",
+  ];
+  const names = paths.map((path) => labelParts(path).name);
+  assert.deepEqual(names, [
+    "paneModel.ts",
+    "WorktreeDiffPanel.tsx",
+    "diffLayout.ts",
+  ]);
+  assert.equal(new Set(names).size, 3);
+  assert.equal(
+    labelParts(paths[0]).lead,
+    "desktop/src/features/runs/lib/",
+    "the lead is everything the ellipsis may eat",
+  );
+  // Rejoining is the whole contract: the row shows the label, in two boxes.
+  for (const path of paths) {
+    const { lead, name } = labelParts(path);
+    assert.equal(lead + name, path);
+  }
+});
+
+test("a rename keeps the name it has now, and a bare name keeps itself", () => {
+  assert.deepEqual(labelParts("old/name.txt → new/place/renamed.txt"), {
+    lead: "old/name.txt → new/place/",
+    name: "renamed.txt",
+  });
+  assert.deepEqual(labelParts("README.md"), { lead: "", name: "README.md" });
+  assert.deepEqual(labelParts(""), { lead: "", name: "" });
+  // Nothing to protect: a label that ends in a slash is left whole rather than
+  // split into a lead and an empty name that renders as nothing at all.
+  assert.deepEqual(labelParts("src/"), { lead: "", name: "src/" });
 });

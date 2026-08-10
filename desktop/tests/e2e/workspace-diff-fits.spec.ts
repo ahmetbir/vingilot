@@ -31,6 +31,18 @@
 // wide enough for both the list comes back beside the patch with the patch
 // still above its floor. The arithmetic itself is proved in
 // `src/features/runs/lib/diffLayout.test.mjs`.
+//
+// **"It is on screen" is not "he can read it", and the first version of this
+// spec proved the first.** Measured on that build at the same 1728×1117: the
+// patch had the pane and showed 33 of a 76-column line (`scrollWidth` 581
+// against `clientWidth` 243), and the drawer's three rows all read
+// `desktop/src/features/ru…` — the spec passed because it clicked
+// `worktree-diff-file-2` by testid, which is not an affordance the owner has.
+// So the last two readings below are about legibility rather than layout: no
+// line of the patch runs off the side, and every row and the header name their
+// file. They are asserted by measurement (`scrollWidth` against `clientWidth`
+// on the very elements the text is in), because "the element exists" is exactly
+// what an element 3px wide also satisfies.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -277,6 +289,83 @@ test("on a 16-inch MacBook Pro the patch has the pane, and the list is a gesture
   await expect(page.getByTestId("worktree-diff-open")).toHaveText(PATHS[2]);
 });
 
+/** Whether a box is showing all of its own text, and how much of it it is
+ * showing — the reading that separates "the line is in the DOM" from "the line
+ * is on screen". `scrollWidth` is content, `clientWidth` is what is visible;
+ * one pixel of slack absorbs sub-pixel text metrics. */
+async function legibility(page: Page) {
+  return page.evaluate(() => {
+    const box = (element: Element) => ({
+      client: Math.round(element.clientWidth),
+      scroll: Math.round(element.scrollWidth),
+      text: (element.textContent ?? "").trim(),
+    });
+    const patch = document.querySelector('[data-testid="worktree-diff-patch"]');
+    const lines = Array.from(patch?.querySelectorAll("span") ?? [], (line) => ({
+      ...box(line),
+      overflow: line.scrollWidth - line.clientWidth,
+    }));
+    const named = (root: Element | null) => {
+      const name = root?.querySelector("[data-path-name]") ?? null;
+      return name === null ? null : box(name);
+    };
+    return {
+      header: named(
+        document.querySelector('[data-testid="worktree-diff-open"]'),
+      ),
+      lines,
+      rows: Array.from(
+        document.querySelectorAll('[data-testid^="worktree-diff-file-"]'),
+        (row) => named(row),
+      ),
+      wrapped: patch?.getAttribute("data-wrapped") ?? null,
+    };
+  });
+}
+
+test("at his width the patch line is whole and every row names its file", async ({
+  page,
+}) => {
+  await openDiffPane(page, SIXTEEN_INCH);
+
+  // The patch has the pane and is *still* under its own floor — 243px is 29
+  // columns against a floor of 60 — so it wraps instead of running off the
+  // side. This is the reading the previous version of this file did not take:
+  // it asserted the pane was below `PATCH_MIN_PX` and stopped there.
+  const before = await legibility(page);
+  expect(before.wrapped).toBe("true");
+  expect(before.lines.length).toBeGreaterThan(0);
+  // Not one line of the patch is cut off at the right edge of its own box.
+  expect(before.lines.filter((line) => line.overflow > 1)).toEqual([]);
+  // And the fixture's 76-column source line is one of the lines on screen —
+  // asserted by content, so a build that rendered an empty patch could not
+  // satisfy the sentence above by having nothing to overflow.
+  expect(before.lines.map((line) => line.text)).toContain(PATCH_LINE.trim());
+
+  // The header names the open file. Before: "desktop/src/feat…".
+  expect(before.header).not.toBeNull();
+  expect((before.header as { text: string }).text).toBe("paneModel.ts");
+  const header = before.header as { client: number; scroll: number };
+  expect(header.scroll).toBeLessThanOrEqual(header.client + 1);
+
+  // The drawer's rows. Before: three rows, all reading
+  // `desktop/src/features/ru…`, told apart only by a testid.
+  await page.getByTestId("worktree-diff-list-toggle").click();
+  await expect(page.getByTestId("worktree-diff-files")).toBeVisible();
+  const open = await legibility(page);
+  const names = open.rows.map((row) => row?.text ?? null);
+  expect(names).toEqual([
+    "paneModel.ts",
+    "WorktreeDiffPanel.tsx",
+    "diffLayout.ts",
+  ]);
+  expect(new Set(names).size).toBe(names.length);
+  // Each name is shown in full, not ellipsised — the row elides the directory.
+  expect(
+    open.rows.filter((row) => row !== null && row.scroll > row.client + 1),
+  ).toEqual([]);
+});
+
 test("given the whole surface, the list comes back beside the patch", async ({
   page,
 }) => {
@@ -296,5 +385,13 @@ test("given the whole surface, the list comes back beside the patch", async ({
   expect(laid.list as number).toBe(288);
   expect((laid.pane as number) - (laid.list as number)).toBeGreaterThanOrEqual(
     PATCH_MIN_PX,
+  );
+  // And with the room for it, the patch is a grid again: wrapping is the
+  // accommodation for a pane under its floor, not the new rendering of a diff.
+  // Above the floor a line is a line, aligned with the one above it, and the
+  // scroller is what handles the long ones.
+  await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
+    "data-wrapped",
+    "false",
   );
 });

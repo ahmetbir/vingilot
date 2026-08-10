@@ -42,9 +42,13 @@ export const LIST_PREFERRED_PX = 288;
 /** The narrowest a list of paths is still a list of paths.
  *
  * From the same measurement: 80px of the row is spoken for whatever the width,
- * so this leaves the path 96px — around thirteen characters of `text-sm`, which
- * is a file name and the tail of its directory. Under that the column shows
- * an ellipsis and a change mark, and the owner is reading the header instead. */
+ * so this leaves the path 96px — around thirteen characters of `text-sm`. That
+ * is a file name, because the row elides its *directory* and never its name
+ * (`labelParts` in `lib/worktreeDiff.ts`, `PathLabel` in
+ * `ui/WorktreeDiffPanel.tsx`); a row that truncated the label as one string
+ * would spend those thirteen characters on the head of the directory, which
+ * every row in a folder shares. Under this width the name itself starts being
+ * cut, and the owner is reading the header instead. */
 export const LIST_MIN_PX = 176;
 
 /** One `font-mono text-xs` cell, in CSS pixels. Measured in the pane rather
@@ -108,3 +112,46 @@ export function diffListPlacement(paneWidth: number): DiffListPlacement {
  * for the tests and for anything that needs to say the number out loud rather
  * than rediscover it. */
 export const LIST_LEAVES_BELOW_PX = PATCH_MIN_PX + LIST_MIN_PX;
+
+/** What the patch itself is laid out in, once the list has taken what it takes.
+ * `beside` is never below `PATCH_MIN_PX` — that is what the placement above
+ * guarantees — so this only says something new in the `over` case. */
+function patchWidthPx(paneWidth: number): number {
+  const placement = diffListPlacement(paneWidth);
+  return placement.where === "over" ? paneWidth : paneWidth - placement.listPx;
+}
+
+/** Does the patch soft-wrap its lines instead of scrolling sideways?
+ *
+ * Sending the list away buys the patch the whole pane, and on this machine the
+ * whole pane is still not `PATCH_MIN_COLUMNS`. Measured on the fixed build at
+ * 1728×1117: the patch box is 243px, 211px of it inside its own `px-4`, which
+ * at `PATCH_CELL_PX` is **29 columns** — and the fixture's 76-column source
+ * line reported `scrollWidth` 581 against `clientWidth` 243. That is the
+ * sentence `PATCH_MIN_COLUMNS` writes about itself: *a pane the owner has to
+ * scroll sideways to read one line of is a pane he opens VS Code instead of.*
+ * A third of a line is more than four characters and still not the complaint
+ * answered.
+ *
+ * So below its own floor the patch stops pretending it has a column count and
+ * wraps. Wrapping is not free — a diff is a grid, and a re-flowed line is no
+ * longer aligned with the one above it — which is exactly why this is a floor
+ * and not a preference: **above** `PATCH_MIN_PX` the grid is worth more than
+ * the wrap, and below it there is no grid to protect, only a line the owner
+ * cannot finish reading. Wrapped, 100% of every line is on screen; unwrapped
+ * at 243px, 43% of one is.
+ *
+ * The alternative considered and not taken: widen the pane by giving the Diff
+ * pane the surface to itself below some width (the `effectiveSolo` route that
+ * already fires at 1512). That decides *for* him which of the terminal and the
+ * diff he is looking at, on a machine where he demonstrably watches an agent
+ * work in one while reading the other. Wrapping decides nothing; it only stops
+ * hiding the right-hand half of every line. ⇧⌥⌘B is still there, and the pane
+ * it gives is above the floor and does not wrap.
+ *
+ * Unmeasured (`0`) does not wrap, for the reason `diffListPlacement` gives:
+ * a width nobody has read is not a narrow pane. */
+export function patchWrapsAt(paneWidth: number): boolean {
+  if (!Number.isFinite(paneWidth) || paneWidth <= 0) return false;
+  return patchWidthPx(paneWidth) < PATCH_MIN_PX;
+}

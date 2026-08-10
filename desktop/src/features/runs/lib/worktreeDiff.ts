@@ -171,6 +171,27 @@ export function fileLabel(file: DiffFile): string {
   return file.oldPath === null ? file.path : `${file.oldPath} → ${file.path}`;
 }
 
+/** A label split where an ellipsis must not fall: everything up to and
+ * including the last `/`, and the name the file goes by.
+ *
+ * CSS truncation elides the *tail*, and the tail of a path is the half that
+ * identifies it. Measured in the built bundle at 1728×1117, where the changed-
+ * file rows are 163px of `text-sm`: three files under
+ * `desktop/src/features/runs/` all rendered as `desktop/src/features/ru…` —
+ * one string, three different files, and no way to tell which row to click.
+ * So the two halves are given to the layout separately and only the lead is
+ * allowed to give way (`PathLabel` in `ui/WorktreeDiffPanel.tsx`).
+ *
+ * A label with no `/` is all name. A rename's arrow stays in the lead, because
+ * the name worth keeping on screen is the one the file has now. A label that
+ * ends in `/` has no name to protect, so it is left whole rather than reduced
+ * to an empty span. */
+export function labelParts(label: string): { lead: string; name: string } {
+  const cut = label.lastIndexOf("/");
+  if (cut < 0 || cut === label.length - 1) return { lead: "", name: label };
+  return { lead: label.slice(0, cut + 1), name: label.slice(cut + 1) };
+}
+
 /** What this file is not showing, in words, or `null` when it is showing all
  * of itself. The limits come from the answer, so the number here is the number
  * that was applied. */

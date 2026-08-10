@@ -40,6 +40,14 @@
 // `lib/diffLayout.ts` carries the decision and the measurements; what this file
 // does is measure its own box and obey it, including the case where the list
 // stops standing beside the patch and becomes a drawer over it.
+//
+// **A narrow pane is answered twice, because two halves were unreadable.** The
+// patch got the pane and was still under its own column floor, so below that
+// floor it wraps rather than scrolling sideways (`patchWrapsAt`) — a line the
+// owner can finish reading is worth more than a grid he cannot. And the rows
+// of the list, at the width where the list is a drawer, were three identical
+// truncations of one directory: paths are laid out as directory-plus-name and
+// only the directory is elided (`PathLabel`), so the name is always on screen.
 
 import * as React from "react";
 
@@ -53,6 +61,7 @@ import {
 import {
   diffListPlacement,
   LIST_PREFERRED_PX,
+  patchWrapsAt,
 } from "@/features/runs/lib/diffLayout";
 import {
   began,
@@ -75,6 +84,7 @@ import {
   diffSummary,
   fileLabel,
   fileNote,
+  labelParts,
   type WorktreeDiff,
 } from "@/features/runs/lib/worktreeDiff";
 import { explainWorktreeError } from "@/features/runs/lib/worktreePlan";
@@ -183,6 +193,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
     return () => observer.disconnect();
   }, []);
   const placement = diffListPlacement(paneWidth);
+  const wraps = patchWrapsAt(paneWidth);
 
   // The schedule lives in a ref, not in state: every read would otherwise
   // re-render the patch twice (once to say it started, once to say it
@@ -493,16 +504,19 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
                   {listOpen ? "▾" : "▸"} {count} file{count === 1 ? "" : "s"}
                 </button>
               ) : null}
-              <span
-                className="min-w-0 flex-1 truncate font-mono text-sm"
+              <PathLabel
+                className="flex-1 font-mono text-sm"
+                label={shown === null ? "" : fileLabel(shown)}
                 // Named so a spec can ask which file is open without reading
                 // an index out of the list beside it — which is the whole
                 // point when what is under test is that the index moved and
                 // the file did not.
-                data-testid="worktree-diff-open"
-              >
-                {shown === null ? "" : fileLabel(shown)}
-              </span>
+                //
+                // In the drawer layout this header is the *only* place the open
+                // file is named, so it is also the place a tail truncation hurt
+                // most: at 243px it read "desktop/src/feat…".
+                testid="worktree-diff-open"
+              />
               {placement.where === "beside" ? (
                 <span className="shrink-0 text-2xs text-muted-foreground">
                   j / k move · enter opens
@@ -529,12 +543,22 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
                   through the pane, which fits fine. */}
               <div
                 className="min-h-0 flex-1 overflow-auto px-4 py-2"
+                // Which of the two renderings is up, so a spec can say the mode
+                // out loud instead of inferring it from a scroll width that
+                // could also be zero because the fixture's lines are short.
                 data-testid="worktree-diff-patch"
+                data-wrapped={wraps ? "true" : "false"}
               >
-                <div className="flex w-max min-w-full flex-col font-mono text-xs">
+                <div
+                  className={`flex flex-col font-mono text-xs ${wraps ? "w-full" : "w-max min-w-full"}`}
+                >
                   {(patch?.lines ?? []).map((line, i) => (
                     <span
-                      className={`whitespace-pre ${DIFF_LINE_CLASS[line.kind]}`}
+                      // Wrapped, the hanging indent is what keeps a diff
+                      // readable: the second visual line of a `+` line starts
+                      // under the code and not under the marker column, so a
+                      // continuation is never mistaken for a context line.
+                      className={`${wraps ? "-indent-4 whitespace-pre-wrap break-words pl-4" : "whitespace-pre"} ${DIFF_LINE_CLASS[line.kind]}`}
                       // biome-ignore lint/suspicious/noArrayIndexKey: patch lines are positional content, never reordered
                       key={i}
                     >
@@ -564,6 +588,54 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
         </div>
       )}
     </div>
+  );
+}
+
+/** A path with the file's own name always on screen.
+ *
+ * One `truncate` over the whole label elides its tail, and the tail is the half
+ * that says which file this is. Measured in the built bundle at 1728×1117, in
+ * the layout where the list is a drawer: the rows give the path 163px, and
+ * three files under `desktop/src/features/runs/` all rendered as
+ * `desktop/src/features/ru…` — the same twenty-three characters three times.
+ * The patch header, the only place the open file is named in that layout, read
+ * `desktop/src/feat…`. Both are "the text is there" and neither is legible.
+ *
+ * So the label is laid out in two boxes and only the directory is allowed to
+ * give way: the name is `shrink-0`, and `max-w-full` is what keeps *it* from
+ * pushing the row wider than the row — a name longer than the whole column is
+ * the one case where there is nothing better to elide than the name.
+ *
+ * `title` carries the whole label for a hover, but a tooltip is not a fix: the
+ * owner is scanning a list, not interviewing it. */
+function PathLabel({
+  className,
+  label,
+  testid,
+}: {
+  className: string;
+  label: string;
+  testid?: string;
+}) {
+  const { lead, name } = labelParts(label);
+  return (
+    <span
+      className={`flex min-w-0 items-baseline ${className}`}
+      data-testid={testid}
+      title={label}
+    >
+      {lead === "" ? null : (
+        <span
+          className="min-w-0 truncate text-muted-foreground"
+          data-path-lead="true"
+        >
+          {lead}
+        </span>
+      )}
+      <span className="max-w-full shrink-0 truncate" data-path-name="true">
+        {name}
+      </span>
+    </span>
   );
 }
 
@@ -624,12 +696,7 @@ function FileList({
             >
               {changeMark(file.change)}
             </span>
-            <span
-              className="min-w-0 flex-1 truncate text-sm"
-              title={fileLabel(file)}
-            >
-              {fileLabel(file)}
-            </span>
+            <PathLabel className="flex-1 text-sm" label={fileLabel(file)} />
             <span className="shrink-0 font-mono text-2xs text-muted-foreground/80">
               {file.binary ? "bin" : `+${file.additions} −${file.deletions}`}
             </span>

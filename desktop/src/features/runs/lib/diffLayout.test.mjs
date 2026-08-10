@@ -6,6 +6,7 @@ import {
   LIST_MIN_PX,
   LIST_PREFERRED_PX,
   PATCH_MIN_PX,
+  patchWrapsAt,
 } from "./diffLayout.ts";
 
 /** The pane width the owner's 16-inch MacBook Pro actually gives the Diff pane,
@@ -77,6 +78,33 @@ test("an unmeasured pane is not a narrow one", () => {
       { listPx: LIST_PREFERRED_PX, where: "beside" },
       `width ${width}`,
     );
+  }
+});
+
+test("the patch wraps exactly where it is under its own floor", () => {
+  // The pane he actually has. Sending the list away gave the patch all 243px
+  // of it, which is 29 columns — the list leaving is not on its own an answer
+  // to "diff görünmüyor".
+  assert.equal(patchWrapsAt(SIXTEEN_INCH_PANE_PX), true);
+  // The crossing, from both sides: at its floor the patch has the columns the
+  // floor is made of and keeps the grid; one pixel under and it wraps.
+  assert.equal(patchWrapsAt(PATCH_MIN_PX), false);
+  assert.equal(patchWrapsAt(PATCH_MIN_PX - 1), true);
+});
+
+test("a patch with the list beside it never wraps", () => {
+  // The other half of the decision: the list only ever yields, so while it is
+  // standing there the patch is above its floor by construction — and a diff
+  // above its floor is a grid, not a paragraph.
+  for (let pane = LIST_LEAVES_BELOW_PX; pane <= 2000; pane += 1) {
+    assert.equal(diffListPlacement(pane).where, "beside", `pane ${pane}`);
+    assert.equal(patchWrapsAt(pane), false, `pane ${pane}`);
+  }
+});
+
+test("an unmeasured pane does not wrap either", () => {
+  for (const width of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(patchWrapsAt(width), false, `width ${width}`);
   }
 });
 
