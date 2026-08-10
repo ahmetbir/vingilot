@@ -277,8 +277,9 @@ async function openWorktree(
     name: string;
     pubkey: string;
   }[] = [],
+  viewport: { height: number; width: number } = { height: 900, width: 1700 },
 ) {
-  await page.setViewportSize({ height: 900, width: 1700 });
+  await page.setViewportSize(viewport);
   await installMockBridge(page, {
     managedAgents: managedAgents.map((agent) => ({
       ...agent,
@@ -386,6 +387,34 @@ async function threadChannel(page: Page) {
     }[];
     return channels.find((channel) => channel.id === channelId) ?? null;
   });
+}
+
+/** One search param off the hash route's own query string.
+ *
+ * The app is hash-routed, so `URL.search` is always empty and the router's
+ * params live after a second `?` inside the fragment. `null` is "not in the
+ * URL", which is the assertion the hosted-panel test is built on. */
+async function hashSearchParam(page: Page, name: string) {
+  const hash = new URL(page.url()).hash;
+  const query = hash.indexOf("?");
+  if (query === -1) return null;
+  return new URLSearchParams(hash.slice(query + 1)).get(name);
+}
+
+/** Live messages are dropped on the floor until the app has subscribed, so a
+ * seed sent before this has resolved is a seed that never arrives. */
+async function waitForMockLiveSubscription(page: Page, channelName: string) {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (name) =>
+          window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+            channelName: name,
+          }) ?? false,
+        channelName,
+      ),
+    )
+    .toBe(true);
 }
 
 /** Wait out the deploy. The channel — and therefore the composer — exists
@@ -796,6 +825,137 @@ test.describe("talk to a team about this worktree", () => {
     // refused, so the choice is still offered — empty, and honest about why.
     await expect(page.getByTestId("team-blocked")).toBeHidden();
     await expect(page.getByTestId("team-choice")).toBeVisible();
+  });
+
+  test("a panel opened inside the pane is the pane's, and never the URL's", async ({
+    page,
+  }) => {
+    // The path `useLocalPanelState` exists to serve, and the one thing no unit
+    // test can settle: the auxiliary panel keys (`thread`, `profile`,
+    // `agentSession`, `channelManagement`) name *one* open panel each, and on
+    // the channel route they live in that route's URL. `/workspace` has one URL
+    // for the whole screen, so a hosted surface writing to it would be a pane
+    // putting a channel's panel state on a route that is not a channel's — and,
+    // the day a second hosted surface exists, two panes driving one panel.
+    //
+    // Two hosted panes cannot be arranged today: the left slot is the terminal
+    // and `rightChoices()` refuses the pane already on the left, so the claim
+    // that can be *proved* is the one the shared URL carries. Both ends are
+    // asserted — clean on `/workspace`, written on `/channels/general` by the
+    // same gesture — because "this app never puts `profile` in the URL" would
+    // pass just as well with the panel feature broken.
+    await openWorktree(page);
+    await openThread(page);
+
+    // A message of his own, so the pane has a row with an author on it.
+    await page
+      .getByTestId("team-thread")
+      .getByTestId("message-input")
+      .fill(QUESTION);
+    await page.getByTestId("team-thread").getByTestId("send-message").click();
+    const hostedRow = page
+      .getByTestId("team-thread")
+      .getByTestId("message-row")
+      .filter({ hasText: QUESTION });
+    await expect(hostedRow).toBeVisible({ timeout: 15_000 });
+
+    // The avatar — the first button in an upstream message row, which is how
+    // `profile.spec.ts` opens this panel on the route. Dispatched rather than
+    // hit-tested: in a pane this narrow the newest row sits under the composer
+    // overlay and its own hover action bar, and neither is what is under test.
+    await hostedRow
+      .locator("button")
+      .first()
+      .evaluate((element) => (element as HTMLElement).click());
+    await expect(
+      page.getByTestId("team-thread").getByTestId("user-profile-panel"),
+    ).toBeVisible();
+
+    // Open, and nowhere in the address every pane on this screen shares.
+    expect(await hashSearchParam(page, "profile")).toBeNull();
+    expect(await hashSearchParam(page, "thread")).toBeNull();
+    expect(page.url()).toContain("/workspace");
+
+    // The other end of the comparison: the same panel, opened the same way, on
+    // the route that really does own the URL.
+    await page.goto("/#/");
+    await page.getByTestId("channel-general").click();
+    const routeRow = page.getByTestId("message-row").first();
+    await expect(routeRow).toBeVisible();
+    await routeRow
+      .locator("button")
+      .first()
+      .evaluate((element) => (element as HTMLElement).click());
+    await expect(page.getByTestId("user-profile-panel")).toBeVisible();
+    await expect.poll(() => hashSearchParam(page, "profile")).not.toBeNull();
+  });
+
+  test("Escape inside a hosted drawer is the drawer's; outside it is the workspace's", async ({
+    page,
+  }) => {
+    // `FocusThreadDrawer` binds a *capturing* window keydown and calls
+    // `stopImmediatePropagation`, which on the channel route is right: it is the
+    // app's top layer there. Hosted in a pane it covers one column, while the
+    // workspace's palette and cheatsheet sit above it and listen on the same
+    // window in the same phase — and register later, so an unscoped drawer would
+    // have been the last word on Escape for the whole app and neither of them
+    // would ever have been reached. Only a real document can say which listener
+    // got the keystroke.
+    await page.addInitScript(() => {
+      localStorage.setItem("buzz.channels.threadViewMode", "focus");
+    });
+    // Wide enough that the pane's own content clears
+    // `AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX` — under it the thread is a
+    // single-column view and there is no drawer to scope.
+    await openWorktree(page, "seeded", [], { height: 1000, width: 2400 });
+    await openThread(page);
+
+    // A thread in the pane's own channel — which this pane created at runtime,
+    // so it is reached by the name the pane gave it.
+    await waitForMockLiveSubscription(page, THREAD_NAME);
+    const rootId = await page.evaluate((channelName) => {
+      const root = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName,
+        content: "the build is red because of the lockfile",
+      });
+      if (!root) throw new Error("failed to seed the pane's thread root");
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName,
+        content: "reproduced here too",
+        parentEventId: root.id,
+      });
+      return root.id;
+    }, THREAD_NAME);
+
+    const pane = page.getByTestId("team-thread");
+    const summary = pane.locator(
+      `[data-testid="message-thread-summary"][data-thread-head-id="${rootId}"]`,
+    );
+    await expect(summary).toBeVisible({ timeout: 15_000 });
+    await summary.click();
+
+    const drawer = page.getByTestId("focus-thread-drawer");
+    await expect(drawer).toBeVisible();
+    // The drawer takes focus on mount, so this Escape is one of its own.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("focus-thread-drawer-overlay")).toHaveCount(
+      0,
+    );
+
+    // Now the half that was a behaviour change to an upstream file: with the
+    // drawer open *and* a workspace surface over it, Escape belongs to the
+    // surface the keystroke is actually in.
+    await summary.click();
+    await expect(drawer).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+k");
+    const palette = page.getByTestId("palette");
+    await expect(palette).toBeVisible();
+    await expect(page.getByTestId("palette-input")).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
+    // And the drawer, which never saw that keystroke, is still standing.
+    await expect(drawer).toBeVisible();
   });
 });
 
