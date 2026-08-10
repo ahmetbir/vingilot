@@ -12,8 +12,13 @@
 // a path.** Nothing in this feature deletes, moves, or writes anything inside
 // a project directory.
 
+import {
+  type AttentionMark,
+  NO_MARK,
+} from "@/features/runs/lib/attentionSignal";
 import type { Repo } from "@/features/runs/lib/projects";
 import { removeProjectConfirm } from "@/features/runs/lib/repoChoice";
+import { AttentionDot } from "@/features/runs/ui/AttentionDot";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +32,13 @@ import {
 
 interface ProjectsNavProps {
   repos: Repo[];
+  /** The strongest attention state among each project's worktrees, by repo id
+   * (`lib/attentionSignal.ts`'s `rollupMark`). This column is where the owner
+   * looks when he is not standing in a project, so it has to answer "which one
+   * needs me" from here — with the same derivation the worktree rows use, never
+   * a second one. A repo with no entry has had nothing answered about it and
+   * draws no dot. */
+  marks: Readonly<Record<string, AttentionMark>>;
   /** `null` when on the project-less landing view. */
   selectedRepoId: string | null;
   onSelectRepo: (id: string) => void;
@@ -54,6 +66,7 @@ export function ProjectsNav({
   error,
   onAddProject,
   onConfirmingChange,
+  marks,
   onDismissError,
   onRemoveProject,
   onSelectLanding,
@@ -93,34 +106,42 @@ export function ProjectsNav({
         </p>
       ) : (
         <ul className="flex flex-col gap-0.5">
-          {repos.map((repo) => (
-            <li className="group flex items-center gap-0.5" key={repo.id}>
-              <button
-                className={`min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
-                  repo.id === selectedRepoId
-                    ? "bg-muted font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-muted/60"
-                }`}
-                data-testid={`projects-nav-repo-${repo.id}`}
-                onClick={() => onSelectRepo(repo.id)}
-                title={repo.path}
-                type="button"
-              >
-                {repo.name}
-              </button>
-              <button
-                aria-label={`remove ${repo.name}`}
-                className="shrink-0 rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                data-testid={`projects-nav-remove-${repo.id}`}
-                disabled={pending}
-                onClick={() => onConfirmingChange(repo)}
-                title={`Remove ${repo.name} — forgets the path, never touches the folder`}
-                type="button"
-              >
-                ×
-              </button>
-            </li>
-          ))}
+          {repos.map((repo) => {
+            const mark = marks[repo.id] ?? NO_MARK;
+            return (
+              <li className="group flex items-center gap-0.5" key={repo.id}>
+                <button
+                  className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+                    repo.id === selectedRepoId
+                      ? "bg-muted font-medium text-foreground"
+                      : "text-muted-foreground hover:bg-muted/60"
+                  }`}
+                  data-testid={`projects-nav-repo-${repo.id}`}
+                  onClick={() => onSelectRepo(repo.id)}
+                  title={
+                    mark.sentence === ""
+                      ? repo.path
+                      : `${repo.path} — ${mark.sentence}`
+                  }
+                  type="button"
+                >
+                  <AttentionDot mark={mark} />
+                  <span className="min-w-0 flex-1 truncate">{repo.name}</span>
+                </button>
+                <button
+                  aria-label={`remove ${repo.name}`}
+                  className="shrink-0 rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  data-testid={`projects-nav-remove-${repo.id}`}
+                  disabled={pending}
+                  onClick={() => onConfirmingChange(repo)}
+                  title={`Remove ${repo.name} — forgets the path, never touches the folder`}
+                  type="button"
+                >
+                  ×
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
 

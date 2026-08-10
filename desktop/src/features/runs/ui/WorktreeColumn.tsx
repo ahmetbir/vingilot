@@ -10,9 +10,14 @@
 // rows behind a single expandable row. Nothing is deleted by folding; nothing
 // in this component deletes anything at all except through the two confirms
 // below. The `+`/`−` on a row is git's own count of the uncommitted work in
-// that worktree (`lib/useWorktreeStats.ts` reads it), and a dirty row is
-// marked by the *shape* of its dot as well as its colour, so the answer
-// survives being glanced at.
+// that worktree (`lib/useWorktreeStats.ts` reads it).
+//
+// The dot on a row is `ui/AttentionDot.tsx`, derived by
+// `lib/attentionSignal.ts` from signals this app actually holds — never by this
+// component, which also draws none at all for a worktree nothing has answered
+// about. Each state has its own *shape* as well as its own colour, so the
+// answer survives being glanced at, and the row's `title` repeats the dot's
+// sentence in words.
 //
 // Rows are numbered 1-9 to match the ⌘1…9 switch shortcut
 // (`lib/terminalKeys.ts`), and the digit is the row's place in the ordered
@@ -45,15 +50,17 @@
 
 import * as React from "react";
 
+import {
+  type AttentionMark,
+  NO_MARK,
+} from "@/features/runs/lib/attentionSignal";
 import type { Repo, Worktree } from "@/features/runs/lib/projects";
 import { worktreeSummary } from "@/features/runs/lib/projects";
-import type { WorktreeSummary } from "@/features/runs/lib/projects";
 import type { WorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import type { WorktreeStats } from "@/features/runs/lib/useWorktreeStats";
 import {
   prunableWorktrees,
   rowDetail,
-  type WorktreeRow,
   worktreeColumnView,
 } from "@/features/runs/lib/worktreeAttention";
 import {
@@ -61,6 +68,7 @@ import {
   removableWorktree,
   removeWorktreeConfirm,
 } from "@/features/runs/lib/worktreePlan";
+import { AttentionDot } from "@/features/runs/ui/AttentionDot";
 import { NewWorktreeDialog } from "@/features/runs/ui/NewWorktreeDialog";
 import { PruneWorktreesDialog } from "@/features/runs/ui/PruneWorktreesDialog";
 import {
@@ -83,6 +91,11 @@ interface WorktreeColumnProps {
   /** git's own read of each worktree, by binding id. A worktree with no entry
    * is one nothing is known about yet — never one that is clean. */
   stats: WorktreeStats;
+  /** The attention dot per binding id, already derived
+   * (`lib/attentionSignal.ts` via `useWorktreeSignals`). Derived once for the
+   * screen so this column and the project nav cannot disagree; a worktree with
+   * no entry is one no signal has answered about, and draws no dot. */
+  marks: ReadonlyMap<string, AttentionMark>;
   selectedWorktreeId: string | null;
   onSelectWorktree: (bindingId: string) => void;
   /** Resolved worktree root; `null` before the desktop shell has answered,
@@ -107,15 +120,6 @@ interface WorktreeColumnProps {
   onOpenPrune: () => void;
   onPrunePreviewChange: (preview: string[] | null) => void;
 }
-
-const STATE_DOT_CLASS: Record<WorktreeSummary["stateClass"], string> = {
-  clean: "bg-muted-foreground/40",
-  live: "bg-emerald-500 motion-safe:animate-pulse",
-  ok: "bg-emerald-500",
-  attn: "bg-amber-500",
-  stop: "bg-destructive",
-  muted: "bg-muted-foreground/40",
-};
 
 /** The column when it is collapsed: a rail whose only job is to be the way
  * back, and to say how much is behind it. */
@@ -153,25 +157,11 @@ function CollapsedRail({
   );
 }
 
-/** The dot, and the whole of the "is there uncommitted work here" signal.
- *
- * Dirty is a **square**, not a differently-coloured circle: colour alone is
- * the one channel a reader may not have, and this marker exists precisely so
- * the column can be answered at a glance rather than read. */
-function StateDot({ row }: { row: WorktreeRow }) {
-  const shape =
-    row.attention === "dirty"
-      ? "rounded-sm bg-amber-500"
-      : `rounded-full ${STATE_DOT_CLASS[worktreeSummary(row.worktree).stateClass]}`;
-  return (
-    <span aria-hidden="true" className={`mt-1 h-2 w-2 shrink-0 ${shape}`} />
-  );
-}
-
 export function WorktreeColumn({
   actions,
   collapsed,
   creating,
+  marks,
   onCreatingChange,
   onOpenPrune,
   onPrunePreviewChange,
@@ -268,6 +258,7 @@ export function WorktreeColumn({
                 const shortcutDigit = row.index < 9 ? row.index + 1 : null;
                 const removable = removableWorktree(repo, wt, worktreeRoot);
                 const detail = rowDetail(row);
+                const mark = marks.get(wt.binding_id) ?? NO_MARK;
                 return (
                   <li
                     className="group flex items-start gap-0.5"
@@ -282,13 +273,13 @@ export function WorktreeColumn({
                       data-testid={`worktree-row-${wt.binding_id}`}
                       onClick={() => onSelectWorktree(wt.binding_id)}
                       title={
-                        row.attention === "dirty"
-                          ? `${summary.label} — uncommitted changes`
-                          : summary.label
+                        mark.sentence === ""
+                          ? summary.label
+                          : `${summary.label} — ${mark.sentence}`
                       }
                       type="button"
                     >
-                      <StateDot row={row} />
+                      <AttentionDot className="mt-1" mark={mark} />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5">
                           <span className="min-w-0 flex-1 truncate text-sm">

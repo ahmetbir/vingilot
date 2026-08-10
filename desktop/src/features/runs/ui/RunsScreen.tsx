@@ -107,14 +107,8 @@ import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
-import {
-  useWorktreeStats,
-  type WorktreeTarget,
-} from "@/features/runs/lib/useWorktreeStats";
-import {
-  orderWorktrees,
-  prunableWorktrees,
-} from "@/features/runs/lib/worktreeAttention";
+import { useWorktreeSignals } from "@/features/runs/lib/useWorktreeSignals";
+import { prunableWorktrees } from "@/features/runs/lib/worktreeAttention";
 import {
   unlistedWorktrees,
   withLocalGroups,
@@ -339,30 +333,16 @@ export function RunsScreen() {
     [repos, grouped],
   );
 
-  const knownWorktrees =
-    selectedRepoId !== null ? (grouped.byRepo[selectedRepoId] ?? []) : [];
-
-  // git's own read of the open project's worktrees — what is uncommitted in
-  // each, which is what the column orders by. Only the open project: the other
-  // projects' rows are not on screen, and this is `git` subprocesses.
-  const statTargets = React.useMemo<WorktreeTarget[]>(
-    () =>
-      selectedRepo === null || worktreeRoot === null
-        ? []
-        : knownWorktrees.flatMap((wt) => {
-            const path = worktreeCwd(selectedRepo, wt, worktreeRoot);
-            return path === null ? [] : [{ id: wt.binding_id, path }];
-          }),
-    [knownWorktrees, selectedRepo, worktreeRoot],
+  // What is true of the open project's worktrees right now — git's numstat, the
+  // attention dots both this screen's columns draw, and the row order the ⌘1…9
+  // map follows. All one subject, and it has its own module.
+  const signals = useWorktreeSignals(
+    repos,
+    grouped,
+    selectedRepo,
+    worktreeRoot,
   );
-  const worktreeStats = useWorktreeStats(statTargets);
-
-  // One ordering, shared: the column renders it and the ⌘1…9 map is built from
-  // it, so the digit beside a row is the digit that selects it.
-  const repoWorktrees = React.useMemo(
-    () => orderWorktrees(knownWorktrees, worktreeStats),
-    [knownWorktrees, worktreeStats],
-  );
+  const repoWorktrees = signals.ordered;
 
   // Entering a project with no worktree picked yet lands on its primary
   // checkout (or the first worktree, if there's no primary) rather than an
@@ -869,6 +849,7 @@ export function RunsScreen() {
           onRemoveProject={projectActions.removeProject}
           onSelectLanding={selectLanding}
           onSelectRepo={selectRepo}
+          marks={signals.byRepo}
           pending={projectActions.pending}
           repos={repos}
           selectedRepoId={selectedRepoId}
@@ -908,6 +889,7 @@ export function RunsScreen() {
                 actions={worktreeActions}
                 collapsed={columns.worktreesCollapsed}
                 creating={creatingWorktree}
+                marks={signals.byWorktree}
                 onCreatingChange={setCreatingWorktree}
                 onOpenPrune={openPrune}
                 onPrunePreviewChange={setPrunePreview}
@@ -916,7 +898,7 @@ export function RunsScreen() {
                 prunePreview={prunePreview}
                 repo={selectedRepo}
                 selectedWorktreeId={selectedWorktreeId}
-                stats={worktreeStats}
+                stats={signals.stats}
                 worktreeRoot={worktreeRoot}
                 worktrees={repoWorktrees}
               />
