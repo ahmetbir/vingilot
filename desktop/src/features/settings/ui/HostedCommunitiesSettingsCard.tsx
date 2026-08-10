@@ -418,7 +418,7 @@ export function HostedCommunitiesSettingsCard() {
     <section className="space-y-6" data-testid="hosted-communities-settings">
       <SettingsSectionHeader
         title="Hosted communities"
-        description="Buzz works with any relay. This page is only for relay hosting provided by Block — sign in with a Builderlab account to create and manage Block-hosted communities. Builderlab sign-in is used on this page alone."
+        description="Vingilot works with any relay. This page is only for relay hosting provided by Block — sign in with a Builderlab account to create and manage Block-hosted communities. Builderlab sign-in is used on this page alone."
       />
 
       {error ? (
@@ -436,8 +436,9 @@ export function HostedCommunitiesSettingsCard() {
         <div className="rounded-xl border border-border/70 p-5">
           <h3 className="font-medium">Sign in to manage hosted communities</h3>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Authentication opens in your browser and returns securely to Buzz.
-            You can use every other part of the app without signing in.
+            Authentication opens in your browser and returns securely to
+            Vingilot. You can use every other part of the app without signing
+            in.
           </p>
           <Button
             className="mt-4"
@@ -481,8 +482,8 @@ export function HostedCommunitiesSettingsCard() {
               <p className="mt-2 text-sm text-muted-foreground">
                 This Builderlab account isn&apos;t linked to a Buzz identity
                 yet. Connect this device&apos;s key to create and own
-                communities under it — Buzz signs a one-time challenge locally,
-                so your private key never leaves Desktop.
+                communities under it — Vingilot signs a one-time challenge
+                locally, so your private key never leaves Desktop.
               </p>
               <Button
                 className="mt-4"

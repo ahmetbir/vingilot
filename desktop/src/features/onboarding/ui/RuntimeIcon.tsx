@@ -34,7 +34,11 @@ function isBuzzRuntime(runtime: AcpRuntimeCatalogEntry): boolean {
 export function getRuntimeDisplayLabel(
   runtime: AcpRuntimeCatalogEntry,
 ): string {
-  return isBuzzRuntime(runtime) ? "Buzz" : runtime.label;
+  // "Buzz Agent", not "Buzz". The bundled runtime keeps its vendor's name and
+  // its vendor's mark below, for the same reason Goose keeps the goose; what it
+  // must not do is answer to the bare product name, because in this app that
+  // names Vingilot.
+  return isBuzzRuntime(runtime) ? "Buzz Agent" : runtime.label;
 }
 
 function getRuntimeLogoUrl(runtime: AcpRuntimeCatalogEntry): string | null {

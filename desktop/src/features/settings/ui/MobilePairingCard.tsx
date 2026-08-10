@@ -113,7 +113,7 @@ function PairingStatusDialog({
                     </p>
                   </div>
                   <p className="text-center text-xs text-muted-foreground">
-                    You are about to transfer your Buzz identity to another
+                    You are about to transfer your Vingilot identity to another
                     device. Only confirm if you initiated this pairing.
                   </p>
                 </div>
