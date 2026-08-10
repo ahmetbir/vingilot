@@ -136,6 +136,7 @@ export default defineConfig({
         "**/deck-two-devices.spec.ts",
         "**/workspace-no-overlays.spec.ts",
         "**/workspace-columns.spec.ts",
+        "**/workspace-triage.spec.ts",
         "**/workspace-palette.spec.ts",
         "**/workspace-ask.spec.ts",
         "**/workspace-notes.spec.ts",
