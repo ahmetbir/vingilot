@@ -119,6 +119,28 @@ fn default_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }
 
+/// What this terminal tells the shell it is.
+///
+/// **A terminal emulator declares what it emulates; it does not inherit an
+/// answer.** The child is talking to xterm.js, not to whatever started this
+/// app, so `TERM` is set rather than passed through. Inheriting looked correct
+/// for exactly as long as the app was only ever launched from a shell that had
+/// already set it — from the Dock there is no `TERM` at all, and tmux refuses
+/// to start with "terminal does not support clear". That failure cannot happen
+/// in dev and greets every real install.
+///
+/// `LANG` is different: a GUI launch carries no locale either, and a shell
+/// reads its absence as ASCII, so box drawing and every non-English character
+/// arrive as `?`. But a locale is the owner's to choose, so this only fills in
+/// an answer when there is none.
+fn terminal_env(lang: Option<&std::ffi::OsStr>) -> Vec<(&'static str, &'static str)> {
+    let mut env = vec![("TERM", "xterm-256color")];
+    if lang.is_none_or(|value| value.is_empty()) {
+        env.push(("LANG", "en_US.UTF-8"));
+    }
+    env
+}
+
 /// Open a PTY session rooted at `cwd`, running the owner's shell. Idempotent:
 /// when `session` is already open, no second shell is spawned — instead the
 /// running session's retained screen is replayed to the view that just
@@ -143,6 +165,7 @@ fn default_shell() -> String {
 /// to run. It says nothing about the session id, which is namespaced on the
 /// caller's side (`features/runs/lib/scratchTerminal.ts`), and nothing about
 /// the tab layout, which this file has never known about.
+
 #[tauri::command]
 pub fn pty_open(
     app: AppHandle,
@@ -222,6 +245,9 @@ fn open<R: Runtime>(
     // care"). Our session is not nested inside the launching one and must not
     // be told it is.
     cmd.env_remove("TMUX");
+    for (key, value) in terminal_env(std::env::var_os("LANG").as_deref()) {
+        cmd.env(key, value);
+    }
 
     let child = pair
         .slave
@@ -404,5 +430,45 @@ mod tests {
         assert!(!is_event_name_valid("main:repo-1#1"));
         assert!(!is_event_name_valid("wt 7"));
         assert!(is_event_name_valid(PTY_OUTPUT_EVENT));
+    }
+}
+
+#[cfg(test)]
+mod terminal_env_tests {
+    use super::terminal_env;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn the_shell_is_always_told_what_it_is_talking_to() {
+        // Not "when the launcher forgot": the child talks to xterm.js whatever
+        // started this app, and a `TERM` inherited from a shell is an answer
+        // about a different terminal.
+        for lang in [None, Some(OsStr::new("tr_TR.UTF-8"))] {
+            let env = terminal_env(lang);
+            assert_eq!(
+                env.iter().find(|(key, _)| *key == "TERM").map(|(_, v)| *v),
+                Some("xterm-256color"),
+            );
+        }
+    }
+
+    #[test]
+    fn a_locale_the_owner_chose_is_left_alone() {
+        let env = terminal_env(Some(OsStr::new("tr_TR.UTF-8")));
+        assert!(env.iter().all(|(key, _)| *key != "LANG"));
+    }
+
+    #[test]
+    fn a_launch_that_carries_no_locale_is_given_a_utf8_one() {
+        // A GUI launch has none, and a shell reads that as ASCII: box drawing
+        // and every non-English character arrive as `?`. An empty value is the
+        // same absence wearing a different shape.
+        for absent in [None, Some(OsStr::new(""))] {
+            let env = terminal_env(absent);
+            assert_eq!(
+                env.iter().find(|(key, _)| *key == "LANG").map(|(_, v)| *v),
+                Some("en_US.UTF-8"),
+            );
+        }
     }
 }
