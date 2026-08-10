@@ -550,14 +550,33 @@ test.describe("talk to a team about this worktree", () => {
     await page.goto("/#/");
     await page.getByTestId("channel-general").click();
     await expect(page.getByTestId("chat-title")).toHaveText("general");
-    await page.getByTestId("message-input").fill(`@${REF_AGENT.name}`);
+    // The mention goes last and nothing is typed after it. Typing straight
+    // after the selection is what made this test lie: the selection inserts
+    // `@Name ` as a ProseMirror transaction, and the first character typed
+    // before the browser has settled that trailing space replaces it instead of
+    // following it — `@Refbotwhy is the build red` leaves the name without a
+    // word boundary, so `extractMentionPubkeys` finds nothing and the message
+    // ships with no `p` tag. That is the exact symptom this test exists to
+    // catch, produced by the test itself, roughly one run in five.
+    await page
+      .getByTestId("message-input")
+      .fill(`${QUESTION} @${REF_AGENT.name}`);
     const routeDropdown = page
       .getByTestId("message-composer")
       .getByTestId("mention-autocomplete");
     await expect(routeDropdown.locator("button")).toHaveCount(1);
     await expect(routeDropdown.locator("button")).toContainText(REF_AGENT.name);
     await page.getByTestId("message-input").press("Enter");
-    await page.keyboard.type(QUESTION);
+    // The trailing space is the only proof the selection committed:
+    // `.agent-mention-highlight` is a decoration the extension paints over any
+    // text matching a known agent name, so it is already there for the raw
+    // `@Refbot` that was typed. Send before the commit and the mention is never
+    // registered, so the `p` tag never gets built.
+    await expect
+      .poll(async () => page.getByTestId("message-input").textContent(), {
+        timeout: 5_000,
+      })
+      .toBe(`${QUESTION} @${REF_AGENT.name} `);
     await page.getByTestId("send-message").click();
     await expect
       .poll(async () => (await lastMessage(page))?.content ?? null, {
@@ -575,12 +594,16 @@ test.describe("talk to a team about this worktree", () => {
     await waitForDeploy(page);
 
     const pane = page.getByTestId("team-thread");
-    await pane.getByTestId("message-input").fill("@Plan");
+    await pane.getByTestId("message-input").fill(`${QUESTION} @Plan`);
     const paneDropdown = pane.getByTestId("mention-autocomplete");
     await expect(paneDropdown.locator("button")).toHaveCount(1);
     await expect(paneDropdown.locator("button")).toContainText("Planner");
     await pane.getByTestId("message-input").press("Enter");
-    await page.keyboard.type(QUESTION);
+    await expect
+      .poll(async () => pane.getByTestId("message-input").textContent(), {
+        timeout: 5_000,
+      })
+      .toBe(`${QUESTION} @Planner `);
     await pane.getByTestId("send-message").click();
     await expect
       .poll(async () => (await lastMessage(page))?.content ?? null, {
