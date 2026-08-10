@@ -28,6 +28,7 @@ export const SOUND_SLOTS = [
   "mention",
   "thread_reply",
   "needs_action",
+  "workspace",
   "job_accepted",
   "job_progress",
   "job_result",
@@ -40,6 +41,7 @@ export const SLOT_LABELS: Record<SoundSlot, string> = {
   mention: "@Mentions",
   thread_reply: "Thread replies",
   needs_action: "Needs action",
+  workspace: "Workspace: needs you",
   job_accepted: "Agent: job accepted",
   job_progress: "Agent: progress update",
   job_result: "Agent: job result",
@@ -50,6 +52,13 @@ export const SLOT_LABELS: Record<SoundSlot, string> = {
 // nothing emits the events yet — buzz-acp publishes plain stream messages.
 // These slots stay wired (resolver, defaults, settings) but render disabled
 // with a "coming soon" badge until an emitter exists.
+//
+// The `workspace` slot is deliberately beside them rather than one of them:
+// what it alerts on never becomes a feed item, so `slotForFeedKind` — the only
+// road into these four — cannot reach it. Its events are the coordinator's own
+// run status and the local ACP turn (desktop/src/features/runs), read over HTTP
+// and held in memory, so filling `job_result` with one would make a row named
+// for a relay kind fire on something that kind never carried.
 export const COMING_SOON_SLOTS: ReadonlySet<SoundSlot> = new Set([
   "job_accepted",
   "job_progress",
@@ -62,6 +71,8 @@ export const SLOT_DESCRIPTIONS: Record<SoundSlot, string> = {
   mention: "When someone tags you in a channel.",
   thread_reply: "When someone replies in a thread you follow or posted in.",
   needs_action: "When an approval or reminder is waiting on you.",
+  workspace:
+    "When a run in your workspace pauses for you, or an agent turn you started comes back.",
   job_accepted: "When an agent picks up a job.",
   job_progress: "While an agent works through a job.",
   job_result: "When an agent finishes a job.",
@@ -73,6 +84,7 @@ export const RECOMMENDED_SOUND_BY_SLOT: Record<SoundSlot, SoundName> = {
   mention: "ping",
   thread_reply: "doop",
   needs_action: "doodone",
+  workspace: "doong",
   job_accepted: "boo",
   job_progress: "dng",
   job_result: "unison",
@@ -86,6 +98,7 @@ export const DEFAULT_SLOT_SOUNDS: SlotSounds = {
   mention: "flutter",
   thread_reply: "flutter",
   needs_action: "flutter",
+  workspace: "flutter",
   job_accepted: "flutter",
   job_progress: "flutter",
   job_result: "flutter",
@@ -98,6 +111,7 @@ export const DEFAULT_SLOT_ALERTS_ENABLED: Record<SoundSlot, boolean> = {
   mention: true,
   thread_reply: true,
   needs_action: true,
+  workspace: true,
   job_accepted: true,
   job_progress: false,
   job_result: true,

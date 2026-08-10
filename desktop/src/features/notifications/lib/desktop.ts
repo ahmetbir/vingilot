@@ -30,6 +30,11 @@ export type DesktopNotificationTarget = {
   kind: number | null;
   pubkey?: string;
   threadRootId?: string | null;
+  // A worktree in the workspace, for notifications that are about work rather
+  // than about a message (desktop/src/features/runs). Nothing else in a target
+  // identifies one: a worktree has no channel and no event, so without this
+  // field the parse below rejects it and the click goes nowhere.
+  worktreeId?: string | null;
 };
 
 type DesktopNotificationPayload = {
@@ -38,7 +43,10 @@ type DesktopNotificationPayload = {
   title: string;
 };
 
-const DESKTOP_NOTIFICATION_ACTION_EVENT = "buzz:desktop-notification-action";
+// Exported so a feature can answer a click on its own notifications without
+// registering a second plugin listener beside this module's one.
+export const DESKTOP_NOTIFICATION_ACTION_EVENT =
+  "buzz:desktop-notification-action";
 
 type DesktopNotificationOptions = NotificationOptions & {
   extra?: Record<string, unknown>;
@@ -88,8 +96,10 @@ function parseNotificationTarget(
     typeof candidate.pubkey === "string" ? candidate.pubkey : undefined;
   const threadRootId =
     typeof candidate.threadRootId === "string" ? candidate.threadRootId : null;
+  const worktreeId =
+    typeof candidate.worktreeId === "string" ? candidate.worktreeId : null;
 
-  if (!channelId && !eventId) {
+  if (!channelId && !eventId && !worktreeId) {
     return null;
   }
 
@@ -102,6 +112,7 @@ function parseNotificationTarget(
     kind,
     pubkey,
     threadRootId,
+    worktreeId,
   };
 }
 

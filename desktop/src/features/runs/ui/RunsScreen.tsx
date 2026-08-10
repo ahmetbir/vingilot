@@ -105,6 +105,7 @@ import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
 import { useProjectDocuments } from "@/features/runs/lib/useDocument";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
+import { useAttentionNotices } from "@/features/runs/lib/useAttentionNotices";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import { useWorktreeSignals } from "@/features/runs/lib/useWorktreeSignals";
@@ -343,6 +344,26 @@ export function RunsScreen() {
     worktreeRoot,
   );
   const repoWorktrees = signals.ordered;
+
+  // Where a notification lands. Both ids together, because `selectRepo` clears
+  // the worktree and the effect below would then put him on the project's
+  // primary checkout — the app's last state, which is what the notification
+  // existed to skip past.
+  const openWorktree = React.useCallback((repoId: string, id: string) => {
+    setSelectedRepoId(repoId);
+    setSelectedWorktreeId(id);
+  }, []);
+
+  // The workspace speaking when he is not looking at it (lib/attentionNotice.ts
+  // for what it will and will not say; this screen is the only place with both
+  // the signals and the selection its rule compares against).
+  useAttentionNotices({
+    index,
+    marks: signals.byWorktree,
+    onOpen: openWorktree,
+    selectedWorktreeId,
+    worktreeRoot,
+  });
 
   // Entering a project with no worktree picked yet lands on its primary
   // checkout (or the first worktree, if there's no primary) rather than an

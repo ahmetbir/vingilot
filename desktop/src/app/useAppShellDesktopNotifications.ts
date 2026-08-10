@@ -135,6 +135,15 @@ export function useAppShellDesktopNotifications({
     ) => {
       await revealDesktopAppWindow();
 
+      // A workspace notification is about a worktree, not a message. The
+      // Projects screen answers its own clicks (it is the only thing that can
+      // select a worktree), so this router must let it past rather than read
+      // the missing channel as "no destination" and send him Home — which is
+      // precisely the app's last state the notification was meant to skip.
+      if (target.worktreeId) {
+        return;
+      }
+
       if (!target.channelId) {
         void goHome();
         return;
