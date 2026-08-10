@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 mod acp;
+mod broker;
 mod config;
 mod engram_fetch;
 mod filter;
@@ -1312,14 +1313,6 @@ async fn tokio_main() -> Result<()> {
         );
     }
 
-    let mut pool = if config.lazy_pool {
-        AgentPool::from_slots((0..config.agents).map(|_| None).collect())
-    } else {
-        initialize_agent_pool(&PoolStartup::from_config(&config, observer.clone()), None).await?
-    };
-    let mut pool_ready = !config.lazy_pool;
-    let mut pool_lifecycle: PoolLifecycle<AgentPool> = PoolLifecycle::listening();
-
     // Capture a startup watermark BEFORE connecting to the relay. This timestamp
     // is used for membership notification replay (via startup_watermark) and as
     // the initial subscribe_since for channels discovered at startup. The Subscribe
@@ -1352,6 +1345,53 @@ async fn tokio_main() -> Result<()> {
     }
 
     tracing::info!("connected to relay at {}", config.relay_url);
+
+    // ── The broker ────────────────────────────────────────────────────────────
+    //
+    // An agent's reply path is `buzz messages send`, and the CLI reads its key
+    // from the environment — which several harnesses strip before running a
+    // tool command, leaving the agent unable to answer at all. The broker lets
+    // such an agent ask this process to send for it, so the key never has to
+    // survive the agent's shell.
+    //
+    // It is bound here, after the relay, because its sink is the harness's own
+    // REST client, and before the agent pool, because the socket path is handed
+    // to the agent in its environment at spawn. A bind failure is logged and
+    // dropped: a harness without a broker behaves exactly as it did before this
+    // existed, which is a worse day for the agent but not a dead harness.
+    #[cfg(unix)]
+    let broker = broker::Broker::bind(std::sync::Arc::new(broker::RelayMessageSink::new(
+        relay.rest_client(),
+    )))
+    .inspect_err(|e| tracing::warn!("no broker for this agent: {e}"))
+    .ok();
+    #[cfg(unix)]
+    let broker_env: Vec<(String, String)> = broker
+        .as_ref()
+        .and_then(broker::Broker::env_var)
+        .into_iter()
+        .collect();
+    // Logged deliberately. The socket path is not a secret — its protection is
+    // the mode of the directory holding it — and an operator debugging a mute
+    // agent needs to know whether a broker exists and where.
+    #[cfg(unix)]
+    if let Some(broker) = broker.as_ref() {
+        tracing::info!("broker listening at {}", broker.socket_path().display());
+    }
+    #[cfg(not(unix))]
+    let broker_env: Vec<(String, String)> = Vec::new();
+
+    let mut pool = if config.lazy_pool {
+        AgentPool::from_slots((0..config.agents).map(|_| None).collect())
+    } else {
+        initialize_agent_pool(
+            &PoolStartup::from_config(&config, observer.clone(), &broker_env),
+            None,
+        )
+        .await?
+    };
+    let mut pool_ready = !config.lazy_pool;
+    let mut pool_lifecycle: PoolLifecycle<AgentPool> = PoolLifecycle::listening();
 
     relay
         .subscribe_membership_notifications()
@@ -1723,7 +1763,7 @@ async fn tokio_main() -> Result<()> {
                     "waking",
                     None,
                 );
-                let startup = PoolStartup::from_config(&config, observer.clone());
+                let startup = PoolStartup::from_config(&config, observer.clone(), &broker_env);
                 let wake_tx = wake_tx.clone();
                 let wake_shutdown = shutdown_rx.clone();
                 wake_tasks.spawn(async move {
@@ -3762,12 +3802,21 @@ struct PoolStartup {
 }
 
 impl PoolStartup {
-    fn from_config(config: &Config, observer: Option<observer::ObserverHandle>) -> Self {
+    /// `broker_env` names the broker socket for the agent subprocess. It is
+    /// appended after the persona's own env so a persona pack cannot claim the
+    /// variable and point an agent at something else.
+    fn from_config(
+        config: &Config,
+        observer: Option<observer::ObserverHandle>,
+        broker_env: &[(String, String)],
+    ) -> Self {
+        let mut extra_env = config.persona_env_vars.clone();
+        extra_env.extend(broker_env.iter().cloned());
         Self {
             agents: config.agents,
             command: config.agent_command.clone(),
             args: config.agent_args.clone(),
-            extra_env: config.persona_env_vars.clone(),
+            extra_env,
             has_generated_codex_config: config.has_generated_codex_config,
             model: config.model.clone(),
             observer,

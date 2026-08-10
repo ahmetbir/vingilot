@@ -637,3 +637,17 @@ seams:
     removable_when: "Upstream's base prompt itself describes the credentialed shell, or every harness carries its environment into its shell."
     status: "temporary"
     added: "2026-08-10"
+
+  - path: "crates/buzz-acp/src/broker*"
+    reason: "New, fork-owned: the send broker (broker.rs) and its tests (broker/tests.rs), covered by one glob because the tests are the module's own child file. It lives in buzz-acp because that is the process that already holds the agent's key and is already authenticated to the relay -- the whole point is that the key never leaves it, so the endpoint cannot live anywhere else. What it covers: a unix socket (mode 0600, in a per-harness directory created mode 0700) serving exactly one op, send_message, which builds a kind-9 channel message via buzz_sdk::build_message, signs it with the harness keys, and submits it through the existing RestClient -- the same sequence as pool::post_failure_notice, not a second implementation of signing. What it does NOT cover: it hands out no key material, signs no caller-supplied bytes or events, and proxies no relay reads; those three are refused by name so a caller is told the boundary is permanent rather than a missing feature. Its only relay read is fetching a reply target's thread root, which the caller cannot aim (no filter in, no result out). No key is logged, formatted, or returned on any path, and a test asserts that over every op the module recognises."
+    owner: "vingilot/agents"
+    removable_when: "Upstream adopts a credential broker of its own, or the CLI stops needing the harness to send on the agent's behalf."
+    status: "temporary"
+    added: "2026-08-10"
+
+  - path: "crates/buzz-acp/src/lib.rs"
+    reason: "Three touches, all wiring: `mod broker;`; binding the broker in run() once the relay's RestClient exists and logging its socket path (deliberately -- the path is not a secret, its protection is the directory mode, and an operator debugging a mute agent needs to know whether a broker exists); and threading the resulting BUZZ_BROKER_SOCKET env entry into PoolStartup::from_config so the spawned agent is told where to ask. The eager (non-lazy) pool initialisation moves from before the relay connect to just after it, because the socket path has to exist before the agent process is spawned and the broker's sink is the relay's own REST client. What this does NOT do: it does not put the private key anywhere new, does not change how the key reaches the agent today, and does not touch the lazy-pool or wake paths beyond passing the same env slice. A bind failure is logged and dropped, so a harness without a broker behaves exactly as it did before."
+    owner: "vingilot/agents"
+    removable_when: "The broker is started by something other than the harness's run loop, or upstream carries the wiring itself."
+    status: "temporary"
+    added: "2026-08-10"
