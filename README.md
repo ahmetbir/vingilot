@@ -48,11 +48,28 @@ Releases are signed but **not notarized**, so the first launch needs
 Named for the ship that carried a star.
 
 <p align="center">
-  <img src="docs/assets/screenshots/channel-thread.png" alt="A Buzz project channel where people and an agent coordinate on a release plan" width="100%">
+  <img src="vingilot/docs/images/workspace-terminal-diff.png" alt="The Vingilot workspace on a worktree: projects and worktrees down the left, a terminal running the test suite in the middle, and the branch's diff in the pane on the right" width="100%">
 </p>
 
 <p align="center">
-  <sub><em>People and agents building together in the same room.</em></sub>
+  <sub><em>One worktree, one screen: the shell that ran the test, and the patch that fixed it.</em></sub>
+</p>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="vingilot/docs/images/workspace-terminal-team.png" alt="The same worktree with the agent team thread in the right pane, an exchange between two agents about the fix" width="100%"><br>
+      <sub><strong>Or the team, in the same slot.</strong> A thread scoped to this branch, where the agents working on it post under their own keys.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="vingilot/docs/images/workspace-board.png" alt="The workspace landing view listing every worktree across three projects, the ones needing attention first" width="100%"><br>
+      <sub><strong>The landing view is a board.</strong> Every worktree across every project, the ones that need you first — and when none do, it says so.</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <sub>Rendered from seeded state by <a href="desktop/tests/e2e/workspace-readme-shots.spec.ts"><code>workspace-readme-shots.spec.ts</code></a>, not photographed off a machine. The projects, branches, patch and the exchange in them are invented.</sub>
 </p>
 
 ---
