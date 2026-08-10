@@ -53,6 +53,28 @@ test("delete button unlocks only after backup + typed phrase", async ({
   await expect(deleteButton).toBeDisabled();
 });
 
+/**
+ * The wipe reaches two scopes this app does not own alone: the keychain
+ * service and the agent nest are constants, so a second Buzz-derived app
+ * installed beside this one loses its identity and its notes to this button.
+ * The dialog is the only place the owner can still change his mind, so the
+ * consequence has to be legible there and not only in the docs.
+ */
+test("the dialog names the scopes shared with another install", async ({
+  page,
+}) => {
+  await installMockBridge(page);
+  await page.goto("/");
+  await openSignOutDialog(page);
+
+  const warning = page.getByTestId("signout-shared-scope-warning");
+  await expect(warning).toBeVisible();
+  // The nest by its contents, not its path: prod and dev builds use
+  // different directories and the sentence has to be true in both.
+  await expect(warning).toContainText("AGENTS.md");
+  await expect(warning).toContainText("shared with any other Buzz-derived app");
+});
+
 test("completing both gates invokes sign_out", async ({ page }) => {
   await installMockBridge(page);
   await page.goto("/");

@@ -493,3 +493,17 @@ seams:
     removable_when: "Never, while the cold-boot gate draws an animated mark."
     status: "permanent"
     added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/SignOutSection.tsx"
+    reason: "The sign-out dialog described a wipe that was true when exactly one Buzz-derived app was installed. It is not true here: the keychain service (buzz-desktop, app_state_keyring.rs) and the agent nest (~/.buzz, managed_agents/nest.rs) are constants rather than derivations of the bundle identifier, so this fork and the owner's existing Buzz read and write the same identity key and the same nest -- and reset.rs deletes both wholesale. The dialog is the last place the decision can still be reversed, so it now names the nest by its contents and says the other install loses its identity too. Also drops the product name from 'relaunch Buzz' -- this app is not called Buzz. The copy is inline JSX in this component with no message catalogue to override, so there is no smaller seam."
+    owner: "vingilot/brand"
+    removable_when: "The identity key and the agent nest resolve from the bundle identifier, so a sign-out can only reach this app's own data."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/signout-confirmation.spec.ts"
+    reason: "Upstream's spec for the two-gate sign-out flow gains one test: the dialog must state the scopes shared with another Buzz-derived install. A claim about rendered copy on a surface whose whole job is to be read before an irreversible action is only worth anything if something asserts it survived the next edit, and this file is where that flow is already driven. Upstream's four tests are untouched; the addition asserts the nest by its contents (AGENTS.md) rather than its path, because prod and dev builds use different directories."
+    owner: "vingilot/brand"
+    removable_when: "The sign-out wipe stops reaching scopes this app shares with another install."
+    status: "permanent"
+    added: "2026-08-10"

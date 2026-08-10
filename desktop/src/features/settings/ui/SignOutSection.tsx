@@ -38,6 +38,14 @@ export const SIGNOUT_CONFIRM_PHRASE = "wipe all my data";
  *    "wipe all my data".
  *
  * Only when both gates pass does "Delete my data" become clickable.
+ *
+ * The dialog also names the two scopes the wipe reaches that are NOT this
+ * app's alone. The keychain service and the agent nest are constants
+ * (`app_state_keyring.rs`, `managed_agents/nest.rs`), not derived from the
+ * bundle identifier, so a second Buzz-derived app installed beside this one
+ * reads and writes the same key and the same nest — and `reset.rs` deletes
+ * both wholesale. Naming them here is the difference between a consequence
+ * the owner accepted and one he discovered afterwards.
  */
 export function SignOutSection() {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -128,9 +136,9 @@ export function SignOutSection() {
         <div className="min-w-0 space-y-1">
           <h2 className="text-lg font-semibold tracking-tight">Sign out</h2>
           <p className="text-sm text-muted-foreground">
-            Removes your identity key and all local app data from this device.
-            Before signing out, create and test a password-protected key backup
-            above — this cannot be undone.
+            Removes your identity key, the agent nest, and all local app data
+            from this device. Before signing out, create and test a
+            password-protected key backup above — this cannot be undone.
           </p>
         </div>
         <Button
@@ -160,11 +168,23 @@ export function SignOutSection() {
           <AlertDialogHeader>
             <AlertDialogTitle>Sign out and wipe all data?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete your identity key, all agent settings, and cached
-              data from this device, then relaunch Buzz into first-run setup.
-              This cannot be undone.
+              This will delete your identity key, every agent key, all agent
+              settings, and cached data from this device, then relaunch into
+              first-run setup. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          <p
+            className="text-sm text-muted-foreground"
+            data-testid="signout-shared-scope-warning"
+          >
+            It also deletes the agent nest in your home directory — AGENTS.md,
+            RESEARCH, PLANS, WORK_LOGS and OUTBOX. The identity key and that
+            nest are shared with any other Buzz-derived app installed on this
+            machine: both are named by constants, not by this app's bundle
+            identifier, so signing out here signs that app out too and takes its
+            notes with it.
+          </p>
 
           <div className="space-y-3">
             <p className="text-sm font-medium">
