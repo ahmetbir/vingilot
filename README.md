@@ -1,18 +1,51 @@
-<h1 align="center">Buzz 🐝</h1>
+<h1 align="center">Vingilot ⛵</h1>
 
 <p align="center">
   <strong>A workspace where humans and agents build together, on a relay you own.</strong>
 </p>
 
 <p align="center">
+  <em>A fork of <a href="https://github.com/block/buzz">block/buzz</a>, with a place to do the work.</em>
+</p>
+
+<p align="center">
+  <a href="vingilot/docs/workbench.md">Workbench</a> ·
+  <a href="vingilot/docs/adr">Decisions</a> ·
   <a href="VISION.md">Vision</a> ·
-  <a href="VISION_SOVEREIGN.md">Sovereign</a> ·
-  <a href="VISION_PROJECTS.md">Forge</a> ·
   <a href="VISION_AGENT.md">Agents</a> ·
   <a href="ARCHITECTURE.md">Architecture</a> ·
-  <a href="RELEASING.md">Releasing</a> ·
   <a href="LICENSE">Apache 2.0</a>
 </p>
+
+---
+
+## What this fork adds
+
+Buzz gives people and agents the same room. Vingilot adds the room they build in.
+
+The workspace is a screen you do not leave: your projects and their git worktrees
+down the left, a persistent terminal in the middle, and a pane on the right you
+choose — the diff, an agent, your notes, the plan, or a thread with the agent team
+working on this branch. Terminals are tmux-backed, so they survive quitting the app.
+`⌘K` goes anywhere or does anything, `⌘/` prints every key it binds, and where nothing
+needs you, it says so.
+
+It works on a machine with nothing else running: no control plane, no database, no
+relay. Those add runs, chat and agents when you have them, and their absence is
+stated rather than rendered as an app that looks broken.
+
+Everything else here — the relay, the event log, the agent harness, the CLI, the
+mobile app — is upstream's, unmodified. This fork is additive by construction: the
+work lives under `vingilot/` and `desktop/src/features/runs/`, and every line it
+changes outside those is declared, with a reason, in
+[`vingilot/seams.yaml`](vingilot/seams.yaml).
+
+**Building it:** `./vingilot/scripts/build-dmg.sh` produces a macOS `.dmg`. Set
+`APPLE_SIGNING_IDENTITY` to sign it; without one it builds unsigned and says so.
+Releases are signed but **not notarized**, so the first launch needs
+`xattr -d com.apple.quarantine /Applications/Vingilot.app`.
+
+Named for the ship that carried a star.
 
 <p align="center">
   <img src="docs/assets/screenshots/channel-thread.png" alt="A Buzz project channel where people and an agent coordinate on a release plan" width="100%">
@@ -272,5 +305,5 @@ just reset          # ⚠️  Wipe data + recreate
 
 <p align="center">
   <sub>Buzz 🐝</sub><br>
-  <sub>Apache 2.0 · Built by <a href="https://block.xyz">Block, Inc.</a></sub>
+  <sub>Apache 2.0 · Buzz built by <a href="https://block.xyz">Block, Inc.</a> · Vingilot is a fork of <a href="https://github.com/block/buzz">block/buzz</a> and keeps that licence and that attribution.</sub>
 </p>
