@@ -8,7 +8,12 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { attentionMark, outranks, rollupMark } from "./attentionSignal.ts";
+import {
+  attentionMark,
+  endedNote,
+  outranks,
+  rollupMark,
+} from "./attentionSignal.ts";
 import { runAttention } from "./runModel.ts";
 
 const EVERY_STATUS = [
@@ -42,8 +47,13 @@ function silence(overrides = {}) {
   return { askInFlight: false, runStatus: null, stat: null, ...overrides };
 }
 
+/** What "no dot" is, whole — asserted as a shape rather than a state so a mark
+ * that grew a field would have to say what that field is when nothing has
+ * answered. */
+const NO_DOT = { ended: null, sentence: "", state: null };
+
 test("no signal has answered, so no dot is drawn", () => {
-  assert.deepEqual(attentionMark(silence()), { sentence: "", state: null });
+  assert.deepEqual(attentionMark(silence()), NO_DOT);
 });
 
 test("an unreadable worktree is not a quiet one", () => {
@@ -193,13 +203,10 @@ test("the rollup counts only the worktrees in the state it reports", () => {
 });
 
 test("a project nothing has answered about gets no dot either", () => {
-  assert.deepEqual(rollupMark([]), { sentence: "", state: null });
+  assert.deepEqual(rollupMark([]), NO_DOT);
   assert.deepEqual(
     rollupMark([attentionMark(silence()), attentionMark(silence())]),
-    {
-      sentence: "",
-      state: null,
-    },
+    NO_DOT,
   );
 });
 
@@ -212,6 +219,87 @@ test("a project whose worktrees are all clean says so", () => {
   assert.match(rollup.sentence, /nothing needs you/);
 });
 
+test("a project of clean trees whose run failed does not say nothing needs him", () => {
+  // The row-level sentence names the ending (`a clean tree under a run that
+  // failed does not claim no run is active`); the rollup one level up is read
+  // from further away — the project's dot in the nav, and the headline over the
+  // whole Deck board — and was saying "nothing needs you" over exactly that.
+  for (const status of ["failed", "cancelled"]) {
+    const rollup = rollupMark([
+      attentionMark(silence({ runStatus: status, stat: stat() })),
+      attentionMark(silence({ stat: stat() })),
+    ]);
+    assert.equal(rollup.state, "quiet", status);
+    assert.doesNotMatch(rollup.sentence, /nothing needs you/, status);
+    assert.match(rollup.sentence, /clean/, status);
+    assert.match(rollup.sentence, new RegExp(`1 run here ${status}`), status);
+  }
+  // A run that finished is not one of them, and the quiet answer survives it.
+  assert.match(
+    rollupMark([
+      attentionMark(silence({ runStatus: "completed", stat: stat() })),
+      attentionMark(silence({ stat: stat() })),
+    ]).sentence,
+    /^nothing needs you/,
+  );
+});
+
+test("the rollup counts the runs that stopped, and names them only when they agree", () => {
+  const same = rollupMark([
+    attentionMark(silence({ runStatus: "failed", stat: stat() })),
+    attentionMark(silence({ runStatus: "failed", stat: stat() })),
+  ]);
+  assert.match(same.sentence, /2 runs here failed/);
+  const mixed = rollupMark([
+    attentionMark(silence({ runStatus: "failed", stat: stat() })),
+    attentionMark(silence({ runStatus: "cancelled", stat: stat() })),
+  ]);
+  assert.match(mixed.sentence, /2 runs here stopped without finishing/);
+});
+
+test("a dirty worktree carries no ending, so nothing summing it up can name one", () => {
+  // The other half of the row-level rule: dirty outranked the run's status on
+  // the old status dot too, so the row says nothing about how its run ended
+  // and neither may anything summing that row up. Asserted on the mark and on
+  // `endedNote` rather than on a rollup sentence, because dirty outranks quiet
+  // — a set holding a dirty mark never reaches the sentence the note goes in,
+  // so a rollup assertion here would pass whatever the mark carried.
+  const dirty = attentionMark(
+    silence({ runStatus: "failed", stat: stat({ dirty: true }) }),
+  );
+  assert.equal(dirty.state, "dirty");
+  assert.equal(dirty.ended, null);
+  assert.equal(endedNote([dirty]), "");
+  // And the quiet mark beside it is where the ending does live.
+  const quiet = attentionMark(silence({ runStatus: "failed", stat: stat() }));
+  assert.equal(quiet.ended, "failed");
+  assert.equal(endedNote([dirty, quiet]), ", but 1 run here failed");
+});
+
+test("the rollup's verbs agree with its count, at one and at many", () => {
+  // This sentence is a headline over a board as well as a tooltip, and "1
+  // worktree need you" is read as a typo by everyone who reads it.
+  const one = (signals) =>
+    rollupMark([attentionMark(silence(signals))]).sentence;
+  const two = (signals) =>
+    rollupMark([
+      attentionMark(silence(signals)),
+      attentionMark(silence(signals)),
+    ]).sentence;
+  assert.match(
+    one({ runStatus: "blocked" }),
+    /^1 worktree needs you — .* its run is paused or blocked$/,
+  );
+  assert.match(
+    two({ runStatus: "blocked" }),
+    /^2 worktrees need you — .* their runs are paused or blocked$/,
+  );
+  assert.match(one({ runStatus: "running" }), /^1 worktree is working/);
+  assert.match(two({ runStatus: "running" }), /^2 worktrees are working/);
+  assert.match(one({ stat: stat({ dirty: true }) }), /^1 worktree is dirty/);
+  assert.match(two({ stat: stat({ dirty: true }) }), /^2 worktrees are dirty/);
+});
+
 test("a project with one unanswered worktree does not claim they are all clean", () => {
   // git could not read one tree (`vingilot_worktree/stat.rs`'s `unreadable`),
   // or was never asked about it, and every tree it did read came back clean.
@@ -222,7 +310,7 @@ test("a project with one unanswered worktree does not claim they are all clean",
       attentionMark(silence()),
       attentionMark(silence({ stat: stat() })),
     ]),
-    { sentence: "", state: null },
+    NO_DOT,
   );
 });
 

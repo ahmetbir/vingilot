@@ -31,7 +31,12 @@
 //              it is not nothing, and the column's old status dot drew it in
 //              `destructive`. So the sentence names the ending, and `rowDetail`
 //              puts the same word on the row where no hover is needed to read
-//              it. Replacing a signal is not the same as dropping one.
+//              it. Replacing a signal is not the same as dropping one. The mark
+//              *carries* the ending as well as naming it (`AttentionMark.ended`)
+//              because every sentence rolled up from these marks — the project
+//              dot's and the board's headline — makes the same claim over a
+//              whole set and would otherwise make it without the one fact that
+//              contradicts it.
 //
 // **What is deliberately absent, and why.**
 //
@@ -94,12 +99,28 @@ export interface DotSignals {
 export interface AttentionMark {
   state: AttentionState | null;
   sentence: string;
+  /** The status of the run that owns this worktree when it stopped without
+   * finishing — `failed` or `cancelled` (`endedBadly`) — and `null` everywhere
+   * else.
+   *
+   * **Set only where the mark's own sentence names it,** which today is `quiet`
+   * alone: a dirty tree outranked its run's status on the old status dot too,
+   * so its row says nothing about the ending and neither may anything summing
+   * that row up. The field exists because a state is not enough to sum a set
+   * of these honestly — `rollupMark` is handed marks and nothing else, so
+   * without this it can only say "nothing needs you" over a project whose run
+   * failed. */
+  ended: RunStatus | null;
 }
 
 /** The absence of a mark, shared rather than rebuilt: a caller with nothing to
  * draw has to pass *this* absence, not invent a second empty shape that a later
  * change could give a state to. */
-export const NO_MARK: AttentionMark = { sentence: "", state: null };
+export const NO_MARK: AttentionMark = {
+  ended: null,
+  sentence: "",
+  state: null,
+};
 
 /** The dot for one worktree, and the sentence under it. */
 export function attentionMark(signals: DotSignals): AttentionMark {
@@ -108,18 +129,21 @@ export function attentionMark(signals: DotSignals): AttentionMark {
 
   if (run === "waiting") {
     return {
+      ended: null,
       sentence: `needs you — the coordinator says this worktree's run is ${signals.runStatus}`,
       state: "needs-you",
     };
   }
   if (run === "active") {
     return {
+      ended: null,
       sentence: `working — the coordinator says this worktree's run is ${signals.runStatus}`,
       state: "working",
     };
   }
   if (signals.askInFlight) {
     return {
+      ended: null,
       sentence:
         "working — this app has an agent turn running in this directory",
       state: "working",
@@ -131,6 +155,7 @@ export function attentionMark(signals: DotSignals): AttentionMark {
   if (signals.stat === null) return NO_MARK;
   if (signals.stat.dirty) {
     return {
+      ended: null,
       sentence: "uncommitted changes — git's own count of this worktree",
       state: "dirty",
     };
@@ -140,6 +165,7 @@ export function attentionMark(signals: DotSignals): AttentionMark {
   // square is what a failed run's dirty worktree already drew.
   const ended = endedBadly(signals.runStatus);
   return {
+    ended,
     sentence:
       ended === null
         ? "quiet — git says this worktree is clean and no run is active"
@@ -177,7 +203,15 @@ export function outranks(a: AttentionState, b: AttentionState): boolean {
  * about a subset: git was never asked about that tree (an unreadable path, a
  * binding with no derivable cwd), and it may hold uncommitted work. So a single
  * unanswered worktree costs the project its quiet dot rather than being
- * absorbed into a sentence that does not mention it. */
+ * absorbed into a sentence that does not mention it.
+ *
+ * **A quiet set with a run that stopped in it does not say "nothing needs
+ * you".** The row-level sentence names that ending and this one has to as well
+ * — it is read from further away and by a surface that draws no rows at all
+ * (the Deck's headline, `triage.ts`). The endings reach here on the marks
+ * themselves (`AttentionMark.ended`); a state alone cannot carry them, and
+ * re-deriving them beside the marks would be the second opinion about one
+ * worktree this module exists to prevent. */
 export function rollupMark(marks: readonly AttentionMark[]): AttentionMark {
   let strongest: AttentionState | null = null;
   let count = 0;
@@ -196,22 +230,67 @@ export function rollupMark(marks: readonly AttentionMark[]): AttentionMark {
   }
   if (strongest === null) return NO_MARK;
   if (strongest === "quiet" && silent > 0) return NO_MARK;
-  return { sentence: rollupSentence(strongest, count), state: strongest };
+  return {
+    // The rollup speaks for many worktrees, so it names their endings in its
+    // own sentence rather than carrying one worktree's: a set has no single
+    // owning run to report.
+    ended: null,
+    sentence: rollupSentence(strongest, count, endedNote(marks)),
+    state: strongest,
+  };
+}
+
+/** What the runs that stopped without finishing add to a sentence that would
+ * otherwise say nothing is pressing — `""` when none of these marks names one.
+ *
+ * Exported because `rollupMark` is not the only place that sentence is written:
+ * when it withholds a state (a quiet set with one worktree nothing has answered
+ * about) the board writes its own (`triage.ts`), and that sentence makes the
+ * same claim over the same rows. One vocabulary, in the module the marks come
+ * from, rather than the same fact worded twice.
+ *
+ * Only `quiet` marks carry an ending, so this counts the clean trees whose run
+ * stopped — never a dirty one, whose row says nothing about its run either. */
+export function endedNote(marks: readonly AttentionMark[]): string {
+  const endings = marks.flatMap((mark) =>
+    mark.ended === null ? [] : [mark.ended],
+  );
+  if (endings.length === 0) return "";
+  const runs = `${endings.length} run${endings.length === 1 ? "" : "s"} here`;
+  const distinct = new Set(endings);
+  // Two runs that ended the same way are named by that word; a mixed set gets
+  // the definition `endedBadly` is, because the rows below say which is which.
+  const [only] = distinct;
+  return distinct.size === 1
+    ? `, but ${runs} ${only}`
+    : `, but ${runs} stopped without finishing`;
 }
 
 /** The words on a project's dot. They name the signal and not just the state:
  * "2 worktrees need you" alone would leave the owner to guess whether this app
- * asked the coordinator or decided for itself. */
-function rollupSentence(state: AttentionState, count: number): string {
-  const plural = count === 1 ? "" : "s";
+ * asked the coordinator or decided for itself.
+ *
+ * Verbs agree with the count as well as the noun: this sentence is a headline
+ * over a whole board (`triage.ts`) as well as a tooltip, and "1 worktree need
+ * you" is read as a typo by everyone who reads it, which costs the surface the
+ * same credibility a wrong dot does. */
+function rollupSentence(
+  state: AttentionState,
+  count: number,
+  ended: string,
+): string {
+  const many = count !== 1;
+  const worktrees = `${count} worktree${many ? "s" : ""}`;
   switch (state) {
     case "needs-you":
-      return `${count} worktree${plural} need you — the coordinator says their runs are paused or blocked`;
+      return `${worktrees} ${many ? "need" : "needs"} you — the coordinator says ${many ? "their runs are" : "its run is"} paused or blocked`;
     case "working":
-      return `${count} worktree${plural} working — a coordinator run or an agent turn is in flight`;
+      return `${worktrees} ${many ? "are" : "is"} working — a coordinator run or an agent turn is in flight`;
     case "dirty":
-      return `${count} worktree${plural} dirty — git reports uncommitted changes`;
+      return `${worktrees} ${many ? "are" : "is"} dirty — git reports uncommitted changes`;
     case "quiet":
-      return "nothing needs you — git says every worktree here is clean";
+      return ended === ""
+        ? "nothing needs you — git says every worktree here is clean"
+        : `git says every worktree here is clean${ended}`;
   }
 }

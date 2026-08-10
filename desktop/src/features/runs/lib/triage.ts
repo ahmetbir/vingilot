@@ -36,6 +36,7 @@
 
 import {
   type AttentionMark,
+  endedNote,
   NO_MARK,
   outranks,
   rollupMark,
@@ -189,6 +190,12 @@ export interface TriageBoardView {
  * sentences below are what it says instead, and they are two because
  * `rollupMark` withholds a state for two different reasons.
  *
+ * The same guard applies to a run that stopped without finishing: whichever of
+ * these sentences is reached, none of them may sum a `failed` or `cancelled`
+ * run away into "nothing is waiting on you". The words are `endedNote`'s, so
+ * the headline over the board and the dot in the nav name that ending
+ * identically.
+ *
  * The no-worktrees sentence is reachable through this function and not through
  * the screen today: `groupWorktrees` seeds every project with its own checkout,
  * so a project always has at least one row. It is here because this function
@@ -231,8 +238,17 @@ export function triageBoard(
     };
   }
   const answered = rows.length - silent;
+  const clean = `${answered} worktree${answered === 1 ? " is" : "s are"} clean`;
+  // The same ending `rollupMark`'s quiet sentence names, in the same words
+  // (`endedNote`), because this branch is reached *instead* of that one and
+  // makes the same claim: a run that stopped without finishing must not be
+  // summed away by a sentence that says nothing is waiting.
+  const ended = endedNote(rows.map((row) => row.mark));
   return {
-    headline: `Nothing is waiting on you — git says ${answered} worktree${answered === 1 ? " is" : "s are"} clean, and has not reported on ${silent}.`,
+    headline:
+      ended === ""
+        ? `Nothing is waiting on you — git says ${clean}, and has not reported on ${silent}.`
+        : `Git says ${clean} and has not reported on ${silent}${ended}.`,
     rows,
   };
 }

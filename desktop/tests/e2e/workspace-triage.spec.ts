@@ -160,12 +160,13 @@ test.describe("the landing view is the triage board", () => {
 
     // The sentence over the rows is `rollupMark`'s, and it is the loud one:
     // one row's run is blocked, and that claim survives the four rows nothing
-    // has answered about. Asserted word for word, including the "1 worktree
-    // need you" that `rollupSentence` pluralizes only the noun of — the
-    // sentence the owner reads is the one this pins, and changing it is a
-    // decision Task 1 gets to make on purpose rather than by accident.
+    // has answered about. Asserted word for word — the sentence the owner reads
+    // is the one this pins, and changing it is a decision Task 1 gets to make
+    // on purpose rather than by accident. Its verbs agree with the count at one
+    // as well as at many (`rollupSentence`), which is why this reads "needs"
+    // and "its run".
     await expect(page.getByTestId("triage-headline")).toHaveText(
-      "1 worktree need you — the coordinator says their runs are paused or blocked",
+      "1 worktree needs you — the coordinator says its run is paused or blocked",
     );
 
     // Three seeded worktrees plus the checkout groupWorktrees gives each

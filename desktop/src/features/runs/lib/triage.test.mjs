@@ -219,6 +219,46 @@ test("everything quiet is answered, and it is a good answer", () => {
   assert.match(view.headline, /nothing needs you/i);
 });
 
+test("a clean board over a run that failed is not a headline saying nothing needs him", () => {
+  // The headline is `rollupMark`'s sentence verbatim, so the lie the project
+  // dot told told itself over the whole board: every tree clean, one run
+  // failed, and the biggest words on the landing surface said "nothing needs
+  // you". The board is the reason this is worth a test of its own — the dot is
+  // hover-only, this is read on arrival.
+  const view = triageBoard(
+    model({
+      stats: { a: stat(), b: stat() },
+      worktrees: [
+        worktree({ binding_id: "a", owner_run_status: "failed" }),
+        worktree({ binding_id: "b" }),
+      ],
+    }),
+    null,
+  );
+  assert.doesNotMatch(view.headline, /nothing needs you/i);
+  assert.match(view.headline, /1 run here failed/);
+});
+
+test("an unanswered row does not let the board sum away a run that failed", () => {
+  // The other sentence: `rollupMark` withholds its state because one row is
+  // silent, so this branch writes the headline itself — and it makes the same
+  // claim, so it owes the same ending.
+  const view = triageBoard(
+    model({
+      stats: { a: stat() },
+      worktrees: [
+        worktree({ binding_id: "a", owner_run_status: "cancelled" }),
+        worktree({ binding_id: "b" }),
+      ],
+    }),
+    null,
+  );
+  assert.doesNotMatch(view.headline, /Nothing is waiting on you/);
+  assert.match(view.headline, /1 worktree is clean/);
+  assert.match(view.headline, /has not reported on 1/);
+  assert.match(view.headline, /1 run here cancelled/);
+});
+
 test("one unanswered row costs the board its everything-is-clean claim", () => {
   const view = triageBoard(
     model({
