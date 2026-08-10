@@ -125,7 +125,7 @@ fn restarting_share_status(config: &MeshSharingConfig) -> mesh_llm::MeshNodeStat
         mode: Some(mesh_llm::MeshNodeMode::Serve),
         health: mesh_llm::MeshHealth {
             status: mesh_llm::MeshHealthStatus::Degraded,
-            reason: Some("Buzz is restarting to switch this machine to sharing".to_string()),
+            reason: Some("Vingilot is restarting to switch this machine to sharing".to_string()),
         },
         api_base_url: None,
         console_url: None,
@@ -499,7 +499,7 @@ pub async fn mesh_start_node(
             drop(runtime);
             app.request_restart();
             return Err(format!(
-                "mesh node started but status probe failed: {error:#}; Buzz is restarting to guarantee cleanup"
+                "mesh node started but status probe failed: {error:#}; Vingilot is restarting to guarantee cleanup"
             ));
         }
     };
@@ -860,7 +860,7 @@ pub(crate) async fn ensure_relay_mesh_for_record(
             mesh_llm::MeshRuntimeRecovery::RestartRequired => {
                 app.request_restart();
                 return Err(
-                    "Buzz shared compute startup lost its local ingress before shutdown control became available. Buzz is restarting to recover it."
+                    "Buzz shared compute startup lost its local ingress before shutdown control became available. Vingilot is restarting to recover it."
                         .to_string(),
                 );
             }

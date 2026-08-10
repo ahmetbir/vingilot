@@ -1,8 +1,20 @@
 use super::*;
 
-/// Binary names for the Buzz desktop/Tauri process. Used by dead-instance
-/// detection to confirm the owning desktop is still alive.
+/// Binary names for the desktop/Tauri process. Used by dead-instance detection
+/// to confirm the owning desktop is still alive.
+///
+/// "Vingilot" is here because `productName` in tauri.conf.json is what names the
+/// executable inside the bundle, and this fork changed it. Without this entry
+/// the reaper cannot find any live process for its own instance id, concludes
+/// every instance is dead, and kills agents belonging to a running app. That is
+/// silent: the failure looks like agents stopping on their own.
+///
+/// Upstream's names are kept alongside it rather than replaced. The two apps
+/// share `~/.buzz` and the same keychain service, so both write agent records
+/// into the same nest, and a Vingilot reaper that stopped recognising a live
+/// Buzz would reap that app's agents out from under it.
 const DESKTOP_BINARY_NAMES: &[&str] = &[
+    "Vingilot",
     "Buzz",
     "buzz-desktop",
     "buzz_desktop",
@@ -11,7 +23,7 @@ const DESKTOP_BINARY_NAMES: &[&str] = &[
     "buzz-desktop.bi",
 ];
 
-/// Check if a process name matches a known Buzz desktop binary.
+/// Check if a process name matches a known desktop binary.
 pub(super) fn is_desktop_binary(name: &str) -> bool {
     DESKTOP_BINARY_NAMES.contains(&name)
 }
@@ -357,3 +369,39 @@ pub(crate) fn reap_dead_instance_agents(our_instance_id: &str, skip_pids: &[u32]
 
 #[cfg(not(unix))]
 pub(crate) fn reap_dead_instance_agents(_our_instance_id: &str, _skip_pids: &[u32]) {}
+
+#[cfg(test)]
+mod tests {
+    use super::is_desktop_binary;
+
+    /// The reaper has to recognise the executable THIS bundle actually ships,
+    /// and `productName` in tauri.conf.json is what names it. Renaming the
+    /// product without teaching the reaper the new name makes it find no live
+    /// process for its own instance id, decide the instance is dead, and kill
+    /// the agents of a running app — a failure that reads on screen as agents
+    /// quitting by themselves.
+    ///
+    /// Upstream's names must keep matching alongside it: the two apps share
+    /// `~/.buzz` and the same keychain service, so a live Buzz this reaper
+    /// stopped recognising would have its agents reaped by whichever swept
+    /// first.
+    ///
+    /// Lives here rather than beside the other reaper tests in `tests.rs`
+    /// because that file is 1,317 lines and the desktop file-size ratchet does
+    /// not let a file already over the limit grow.
+    #[test]
+    fn desktop_binary_names_cover_this_bundle_and_upstreams() {
+        assert!(
+            is_desktop_binary("Vingilot"),
+            "the reaper must recognise this app's own executable name"
+        );
+        for upstream in ["Buzz", "buzz-desktop", "buzz_desktop"] {
+            assert!(
+                is_desktop_binary(upstream),
+                "{upstream} must still match: both apps write into the same nest"
+            );
+        }
+        assert!(!is_desktop_binary("Vingilo"));
+        assert!(!is_desktop_binary("some-other-app"));
+    }
+}

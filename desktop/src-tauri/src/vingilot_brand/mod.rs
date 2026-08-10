@@ -13,6 +13,9 @@
 //! colour channels would be three quarters of the bytes and macOS throws them
 //! away. The result is 40 wide by 44 tall — 1,760 bytes in the binary.
 
+use std::sync::OnceLock;
+
+use base64::Engine as _;
 use tauri::image::Image;
 
 /// Raw 8-bit alpha, row-major, no header. Regenerate with
@@ -36,6 +39,32 @@ const _: () = assert!(
     TRAY_ALPHA.len() == (TRAY_WIDTH * TRAY_HEIGHT) as usize,
     "tray-mark.gray length is not a whole number of 44-pixel columns"
 );
+
+/// The same mark asset the frontend masks with, reached across the tree rather
+/// than copied beside this file.
+///
+/// `vingilot/brand/derive-mark.py` writes each output straight to the one place
+/// that consumes it, precisely so no second copy can drift from the derivation.
+/// A duplicate here would be that second copy. The path is long; the alternative
+/// is an asset that silently stops matching the app's own mark.
+const MARK_PNG: &[u8] = include_bytes!("../../../src/features/vingilot-brand/mark.png");
+
+/// The mark as a `data:` URI, for the one surface that is a web page this app
+/// serves but does not bundle: the Builderlab OAuth callback, rendered in the
+/// user's *browser* from a string in this binary. Nothing in that page can
+/// fetch from the app, so the mark has to travel inside the HTML.
+///
+/// Encoded once and cached. The page is shown at most once per sign-in, so
+/// paying ~61 KB of base64 on first use beats holding it in the binary twice.
+pub(crate) fn mark_data_uri() -> &'static str {
+    static ENCODED: OnceLock<String> = OnceLock::new();
+    ENCODED.get_or_init(|| {
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(MARK_PNG)
+        )
+    })
+}
 
 /// The mark as an RGBA image whose colour channels are zero, ready for
 /// `TrayIconBuilder::icon` with `icon_as_template(true)`.

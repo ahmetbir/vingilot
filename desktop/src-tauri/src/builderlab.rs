@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Mutex, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use axum::{
     extract::{Path, Query, State as AxumState},
@@ -20,12 +24,25 @@ const BB_SESSION_CREDENTIAL_HEADER: &str = "X-BB-Session-Credential";
 // or challenge/verify fail with `invalid_origin`. It also seeds the challenge
 // body's `origin` field so both agree.
 const BUILDERLAB_ORIGIN: &str = "https://app.builderlab.xyz";
-const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
+/// The page rendered in the user's *browser* when the Builderlab OAuth callback
+/// lands, with `{mark}` standing in for the mark's `data:` URI.
+///
+/// The mark travels as a URI rather than as inline SVG because the Vingilot mark
+/// has no vector form — it starts as the owner's painting. It is applied as a
+/// CSS *mask* over `currentColor`, exactly as `vingilot-mark.css` does in the
+/// app, so the one asset works whatever colour the card is painted; drawing it
+/// as an `<img>` would ship a white bitmap onto a light card.
+///
+/// The palette is deliberately untouched. This page is Block's Builderlab flow
+/// arriving back from Block's domain, and its chartreuse is upstream's design
+/// decision, not a product name — recolouring it is a design call for the owner,
+/// not part of a rename.
+const AUTH_COMPLETE_TEMPLATE: &str = r#"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Buzz authentication complete</title>
+  <title>Vingilot authentication complete</title>
   <style>
     :root {
       color-scheme: light;
@@ -59,12 +76,20 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
       box-shadow: 8px 8px 0 #231e1e;
     }
 
-    .bee {
+    .mark {
       display: block;
-      width: 72px;
-      height: auto;
+      width: 66px;
+      aspect-ratio: 351 / 384;
       margin-bottom: 40px;
-      color: #231e1e;
+      background-color: currentColor;
+      -webkit-mask-image: url("{mark}");
+      mask-image: url("{mark}");
+      -webkit-mask-position: center;
+      mask-position: center;
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+      -webkit-mask-size: contain;
+      mask-size: contain;
     }
 
     .eyebrow {
@@ -108,8 +133,8 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
         box-shadow: 6px 6px 0 #231e1e;
       }
 
-      .bee {
-        width: 60px;
+      .mark {
+        width: 56px;
         margin-bottom: 32px;
       }
     }
@@ -117,24 +142,10 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
 </head>
 <body>
   <main>
-    <svg class="bee" viewBox="0 0 466 309" role="img" aria-label="Buzz">
-      <defs>
-        <mask id="bee-mask">
-          <rect width="466" height="309" fill="black"/>
-          <circle cx="91.7" cy="154.5" r="91.7" fill="white"/>
-          <circle cx="374.3" cy="154.5" r="91.7" fill="white"/>
-          <rect x="128" width="210" height="309" rx="34" fill="white"/>
-          <ellipse cx="193.3" cy="84.4" rx="27" ry="27" fill="black"/>
-          <ellipse cx="276" cy="84.4" rx="27" ry="27" fill="black"/>
-          <rect x="166.3" y="157.2" width="136.9" height="38.3" rx="5" fill="black"/>
-          <rect x="166.9" y="235.1" width="136.2" height="37.6" rx="5" fill="black"/>
-        </mask>
-      </defs>
-      <rect width="466" height="309" fill="currentColor" mask="url(#bee-mask)"/>
-    </svg>
+    <span class="mark" role="img" aria-label="Vingilot"></span>
     <div class="eyebrow">Authentication complete</div>
     <h1>You&rsquo;re signed in.</h1>
-    <p>You can close this window and return to Buzz.</p>
+    <p>You can close this window and return to Vingilot.</p>
   </main>
 </body>
 </html>"#;
@@ -206,7 +217,20 @@ async fn login_callback(
         let _ = sender.send(result);
     }
 
-    Html(AUTH_COMPLETE_HTML).into_response()
+    Html(auth_complete_html()).into_response()
+}
+
+/// The callback page with the mark's `data:` URI substituted in, built once.
+///
+/// `replace` rather than `format!`: the template is a whole CSS + HTML document
+/// full of literal braces, and `format!` would have to have every one of them
+/// doubled — a transformation nothing checks and every future edit can get
+/// wrong.
+fn auth_complete_html() -> &'static str {
+    static PAGE: OnceLock<String> = OnceLock::new();
+    PAGE.get_or_init(|| {
+        AUTH_COMPLETE_TEMPLATE.replace("{mark}", crate::vingilot_brand::mark_data_uri())
+    })
 }
 
 fn api_url(path: &str) -> Result<Url, String> {
@@ -644,21 +668,51 @@ pub(crate) async fn transfer_builderlab_community(
 mod tests {
     use super::*;
 
+    /// Upstream's version of this test asserted the page carried the Buzz name
+    /// and the Buzz bee. It asserts the same contract for the fork's own: the
+    /// page a browser lands on after sign-in must name the application it is
+    /// sending the user back to, and that application is not Buzz.
+    ///
+    /// The palette assertions are upstream's and are kept unchanged — this is
+    /// Block's flow arriving back from Block's domain, and its colours were not
+    /// part of the rename.
     #[test]
-    fn auth_complete_page_uses_buzz_brand() {
+    fn auth_complete_page_names_this_app_and_not_upstream() {
+        let page = auth_complete_html();
         for expected in [
-            "<title>Buzz authentication complete</title>",
+            "<title>Vingilot authentication complete</title>",
             "#d7d72e",
             "#231e1e",
             "#d7e7f6",
-            "aria-label=\"Buzz\"",
-            "return to Buzz",
+            "aria-label=\"Vingilot\"",
+            "return to Vingilot",
         ] {
             assert!(
-                AUTH_COMPLETE_HTML.contains(expected),
+                page.contains(expected),
                 "authentication complete page is missing {expected}"
             );
         }
+        assert!(
+            !page.contains("Buzz"),
+            "authentication complete page still names Buzz"
+        );
+    }
+
+    /// The mark is a CSS mask over `currentColor`, not an `<img>`, and the
+    /// placeholder must actually have been substituted. Both failures render as
+    /// a page that looks broken rather than one that errors: an unsubstituted
+    /// `{mark}` is a mask URL that resolves to nothing, which paints the whole
+    /// 66px box as a solid `currentColor` rectangle.
+    #[test]
+    fn auth_complete_page_carries_the_mark_as_a_mask() {
+        let page = auth_complete_html();
+        assert!(
+            !page.contains("{mark}"),
+            "mark placeholder was not replaced"
+        );
+        assert!(page.contains("data:image/png;base64,"));
+        assert!(page.contains("mask-image: url(\"data:image/png;base64,"));
+        assert!(page.contains("background-color: currentColor;"));
     }
 
     #[test]
