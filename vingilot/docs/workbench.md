@@ -879,11 +879,13 @@ worktree. They are separate documents, not one document with a flag.
 documents, 40 000 characters each, oldest save evicted first. What that was
 weighed against, and why each alternative lost:
 
-- *The coordinator's workspace state*, where `repos` and `deck.pins` live, is
-  CAS-versioned and could detect a conflicting write. But **the coordinator can
-  be down** — this screen renders a `reachable` flag precisely because it often
-  is — and a note pane that will not keep a note because a local service is not
-  running is not a note pane. It is also one blob read-modify-written, so an
+- *The coordinator's workspace state*, where `deck.pins` live (and where the
+  project list is pushed but no longer kept — see *The control plane is
+  optional*), is CAS-versioned and could detect a conflicting write. But **the
+  coordinator can be down, or absent altogether** — this screen reads a
+  three-state control-plane signal precisely because both happen — and a note
+  pane that will not keep a note because a local service is not running is not
+  a note pane. It is also one blob read-modify-written, so an
   autosave every few seconds would bump the revision under whoever is writing
   pins, and it buys no sync: the coordinator is a process on 127.0.0.1.
 - *A file on disk* would show up in the owner's `git status` inside the
@@ -1069,11 +1071,116 @@ file.
   their own. They are not two implementations of one thing waiting to be merged
   — see *Two agent surfaces* above before touching either store.
 
+## The control plane is optional
+
+The owner installed the built app on his work Mac and could not use it at all:
+*"the coordinator is not answering — nothing was changed … control plane
+unreachable — read-only since 2:08:55 PM … proje ekleyemedim."* That was not a
+bug in his install. The coordinator is a **development service** — Postgres in
+Docker on 5435 plus `cargo run --bin vingilot-coordinator`
+(`vingilot/scripts/coordinator-run.sh`) — and none of it ships in the `.dmg`,
+while the project list lived only inside its workspace document. So on every
+machine that is not the Mac mini, the workspace opened with no projects and no
+way to add one, under a red box that said to wait.
+
+Since 2026-08-10 the coordinator is optional, and this is the line:
+
+| needs it | does not |
+|---|---|
+| **Runs** — starting one, transitioning one, the run list, evidence, budgets, the executor | **Projects** — the list is a file on this machine (below) |
+| **Deck pins** — they live in the workspace document, so pinning is genuinely a coordinator feature | **Worktrees** — `git worktree list` off the filesystem (`worktreeClient.ts`), including the ones the owner made in a shell |
+| | **Terminals and the scratch shell** — local PTYs, tmux-backed |
+| | **Diff** — `git diff` in the checkout |
+| | **⌘K, the cheatsheet, Notes, Plan** — in the app, on this machine |
+
+The **team thread is on neither side of that table.** It is on the relay
+(`teamThread.ts`), a different service that is up or down on its own — which is
+why neither banner sentence calls it local, and why "the team thread works"
+would be the next wrong clause if one did.
+
+**Two states, and they get different sentences** (`lib/reachability.ts`'s
+`controlPlaneKind`, drawn by `ui/ControlPlaneBanner.tsx`, `data-testid`
+`control-plane-banner` carrying `data-state`):
+
+- `outage` — a coordinator answered and then stopped. It has a start time, it
+  is probably temporary, and a countdown to the next retry is useful. Drawn as
+  an `alert`, in the destructive colour, announced assertively.
+- `absent` — nothing has answered here since this workspace opened. Not an
+  error, not temporary, no clock worth naming. Drawn as a muted `note`,
+  announced politely, saying which one feature is unavailable and that there is
+  nothing to wait for. It keeps probing: the 2s cadence holds for the first
+  minute (a coordinator started by hand right after launch is picked up at
+  once), then settles to 30s, and "Check now" probes immediately at any time.
+  **That cadence reaches every coordinator poll in the app** — `pollMs` travels
+  as a prop through `PaneProps`, and `controlPlaneCadence.test.mjs` refuses any
+  poll in the runs UI that does not take it.
+
+Nothing *configures* a coordinator — the client always talks to
+`127.0.0.1:7117` — so an answer is the only evidence one exists on this
+machine, and its absence the only evidence one does not. **The word "read-only"
+is gone from the app**, and a test keeps it gone: the workspace was never
+read-only, and the sentence that said so is why he waited instead of working.
+
+### Where the project list lives
+
+**`~/.vingilot/projects.json`**, beside `~/.vingilot/worktrees` — a plain
+pretty-printed JSON file the owner can open, copy and back up. Written by
+`src-tauri/src/vingilot_projects/` with write-then-rename, so an interrupted
+save leaves the old list intact; read by `lib/localProjects.ts`, which **refuses
+an unparseable file rather than reading it as empty** and says so on screen
+(`unreadableStoreNotice`). An empty list with nothing said beside it is exactly
+what a fresh install looks like, and that is the one thing this file must never
+be mistaken for.
+
+Not `localStorage`: a webview data reset clears it without telling anyone, and
+the owner cannot open it, put it in a backup, or hand it to anyone who asks
+what his projects are.
+
+### One direction, never two
+
+When the coordinator is reachable, the local list is **pushed** into its
+workspace document so a Run can still reference a repo by id. **Nothing is ever
+read back out of it into the local list** — a two-way merge between a file and
+a CAS document is a conflict machine, and this design does not open it.
+
+There is one case that does not push either, and it is reachable on the Mac
+mini: launch while the coordinator is down, add one project, coordinator comes
+back holding five. Seeding is refused there (the list was already started), so
+pushing would replace his five with the one. `pushDecision` refuses too, and
+`unreconciledNotice` names the way out on screen rather than picking a winner
+behind him.
+
+### Seeded once, and said out loud
+
+On the Mac mini his real projects exist **only** in the coordinator, so the
+first run of this build decides whether he still has them.
+`seedOnceDecision` imports them exactly once, and its condition is four
+separate facts, all required, because each one is a way to lose or duplicate
+the list: never imported before; the local list is empty; the coordinator
+**answered** (not "was polled" — a `null` snapshot is no answer, and reading it
+as "no projects" would write an empty list over his and mark it done); and it
+has something to import.
+
+It takes the whole workspace document rather than a list read out of it, so an
+entry this build cannot parse is carried across into `foreign` instead of being
+dropped at the exact moment the coordinator's array becomes the file he is told
+to back up. The import is recorded in the file, so the "once" survives a
+restart, and `importNotice` says on screen that it happened — a silent import
+is indistinguishable from a silent loss when it goes wrong.
+
+**Proof:** `localProjects.test.mjs` and `reachability.test.mjs` for the pure
+model, `vingilot_projects` over real temp directories for the bytes, and
+`tests/e2e/workspace-no-coordinator.spec.ts` for the machine itself — a
+workspace with nothing listening on 7117 that opens, adds a project, keeps it
+across a reload, lists worktrees from git, and says the absent sentence.
+
 ## Where things live
 
 - **Island (fork-owned, additive):** `desktop/src/features/runs/**`
   - `lib/` — coordinator client, polling, run model, budget/legalNext,
-    provision spec, reachability, projects/worktrees, the terminal tab model
+    provision spec, reachability (`reachability`, `controlPlaneCadence`), the
+    local project list (`localProjects`, `localProjectsClient`,
+    `useLocalProjects`), projects/worktrees, the terminal tab model
     and key maps, the diff model, the agent turn model, the pane model and
     layout, the palette (`paletteKeys`, `paletteModel`, `paletteSources`,
     `paletteStore`, `usePalette`), ask mode and its thread
@@ -1099,7 +1206,7 @@ file.
     `NewWorktreeDialog`, `PruneWorktreesDialog`, `ProjectStatusBar`,
     `RunsPane`, `EvidencePane`, `PinnedCard`, `DeckConflict`, plus the
     pre-existing `RunList`, `DeckPane`, `RunDetail`, `BudgetBar`,
-    `StopAllButton` (hold-to-engage), `UnreachableBanner`,
+    `StopAllButton` (hold-to-engage), `ControlPlaneBanner`,
     `RunsLoadingFallback`.
 - **Island (fork-owned, Rust):** `desktop/src-tauri/src/vingilot_pty/**` (the
   PTY sessions, their scrollback, tmux backing, and the live proof),
@@ -1107,7 +1214,9 @@ file.
   `vingilot_worktree/**` (worktree add/list/remove, the diff read, and
   `brief.rs` — a worktree opened with the plan that asked for it),
   `vingilot_agent/**` (the ACP client over an agent subprocess, which agent to
-  run, the transcript, and the end-to-end proof).
+  run, the transcript, and the end-to-end proof),
+  `vingilot_projects/**` (`~/.vingilot/projects.json` — write-then-rename, and
+  the only thing in this app that owns those bytes).
 - **Touch-points (declared in `vingilot/seams.yaml`):** the sidebar nav entry,
   the `/workspace` route registration, and the command registry in
   `src-tauri/src/lib.rs`. Kept to a few lines each — these are the files
@@ -1118,14 +1227,27 @@ file.
 ## Run it
 
 ```bash
-docker compose up -d                     # postgres/redis/minio (vingilot-isolated stack)
-./vingilot/scripts/coordinator-run.sh    # control plane on 127.0.0.1:7117
 just dev                                 # Buzz desktop — "Projects" in the sidebar
 ```
 
-The workspace polls the coordinator; killing the coordinator surfaces the
-persistent unreachable banner (read-only, `as of <t>` stamps, disabled
-composer with the reason inline) and recovers on its own when it returns.
+That is the whole of it on a machine with no control plane, which is every
+machine but the one the coordinator runs on. Projects, worktrees, terminals,
+diff, ⌘K, the cheatsheet, Notes and Plan all work; a muted note says runs
+cannot start here and that there is nothing to wait for.
+
+Runs need the two development services below, and nothing in the `.dmg` starts
+them:
+
+```bash
+docker compose up -d                     # postgres/redis/minio (vingilot-isolated stack)
+./vingilot/scripts/coordinator-run.sh    # control plane on 127.0.0.1:7117
+```
+
+Killing the coordinator while the workspace is open is the **outage** state,
+not the absent one: the banner names the time it stopped answering, counts down
+to the next retry, and clears itself when it returns. See *The control plane is
+optional* above for which state says what, and why neither of them says
+"read-only".
 
 ## Honest notes
 
