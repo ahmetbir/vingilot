@@ -36,12 +36,14 @@ import {
   acknowledgeImport,
   addLocalProject,
   importNotice,
+  LOCAL_PROJECTS_DISPLAY_PATH,
   type LocalProjects,
   pushDecision,
   readLocalProjects,
   removeLocalProject,
   seedOnceDecision,
   serializeLocalProjects,
+  unreadableStoreNotice,
   unreconciledNotice,
 } from "@/features/runs/lib/localProjects";
 import {
@@ -79,6 +81,13 @@ export interface LocalProjectStore {
    * dismissible — it describes a state, and it goes away when the state
    * does. */
   coordinatorNotice: string | null;
+  /** The sentence for a local list that could not be read, or `null`. Also a
+   * state rather than an event, and also not dismissible: while it holds,
+   * what is on screen is not this machine's list and nothing may be written.
+   * It is on screen before the add button is pressed rather than after,
+   * because the state it describes is the one that reads as a fresh
+   * install. */
+  storeNotice: string | null;
 }
 
 interface Options {
@@ -114,7 +123,7 @@ export function useLocalProjects({
       }
       const read = readLocalProjects(loaded.text);
       if (!read.ok) {
-        setStoreError(`~/.vingilot/projects.json ${read.reason}`);
+        setStoreError(`${LOCAL_PROJECTS_DISPLAY_PATH} ${read.reason}`);
         return;
       }
       setDoc(read.doc);
@@ -248,5 +257,12 @@ export function useLocalProjects({
     pending,
     removeProject,
     repos,
+    // `storeError` is null until the load has come back, so nothing is said
+    // during it: an unread list and an unreadable one are a different
+    // sentence, and only one of them is worth interrupting for.
+    storeNotice: unreadableStoreNotice(
+      doc === null ? storeError : null,
+      repos.length,
+    ),
   };
 }

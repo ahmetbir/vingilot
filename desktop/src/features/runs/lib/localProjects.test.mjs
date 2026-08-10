@@ -10,6 +10,7 @@ import {
   removeLocalProject,
   seedOnceDecision,
   serializeLocalProjects,
+  unreadableStoreNotice,
   unreconciledNotice,
 } from "./localProjects.ts";
 
@@ -390,4 +391,40 @@ test("nothing is said when there is no standoff", () => {
     unreconciledNotice(EMPTY_LOCAL_PROJECTS, { repos: [repo("a", "/a")] }),
     null,
   );
+});
+
+// ---------------------------------------------------------------------------
+// A list that could not be read says so
+// ---------------------------------------------------------------------------
+
+test("a list that could not be read says so, and says nothing is written", () => {
+  const notice = unreadableStoreNotice("is not valid JSON", 0);
+  assert.match(notice, /is not valid JSON/);
+  assert.match(notice, /~\/\.vingilot\/projects\.json/);
+  assert.match(notice, /left exactly as it is/);
+  // The actionable half: he is told the buttons will refuse before he
+  // presses one, rather than after.
+  assert.match(notice, /no project can be added or forgotten/);
+});
+
+test("an unreadable list showing nothing is not reported as an empty list", () => {
+  // The plan's own failure mode: an empty list that looks like a fresh
+  // install is indistinguishable from his projects being gone.
+  const notice = unreadableStoreNotice("could not read /home/.vingilot", 0);
+  assert.match(notice, /not an empty list/);
+});
+
+test("an unreadable list names whose list is on screen instead", () => {
+  const notice = unreadableStoreNotice("holds null", 5);
+  assert.match(notice, /5 projects the coordinator holds/);
+  assert.doesNotMatch(notice, /not an empty list/);
+});
+
+test("one coordinator project is counted in the singular", () => {
+  assert.match(unreadableStoreNotice("holds null", 1), /1 project the/);
+});
+
+test("a list that read fine says nothing", () => {
+  assert.equal(unreadableStoreNotice(null, 0), null);
+  assert.equal(unreadableStoreNotice(null, 3), null);
 });

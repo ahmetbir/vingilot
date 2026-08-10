@@ -285,6 +285,38 @@ export function acknowledgeImport(doc: LocalProjects): LocalProjects {
   return { ...doc, imported: { ...doc.imported, acknowledged: true } };
 }
 
+/** The sentence for a local list that could not be read, or `null` when it
+ * was. The reason is the reader's own words (`readLocalProjects`, or the Rust
+ * side, or a rejected `invoke` on a machine with no Tauri host at all).
+ *
+ * This exists because of the one way this feature loses his projects
+ * quietly. When the file cannot be read nothing is written and the screen
+ * falls back to whatever the coordinator holds — which on a machine with no
+ * coordinator is nothing at all. An empty project list with no sentence
+ * beside it is indistinguishable from a fresh install, and he would add his
+ * projects again over a file that still has them. So the count of what IS on
+ * screen is named, and when it is zero the sentence says in words that this
+ * is not an empty list. */
+export function unreadableStoreNotice(
+  reason: string | null,
+  shown: number,
+): string | null {
+  if (reason === null) return null;
+  const instead =
+    shown === 0
+      ? "Nothing is listed below, and that is not an empty list — it is a " +
+        "list this build could not open."
+      : `What is listed below is the ${shown} ` +
+        `${shown === 1 ? "project" : "projects"} the coordinator holds, not ` +
+        "this machine's list.";
+  return (
+    `this machine's project list could not be read (${reason}). ` +
+    `${LOCAL_PROJECTS_DISPLAY_PATH} is left exactly as it is — nothing is ` +
+    "written to it, and no project can be added or forgotten until it can be " +
+    `read. ${instead}`
+  );
+}
+
 function sameRepos(a: readonly Repo[], b: readonly Repo[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((repo, index) => {

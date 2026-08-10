@@ -66,6 +66,12 @@ interface ProjectsNavProps {
    * dismissible: it is a state rather than an event, and the sentence names
    * the act that ends it. */
   coordinatorNotice: string | null;
+  /** This machine's list could not be read at all
+   * (`lib/localProjects.ts`'s `unreadableStoreNotice`). Rendered above the
+   * others and above the list itself, because while it holds, the rows below
+   * are not this machine's projects — and an empty list with nothing said
+   * beside it is what a fresh install looks like. */
+  storeNotice: string | null;
   /** The last refusal, in words the owner can act on. */
   error: string | null;
   onDismissError: () => void;
@@ -82,6 +88,7 @@ export function ProjectsNav({
   coordinatorNotice,
   error,
   importNotice,
+  storeNotice,
   onAddProject,
   onConfirmingChange,
   marks,
@@ -119,10 +126,25 @@ export function ProjectsNav({
         <span className="text-muted-foreground/60">{repos.length}</span>
       </h2>
 
+      {storeNotice === null ? null : (
+        <div
+          className="mt-1 rounded-lg border border-border bg-muted/60 px-2 py-1.5"
+          data-testid="projects-nav-store-notice"
+        >
+          <p className="text-sm text-foreground">{storeNotice}</p>
+        </div>
+      )}
+
       {repos.length === 0 ? (
-        <p className="px-2 py-2 text-sm text-muted-foreground">
-          no projects yet
-        </p>
+        // Silent while the store is unreadable: "no projects yet" is the
+        // sentence a fresh install shows, and it is exactly the wrong one for
+        // a list that could not be opened. The notice above says what is
+        // true instead.
+        storeNotice !== null ? null : (
+          <p className="px-2 py-2 text-sm text-muted-foreground">
+            no projects yet
+          </p>
+        )
       ) : (
         <ul className="flex flex-col gap-0.5">
           {repos.map((repo) => {

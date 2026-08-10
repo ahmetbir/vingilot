@@ -801,6 +801,7 @@ export function RunsScreen() {
           pending={projectActions.pending}
           repos={repos}
           selectedRepoId={selectedRepoId}
+          storeNotice={projectActions.storeNotice}
         />
 
         {/* Everything right of the project nav, in a box the palette can be
