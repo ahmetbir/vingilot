@@ -37,7 +37,9 @@ mod templates;
 mod tray_menu;
 mod util;
 mod vingilot_agent;
-#[cfg(target_os = "macos")]
+// Not macOS-gated: `builderlab.rs` builds the OAuth callback page on every
+// platform and needs the mark inside it. The menu-bar half carries its own gate
+// (see the module docs).
 mod vingilot_brand;
 mod vingilot_projects;
 mod vingilot_pty;
