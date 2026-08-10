@@ -11,6 +11,27 @@
 // the owner asked for and the body says why it cannot answer here — a pane
 // that vanished would read as a bug in the picker, and one that rendered empty
 // would read as a worktree with nothing in it.
+//
+// **A pane is a stacking context, so a z-index inside a pane is a number about
+// the pane** (vingilot/docs/plans/2026-08-11-what-sent-him-to-vscode.md, Task
+// 1). Without that it is a number about the whole workspace, and the owner
+// found out: with a team thread open, ⌘K was painted under the channel's header
+// and its composer. Measured at 1728×1117 — the palette is `absolute inset-0
+// z-30` in `RunsScreen`'s work-surface box, and every element between that box
+// and the hosted channel screen (`work-surface`, this section, `pane-team`,
+// `team-thread-inset`, `team-thread`, `channel-drop-zone`) was `z-index: auto`
+// with no transform and no isolation, so none of them created a stacking
+// context. `ChannelPane`'s top chrome (`absolute inset-x-0 z-40`) and its
+// composer overlay (`absolute inset-x-0 bottom-0 z-40`) were therefore ranked
+// against the palette directly, and 40 beats 30.
+//
+// `isolate` here rather than a higher z on the palette, and that is the whole
+// point: raising the palette answers this surface and loses to the next one.
+// A pane hosting a surface it did not write cannot know what numbers that
+// surface uses, and must not have to — so it confines them. The cost is
+// nothing visible: the section is `overflow-hidden`, so anything inside it was
+// already clipped to it, and Radix menus and tooltips portal to `document.body`
+// and are outside this context either way.
 
 import type * as React from "react";
 
@@ -74,7 +95,7 @@ export function PaneFrame({
   return (
     <section
       aria-label={`${side} pane`}
-      className="flex min-h-0 min-w-0 basis-0 flex-col overflow-hidden"
+      className="isolate flex min-h-0 min-w-0 basis-0 flex-col overflow-hidden"
       data-pane={entry.id}
       data-testid={`pane-${side}`}
       ref={frameRef}

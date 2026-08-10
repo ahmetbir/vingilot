@@ -150,6 +150,7 @@ export default defineConfig({
         "**/terminal-wheel.spec.ts",
         "**/diff-keeps-up.spec.ts",
         "**/workspace-diff-fits.spec.ts",
+        "**/workspace-palette-over-thread.spec.ts",
         "**/vingilot-boot-mark.spec.ts",
       ],
       use: {
