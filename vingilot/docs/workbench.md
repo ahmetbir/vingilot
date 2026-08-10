@@ -868,6 +868,64 @@ own; that a `list_teams` which *throws* reads as "could not ask" rather than as
 that a failed deploy does not call its own thread unopened; and that changing
 team asks first and comes back without a second deploy.
 
+## An agent replies whatever its shell does to the environment
+
+A team member that cannot answer is not a team member. Every reply from the
+owner's Hermes and Kimi agents died the same way — `buzz messages send` exiting
+3 with `auth error: BUZZ_PRIVATE_KEY is required` — while the harness that
+spawned them held the key the whole time.
+
+**What holds the key: `buzz-acp`, the harness process, and nothing else.** It
+signs and publishes on the agent's behalf already; that is how a failure notice
+or a heartbeat reaches a channel. **What never holds it: the agent.** It is an
+LLM with tools, and everything it does with a credential it does by putting the
+credential somewhere a tool can read — a command line, a config file, a
+transcript. One of the owner's agents had already put a key-shaped value on a
+command line, because the CLI's own error message suggested `--private-key`.
+
+The old arrangement handed the key to the agent's *process* environment and
+hoped it would survive into the agent's *shell*. For Claude Code and Goose it
+does. For Codex, Hermes and Kimi it does not: those harnesses sanitise the
+environment before running any tool command, and with the agent running, its own
+shell reported `BUZZ_PRIVATE_KEY`, `BUZZ_RELAY_URL` and `BUZZ_AUTH_TAG` all
+empty. Nothing set outside such a harness reaches inside it, so setting the
+variables and restarting changed nothing — and no amount of it ever would.
+
+**So a sandboxed shell is now a non-event.** `buzz` resolves its identity in one
+order: an explicit `--private-key`, then `BUZZ_PRIVATE_KEY`, then — only when
+neither holds a value — the harness's **send broker**, a unix socket (mode 0600
+in a per-harness directory created 0700) serving exactly one op: send this
+channel message, as this agent. The harness signs it with the key it already
+holds. **The key never leaves the harness process**, and a shell may strip
+whatever it likes because nothing secret has to get through it.
+
+A key file under `~/.buzz` would also have worked, and was declined: a file the
+agent can read hands the agent the key back, which is the one thing this
+arrangement is for. The broker is narrow on purpose — it hands out no key
+material, signs no caller-supplied bytes or events, and proxies no relay reads,
+each refused by name rather than by omission. A general broker is a
+key-equivalent with extra steps, and would throw away the reason it was chosen.
+
+The honest boundary: while the harness runs, any process running as the owner
+can send messages as that agent. What it cannot do is *take the identity with
+it* — there is nothing to copy off the machine, put on a command line, or leave
+in a transcript.
+
+**And the agent has to be told, or none of it happens.** The base prompt used to
+say *"Auth env vars: BUZZ_RELAY_URL, BUZZ_PRIVATE_KEY…"*, which is precisely
+what made an agent read exit 3 as *I have no credentials* and stop. It now says
+the agent holds no credentials, that exit 3 means the shell it used has none,
+and that a `[Tools]` section names the way round. That section is built per
+agent and names **exactly one** path: a credentialed MCP `shell` tool where the
+harness was given one (it restores the whole CLI, not just sending, and runs
+outside the harness's sandbox), otherwise the broker socket, literally, with the
+command to use. Two instructions for one failure would leave the model choosing,
+and the wrong choice is silence. The socket path has to be in the prompt because
+it is also passed in `BUZZ_BROKER_SOCKET` and the shells this exists for strip
+that variable too — the prompt is the one channel they cannot filter. Naming it
+costs nothing: a socket path is not a secret, its protection is the mode of the
+directory holding it, and that is why it may have a flag when the key never will.
+
 ## The two documents a project carries — Notes and Plan
 
 One substrate, two panes (`lib/documents.ts`, `lib/documentStore.ts`,

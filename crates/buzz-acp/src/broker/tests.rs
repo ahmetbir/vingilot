@@ -123,6 +123,45 @@ fn a_reply_carries_its_parent_its_mentions_and_its_broadcast_flag() {
     assert!(request.broadcast);
 }
 
+/// The line the CLI actually writes for a plain reply.
+///
+/// **Copied verbatim from `crates/buzz-cli/tests/keyless_agent_reply.rs`**,
+/// where a real `buzz` binary run with a cleared environment is asserted to
+/// write exactly this. The two crates share a wire format and not a type —
+/// deliberately, so neither has to depend on the other — and this literal is
+/// what stops that gap becoming a drift nobody notices: without it, both test
+/// suites can stay green while the CLI writes a line this broker no longer
+/// serves, and the only place that shows up is an agent going quiet.
+const CLI_WIRE_REQUEST: &str = r#"{
+  "op": "send_message",
+  "channel": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+  "content": "@Ahmet the run finished; PR is up.",
+  "reply_to": null,
+  "mentions": [],
+  "broadcast": false
+}"#;
+
+#[tokio::test]
+async fn the_line_the_cli_writes_is_a_request_this_broker_sends() {
+    let sink = FakeSink::new();
+    let response = handle_request(CLI_WIRE_REQUEST, &sink).await;
+    assert_eq!(
+        response,
+        json!({ "ok": true, "event_id": EVENT_ID }),
+        "the CLI's own line must be served, not merely parsed"
+    );
+    let seen = sink.seen();
+    assert_eq!(seen.len(), 1, "the send must reach the thing that can sign");
+    assert_eq!(
+        seen[0].channel.to_string(),
+        "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+    );
+    assert_eq!(seen[0].content, "@Ahmet the run finished; PR is up.");
+    assert_eq!(seen[0].reply_to, None);
+    assert!(seen[0].mentions.is_empty(), "no mention was asked for");
+    assert!(!seen[0].broadcast);
+}
+
 // ── What it refuses, by name ────────────────────────────────────────────────
 
 #[test]

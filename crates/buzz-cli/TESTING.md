@@ -516,7 +516,7 @@ buzz users set-profile 2>&1; echo "exit: $?"
 # Exit 3: No auth configured
 env -u BUZZ_PRIVATE_KEY \
   cargo run -p buzz-cli -- channels list 2>&1; echo "exit: $?"
-# stderr: {"error":"auth_error","message":"auth error: BUZZ_PRIVATE_KEY is required (use --private-key or set env var)"}
+# stderr: {"error":"auth_error","message":"auth error: this shell has no BUZZ_PRIVATE_KEY, and the harness broker sends channel messages and nothing else. This command signs something else, so it needs a key of its own."}
 # exit: 3
 
 # Not-found returns null, not an error (exit 0)
@@ -539,7 +539,42 @@ BUZZ_PRIVATE_KEY="nsec1..." buzz channels list | jq .
 # No auth → exit 3
 env -u BUZZ_PRIVATE_KEY \
   cargo run -p buzz-cli -- channels list 2>&1; echo "exit: $?"
-# stderr: {"error":"auth_error","message":"auth error: BUZZ_PRIVATE_KEY is required (use --private-key or set env var)"}
+# stderr: {"error":"auth_error","message":"auth error: this shell has no BUZZ_PRIVATE_KEY, and the harness broker sends channel messages and nothing else. This command signs something else, so it needs a key of its own."}
+# exit: 3
+
+# Brokered send (BUZZ_BROKER_SOCKET) — a shell with no key at all
+# The harness that spawned the agent sets BUZZ_BROKER_SOCKET; with no
+# BUZZ_PRIVATE_KEY, 'messages send' asks it to send and the key never enters
+# this process. Only 'messages send' is brokered, and only a plain kind-9
+# message: --file and --kind are refused (exit 3) rather than half-sent, and
+# every other subcommand still fails exactly as above.
+env -u BUZZ_PRIVATE_KEY -u BUZZ_RELAY_URL \
+  cargo run -p buzz-cli -- messages send --channel "$CHANNEL_ID" --content "hi"
+# stdout: {"accepted":true,"event_id":"<hex>","mention_pubkeys":[],"message":"sent by the harness broker"}
+# exit: 0
+
+# Same socket, named without the environment. A harness that strips
+# BUZZ_PRIVATE_KEY strips BUZZ_BROKER_SOCKET too, so the path can be given as a
+# flag — safe here and only here, because a socket path is not a secret; its
+# protection is the 0700 directory holding it. The key has no such flag, and
+# no failure message will ever suggest one.
+env -u BUZZ_PRIVATE_KEY -u BUZZ_BROKER_SOCKET \
+  cargo run -p buzz-cli -- --broker-socket /tmp/bz-<pid>-<id>/s \
+  messages send --channel "$CHANNEL_ID" --content "hi"
+# stdout: {"accepted":true,"event_id":"<hex>","mention_pubkeys":[],"message":"sent by the harness broker"}
+# exit: 0
+
+# No key and no broker → exit 3, and it never suggests putting one on argv
+env -u BUZZ_PRIVATE_KEY -u BUZZ_BROKER_SOCKET \
+  cargo run -p buzz-cli -- messages send --channel "$CHANNEL_ID" --content "hi" 2>&1; echo "exit: $?"
+# stderr: {"error":"auth_error","message":"auth error: this shell has no BUZZ_PRIVATE_KEY, and no harness broker was offered either (BUZZ_BROKER_SOCKET is unset and no --broker-socket was given), so nothing here can send as you: the key lives in the harness, not in this shell, and nothing passed to this command stands in for one"}
+# exit: 3
+
+# A blanked variable is treated as an absent one, on both sides. Sanitising
+# shells blank as readily as they unset, and a blank key must not short-circuit
+# the broker — the failure above is what this prints, not a bad-key error.
+env BUZZ_PRIVATE_KEY= BUZZ_BROKER_SOCKET= \
+  cargo run -p buzz-cli -- messages send --channel "$CHANNEL_ID" --content "hi" 2>&1; echo "exit: $?"
 # exit: 3
 ```
 

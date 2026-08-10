@@ -551,6 +551,14 @@ pub struct PromptContext {
     /// the desktop keys per (agent, relay) pair, e.g. `session_config_captured`,
     /// mirroring the `managed_agent_runtime_lifecycle` frames.
     pub relay_url: String,
+    /// Socket path of this harness's send broker, when one is bound, so the
+    /// `[Tools]` note can name it literally.
+    ///
+    /// The path also reaches the agent process in `BUZZ_BROKER_SOCKET`, but the
+    /// harnesses this exists for strip that variable before running a tool
+    /// command — the prompt is the only channel they cannot filter. Not a
+    /// secret: see [`crate::broker`] for what does protect the socket.
+    pub broker_socket: Option<String>,
 }
 
 impl AgentPool {
@@ -886,10 +894,11 @@ async fn create_session_and_apply_model(
     let combined_system_prompt = with_canvas(
         with_core(
             with_team(
-                with_credentialed_shell(
+                with_reply_path(
                     framed_system_prompt(&ctx.cwd, ctx.base_prompt, ctx.system_prompt.as_deref()),
                     ctx.base_prompt,
                     &ctx.mcp_servers,
+                    ctx.broker_socket.as_deref(),
                 ),
                 ctx.team_instructions.as_deref(),
             ),
@@ -1255,47 +1264,97 @@ fn workspace_section(cwd: &str) -> Option<String> {
     }
 }
 
-/// Prepend the `[Tools]` note naming the shell that can authenticate `buzz`.
+/// Prepend the `[Tools]` note naming the one reply path this agent has.
 ///
-/// The base prompt tells the agent the `buzz` CLI is its primary interface and
-/// that its credentials are environment variables. That is only followable if
-/// the harness's own shell tool hands its environment to child processes. Claude
-/// Code's does; Codex's does not, and neither do harnesses that run commands
-/// through a sanitising layer. Those are given a `buzz-dev-mcp` MCP server with
-/// the credentials injected into *that server's* env — but nothing ever told the
-/// agent it was there, so it read `auth_error` (exit 3) as "I have no
-/// credentials" rather than "I used the wrong shell", and had no way to recover.
+/// The base prompt tells the agent the `buzz` CLI is its primary interface.
+/// Reaching the relay through it takes credentials, and only some harnesses
+/// hand their shell tool an environment that carries them. Claude Code's and
+/// Goose's do; Codex's does not, and neither do Hermes' or Kimi's, which run
+/// every tool command through a sanitising layer. An agent in one of those
+/// read `auth_error` (exit 3) as "I have no credentials" and stopped, because
+/// nothing had ever told it another way existed.
 ///
-/// Emitted only when a server genuinely carries `BUZZ_PRIVATE_KEY` — an agent
-/// that has no such tool must not be pointed at one — and only alongside a base
-/// prompt, which is what introduced the CLI this note is about. Prepending puts
-/// it beside `[Workspace]`, the other section that grounds the base prompt in
-/// this machine rather than adding instructions of its own.
-fn with_credentialed_shell(
+/// There are two ways round it, and an agent is told **exactly one** — two
+/// instructions for the same failure leave a model choosing, and the wrong
+/// choice is silence:
+///
+/// 1. A credentialed MCP `shell` tool, when the harness was given one. It is
+///    preferred where it exists because it restores the whole CLI rather than
+///    sending alone, and because it runs outside the harness's own sandbox —
+///    which matters for Codex, whose seatbelt policy may refuse the socket
+///    connection the broker needs.
+/// 2. The harness send broker, named by its socket path. It is the only path
+///    that exists for a harness with no MCP tools at all (Hermes has none),
+///    and it covers `buzz messages send` — the reply — and nothing else.
+///
+/// The socket path is written into the note literally, and it has to be: it is
+/// also passed in `BUZZ_BROKER_SOCKET`, and the shells this exists for strip
+/// that variable along with everything else, so the prompt is the one channel
+/// a sanitising harness cannot filter. Saying it out loud costs nothing — the
+/// path is not a secret (see [`crate::broker`]) and its protection is the mode
+/// of the directory holding it.
+///
+/// Emitted only alongside a base prompt, which is what introduced the CLI this
+/// note is about, and only when the path it names genuinely exists — an agent
+/// with neither must not be pointed at either. Prepending puts it beside
+/// `[Workspace]`, the other section that grounds the base prompt in this
+/// machine rather than adding instructions of its own.
+fn with_reply_path(
     prompt: Option<String>,
     base_prompt: Option<&str>,
     mcp_servers: &[McpServer],
+    broker_socket: Option<&str>,
 ) -> Option<String> {
     let prompt = prompt?;
     if base_prompt.is_none() {
         return Some(prompt);
     }
-    let Some(server) = mcp_servers.iter().find(|server| {
+    let note = credentialed_shell_note(mcp_servers).or_else(|| broker_note(broker_socket));
+    match note {
+        Some(note) => Some(format!("{note}\n\n{prompt}")),
+        None => Some(prompt),
+    }
+}
+
+/// The note for an agent handed an MCP server whose own environment carries the
+/// credentials. Reads the server's env list rather than assuming a name, so it
+/// cannot advertise a shell this harness was not given, and requires a non-empty
+/// value because an empty key is the same absence wearing a name.
+fn credentialed_shell_note(mcp_servers: &[McpServer]) -> Option<String> {
+    let server = mcp_servers.iter().find(|server| {
         server
             .env
             .iter()
             .any(|var| var.name == "BUZZ_PRIVATE_KEY" && !var.value.is_empty())
-    }) else {
-        return Some(prompt);
-    };
+    })?;
     Some(format!(
         "[Tools]\nThe `{}` MCP server's `shell` tool runs commands with your Buzz \
          credentials in their environment. Your harness's own shell tool may not — \
          several sanitise the environment before running anything. If `buzz` fails \
          there with an auth error (exit code 3), your credentials are not missing: \
-         run the same command through that MCP `shell` tool instead. It is the \
-         reply path that always works.\n\n{prompt}",
+         run the same command through that MCP `shell` tool instead.",
         server.name
+    ))
+}
+
+/// The note for every other agent whose harness bound a broker: the socket, the
+/// flag that names it, and the boundary of what it will send.
+///
+/// The flag goes before the subcommand because it is a global flag on `buzz`
+/// itself, like `--format`. An example in the wrong order would fail as a usage
+/// error, which is exactly the kind of dead end this note exists to end.
+fn broker_note(broker_socket: Option<&str>) -> Option<String> {
+    let socket = broker_socket.map(str::trim).filter(|s| !s.is_empty())?;
+    Some(format!(
+        "[Tools]\n`buzz` fails with an auth error (exit code 3) in a shell that was \
+         handed no Buzz credentials, and several harnesses sanitise the environment \
+         before running a tool command. That exit code does not mean you have no \
+         identity — it means that shell has none. Send the message again naming the \
+         harness's send socket:\n\n    buzz --broker-socket {socket} messages send \
+         --channel <uuid> --content \"...\"\n\nThe harness signs and sends it as you; \
+         the key stays in the harness and never reaches your shell. This serves \
+         `messages send` only — every other command still needs a shell that carries \
+         the environment. The socket path is not a secret."
     ))
 }
 
@@ -4237,12 +4296,17 @@ mod tests {
         }
     }
 
+    /// A socket path shape. Nothing binds it — the note is a string, and the
+    /// only thing asserted here is what the agent is told.
+    const BROKER_SOCKET: &str = "/tmp/buzz-acp-broker-0/s";
+
     #[test]
-    fn test_credentialed_shell_note_names_the_server_that_holds_the_key() {
-        let framed = with_credentialed_shell(
+    fn test_reply_path_note_names_the_server_that_holds_the_key() {
+        let framed = with_reply_path(
             Some("[Base]\nbase text".to_string()),
             Some("base text"),
             &[credentialed_server("buzz-dev-mcp")],
+            None,
         )
         .expect("a framed prompt stays Some");
         assert!(
@@ -4263,13 +4327,94 @@ mod tests {
         );
     }
 
+    /// Hermes has no MCP tools at all, so the socket is the only thing there is
+    /// to name — and naming it in the prompt is the only way it arrives, because
+    /// the same shell that strips the key strips `BUZZ_BROKER_SOCKET` with it.
     #[test]
-    fn test_credentialed_shell_note_omitted_without_a_credentialed_server() {
-        // No servers at all — every tier-1 harness that carries its own env.
+    fn test_reply_path_note_names_the_broker_socket_when_that_is_the_only_path() {
+        let framed = with_reply_path(
+            Some("[Base]\nbase text".to_string()),
+            Some("base text"),
+            &[],
+            Some(BROKER_SOCKET),
+        )
+        .expect("a framed prompt stays Some");
+        assert!(
+            framed.starts_with("[Tools]\n"),
+            "the note must lead the prompt: {framed}"
+        );
+        assert!(
+            framed.contains(&format!(
+                "buzz --broker-socket {BROKER_SOCKET} messages send"
+            )),
+            "the note must give the exact command, with the global flag before the \
+             subcommand — the other order is a usage error, which is another dead \
+             end: {framed}"
+        );
+        assert!(
+            framed.contains("exit code 3"),
+            "the note must name the failure it is the recovery for: {framed}"
+        );
+        assert!(
+            framed.ends_with("\n\n[Base]\nbase text"),
+            "the framed prompt must survive underneath: {framed}"
+        );
+    }
+
+    /// The reconciliation. An agent handed both is told one thing: the MCP
+    /// shell, which restores the whole CLI and runs outside the harness's
+    /// sandbox. Two recovery instructions for one failure leave a model
+    /// choosing, and the wrong choice is silence.
+    #[test]
+    fn test_reply_path_note_gives_one_instruction_when_both_paths_exist() {
+        let framed = with_reply_path(
+            Some("[Base]\nbase text".to_string()),
+            Some("base text"),
+            &[credentialed_server("buzz-dev-mcp")],
+            Some(BROKER_SOCKET),
+        )
+        .expect("a framed prompt stays Some");
         assert_eq!(
-            with_credentialed_shell(Some("[Base]\nbase".to_string()), Some("base"), &[]),
+            framed.matches("[Tools]").count(),
+            1,
+            "exactly one [Tools] section, whatever the agent was given: {framed}"
+        );
+        assert!(
+            framed.contains("`buzz-dev-mcp` MCP server's `shell` tool"),
+            "the credentialed shell is the kept path where it exists: {framed}"
+        );
+        assert!(
+            !framed.contains("--broker-socket"),
+            "the second path must not be offered alongside the first: {framed}"
+        );
+    }
+
+    /// Neither note may teach what the error message this branch deleted taught.
+    #[test]
+    fn test_no_reply_path_note_ever_suggests_a_key_on_a_command_line() {
+        for servers in [&[][..], &[credentialed_server("buzz-dev-mcp")][..]] {
+            let framed = with_reply_path(
+                Some("[Base]\nbase".to_string()),
+                Some("base"),
+                servers,
+                Some(BROKER_SOCKET),
+            )
+            .expect("a framed prompt stays Some");
+            assert!(
+                !framed.contains("--private-key") && !framed.contains("BUZZ_PRIVATE_KEY"),
+                "a note that names the key flag is how a key reaches `ps`: {framed}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_reply_path_note_omitted_when_there_is_no_path_to_name() {
+        // No servers and no broker — every harness that carries its own env
+        // into its shell, which is the setup that already worked.
+        assert_eq!(
+            with_reply_path(Some("[Base]\nbase".to_string()), Some("base"), &[], None),
             Some("[Base]\nbase".to_string()),
-            "an agent with no MCP server must not be pointed at one"
+            "an agent with a working shell must not be pointed anywhere else"
         );
 
         // A server that exists but holds no key: pointing at its shell would
@@ -4277,10 +4422,11 @@ mod tests {
         let mut keyless = credentialed_server("some-other-mcp");
         keyless.env.retain(|var| var.name != "BUZZ_PRIVATE_KEY");
         assert_eq!(
-            with_credentialed_shell(
+            with_reply_path(
                 Some("[Base]\nbase".to_string()),
                 Some("base"),
-                std::slice::from_ref(&keyless)
+                std::slice::from_ref(&keyless),
+                None,
             ),
             Some("[Base]\nbase".to_string()),
             "a server without the key is not a credentialed shell"
@@ -4294,31 +4440,52 @@ mod tests {
             }
         });
         assert_eq!(
-            with_credentialed_shell(
+            with_reply_path(
                 Some("[Base]\nbase".to_string()),
                 Some("base"),
-                std::slice::from_ref(&blank)
+                std::slice::from_ref(&blank),
+                None,
             ),
             Some("[Base]\nbase".to_string()),
             "an empty key must not advertise a working shell"
         );
+
+        // And a blank socket names nothing, exactly as the CLI reads it.
+        for socket in ["", "   "] {
+            assert_eq!(
+                with_reply_path(
+                    Some("[Base]\nbase".to_string()),
+                    Some("base"),
+                    &[],
+                    Some(socket),
+                ),
+                Some("[Base]\nbase".to_string()),
+                "a blank socket is no socket, so there is nothing to name"
+            );
+        }
     }
 
     #[test]
-    fn test_credentialed_shell_note_needs_the_base_prompt_it_talks_about() {
+    fn test_reply_path_note_needs_the_base_prompt_it_talks_about() {
         // The note is guidance about the `buzz` CLI, which only the base prompt
         // introduces. A persona-only agent gets the prompt back untouched.
         assert_eq!(
-            with_credentialed_shell(
+            with_reply_path(
                 Some("[System]\npersona".to_string()),
                 None,
                 &[credentialed_server("buzz-dev-mcp")],
+                Some(BROKER_SOCKET),
             ),
             Some("[System]\npersona".to_string())
         );
         // And nothing is invented out of no prompt at all.
         assert_eq!(
-            with_credentialed_shell(None, Some("base"), &[credentialed_server("buzz-dev-mcp")]),
+            with_reply_path(
+                None,
+                Some("base"),
+                &[credentialed_server("buzz-dev-mcp")],
+                Some(BROKER_SOCKET),
+            ),
             None
         );
     }
@@ -6568,6 +6735,7 @@ mod tests {
             memory_enabled: false,
             harness_name: "goose".to_string(),
             relay_url: "ws://127.0.0.1:3000".to_string(),
+            broker_socket: None,
         }
     }
 
