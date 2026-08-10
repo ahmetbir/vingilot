@@ -197,6 +197,16 @@ async function openDiffPane(page: Page) {
   await expect(picker).toHaveAttribute("data-state", "closed");
   await waitForAnimations(page);
   await expect(page.getByTestId("pane-diff")).toBeVisible();
+
+  // At 1700 the Diff pane is 215px, which `lib/diffLayout.ts` puts the file
+  // list *over* the patch rather than beside it: the list yields, because a
+  // 288px column in a 215px pane is what left the patch 32px on the owner's
+  // laptop (workspace-diff-fits.spec.ts measures it). Everything below is about
+  // the list keeping up with the worktree, so this opens the drawer and leaves
+  // it open — picking a file does not close it.
+  const drawer = page.getByTestId("worktree-diff-list-toggle");
+  if ((await drawer.count()) > 0) await drawer.click();
+  await expect(page.getByTestId("worktree-diff-files")).toBeVisible();
 }
 
 function calls(page: Page): Promise<DiffCall[]> {

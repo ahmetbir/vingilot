@@ -149,6 +149,7 @@ export default defineConfig({
         "**/workspace-readme-shots.spec.ts",
         "**/terminal-wheel.spec.ts",
         "**/diff-keeps-up.spec.ts",
+        "**/workspace-diff-fits.spec.ts",
         "**/vingilot-boot-mark.spec.ts",
       ],
       use: {

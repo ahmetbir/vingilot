@@ -33,6 +33,13 @@
 // where it would otherwise read as "nothing changed here" (`fileNote`,
 // `diffSummary`). The numbers come from the answer, so they are the caps that
 // were actually applied.
+//
+// **The list beside the patch is not entitled to its width.** On the owner's
+// 16-inch laptop this pane is 243px and the list was a fixed, non-shrinking
+// 288px, which left the patch 32px — the defect that sent him back to VS Code.
+// `lib/diffLayout.ts` carries the decision and the measurements; what this file
+// does is measure its own box and obey it, including the case where the list
+// stops standing beside the patch and becomes a drawer over it.
 
 import * as React from "react";
 
@@ -43,6 +50,10 @@ import {
   nextFileIndex,
   resolveDiffKey,
 } from "@/features/runs/lib/diffKeys";
+import {
+  diffListPlacement,
+  LIST_PREFERRED_PX,
+} from "@/features/runs/lib/diffLayout";
 import {
   began,
   ended,
@@ -145,6 +156,33 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
   const [readAt, setReadAt] = React.useState<number | null>(null);
   const [cursor, setCursor] = React.useState(0);
   const [open, setOpen] = React.useState(0);
+  // Whether the drawer is showing, in the layout where the list is a drawer.
+  // Closed to begin with: the pane opens on a file already (`open` starts at
+  // 0), so a drawer that opened itself would cover the very patch this layout
+  // exists to give back. It is not closed for him again either — the gesture
+  // that opened it is the one that puts it away, and a list that shut on the
+  // first Enter would fight `j`/`k` walking a forty-file worktree.
+  const [listOpen, setListOpen] = React.useState(false);
+
+  // This pane's own width, because who yields to whom is decided in pixels
+  // (`diffLayout.ts`) and no class name can express it. A layout effect so the
+  // first paint is already the right layout rather than a 288px list flashing
+  // through a 243px pane. 0 until measured, which `diffListPlacement` reads as
+  // "not measured" and never as "narrow".
+  const paneRef = React.useRef<HTMLDivElement | null>(null);
+  const [paneWidth, setPaneWidth] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const pane = paneRef.current;
+    if (pane === null) return;
+    setPaneWidth(pane.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      const measured = entries[0]?.contentRect.width;
+      if (measured !== undefined) setPaneWidth(measured);
+    });
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, []);
+  const placement = diffListPlacement(paneWidth);
 
   // The schedule lives in a ref, not in state: every read would otherwise
   // re-render the patch twice (once to say it started, once to say it
@@ -329,6 +367,7 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
       data-testid="pane-diff"
+      ref={paneRef}
     >
       <form
         // Wraps and shrinks because this is a pane now, not a full-width tab:
@@ -423,53 +462,37 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
         </p>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <ul
-            aria-label="changed files"
-            className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-border/60 py-1"
-            data-testid="worktree-diff-files"
-          >
-            {files.map((file, index) => (
-              <li key={`${file.change}:${file.path}`}>
-                <button
-                  className={`flex w-full items-baseline gap-2 px-3 py-1 text-left transition-colors ${
-                    index === open
-                      ? "bg-muted text-foreground"
-                      : index === cursor
-                        ? "bg-muted/40 text-foreground"
-                        : "text-muted-foreground hover:bg-muted/60"
-                  }`}
-                  data-testid={`worktree-diff-file-${index}`}
-                  onClick={() => {
-                    setCursor(index);
-                    setOpen(index);
-                  }}
-                  ref={index === cursor ? cursorRow : null}
-                  type="button"
-                >
-                  <span
-                    className={`shrink-0 font-mono text-2xs ${CHANGE_CLASS[changeMark(file.change)] ?? "text-muted-foreground"}`}
-                    title={changeLabel(file.change)}
-                  >
-                    {changeMark(file.change)}
-                  </span>
-                  <span
-                    className="min-w-0 flex-1 truncate text-sm"
-                    title={fileLabel(file)}
-                  >
-                    {fileLabel(file)}
-                  </span>
-                  <span className="shrink-0 font-mono text-2xs text-muted-foreground/80">
-                    {file.binary
-                      ? "bin"
-                      : `+${file.additions} −${file.deletions}`}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {placement.where === "beside" ? (
+            <FileList
+              cursor={cursor}
+              cursorRow={cursorRow}
+              files={files}
+              onPick={(index) => {
+                setCursor(index);
+                setOpen(index);
+              }}
+              open={open}
+              style={{ width: placement.listPx }}
+            />
+          ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex shrink-0 items-baseline gap-2 border-b border-border/60 px-4 py-1.5">
+              {placement.where === "over" ? (
+                // The drawer's only door, and the only place the file count is
+                // said at all in this layout — a list that is not on screen
+                // must still be countable, or "no changes" and "changes you
+                // cannot see" read the same.
+                <button
+                  aria-expanded={listOpen}
+                  className="shrink-0 rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  data-testid="worktree-diff-list-toggle"
+                  onClick={() => setListOpen((was) => !was)}
+                  type="button"
+                >
+                  {listOpen ? "▾" : "▸"} {count} file{count === 1 ? "" : "s"}
+                </button>
+              ) : null}
               <span
                 className="min-w-0 flex-1 truncate font-mono text-sm"
                 // Named so a spec can ask which file is open without reading
@@ -480,35 +503,140 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
               >
                 {shown === null ? "" : fileLabel(shown)}
               </span>
-              <span className="shrink-0 text-2xs text-muted-foreground">
-                j / k move · enter opens
-              </span>
+              {placement.where === "beside" ? (
+                <span className="shrink-0 text-2xs text-muted-foreground">
+                  j / k move · enter opens
+                </span>
+              ) : null}
             </div>
-            {note === null ? null : (
-              <p
-                className="shrink-0 border-b border-border/60 bg-muted/40 px-4 py-1.5 text-2xs text-muted-foreground"
-                data-testid="worktree-diff-file-note"
+            {/* `relative` so the drawer covers the patch and *not* the header
+                above it: the button that opens the list is in that header, and
+                a drawer laid over the whole pane would be a drawer with no way
+                out. Measured — Playwright reported the toggle intercepted by
+                the list's own rows. */}
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+              {note === null ? null : (
+                <p
+                  className="shrink-0 border-b border-border/60 bg-muted/40 px-4 py-1.5 text-2xs text-muted-foreground"
+                  data-testid="worktree-diff-file-note"
+                >
+                  {note}
+                </p>
+              )}
+              {/* Named because the width of *this* box is the defect: it is
+                  what "the diff does not fit" was measured on (32px of client
+                  against 704px of content), and a spec cannot ask about it
+                  through the pane, which fits fine. */}
+              <div
+                className="min-h-0 flex-1 overflow-auto px-4 py-2"
+                data-testid="worktree-diff-patch"
               >
-                {note}
-              </p>
-            )}
-            <div className="min-h-0 flex-1 overflow-auto px-4 py-2">
-              <div className="flex w-max min-w-full flex-col font-mono text-xs">
-                {(patch?.lines ?? []).map((line, i) => (
-                  <span
-                    className={`whitespace-pre ${DIFF_LINE_CLASS[line.kind]}`}
-                    // biome-ignore lint/suspicious/noArrayIndexKey: patch lines are positional content, never reordered
-                    key={i}
-                  >
-                    {line.text === "" ? " " : line.text}
-                  </span>
-                ))}
+                <div className="flex w-max min-w-full flex-col font-mono text-xs">
+                  {(patch?.lines ?? []).map((line, i) => (
+                    <span
+                      className={`whitespace-pre ${DIFF_LINE_CLASS[line.kind]}`}
+                      // biome-ignore lint/suspicious/noArrayIndexKey: patch lines are positional content, never reordered
+                      key={i}
+                    >
+                      {line.text === "" ? " " : line.text}
+                    </span>
+                  ))}
+                </div>
               </div>
+              {placement.where === "over" && listOpen ? (
+                <FileList
+                  cursor={cursor}
+                  cursorRow={cursorRow}
+                  files={files}
+                  onPick={(index) => {
+                    setCursor(index);
+                    setOpen(index);
+                  }}
+                  open={open}
+                  // Over the patch, not beside it: the pane cannot seat both,
+                  // and this is the half that yields.
+                  over
+                  style={{ maxWidth: LIST_PREFERRED_PX }}
+                />
+              ) : null}
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+/** The changed files, in one component because there are two places to put
+ * them and only one list.
+ *
+ * `over` is the whole difference: beside the patch it is a column of the row
+ * with a width the caller decided; over the patch it is a sheet inside the
+ * patch's own box, capped at what the list is worth and never wider than the
+ * pane. Same rows, same testids, same keys — a spec asking about the list
+ * should not have to know which layout it is in. */
+function FileList({
+  cursor,
+  cursorRow,
+  files,
+  onPick,
+  open,
+  over = false,
+  style,
+}: {
+  cursor: number;
+  cursorRow: React.RefObject<HTMLButtonElement | null>;
+  files: WorktreeDiff["files"];
+  onPick: (index: number) => void;
+  open: number;
+  over?: boolean;
+  style: React.CSSProperties;
+}) {
+  return (
+    <ul
+      aria-label="changed files"
+      className={
+        over
+          ? "absolute inset-y-0 left-0 z-10 flex w-full flex-col overflow-y-auto border-r border-border/60 bg-popover py-1 shadow-xl"
+          : "flex shrink-0 flex-col overflow-y-auto border-r border-border/60 py-1"
+      }
+      data-testid="worktree-diff-files"
+      style={style}
+    >
+      {files.map((file, index) => (
+        <li key={`${file.change}:${file.path}`}>
+          <button
+            className={`flex w-full items-baseline gap-2 px-3 py-1 text-left transition-colors ${
+              index === open
+                ? "bg-muted text-foreground"
+                : index === cursor
+                  ? "bg-muted/40 text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60"
+            }`}
+            data-testid={`worktree-diff-file-${index}`}
+            onClick={() => onPick(index)}
+            ref={index === cursor ? cursorRow : null}
+            type="button"
+          >
+            <span
+              className={`shrink-0 font-mono text-2xs ${CHANGE_CLASS[changeMark(file.change)] ?? "text-muted-foreground"}`}
+              title={changeLabel(file.change)}
+            >
+              {changeMark(file.change)}
+            </span>
+            <span
+              className="min-w-0 flex-1 truncate text-sm"
+              title={fileLabel(file)}
+            >
+              {fileLabel(file)}
+            </span>
+            <span className="shrink-0 font-mono text-2xs text-muted-foreground/80">
+              {file.binary ? "bin" : `+${file.additions} −${file.deletions}`}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
