@@ -27,6 +27,101 @@ Three columns, left to right (`ui/RunsScreen.tsx`):
 A persistent `ProjectStatusBar` names where the owner is and what is backing
 the terminals.
 
+## Where attention is needed
+
+The owner asked for dashboards on 2026-08-09 and pointed at two products —
+**nodeterm** (per-agent "RUNNING / NEEDS YOU" badges, a notification when a turn
+completes, every project doubling as a board of sessions) and **VelaTerm**
+(per-session status dots in the sidebar, an OS notification when an agent stops
+and waits) — saying *"fikirden alıntı yapabiliriz"*. What was borrowed is the
+logic, not the chrome: **the workspace answers "where is my attention needed"
+without being asked.** There are no charts here, and every state below is a
+signal this app already holds.
+
+**A dot that guesses is worse than no dot.** It is read from across the room and
+believed without being checked, so the first time it is wrong the owner stops
+looking at the surface, not just the row. Hence the inventory: each state, what
+it is derived from, and how current that answer actually is
+(`lib/attentionSignal.ts` derives, `ui/AttentionDot.tsx` draws, and nothing else
+in the island derives a second opinion about the same worktree).
+
+| state | drawn when | source of truth | refresh |
+|---|---|---|---|
+| **needs you** — rose diamond | the run that owns this worktree is `paused` or `blocked` (`runAttention`'s `waiting`, the run rail's own grouping, not a second table) | the coordinator's worktree rows: `owner_run_status` | every **2 s** (`lib/usePolling.ts`, `DEFAULT_INTERVAL_MS`), for every worktree in the workspace — so a project the owner is not standing in is as current as the one he is |
+| **working** — emerald pulsing circle | that run is `provisioning`, `ready`, `running` or `verifying`; **or** this app's one in-flight ACP turn was started in this worktree's directory | the same coordinator rows; `lib/askStore.ts`'s single `AskInFlight {id, cwd}` | 2 s for the run; the ask slot is **pushed**, not polled (`useSyncExternalStore`, held until `settleAsk`) |
+| **dirty** — amber square | `WorktreeStat.dirty` | git itself: four short reads per worktree in `src-tauri/src/vingilot_worktree/stat.rs` (`rev-parse --git-dir`, `rev-parse --verify HEAD`, `diff --numstat -z HEAD`, `ls-files --others`), never `WorktreeDiff`'s per-file patches | every **5 s** (`lib/useWorktreeStats.ts`, `REFRESH_MS`), one read in flight at a time, cached — a slow or failed read leaves the last numbers standing rather than printing zeros. A create, a remove or a project switch re-reads at once |
+| **quiet** — hollow ring | git answered *and* said clean, and no run is pressing. The sentence names a run that ended `failed` or `cancelled` (`endedBadly`), and the mark carries that ending so the rollups above it cannot sum it away | git, as above, plus `owner_run_status` | as the two rows above |
+| **no dot** | nothing has answered: no usable stat (an unreadable path, no derivable cwd, or the tail past the backend's 64-path `MAX_PATHS`) and no run pressing | — | — |
+
+**Precedence, written down:** needs you > working > dirty > quiet. It is the
+order of what changes next if nothing is done. It is deliberately *not*
+`lib/worktreeAttention.ts`'s row ordering, which puts dirty first because that
+list ranks by what can be **lost**.
+
+**A project's dot is the strongest state among its worktrees** (`rollupMark`),
+so the nav answers "which project needs me" without opening one. The three loud
+states are existence claims and survive a silent sibling; "nothing needs you"
+is a claim about *all* of them, so **one worktree nothing has answered about
+costs a project its quiet dot** rather than being absorbed into a sentence that
+does not mention it.
+
+**Two signals were considered and dropped, visibly.** *Terminal liveness*: tmux
+is probed once per app run and cached for its lifetime, there is no
+`has-session` query and no exit event on `vingilot://pty`, so "a terminal is
+busy here" is not a question this app can answer — and the tab layout is not a
+substitute, being the app's guess about itself. *"An answer arrived and has not
+been seen"*: nothing marks an ask exchange read, so as a dot it would burn
+forever on every worktree ever asked a question. It survives as an
+**interruption** instead, which needs no seen mark.
+
+### The one notification, and the rule that keeps it quiet
+
+Dots are standing claims; a notification is an interruption. So nothing is fired
+from a single reading — `lib/attentionNotice.ts` compares **two** readings and
+speaks only on the edge into `needs you`, plus the moment an ask turn this app
+started settles. A worktree with no previous reading only primes: firing on it
+would deliver the backlog as interruptions every time the owner navigates back.
+
+> **Suppression rule (`suppressed`, one pure function):** a notification is
+> **not** sent when this app's window has OS focus **and** the worktree it is
+> about is the one on screen. Both halves are needed — a focused window showing
+> another worktree does not cover this one, and this worktree selected behind
+> the owner's browser is not being looked at.
+
+It is the *surface*, not the sidebar: a sibling row going `needs you` still
+speaks, because its dot in the column is an indicator he reads when he chooses
+to and the point of the channel is reaching him when he is not reading. Clicking
+lands on the worktree that needs him. The whole feature is one row in the
+notification settings — the `workspace` slot, "Workspace: needs you", default
+on, beside the four disabled `job_*` slots it deliberately did not squat in.
+
+### Landing is the dashboard
+
+Both landing states are the same board (`lib/triage.ts`, `ui/TriageBoard.tsx`):
+**Deck** (no project selected) grows it under the run composer, and a selected
+project with no worktree — a literally blank "select a worktree" panel before —
+shows the same board filtered to that project. One component, two filters, in
+DeckPane's existing idiom rather than a new pane or a chart page.
+
+Every project × worktree is one row: Task 1's dot **carried, never re-derived**,
+the branch, the same `rowDetail` line the worktree column puts under the same
+worktree, and one date. Ordering is attention-first and stable within a rank,
+with the rows nothing has answered about **last** — an unknown row ranked above
+a quiet one would leap to the top of the board and drop back seconds later,
+moving under him for a reason nothing on screen explains. Every row is a door
+onto that worktree, in a project that need not have been open.
+
+**The date is the coordinator's `updated_at` for the run that owns the row, or
+there is none.** A stat observation time was offered and dropped: the stats are
+re-read on one 5 s timer, so it would print the same "3 s ago" on every row —
+a column spending the owner's trust to say nothing. A worktree no run owns
+carries no date rather than borrowing one.
+
+The sentence over the board is `rollupMark`'s, so the headline and the project
+dot cannot disagree — including about a run that stopped without finishing:
+"nothing needs you" is a real answer and a good one, but not over a worktree
+whose run failed.
+
 ## Key map
 
 Worktree and terminal chords (`lib/terminalKeys.ts`, `resolveKey`):
