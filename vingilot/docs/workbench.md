@@ -1400,7 +1400,7 @@ every other Dock icon. The glow is dropped: at 16px it is not a glow, it is a
 halo that closes the gap between the sails.
 
 The menu bar gets a separate asset, because a dark plate among monochrome
-glyphs is wrong there. It is a 44×40 alpha-only template image — 44 is 22pt at
+glyphs is wrong there. It is a 40×44 alpha-only template image — 44 is 22pt at
 2x, the same budget upstream's 43px bee uses — which macOS tints for the light
 and dark menu bar. Rendered at 44, 36, 32, 22, 18 and 16px against both, the
 sails stop separating below about 32px; 44 is the number that is defended.

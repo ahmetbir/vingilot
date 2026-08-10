@@ -11,7 +11,7 @@
 //! painting — so the alpha plane is derived offline by
 //! `vingilot/brand/derive-mark.py` and embedded here. Only alpha is stored:
 //! colour channels would be three quarters of the bytes and macOS throws them
-//! away. The result is 1,760 bytes in the binary.
+//! away. The result is 40 wide by 44 tall — 1,760 bytes in the binary.
 
 use tauri::image::Image;
 
@@ -25,7 +25,8 @@ const TRAY_ALPHA: &[u8] = include_bytes!("tray-mark.gray");
 const TRAY_HEIGHT: u32 = 44;
 
 /// Width follows from the asset rather than being asserted separately, so a
-/// re-derivation that changes the mark's proportions cannot stretch it.
+/// re-derivation that changes the mark's proportions cannot stretch it. The
+/// committed asset is 1,760 bytes, so this is 40.
 const TRAY_WIDTH: u32 = (TRAY_ALPHA.len() / TRAY_HEIGHT as usize) as u32;
 
 /// A half-written or wrong-height asset would otherwise reach `Image` as a
@@ -33,7 +34,7 @@ const TRAY_WIDTH: u32 = (TRAY_ALPHA.len() / TRAY_HEIGHT as usize) as u32;
 /// surface as a garbled tray icon at runtime instead of a build error.
 const _: () = assert!(
     TRAY_ALPHA.len() == (TRAY_WIDTH * TRAY_HEIGHT) as usize,
-    "tray-mark.gray length is not a whole number of 44-pixel rows"
+    "tray-mark.gray length is not a whole number of 44-pixel columns"
 );
 
 /// The mark as an RGBA image whose colour channels are zero, ready for
@@ -60,21 +61,28 @@ mod tests {
 
     /// A mark that is mostly transparent is invisible in the menu bar, and a
     /// mark that is mostly opaque is a solid block. Both are indistinguishable
-    /// from a correct file by size alone, so assert the ink instead: the
-    /// committed asset covers about a fifth of its box.
+    /// from a correct file by size alone, so assert the ink instead: measured
+    /// on the committed asset, 0.302 of its pixels are more than half opaque.
+    /// The band is wide because it guards the two failures that are worth
+    /// catching — a nearly empty file and a solid block — not the third
+    /// decimal of a re-derivation.
     #[test]
     fn tray_mark_carries_a_legible_amount_of_ink() {
         let opaque = TRAY_ALPHA.iter().filter(|&&a| a > 128).count();
         let coverage = opaque as f32 / TRAY_ALPHA.len() as f32;
         assert!(
             (0.10..0.45).contains(&coverage),
-            "tray mark covers {coverage:.3} of its box; expected roughly a fifth"
+            "tray mark covers {coverage:.3} of its box; expected roughly 0.3"
         );
     }
 
-    /// The colour channels must stay zero. macOS ignores them for a template
-    /// image, but Windows and Linux do not use template images at all — a
-    /// non-zero colour here would ship a black-on-black tray icon there.
+    /// The colour channels must stay zero. macOS reads only alpha from a
+    /// template image, so a wrong colour here changes nothing on the surface
+    /// this module ships to — which is exactly why it needs a test. The asset
+    /// on disk holds alpha alone and the RGB planes are synthesized above; the
+    /// day this image is drawn untemplated (`icon_as_template(false)`, a window
+    /// or notification icon) a leaked synthesis paints the mark in whatever
+    /// colour got in.
     #[test]
     fn tray_mark_leaves_colour_channels_black() {
         let icon = tray_mark_icon();
