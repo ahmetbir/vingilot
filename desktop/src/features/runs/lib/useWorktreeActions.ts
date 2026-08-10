@@ -1,7 +1,7 @@
 // Opening and closing a project's worktrees, as the callbacks the worktree
 // column needs (vingilot/docs/plans/2026-08-07-workspace-v1.md, Task 6).
 //
-// The same split `useProjectActions.ts` uses, for the same reason: this hook
+// The same split `useLocalProjects.ts` uses, for the same reason: this hook
 // owns sequencing and the transient state a button needs, and no decisions.
 // Where a worktree lands and what may be removed are `worktreePlan.ts`; what
 // a git listing means is `worktreeGit.ts`; the calls are `worktreeClient.ts`.

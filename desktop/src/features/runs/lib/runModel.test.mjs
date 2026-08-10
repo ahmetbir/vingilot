@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { railGroups, statusClass, wallClock } from "./runModel.ts";
+import { endedBadly, railGroups, statusClass, wallClock } from "./runModel.ts";
 
 const ALL_STATUSES = [
   "draft",
@@ -88,6 +88,22 @@ test("statusClass is total over all 10 statuses", () => {
     assert.ok(
       ["live", "ok", "attn", "stop", "muted"].includes(cls),
       `status ${status} -> ${cls}`,
+    );
+  }
+});
+
+test("endedBadly is the two statuses that stopped without finishing", () => {
+  // `completed` is the trap: it is terminal too, and it is not a failure. The
+  // set is whatever `statusClass` calls `stop`, which is where the column's old
+  // destructive dot took its hue from.
+  assert.equal(endedBadly("failed"), "failed");
+  assert.equal(endedBadly("cancelled"), "cancelled");
+  assert.equal(endedBadly(null), null);
+  for (const status of ALL_STATUSES) {
+    assert.equal(
+      endedBadly(status) === null,
+      statusClass(status) !== "stop",
+      status,
     );
   }
 });

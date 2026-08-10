@@ -416,6 +416,32 @@ test("a change with no lines on either side still reads as a change", () => {
   );
 });
 
+test("a clean row still says its run stopped without finishing", () => {
+  // The signal the column's old destructive status dot carried, kept in words:
+  // the tree is clean and the run failed, and neither fact implies the other.
+  for (const status of ["failed", "cancelled"]) {
+    assert.equal(
+      rowDetail({
+        attention: "clean",
+        index: 0,
+        stat: stat(),
+        worktree: task("fix", status),
+      }),
+      `clean · ${status}`,
+      status,
+    );
+  }
+  assert.equal(
+    rowDetail({
+      attention: "clean",
+      index: 0,
+      stat: stat(),
+      worktree: task("fix", "completed"),
+    }),
+    "clean",
+  );
+});
+
 test("a row says clean only when git said so", () => {
   assert.equal(
     rowDetail({

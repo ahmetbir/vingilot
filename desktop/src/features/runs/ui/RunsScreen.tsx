@@ -11,6 +11,11 @@
 // unreachable-since clock, the STOP-all action, and the home-dir
 // resolution every terminal's cwd derives from.
 //
+// The polls' cadence is not a constant here either: on a machine where nothing
+// has ever answered, hammering 127.0.0.1 every 2s forever is noise against a
+// port that is not going to be listening (`lib/reachability.ts` decides when
+// that settles, and the banner says so in words).
+//
 // It is also where the collapsible chrome is bound (`lib/useColumns.ts`),
 // for the same reason: the flag is per project and must outlive both the
 // column it hides and any switch between projects. The pane arrangement
@@ -46,7 +51,6 @@ import {
 import {
   DEFAULT_WORKTREE_ROOT_SUFFIX,
   groupWorktrees,
-  readRepos,
   type Repo,
   worktreeCwd,
 } from "@/features/runs/lib/projects";
@@ -55,14 +59,11 @@ import {
   ptyClose,
   type PtyBacking,
 } from "@/features/runs/lib/ptyClient";
-import type { RunSummary } from "@/features/runs/lib/runModel";
-import type { Scratch } from "@/features/runs/lib/scratchTerminal";
 import {
-  closeScratch,
-  openScratch,
-  scratchBlocked,
-  scratchOnWorktree,
-} from "@/features/runs/lib/scratchTerminal";
+  controlPlaneKind,
+  controlPlanePollMs,
+} from "@/features/runs/lib/reachability";
+import type { RunSummary } from "@/features/runs/lib/runModel";
 import {
   openTerminals,
   worktreeIndex,
@@ -105,16 +106,12 @@ import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
 import { useProjectDocuments } from "@/features/runs/lib/useDocument";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
-import { useProjectActions } from "@/features/runs/lib/useProjectActions";
+import { useAttentionNotices } from "@/features/runs/lib/useAttentionNotices";
+import { useLocalProjects } from "@/features/runs/lib/useLocalProjects";
+import { useScratchTerminal } from "@/features/runs/lib/useScratchTerminal";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
-import {
-  useWorktreeStats,
-  type WorktreeTarget,
-} from "@/features/runs/lib/useWorktreeStats";
-import {
-  orderWorktrees,
-  prunableWorktrees,
-} from "@/features/runs/lib/worktreeAttention";
+import { useWorktreeSignals } from "@/features/runs/lib/useWorktreeSignals";
+import { prunableWorktrees } from "@/features/runs/lib/worktreeAttention";
 import {
   unlistedWorktrees,
   withLocalGroups,
@@ -127,7 +124,8 @@ import { PlanWorktreeDialog } from "@/features/runs/ui/PlanWorktreeDialog";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
-import { UnreachableBanner } from "@/features/runs/ui/UnreachableBanner";
+import { TriageBoard } from "@/features/runs/ui/TriageBoard";
+import { ControlPlaneBanner } from "@/features/runs/ui/ControlPlaneBanner";
 import { paneEntry, paneProbes } from "@/features/runs/ui/paneRegistry";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
 import { WorktreeColumn } from "@/features/runs/ui/WorktreeColumn";
@@ -138,16 +136,22 @@ const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 const POLL_INTERVAL_MS = 2000;
 
 export function RunsScreen() {
+  // The cadence all three coordinator polls run at. State rather than a plain
+  // derivation because it is decided by what those polls report, and a value
+  // can only be chosen from what the previous tick found — it is adjusted
+  // during render below, the same way `useDocument` re-reads on a key change.
+  const [pollMs, setPollMs] = React.useState(POLL_INTERVAL_MS);
   const {
     data: runsData,
+    lastOk,
     reachable,
     retryNow,
-  } = usePolling(() => listRuns(WORKSPACE_ID), POLL_INTERVAL_MS);
+  } = usePolling(() => listRuns(WORKSPACE_ID), pollMs);
   const runs: RunSummary[] = runsData ?? [];
 
   const { data: worktreesData } = usePolling(
     React.useCallback(() => listWorktrees(WORKSPACE_ID), []),
-    POLL_INTERVAL_MS,
+    pollMs,
   );
   const worktrees = worktreesData ?? [];
 
@@ -157,12 +161,31 @@ export function RunsScreen() {
   );
   const { data: workspaceSnapshot } = usePolling(
     fetchWorkspaceSnapshot,
-    POLL_INTERVAL_MS,
+    pollMs,
   );
-  const repos = React.useMemo(
-    () => readRepos(workspaceSnapshot ? workspaceSnapshot.state : null),
-    [workspaceSnapshot],
+  // What to do about a project that just left the list — closing its shells —
+  // needs the worktree grouping, which is derived from the list itself, so it
+  // cannot be defined above the hook that produces the list. The ref is how
+  // that knot is untied: it is assigned once the real callback exists, a few
+  // hundred lines down, and read only when a removal actually happens.
+  const handleProjectRemovedRef = React.useRef<(repoId: string) => void>(
+    () => {},
   );
+  const onProjectRemoved = React.useCallback(
+    (repoId: string) => handleProjectRemovedRef.current(repoId),
+    [],
+  );
+
+  // The project list is local and is the authority for what this screen shows
+  // (`lib/useLocalProjects.ts`). The workspace document is where it is PUSHED
+  // when a coordinator is reachable, and — once, on a machine whose list is
+  // still empty — where it is seeded from.
+  const projectActions = useLocalProjects({
+    onRemoved: onProjectRemoved,
+    snapshot: workspaceSnapshot,
+    workspaceId: WORKSPACE_ID,
+  });
+  const repos = projectActions.repos;
   // The moment reachability first flipped false — null while reachable.
   const [unreachableSince, setUnreachableSince] = React.useState<Date | null>(
     null,
@@ -180,6 +203,20 @@ export function RunsScreen() {
     const handle = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(handle);
   }, []);
+
+  // Which of the two sentences the workspace is entitled to say, and how hard
+  // it should keep looking (`lib/reachability.ts`). `lastOk` is the whole of
+  // the evidence that a control plane exists on this machine: nothing
+  // configures one, so an answer is the only thing that can tell a coordinator
+  // that went down apart from a machine that never had one.
+  const controlPlane = controlPlaneKind(reachable, lastOk !== null);
+  const nextPollMs = controlPlanePollMs(
+    controlPlane,
+    unreachableSince,
+    now,
+    POLL_INTERVAL_MS,
+  );
+  if (nextPollMs !== pollMs) setPollMs(nextPollMs);
 
   // Workspace bootstrap: the dev workspace id is hardcoded above, but the
   // row may not exist yet on a fresh coordinator DB. GET first; if that
@@ -339,30 +376,38 @@ export function RunsScreen() {
     [repos, grouped],
   );
 
-  const knownWorktrees =
-    selectedRepoId !== null ? (grouped.byRepo[selectedRepoId] ?? []) : [];
-
-  // git's own read of the open project's worktrees — what is uncommitted in
-  // each, which is what the column orders by. Only the open project: the other
-  // projects' rows are not on screen, and this is `git` subprocesses.
-  const statTargets = React.useMemo<WorktreeTarget[]>(
-    () =>
-      selectedRepo === null || worktreeRoot === null
-        ? []
-        : knownWorktrees.flatMap((wt) => {
-            const path = worktreeCwd(selectedRepo, wt, worktreeRoot);
-            return path === null ? [] : [{ id: wt.binding_id, path }];
-          }),
-    [knownWorktrees, selectedRepo, worktreeRoot],
+  // What is true of every project's worktrees right now — git's numstat, the
+  // attention dots this screen's columns draw, the triage board both landing
+  // surfaces render, and the row order the ⌘1…9 map follows. All one subject,
+  // and it has its own module (which also carries what the numstat costs).
+  const signals = useWorktreeSignals(
+    repos,
+    grouped,
+    selectedRepo,
+    worktreeRoot,
+    runs,
   );
-  const worktreeStats = useWorktreeStats(statTargets);
+  const repoWorktrees = signals.ordered;
 
-  // One ordering, shared: the column renders it and the ⌘1…9 map is built from
-  // it, so the digit beside a row is the digit that selects it.
-  const repoWorktrees = React.useMemo(
-    () => orderWorktrees(knownWorktrees, worktreeStats),
-    [knownWorktrees, worktreeStats],
-  );
+  // Where a notification lands. Both ids together, because `selectRepo` clears
+  // the worktree and the effect below would then put him on the project's
+  // primary checkout — the app's last state, which is what the notification
+  // existed to skip past.
+  const openWorktree = React.useCallback((repoId: string, id: string) => {
+    setSelectedRepoId(repoId);
+    setSelectedWorktreeId(id);
+  }, []);
+
+  // The workspace speaking when he is not looking at it (lib/attentionNotice.ts
+  // for what it will and will not say; this screen is the only place with both
+  // the signals and the selection its rule compares against).
+  useAttentionNotices({
+    index,
+    marks: signals.byWorktree,
+    onOpen: openWorktree,
+    selectedWorktreeId,
+    worktreeRoot,
+  });
 
   // Entering a project with no worktree picked yet lands on its primary
   // checkout (or the first worktree, if there's no primary) rather than an
@@ -403,63 +448,8 @@ export function RunsScreen() {
     for (const sessionId of closed) void ptyClose(sessionId);
   }, [tabLayout, index, worktreeActions.settled, worktreeActions.unreadable]);
 
-  // The scratch shell, which is deliberately **not** part of the tab layout
-  // above: entering it would put this session in the saved layout and in the
-  // worktree's strip at once, and give ⇧⌘W a claim on it
-  // (`lib/scratchTerminal.ts`). It is held here for the reason the layout is —
-  // `WorkSurface` unmounts on the way to the landing view — and it is one
-  // nullable value beside it, never inside it.
-  const [scratch, setScratch] = React.useState<Scratch>(null);
-  // The ordinal the next scratch takes. Only ever rises, so a closed shell's
-  // id is never handed to a later one — the same argument `nextN` makes for a
-  // strip, and the same race it defends against.
-  const nextScratch = React.useRef(1);
-
-  const applyScratch = React.useCallback(
-    (change: { closed: readonly string[]; scratch: Scratch }) => {
-      setScratch(change.scratch);
-      for (const sessionId of change.closed) void ptyClose(sessionId);
-    },
-    [],
-  );
-
-  // This screen going away is the third door, and nothing was watching it.
-  //
-  // `RunsScreen` unmounts on any route change, on a reload, and on the
-  // community remount — none of which is an app run, and none of which closed
-  // the shell. It kept running behind nothing, and `nextScratch` is a ref, so
-  // the remount started the ordinals at 1 again: `pty_open` found that id still
-  // registered, took its replay branch, and returned **before** the spawn and
-  // before the cwd was applied. The next ⌥⌘T then drew the previous worktree's
-  // live shell, with its scrollback and its real cwd, under a header printing
-  // the new worktree's path.
-  //
-  // Read through a ref because a cleanup closes over the render it was created
-  // in, and the session that has to be ended is whichever one is open at the
-  // moment the screen goes — not whichever one existed when this effect ran.
-  const scratchNow = React.useRef<Scratch>(null);
-  scratchNow.current = scratch;
-  React.useEffect(
-    () => () => {
-      const open = scratchNow.current;
-      if (open !== null) void ptyClose(open.sessionId);
-    },
-    [],
-  );
-
-  // The owner went somewhere else. A shell kept alive behind a surface that no
-  // longer draws it is exactly the residue this terminal exists not to leave —
-  // and its header names a checkout that is no longer the one on screen.
-  React.useEffect(() => {
-    const change = scratchOnWorktree(scratch, selectedWorktreeId);
-    // Reference equality is the model's own "nothing happened" (staying put
-    // returns the same value), so this re-runs freely and acts only on a move.
-    if (change.scratch === scratch) return;
-    applyScratch(change);
-  }, [applyScratch, scratch, selectedWorktreeId]);
-
-  // The other one: the owner closed a tab. Unlike a worktree switch, that is a
-  // real close — the pty is killed and its tmux session ended.
+  // The owner closed a tab. A worktree switch leaves a strip's shells running;
+  // this is a real close — the pty is killed and its tmux session ended.
   const runTabCommand = React.useCallback(
     (command: TabCommand) => {
       if (selectedWorktreeId === null) return;
@@ -496,11 +486,7 @@ export function RunsScreen() {
     },
     [grouped, tabLayout, selectedRepoId, selectLanding],
   );
-
-  const projectActions = useProjectActions({
-    onRemoved: handleProjectRemoved,
-    workspaceId: WORKSPACE_ID,
-  });
+  handleProjectRemovedRef.current = handleProjectRemoved;
 
   const terminals = React.useMemo(
     () => openTerminals(tabLayout, index, worktreeRoot),
@@ -521,47 +507,15 @@ export function RunsScreen() {
       ? null
       : worktreeCwd(selectedRepo, selectedWorktree, worktreeRoot);
 
-  // Both doors to the scratch shell, over one rule. `scratchBlocked` is the
-  // same function the palette row's sentence comes from, so a chord cannot
-  // open a shell the palette says it will not, and neither of them can open
-  // one somewhere arbitrary.
-  const openScratchHere = React.useCallback(() => {
-    if (
-      selectedWorktreeId === null ||
-      selectedWorktreeCwd === null ||
-      scratchBlocked(selectedWorktreeId, selectedWorktreeCwd, !rootSettled) !==
-        null
-    ) {
-      return;
-    }
-    const change = openScratch(scratch, {
-      bindingId: selectedWorktreeId,
-      cwd: selectedWorktreeCwd,
-      nonce: nextScratch.current,
-    });
-    // Consumed only when it produced a new shell — reopening onto the one
-    // already running must not burn an ordinal, or the numbers would count
-    // key presses rather than shells.
-    if (change.scratch !== scratch) nextScratch.current += 1;
-    applyScratch(change);
-  }, [
-    applyScratch,
-    rootSettled,
-    scratch,
-    selectedWorktreeCwd,
-    selectedWorktreeId,
-  ]);
-
-  const closeScratchNow = React.useCallback(() => {
-    applyScratch(closeScratch(scratch));
-  }, [applyScratch, scratch]);
-
-  // ⌥⌘T both ways: a key that opens a surface and then does nothing is a key
-  // the owner presses twice looking for the way out.
-  const toggleScratch = React.useCallback(() => {
-    if (scratch !== null) closeScratchNow();
-    else openScratchHere();
-  }, [closeScratchNow, openScratchHere, scratch]);
+  // The scratch shell and every door into it (`lib/useScratchTerminal.ts`).
+  // Held here rather than in `WorkSurface` for the reason the tab layout is:
+  // that component unmounts on the way to the landing view, and a shell it
+  // forgot on the way out would run with nothing tracking it.
+  const scratch = useScratchTerminal({
+    cwd: selectedWorktreeCwd,
+    cwdPending: !rootSettled,
+    worktreeId: selectedWorktreeId,
+  });
 
   // What the panes are allowed to know about the worktree under them
   // (lib/paneModel.ts). `cwdPending` is the distinction that keeps a pane from
@@ -711,7 +665,7 @@ export function RunsScreen() {
           // Opens, never toggles: a row called "Scratch terminal" that closed
           // one would be a row whose label lied about what Enter does. The
           // chord is the toggle.
-          openScratchHere();
+          scratch.open();
           return;
         case "open-cheatsheet":
           sheet.show();
@@ -755,7 +709,7 @@ export function RunsScreen() {
       columns.toggleWorktrees,
       openPlanWorktree,
       openPrune,
-      openScratchHere,
+      scratch.open,
       panes.choose,
       panes.state.solo,
       panes.toggleSolo,
@@ -824,13 +778,13 @@ export function RunsScreen() {
         prunePreview !== null ||
         removingProject !== null,
       palette: palette.open,
-      scratch: scratch !== null,
+      scratch: scratch.session !== null,
     },
     {
       cheatsheet: sheet.close,
       dialog: dismissDialogs,
       palette: palette.close,
-      scratch: closeScratchNow,
+      scratch: scratch.close,
     },
   );
 
@@ -862,16 +816,21 @@ export function RunsScreen() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ProjectsNav
           confirming={removingProject}
+          coordinatorNotice={projectActions.coordinatorNotice}
           error={projectActions.error}
+          importNotice={projectActions.importNotice}
           onAddProject={projectActions.addProject}
           onConfirmingChange={setRemovingProject}
           onDismissError={projectActions.dismissError}
+          onDismissImportNotice={projectActions.dismissImportNotice}
           onRemoveProject={projectActions.removeProject}
           onSelectLanding={selectLanding}
           onSelectRepo={selectRepo}
+          marks={signals.byRepo}
           pending={projectActions.pending}
           repos={repos}
           selectedRepoId={selectedRepoId}
+          storeNotice={projectActions.storeNotice}
         />
 
         {/* Everything right of the project nav, in a box the palette can be
@@ -884,17 +843,18 @@ export function RunsScreen() {
               aria-label="workspace"
               className="flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-              <UnreachableBanner
-                intervalMs={POLL_INTERVAL_MS}
+              <ControlPlaneBanner
+                intervalMs={pollMs}
+                kind={controlPlane}
                 now={now}
                 onRetryNow={retryNow}
-                reachable={reachable}
                 since={unreachableSince}
               />
               {selectedRunId === null ? (
                 <DeckPane
+                  board={{ model: signals.triage, onOpen: openWorktree }}
+                  controlPlane={controlPlane}
                   onOpenRun={openRun}
-                  reachable={reachable}
                   runs={runs}
                   workspaceId={WORKSPACE_ID}
                 />
@@ -908,6 +868,7 @@ export function RunsScreen() {
                 actions={worktreeActions}
                 collapsed={columns.worktreesCollapsed}
                 creating={creatingWorktree}
+                marks={signals.byWorktree}
                 onCreatingChange={setCreatingWorktree}
                 onOpenPrune={openPrune}
                 onPrunePreviewChange={setPrunePreview}
@@ -916,30 +877,36 @@ export function RunsScreen() {
                 prunePreview={prunePreview}
                 repo={selectedRepo}
                 selectedWorktreeId={selectedWorktreeId}
-                stats={worktreeStats}
+                stats={signals.stats}
                 worktreeRoot={worktreeRoot}
                 worktrees={repoWorktrees}
               />
               {selectedWorktree === null ? (
+                // The same board the Deck draws, narrowed to this project —
+                // the panel used to say "select a worktree" over nothing.
                 <main
                   aria-label="workspace"
-                  className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+                  className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5"
                 >
-                  select a worktree
+                  <TriageBoard
+                    model={signals.triage}
+                    onOpen={openWorktree}
+                    repoId={selectedRepo.id}
+                  />
                 </main>
               ) : (
                 <WorkSurface
                   documents={documents}
-                  onCloseScratch={closeScratchNow}
+                  onCloseScratch={scratch.close}
                   onPaneAct={runPaneAct}
                   onSelectWorktree={setSelectedWorktreeId}
                   onTabCommand={runTabCommand}
-                  onToggleScratch={toggleScratch}
+                  onToggleScratch={scratch.toggle}
                   paneContext={paneContext}
                   panes={panes}
-                  reachable={reachable}
+                  controlPlane={controlPlane}
                   runs={runs}
-                  scratch={scratch}
+                  scratch={scratch.session}
                   selectedWorktreeId={selectedWorktreeId}
                   tabs={selectedTabs}
                   terminals={terminals}
@@ -974,11 +941,11 @@ export function RunsScreen() {
        * screen and every tab — see ProjectStatusBar's own note. */}
       <ProjectStatusBar
         onEngageStop={() => void engageStop()}
+        controlPlane={controlPlane}
         onReleaseStop={releaseStop}
-        reachable={reachable}
         repo={selectedRepo}
         run={ownerRun}
-        scratchOpen={scratch !== null}
+        scratchOpen={scratch.session !== null}
         stopEngaged={stopEngaged}
         terminalBacking={terminalBacking}
         worktree={selectedWorktree}

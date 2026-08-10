@@ -39,6 +39,7 @@ mod util;
 mod vingilot_agent;
 #[cfg(target_os = "macos")]
 mod vingilot_brand;
+mod vingilot_projects;
 mod vingilot_pty;
 mod vingilot_repo;
 mod vingilot_window;
@@ -662,6 +663,8 @@ pub fn run() {
             open_project_merge_recovery_terminal,
             vingilot_agent::agent_probe,
             vingilot_agent::agent_run,
+            vingilot_projects::projects_load,
+            vingilot_projects::projects_save,
             vingilot_pty::pty_open,
             vingilot_pty::pty_write,
             vingilot_pty::pty_resize,

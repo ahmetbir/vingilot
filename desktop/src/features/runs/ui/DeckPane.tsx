@@ -35,10 +35,18 @@ import { syncPins } from "@/features/runs/lib/deckSync";
 import { buildProvisionSpec } from "@/features/runs/lib/provisionSpec";
 import { railGroups } from "@/features/runs/lib/runModel";
 import type { RunMode, RunSummary } from "@/features/runs/lib/runModel";
+import type { TriageModel } from "@/features/runs/lib/triage";
+import {
+  type ControlPlaneKind,
+  controlPlaneKind,
+  pinsUnavailableNote,
+  runsUnavailableNote,
+} from "@/features/runs/lib/reachability";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { DeckConflict } from "@/features/runs/ui/DeckConflict";
 import { PinnedCard } from "@/features/runs/ui/PinnedCard";
 import { ModeChip, StatusDot } from "@/features/runs/ui/RunList";
+import { TriageBoard } from "@/features/runs/ui/TriageBoard";
 import { Button } from "@/shared/ui/button";
 
 const WALL_LIMIT_OPTIONS = [
@@ -63,15 +71,36 @@ interface DeckPaneProps {
   workspaceId: string;
   runs: RunSummary[];
   onOpenRun: (runId: string) => void;
-  /** false while the control plane is unreachable — the composer is
-   * disabled rather than queuing a write it cannot honestly promise to
-   * deliver (design 7c: disabled is honest, a fake queue is not). */
-  reachable: boolean;
+  /** The triage board, when this Deck is a landing surface.
+   *
+   * Absent inside the Runs pane (`ui/RunsPane.tsx`), which draws the same Deck
+   * beside a terminal in a worktree the owner has already chosen. A board
+   * saying where attention is needed belongs where he has not chosen yet; in a
+   * pane it would be a third copy of one surface, and its rows could not be
+   * doors — that host holds no project or worktree selection to send them
+   * through. One optional group rather than two optional props, so "board or
+   * no board" cannot come apart into half of one. */
+  board?: {
+    /** Every project's worktrees, already ordered and already carrying Task
+     * 1's dots (`lib/triage.ts`) — this pane renders the board, it does not
+     * build one. */
+    model: TriageModel;
+    /** Land on a worktree in a project. Both ids: the board spans projects. */
+    onOpen: (repoId: string, worktreeId: string) => void;
+  };
+  /** Anything but `"reachable"` disables the composer, rather than queuing a
+   * write it cannot honestly promise to deliver (design 7c: disabled is
+   * honest, a fake queue is not). Which of the two refusals is showing is
+   * `runsUnavailableNote`'s to say — the state is passed rather than a
+   * boolean because "unreachable" is the wrong word on a machine that never
+   * had a coordinator (Task 2). */
+  controlPlane: ControlPlaneKind;
 }
 
 export function DeckPane({
+  board,
+  controlPlane,
   onOpenRun,
-  reachable,
   runs,
   workspaceId,
 }: DeckPaneProps) {
@@ -83,7 +112,8 @@ export function DeckPane({
   const [error, setError] = React.useState<string | null>(null);
 
   const groups = railGroups(runs);
-  const composerDisabled = submitting || !reachable;
+  const composerDisabled = submitting || controlPlane !== "reachable";
+  const runsNote = runsUnavailableNote(controlPlane);
 
   // The pin set — Workspace state, polled independently of `runs` since it
   // lives under a different key of the same snapshot.
@@ -96,6 +126,11 @@ export function DeckPane({
     lastOk: pinsLastOk,
     reachable: pinsReachable,
   } = usePolling(fetchWorkspace, 2000);
+  // The pins poll is its own, so it gets its own reading of the same two
+  // states — a second answer to "has anything ever answered here", from the
+  // only poll that can answer it for this component.
+  const pinsControlPlane = controlPlaneKind(pinsReachable, pinsLastOk !== null);
+  const pinsNote = pinsUnavailableNote(pinsControlPlane);
   const pins = React.useMemo(
     () => readPins(snapshot ? snapshot.state : null),
     [snapshot],
@@ -132,8 +167,8 @@ export function DeckPane({
     } else if (result.kind === "ok") {
       setConflict(null);
     }
-    // "unreachable"/"api": toggles already disable while unreachable; a
-    // rare mid-flight API error settles on the next poll rather than
+    // "unreachable"/"api": toggles already disable while it is not answering;
+    // a rare mid-flight API error settles on the next poll rather than
     // getting its own transient banner here.
   }
 
@@ -213,7 +248,7 @@ export function DeckPane({
       setSubmitting(false);
       setError(
         created.kind === "unreachable"
-          ? "control plane unreachable"
+          ? "the control plane did not answer"
           : created.detail,
       );
       return;
@@ -227,7 +262,7 @@ export function DeckPane({
       // rather than silently opening a run with no worktree grant.
       setError(
         provisioned.kind === "unreachable"
-          ? "control plane unreachable"
+          ? "the control plane did not answer"
           : provisioned.detail,
       );
       return;
@@ -248,7 +283,9 @@ export function DeckPane({
       <div className="flex items-baseline gap-2">
         <h2 className="text-sm font-semibold">Deck</h2>
         <span className="text-2xs text-muted-foreground">
-          workspace home — start a run, pin what matters
+          {board === undefined
+            ? "workspace home — start a run, pin what matters"
+            : "workspace home — where attention is needed, start a run, pin what matters"}
         </span>
       </div>
 
@@ -301,16 +338,24 @@ export function DeckPane({
           {submitting ? "Starting…" : "Start Run"}
         </Button>
       </form>
-      {!reachable ? (
+      {runsNote === null ? null : (
         <p className="text-sm text-muted-foreground" role="status">
-          control plane unreachable — Start Run disabled
+          {runsNote}
         </p>
-      ) : null}
+      )}
       {error !== null ? (
         <p className="text-sm text-destructive" role="alert">
           {error}
         </p>
       ) : null}
+
+      {/* Below the composer and above everything the owner has to have asked
+       * for. The pins are what he chose to keep an eye on; this is what the
+       * workspace has to say without being asked, which is why it comes
+       * first. */}
+      {board === undefined ? null : (
+        <TriageBoard model={board.model} onOpen={board.onOpen} repoId={null} />
+      )}
 
       {/* Every pin toggle on this page — PINNED cards and lane rows alike —
        * disables while the control plane is unreachable (design 7c:
@@ -318,15 +363,15 @@ export function DeckPane({
        * regardless of whether the PINNED section itself is showing (it's
        * gated by `pins.length > 0` below), otherwise the lane toggles go
        * inert with no explanation on a workspace with zero pins. */}
-      {!pinsReachable ? (
+      {pinsNote === null ? null : (
         <p
           className="text-sm text-muted-foreground"
-          data-testid="deck-pins-unreachable"
+          data-testid="deck-pins-unavailable"
           role="status"
         >
-          control plane unreachable — pin toggles disabled
+          {pinsNote}
         </p>
-      ) : null}
+      )}
 
       {pins.length > 0 ? (
         <section data-testid="deck-pinned">
@@ -340,7 +385,7 @@ export function DeckPane({
                 ? "synced"
                 : pinsLastOk !== null
                   ? `as of ${pinsLastOk.toLocaleTimeString()}`
-                  : "unreachable"}
+                  : "no control plane"}
             </span>
           </div>
           {conflict !== null ? (

@@ -93,21 +93,40 @@ export function evidenceView(rows: EvidenceRow[]): EvidenceViewModel {
   return { rows: sorted.slice(truncatedCount), truncatedCount };
 }
 
-const NEEDS_YOU: ReadonlySet<RunStatus> = new Set(["paused", "blocked"]);
-const LIVE: ReadonlySet<RunStatus> = new Set([
-  "running",
-  "verifying",
-  "provisioning",
-  "ready",
-]);
-// Everything else (draft, completed, failed, cancelled) is "recent" — the
-// bucketing below is exhaustive by construction: every status not in
-// NEEDS_YOU or LIVE falls through to recent.
+/** What a run's status says about the owner's attention, and the only place
+ * that says it. The run rail groups by this and `attentionSignal.ts` derives
+ * the worktree dot from it; two copies of "paused means he is needed" is how a
+ * dot comes to disagree with the rail above it about the same run.
+ *
+ * `idle` covers `draft` as well as the three terminal statuses: a draft run has
+ * never been dispatched, so nothing is happening on its behalf. */
+export type RunAttention = "waiting" | "active" | "idle";
+
+/** Exhaustive on purpose — a status added to the coordinator fails this switch
+ * to compile rather than falling silently into `idle`, which is how a surface
+ * starts making a claim about a state nobody mapped. */
+export function runAttention(status: RunStatus): RunAttention {
+  switch (status) {
+    case "paused":
+    case "blocked":
+      return "waiting";
+    case "provisioning":
+    case "ready":
+    case "running":
+    case "verifying":
+      return "active";
+    case "draft":
+    case "completed":
+    case "failed":
+    case "cancelled":
+      return "idle";
+  }
+}
 
 const RECENT_CAP = 10;
 
 /** Groups runs for the list. Exhaustive over every RunStatus by construction:
- * anything not in NEEDS_YOU or LIVE falls into "recent". */
+ * `runAttention` is total, and its third answer is this list's "recent". */
 export function railGroups(runs: RunSummary[]): {
   needsYou: RunSummary[];
   live: RunSummary[];
@@ -118,8 +137,9 @@ export function railGroups(runs: RunSummary[]): {
   const recentAll: RunSummary[] = [];
 
   for (const r of runs) {
-    if (NEEDS_YOU.has(r.status)) needsYou.push(r);
-    else if (LIVE.has(r.status)) live.push(r);
+    const attention = runAttention(r.status);
+    if (attention === "waiting") needsYou.push(r);
+    else if (attention === "active") live.push(r);
     else recentAll.push(r);
   }
 
@@ -154,6 +174,20 @@ export function statusClass(s: RunStatus): SemanticClass {
     case "ready":
       return "muted";
   }
+}
+
+/** The status of a run that stopped without finishing — `failed` or
+ * `cancelled`, the two `statusClass` calls `stop` — and `null` for every other
+ * status and for a worktree no run owns.
+ *
+ * One definition with two readers on purpose: the worktree dot's sentence
+ * (`attentionSignal.ts`) and the row's own detail line (`worktreeAttention.ts`)
+ * both have to name this, and it is the same set the column's old status dot
+ * drew in `destructive` before the attention dot replaced it. The dot itself
+ * reports the state of the *tree*, which a run ending does not change, so this
+ * is what keeps the ending on the surface in words. */
+export function endedBadly(status: RunStatus | null): RunStatus | null {
+  return status !== null && statusClass(status) === "stop" ? status : null;
 }
 
 export type DiffLineKind = "add" | "del" | "hunk" | "meta" | "ctx";

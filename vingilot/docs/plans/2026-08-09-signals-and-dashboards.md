@@ -25,7 +25,7 @@ surface. Every state in Task 1 names its source of truth; a state without one is
 
 ## Task 1 — Attention dots: worktree rows, and a project rollup
 
-- [ ] **Inventory first, report before building:** every live signal the island already holds.
+- [x] **Inventory first, report before building:** every live signal the island already holds.
       A survey (2026-08-09) mapped eleven; verify and extend, don't re-derive: `Attention` is
       exactly three derived states (`worktreeAttention.ts:43`, dirty/running/clean, recomputed
       per render); `WorktreeStat` polls at 5 s with a single-flight guard and never blanks on
@@ -34,28 +34,28 @@ surface. Every state in Task 1 names its source of truth; a state without one is
       `useSyncExternalStore` (`askStore.ts:131-140`); the team thread is the only pushed,
       relay-fed signal. For each used signal: source of truth, refresh, what it can honestly
       claim.
-- [ ] **Known gap, decide it visibly:** there is NO per-session terminal liveness signal —
+- [x] **Known gap, decide it visibly:** there is NO per-session terminal liveness signal —
       tmux backing is probed once per app run and never re-asked, no exit event, no
       `has-session` query. So *working* cannot honestly come from "a terminal is busy" today.
       Either derive *working* from coordinator run status alone (which `Attention` already
       does), or build the liveness plumbing first as its own step — do not infer liveness
       from tab state, which is the app's guess about itself.
-- [ ] One dot per worktree row, with states derived **only** from the inventory. The candidate
+- [x] One dot per worktree row, with states derived **only** from the inventory. The candidate
       set, to be confirmed against what is real: *working* (something is running on this
       worktree), *needs you* (an agent waits for input, or an answer arrived and has not been
       seen), *dirty* (uncommitted changes — already tracked), *quiet*. If "working" cannot be
       told from a real signal, it is dropped, not approximated.
-- [ ] Projects roll up: a project in the sidebar shows the strongest state among its worktrees,
+- [x] Projects roll up: a project in the sidebar shows the strongest state among its worktrees,
       so the sidebar answers "which project needs me" when collapsed. Precedence is written
       down, not implied.
-- [ ] Both themes; distinguishable without color alone (shape or position carries the state
+- [x] Both themes; distinguishable without color alone (shape or position carries the state
       too); each dot's tooltip states the signal it derives from, in words.
-- [ ] Tests on the pure derivation: every state provable from inputs, precedence proved, and
+- [x] Tests on the pure derivation: every state provable from inputs, precedence proved, and
       the "no signal → no dot" rule proved red-first.
 
 ## Task 2 — OS notifications when the workspace needs him
 
-- [ ] **Read first — the channel is pre-cut, use it:** `tauri-plugin-notification` is wired
+- [x] **Read first — the channel is pre-cut, use it:** `tauri-plugin-notification` is wired
       end to end (`Cargo.toml:117`, registered `lib.rs:131`, granted in
       `capabilities/default.json:18` — main window only) with a frontend wrapper at
       `features/notifications/lib/desktop.ts` and three live call sites (feed mentions, DM
@@ -64,12 +64,12 @@ surface. Every state in Task 1 names its source of truth; a state without one is
       wired but disabled "coming soon" — if this task's events fit those slots, filling the
       designed socket beats inventing beside it; if not, say why. Report all this confirmed
       before building; a seam is only needed if a capability changes.
-- [ ] Notify on transitions into *needs you* — an agent waiting, an ask answered — and on
+- [x] Notify on transitions into *needs you* — an agent waiting, an ask answered — and on
       nothing else. A notification per diff refresh would be noise that costs the channel.
-- [ ] Never notify about a surface the owner is looking at: focused window + visible worktree
+- [x] Never notify about a surface the owner is looking at: focused window + visible worktree
       suppresses. The suppression rule is in one pure function with tests.
-- [ ] Clicking the notification lands on the thing that needs him, not on the app's last state.
-- [ ] The whole feature is one setting, default on, discoverable where settings live today.
+- [x] Clicking the notification lands on the thing that needs him, not on the app's last state.
+- [x] The whole feature is one setting, default on, discoverable where settings live today.
 
 ## Task 3 — The landing view becomes the dashboard
 
@@ -82,7 +82,7 @@ same table filtered to that project. One component, two filters, DeckPane's exis
 (count-badged uppercase headers, responsive card grid) — not a new pane, not a chart page,
 not a second design language.
 
-- [ ] All projects × worktrees on one surface: per row — attention dot (Task 1's, same
+- [x] All projects × worktrees on one surface: per row — attention dot (Task 1's, same
       derivation, never a second one), branch, diffstat, and last activity the app can
       honestly date (newest of: coordinator revision, stat observation — say which in the
       tooltip). Diffstat comes from `WorktreeStat` (cheap numstat, 5 s poll), **never** from
@@ -91,22 +91,27 @@ not a second design language.
       but deliberate: state the cost (one numstat per worktree per 5 s) and cap or stagger if
       the worktree count makes that real. No running-terminal count unless Task 1 built the
       liveness signal honestly.
-- [ ] Everything is a door: click a row, land on that worktree with its panes as he left them.
-- [ ] Ordering is attention-first (*needs you* on top, then *working*, then *dirty*, then
+- [x] Everything is a door: click a row, land on that worktree with its panes as he left them.
+- [x] Ordering is attention-first (*needs you* on top, then *working*, then *dirty*, then
       quiet), stable within a state. The dashboard's job is triage.
-- [ ] Empty states answered honestly, each its own sentence: no projects; projects but no
+- [x] Empty states answered honestly, each its own sentence: no projects; projects but no
       worktrees; everything quiet ("nothing needs you" is a real answer and a good one).
-- [ ] Type scale and idiom from `workbench.md` (Tasks 2–3 of the keys-and-type branch recorded
+- [x] Type scale and idiom from `workbench.md` (Tasks 2–3 of the keys-and-type branch recorded
       them). This surface inherits; it does not re-decide.
-- [ ] Playwright over a real bundle: dashboard renders rows from seeded state, ordering holds,
+- [x] Playwright over a real bundle: dashboard renders rows from seeded state, ordering holds,
       a row click lands on the worktree — each spec proved red first.
 
 ## Task 4 — Proof and docs
 
-- [ ] `workbench.md`: the signal inventory (Task 1's, as a table: state → source of truth →
+- [x] `workbench.md`: the signal inventory (Task 1's, as a table: state → source of truth →
       refresh), the notification suppression rule, and the landing-is-dashboard decision with
       the nodeterm/VelaTerm provenance noted in one line.
 - [ ] The cheatsheet and palette pick up whatever navigation this added, generated as ever.
+
+> Left unticked, with nothing to show for it: this branch bound no chord and added no palette
+> command. The board is reached by standing where the owner already lands and clicked with the
+> mouse, so `cheatsheet.ts`'s `KEY_MAPS` and `paletteSources.ts` are untouched — there was
+> nothing for either generator to pick up. A chord onto the board would need this box again.
 
 ---
 

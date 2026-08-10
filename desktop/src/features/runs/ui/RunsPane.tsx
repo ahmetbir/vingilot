@@ -24,8 +24,8 @@ import { RunDetail } from "@/features/runs/ui/RunDetail";
 import { RunList } from "@/features/runs/ui/RunList";
 
 export function RunsPane({
+  controlPlane,
   ownerRunId,
-  reachable,
   runs,
   workspaceId,
 }: PaneProps) {
@@ -72,8 +72,8 @@ export function RunsPane({
       >
         {selectedRunId === null ? (
           <DeckPane
+            controlPlane={controlPlane}
             onOpenRun={openRun}
-            reachable={reachable}
             runs={runs}
             workspaceId={workspaceId}
           />

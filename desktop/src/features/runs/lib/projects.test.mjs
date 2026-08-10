@@ -251,36 +251,6 @@ test("worktreeSummary: a primary checkout with no branch labels as 'main'", () =
   assert.equal(summary.label, "main");
 });
 
-test("worktreeSummary: no owner run → stateClass 'clean'", () => {
-  const summary = worktreeSummary(
-    wt({
-      owner_run_id: null,
-      owner_run_status: null,
-      owner_run_objective: null,
-    }),
-  );
-  assert.equal(summary.stateClass, "clean");
-});
-
-test("worktreeSummary: owner run status maps through runModel's statusClass", () => {
-  assert.equal(
-    worktreeSummary(wt({ owner_run_status: "running" })).stateClass,
-    "live",
-  );
-  assert.equal(
-    worktreeSummary(wt({ owner_run_status: "completed" })).stateClass,
-    "ok",
-  );
-  assert.equal(
-    worktreeSummary(wt({ owner_run_status: "blocked" })).stateClass,
-    "attn",
-  );
-  assert.equal(
-    worktreeSummary(wt({ owner_run_status: "failed" })).stateClass,
-    "stop",
-  );
-});
-
 test("worktreeSummary: diff counts present → {added, removed}", () => {
   const summary = worktreeSummary(wt({ added: 214, removed: 87 }));
   assert.deepEqual(summary.diff, { added: 214, removed: 87 });
