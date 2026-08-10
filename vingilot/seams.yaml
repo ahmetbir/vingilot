@@ -645,6 +645,13 @@ seams:
     status: "temporary"
     added: "2026-08-10"
 
+  - path: "crates/buzz-acp/src/acp.rs"
+    reason: "One decision, extracted and named: applies_over_parent, plus the line in AcpClient::spawn that calls it instead of testing std::env::var_os inline. Operator precedence stays the rule for every persona and runtime key -- a variable the operator exported still wins. The single exception is BUZZ_BROKER_SOCKET, because it is not a preference: it names a socket this harness bound moments ago in a directory nothing outside the process can predict, so an inherited value can only be stale, blank, or another harness's live socket, and the last of those would sign and publish the agent's reply as a different agent while reporting success. What this does NOT do: it injects nothing new, changes no other key's precedence, touches neither the runtime-default loop nor the CODEX_CONFIG merge, and moves no secret -- the socket path is not one, which is why naming it in the environment was safe in the first place."
+    owner: "vingilot/agents"
+    removable_when: "The broker socket stops being passed through the spawn environment, or upstream gives spawn a notion of harness-owned keys of its own."
+    status: "temporary"
+    added: "2026-08-10"
+
   - path: "crates/buzz-acp/src/lib.rs"
     reason: "Three touches, all wiring: `mod broker;`; binding the broker in run() once the relay's RestClient exists and logging its socket path (deliberately -- the path is not a secret, its protection is the directory mode, and an operator debugging a mute agent needs to know whether a broker exists); and threading the resulting BUZZ_BROKER_SOCKET env entry into PoolStartup::from_config so the spawned agent is told where to ask. The eager (non-lazy) pool initialisation moves from before the relay connect to just after it, because the socket path has to exist before the agent process is spawned and the broker's sink is the relay's own REST client. What this does NOT do: it does not put the private key anywhere new, does not change how the key reaches the agent today, and does not touch the lazy-pool or wake paths beyond passing the same env slice. A bind failure is logged and dropped, so a harness without a broker behaves exactly as it did before."
     owner: "vingilot/agents"

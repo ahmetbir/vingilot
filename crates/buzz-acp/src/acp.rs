@@ -410,6 +410,27 @@ fn build_client_capabilities() -> serde_json::Value {
     })
 }
 
+/// Whether a spawn applies an `extra_env` entry over what the parent process
+/// already exports.
+///
+/// Operator precedence is the rule for persona and runtime keys: a value the
+/// operator exported is a deliberate choice, and the harness must not overrule
+/// it. [`crate::broker::BROKER_SOCKET_ENV`] is the one key that is not such a
+/// choice. It names a socket this harness bound moments ago, in a directory
+/// nothing outside this process can predict, so an inherited value is never a
+/// preference — it is a stale path from a previous run, a blank left by a
+/// sanitising shell, or a live socket belonging to a *different* harness. The
+/// last of those is the one that must never happen: the agent's reply would be
+/// signed and published as that other agent, with `{"accepted":true}` on the
+/// way back and nothing anywhere to say whose identity sent it.
+///
+/// So for that key alone the harness's own value wins. The socket path is not a
+/// secret (see `crate::broker`), so this hides nothing from the operator — it
+/// only stops an exported variable from silently re-pointing an agent.
+fn applies_over_parent(key: &str, parent_has_key: bool) -> bool {
+    key == crate::broker::BROKER_SOCKET_ENV || !parent_has_key
+}
+
 impl AcpClient {
     /// Kill the agent subprocess and wait for it to exit (no zombies).
     ///
@@ -468,7 +489,8 @@ impl AcpClient {
 
         // Per-persona env vars (e.g., GOOSE_PROVIDER, BUZZ_AGENT_PROVIDER).
         // For most keys, operator precedence wins: skip injection if already set
-        // in the parent environment.
+        // in the parent environment. `applies_over_parent` holds the one
+        // exception and says why.
         //
         // CODEX_CONFIG is handled specially via build_codex_config_env:
         //   • has_generated_codex_config=true: merge all CODEX_CONFIG entries + parent
@@ -505,7 +527,7 @@ impl AcpClient {
                 // Handled by build_codex_config_env; skip here to avoid double-setting.
                 continue;
             }
-            if std::env::var_os(key).is_none() {
+            if applies_over_parent(key, std::env::var_os(key).is_some()) {
                 cmd.env(key, value);
             }
         }
@@ -2921,6 +2943,62 @@ mod tests {
             spawn_named_and_read_child_env("other-agent", VAR, &[]).await,
             "<unset>",
             "non-Hermes spawns must not receive Hermes defaults"
+        );
+    }
+
+    /// The broker socket is the harness's own live endpoint, not a preference,
+    /// so it is the one key an exported value does not get to overrule.
+    ///
+    /// This is asserted on the decision rather than through a spawn because the
+    /// only way to give the parent process the variable is to write it into
+    /// this test process's environment, and `set_var` racing the other spawn
+    /// tests' `var_os` reads is a data race in libc, not a test fixture.
+    #[test]
+    fn an_inherited_broker_socket_never_displaces_the_one_this_harness_bound() {
+        let socket_env = crate::broker::BROKER_SOCKET_ENV;
+        assert!(
+            applies_over_parent(socket_env, true),
+            "an exported {socket_env} would otherwise send this agent's reply through \
+             a stale, blank, or another harness's socket — the last of which publishes \
+             the reply as a different agent and reports success"
+        );
+        assert!(
+            applies_over_parent(socket_env, false),
+            "with nothing inherited the harness's socket is applied as before"
+        );
+    }
+
+    #[test]
+    fn every_other_key_still_yields_to_what_the_operator_exported() {
+        assert!(
+            !applies_over_parent("GOOSE_PROVIDER", true),
+            "operator precedence is the rule everywhere except the broker socket"
+        );
+        assert!(applies_over_parent("GOOSE_PROVIDER", false));
+    }
+
+    /// The wiring end: an entry the harness adds reaches the spawned child.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_broker_socket_entry_reaches_the_agent_process() {
+        let socket_env = crate::broker::BROKER_SOCKET_ENV;
+        if std::env::var_os(socket_env).is_some() {
+            // A harness ran these tests. The inherited value is what the fix
+            // above overrules, and asserting on it here would test the shell
+            // this happens to run in rather than the spawn path.
+            return;
+        }
+        // A path shape, not a live socket: nothing connects to it here.
+        let path = "/tmp/bz-0-probe/s";
+        assert_eq!(
+            spawn_named_and_read_child_env(
+                "some-agent",
+                socket_env,
+                &[(socket_env.to_string(), path.to_string())],
+            )
+            .await,
+            path,
+            "the agent must be told where to ask, or the broker is unreachable"
         );
     }
 
