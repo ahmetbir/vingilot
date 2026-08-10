@@ -26,6 +26,28 @@
 //! blank variables as readily as they unset them, and clap passes a blank env
 //! value through as `Some("")`.
 //!
+//! # Two ways to name the socket, and why that is not a double standard
+//!
+//! The broker is named by `--broker-socket` or by `BUZZ_BROKER_SOCKET`, the
+//! same flag-beats-env pair as the key, and for a reason the key does not
+//! share: a harness that strips `BUZZ_PRIVATE_KEY` from its shell will strip
+//! `BUZZ_BROKER_SOCKET` too — one sanitiser, no exceptions for variables it has
+//! never heard of. If the environment were the only channel, the fix would be
+//! inert in exactly the case it was written for.
+//!
+//! A flag is the answer here and never for the key, because **a socket path is
+//! not a secret and a key is.** `ps` reading `--broker-socket /tmp/bz-1234/s`
+//! learns a path whose protection is the 0700 directory holding it, and learns
+//! nothing it could use; `ps` reading `--private-key` learns the identity
+//! itself. The rule is about what the argument is worth to a reader, not about
+//! symmetry between two variables that happen to sit next to each other.
+//!
+//! What this does not do is *find* the socket. Nothing here scans for one. A
+//! scan would have to choose between candidates, and choosing wrong means
+//! publishing the reply as another agent — a guess this code refuses to make.
+//! Something has to tell the agent the path; the harness logs it at startup and
+//! passes it in the environment for the shells that keep one.
+//!
 //! Consulting the broker any earlier would change every setup that works today:
 //! an agent that *does* have a key would silently stop using it, and would send
 //! as whatever identity the harness happens to hold instead. The broker only
@@ -69,6 +91,11 @@ use crate::validate::{parse_uuid, read_or_stdin, validate_content_size, validate
 /// end of this contract.
 pub const BROKER_SOCKET_ENV: &str = "BUZZ_BROKER_SOCKET";
 
+/// The flag that names the same socket for a shell where the variable above did
+/// not survive. Quoted in failure messages so an operator is told the channel
+/// that does not depend on the environment.
+pub const BROKER_SOCKET_FLAG: &str = "--broker-socket";
+
 /// The one op the harness broker serves. Mirrors
 /// `buzz_acp::broker::OP_SEND_MESSAGE`: the two crates share a wire format, not
 /// a type, so that neither has to depend on the other.
@@ -98,13 +125,10 @@ pub(crate) enum Identity {
     Neither,
 }
 
-/// The broker socket this process was told about, if any.
-pub(crate) fn socket_from_env() -> Option<String> {
-    std::env::var(BROKER_SOCKET_ENV).ok()
-}
-
 /// Decide where the identity comes from — the whole resolution order, in one
 /// place, evaluated in one direction.
+///
+/// Both arguments arrive already collapsed by clap, flag over env var.
 ///
 /// A present key short-circuits before `broker_socket` is even looked at. That
 /// is deliberate and load-bearing: a harness may offer a broker to an agent
@@ -139,9 +163,14 @@ const NOT_YOURS_TO_SUPPLY: &str =
     "the key lives in the harness, not in this shell, and nothing passed to this command stands in for one";
 
 /// No key, and no harness offered to send on this shell's behalf.
+///
+/// Both ways of naming the socket are listed, because the likeliest reason to
+/// be reading this message is a shell that dropped the variable — and the flag
+/// is the way round that. Naming a socket path costs nothing to say out loud;
+/// see the module docs for why that is not true of the key.
 fn no_key_no_broker() -> CliError {
     CliError::Auth(format!(
-        "{NO_KEY}, and no harness broker was offered either ({BROKER_SOCKET_ENV} is unset), so nothing here can send as you: {NOT_YOURS_TO_SUPPLY}"
+        "{NO_KEY}, and no harness broker was offered either ({BROKER_SOCKET_ENV} is unset and no {BROKER_SOCKET_FLAG} was given), so nothing here can send as you: {NOT_YOURS_TO_SUPPLY}"
     ))
 }
 

@@ -74,7 +74,10 @@ Configuration (flags override env vars):
   BUZZ_BROKER_SOCKET Harness send-broker socket, set by the harness that spawned
                      this shell. With no key, 'messages send' asks the harness to
                      send as you and the key never enters this process; every
-                     other command still needs a key of its own.
+                     other command still needs a key of its own. A shell that
+                     strips this variable can name the same socket with
+                     --broker-socket: the path is not a secret, unlike the key,
+                     which has no such flag for that reason.
 
 The 'pack' subcommand runs locally and does not require a relay connection.
 
@@ -93,6 +96,14 @@ struct Cli {
     /// NIP-OA auth tag JSON (owner attestation). Injected into every signed event.
     #[arg(long, env = "BUZZ_AUTH_TAG", hide_env_values = true)]
     auth_tag: Option<String>,
+
+    /// Harness send-broker socket. Used only when there is no private key, and
+    /// safe on a command line because a socket path is not a secret — its
+    /// protection is the mode of the directory holding it. This flag exists for
+    /// the shells that strip BUZZ_BROKER_SOCKET along with everything else; see
+    /// `broker` for why the key never gets a counterpart to it.
+    #[arg(long, env = broker::BROKER_SOCKET_ENV)]
+    broker_socket: Option<String>,
 
     /// Output format: 'json' (default, full fields) or 'compact' (reduced fields).
     #[arg(long, value_enum, default_value = "json")]
@@ -1793,7 +1804,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     // changes: with a key present the socket is never even looked at, and this
     // path is byte-for-byte what it was. See `broker` for what the broker will
     // and will not stand in for.
-    let private_key_str = match broker::resolve(cli.private_key, broker::socket_from_env()) {
+    let private_key_str = match broker::resolve(cli.private_key, cli.broker_socket) {
         broker::Identity::Key(key) => key,
         broker::Identity::Broker(socket) => {
             return broker::run_without_key(cli.command, Some(socket))

@@ -170,6 +170,38 @@ fn no_key_and_no_socket_is_neither() {
     ));
 }
 
+// ── Naming the socket without the environment ───────────────────────────────
+
+#[test]
+fn the_socket_can_be_named_on_the_command_line_when_the_environment_is_stripped() {
+    // The harness that strips BUZZ_PRIVATE_KEY strips BUZZ_BROKER_SOCKET too —
+    // one sanitiser, and it has never heard of either variable. Without a
+    // channel outside the environment this whole path is inert in exactly the
+    // case it was written for.
+    use clap::Parser;
+    let cli = crate::Cli::try_parse_from([
+        "buzz",
+        BROKER_SOCKET_FLAG,
+        "/tmp/bz-1234/s",
+        "messages",
+        "send",
+        "--channel",
+        CHANNEL,
+        "--content",
+        "hi",
+    ])
+    .expect("the socket is nameable without the environment");
+    assert_eq!(cli.broker_socket.as_deref(), Some("/tmp/bz-1234/s"));
+    // The keyless half of the order, driven from argv rather than the
+    // environment. `None` is passed for the key deliberately: reading it from
+    // clap here would make the test depend on whether whoever runs it has
+    // BUZZ_PRIVATE_KEY exported.
+    match resolve(None, cli.broker_socket) {
+        Identity::Broker(socket) => assert_eq!(socket, PathBuf::from("/tmp/bz-1234/s")),
+        _ => panic!("a socket named on the command line is still the broker's case"),
+    }
+}
+
 // ── The message that replaced the one that taught the wrong lesson ──────────
 
 #[test]
@@ -205,6 +237,13 @@ fn an_absent_broker_is_named_as_absent() {
     assert!(
         message.contains("no harness broker was offered") && message.contains(BROKER_SOCKET_ENV),
         "the message must say the broker was not there either: {message}"
+    );
+    // Whoever reads this is most likely in a shell that dropped the variable,
+    // and the flag is the way round that. Naming a socket path costs nothing;
+    // naming the key would be the mistake this module exists to stop making.
+    assert!(
+        message.contains(BROKER_SOCKET_FLAG),
+        "the message must name the channel that does not need the environment: {message}"
     );
 }
 
