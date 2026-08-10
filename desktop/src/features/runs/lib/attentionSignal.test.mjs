@@ -196,6 +196,37 @@ test("a project whose worktrees are all clean says so", () => {
   assert.match(rollup.sentence, /nothing needs you/);
 });
 
+test("a project with one unanswered worktree does not claim they are all clean", () => {
+  // git could not read one tree (`vingilot_worktree/stat.rs`'s `unreadable`),
+  // or was never asked about it, and every tree it did read came back clean.
+  // "every worktree here is clean" is then a claim about a subset, and the
+  // unread one is exactly where uncommitted work would be invisible.
+  assert.deepEqual(
+    rollupMark([
+      attentionMark(silence()),
+      attentionMark(silence({ stat: stat() })),
+    ]),
+    { sentence: "", state: null },
+  );
+});
+
+test("a silent worktree does not take the loud states off a project", () => {
+  // The other half of the rule: needs-you, working and dirty each say that
+  // *some* worktree is in that state, which stays true whatever the silent one
+  // turns out to be. Only the quiet sentence speaks for all of them.
+  for (const [signals, expected] of [
+    [{ runStatus: "blocked" }, "needs-you"],
+    [{ runStatus: "running" }, "working"],
+    [{ stat: stat({ dirty: true }) }, "dirty"],
+  ]) {
+    assert.equal(
+      rollupMark([attentionMark(silence(signals)), attentionMark(silence())])
+        .state,
+      expected,
+    );
+  }
+});
+
 test("one silent worktree does not drag its project's dot down", () => {
   // The closed-project case: the coordinator has answered about one worktree
   // and git has been asked about none of them. The project still reports what

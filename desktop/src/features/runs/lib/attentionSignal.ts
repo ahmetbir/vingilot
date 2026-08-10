@@ -155,12 +155,25 @@ export function outranks(a: AttentionState, b: AttentionState): boolean {
  * A project whose worktrees have all answered nothing gets no dot — including a
  * project with no worktrees at all. Rolling those up to `quiet` would put a
  * "nothing needs you" dot on a project this app has not looked inside, which is
- * the same lie as a guessing row dot, one level up. */
+ * the same lie as a guessing row dot, one level up.
+ *
+ * **The three loud states are existence claims; `quiet` is a universal one.**
+ * "2 worktrees need you" stays true however many rows never answered, so a
+ * silent sibling cannot falsify it. "nothing needs you — every worktree here is
+ * clean" is a claim about all of them, and one silent row makes it a claim
+ * about a subset: git was never asked about that tree (an unreadable path, a
+ * binding with no derivable cwd), and it may hold uncommitted work. So a single
+ * unanswered worktree costs the project its quiet dot rather than being
+ * absorbed into a sentence that does not mention it. */
 export function rollupMark(marks: readonly AttentionMark[]): AttentionMark {
   let strongest: AttentionState | null = null;
   let count = 0;
+  let silent = 0;
   for (const mark of marks) {
-    if (mark.state === null) continue;
+    if (mark.state === null) {
+      silent += 1;
+      continue;
+    }
     if (strongest === null || outranks(mark.state, strongest)) {
       strongest = mark.state;
       count = 1;
@@ -169,6 +182,7 @@ export function rollupMark(marks: readonly AttentionMark[]): AttentionMark {
     }
   }
   if (strongest === null) return NO_MARK;
+  if (strongest === "quiet" && silent > 0) return NO_MARK;
   return { sentence: rollupSentence(strongest, count), state: strongest };
 }
 
