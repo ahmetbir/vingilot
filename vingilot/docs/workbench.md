@@ -1248,25 +1248,28 @@ shadowing the other, which is what forces the identity change below.
 
 ### The one sentence
 
-**Vingilot starts empty, and the existing Buzz install is untouched.** Nothing
-is copied, moved or deleted; Buzz keeps every file it has and keeps working
-exactly as before. What Vingilot inherits for free, and what it does not, is
-set out below — this is not a summary, it is the whole consequence.
+**Vingilot starts empty; installing and running it changes nothing Buzz owns —
+but the identity and the agent nest are not Buzz's, they are the machine's, and
+either app's sign-out deletes them for both.** Nothing is copied or moved. The
+two shared scopes, and what reaches them, are below — this is not a summary, it
+is the whole consequence.
 
 ### What actually keys off the bundle identifier
 
 The identifier goes from `xyz.block.buzz.app` to `dev.ahmetbirinci.vingilot`.
-Three things in this codebase resolve their location from it, and three do not.
-The split was read out of the code, not assumed:
+Three things in this codebase resolve their location from it and three do not,
+plus one that resolves from the *old* identifier by name. The split was read out
+of the code, not assumed:
 
 | Storage | Keyed off | Consequence for Vingilot |
 |---|---|---|
 | App data dir — agent roster, personas, teams, retention db | `app_data_dir()` → `~/Library/Application Support/<identifier>` | **Empty.** Agents must be re-added. |
 | Webview storage — community/relay list, theme, accent, drafts, zoom | `~/Library/WebKit/<identifier>` (see `reset.rs`) | **Empty.** The relay must be added once. |
 | Single-instance lock | `tauri-plugin-single-instance`, per identifier | This is *why* the identifier must change: same identifier, and the second app refuses to launch. |
-| Nostr identity (the owner's nsec) | keychain service `"buzz-desktop"`, a constant in `app_state_keyring.rs` | **Carried.** Vingilot boots as him — same pubkey, same account. |
-| Agent keys | same keychain blob, same service | **Carried.** |
-| Agent nest — `AGENTS.md`, `RESEARCH/`, `PLANS/`, `GUIDES/`, `WORK_LOGS/`, `OUTBOX/`, `REPOS/` | `~/.buzz`, a constant in `managed_agents/nest.rs` | **Carried, and shared.** Both apps read and write the same nest. |
+| Nostr identity (the owner's nsec) | keychain service `"buzz-desktop"`, a constant in `app_state_keyring.rs` | **Shared.** Vingilot boots as him — same pubkey, same account — and destroys it for both on sign-out. |
+| Agent keys | same keychain blob, same service | **Shared**, same terms. |
+| Agent nest — `AGENTS.md`, `RESEARCH/`, `PLANS/`, `GUIDES/`, `WORK_LOGS/`, `OUTBOX/`, `REPOS/` | `~/.buzz`, a constant in `managed_agents/nest.rs` | **Shared.** Both apps read and write the same nest, fight over one `REPOS`, and either one's sign-out deletes it. |
+| `buzz channels create --template <name>` | the literal `"xyz.block.buzz.app"` in `crates/buzz-cli/src/commands/channel_templates.rs` | **Points at Buzz.** A template made in Vingilot is invisible to the CLI unless `--templates-file` names Vingilot's store. |
 
 So "starts empty" is narrower than it sounds. The identity and everything the
 agents have written down survive; the app's own configuration — which relay,
@@ -1276,6 +1279,48 @@ A macOS keychain item carries an access list per signing identity, so the first
 launch will raise *"Vingilot wants to use your confidential information stored
 in buzz-desktop"*. Answering **Always Allow** is what makes the identity carry;
 answering Deny makes Vingilot generate a fresh identity instead.
+
+### The two shared scopes, and what they cost
+
+The last two rows are shared because they are named by *constants* rather than
+derived from the identifier, and that has two consequences the table does not
+carry on its own. Both are real; neither is fixed in code, and the reason is the
+same in both cases: the sharing is what the owner is buying.
+
+**A sign-out is machine-wide.** `reset.rs` step 3 removes
+`managed_agents::nest_dir()` and step 4 deletes every key in the `"buzz-desktop"`
+blob — the whole nest and the whole keychain, from whichever app is signing out.
+The wipe is reached from the product path (`write_sentinel` on sign-out,
+`run_boot_reset` at the top of `setup()`). What makes this tolerable rather than
+a trap is that **the nsec and the nest are singular on this machine**: Buzz's own
+sign-out deletes exactly the same key and exactly the same directory. Vingilot
+adds a second button on the same objects, not a new hazard — and the button is
+gated behind the displayed nsec, a backup checkbox, and typing *"wipe all my
+data"*. The dialog now names the nest and says the other install goes with it
+(`SignOutSection.tsx`, asserted in `signout-confirmation.spec.ts`).
+
+The fix that suggests itself — give the fork its own nest and its own keychain
+service — is the wrong one, and this is the argument against it: the plan's own
+constraint is that *the owner must not silently lose his workspace layout, notes,
+or agent keys*. A separate nest strands the agents' accumulated `RESEARCH/`,
+`PLANS/` and `WORK_LOGS/`; a separate keychain service regenerates every agent
+key, orphaning the pubkeys their history is signed under. Isolation would cause
+the loss it was meant to prevent.
+
+**`REPOS` has one value per machine, not one per app.** `nest.rs` splits the dev
+nest from the prod nest for exactly this reason — *"so that the DMG and dev-build
+instances don't clobber each other's `.repos-dir` dotfile and `REPOS` symlink"* —
+and two prod apps in one nest reintroduce it. Whichever app applied a workspace
+last owns `~/.buzz/.repos-dir` and the `~/.buzz/REPOS` symlink; the other one's
+agents then clone into a workspace its user did not choose. This cannot be
+scoped per app while the nest is shared: `REPOS` is the path agents are told to
+use, so it must be one name with one target. **Point both apps at the same
+workspace, or use only one of them for agent work.**
+
+Two further shared paths the wipe reaches are wiring rather than documents, and
+are recreated by whichever app launches next: `~/.sprout` and
+`~/.config/buzz-agent`, plus the `~/.local/bin/buzz` symlink both apps rewrite
+on every boot.
 
 ### Why there is no migration, when the code already has one
 
@@ -1363,6 +1408,7 @@ sails stop separating below about 32px; 44 is the number that is defended.
 ### Where the mark is drawn today
 
 `VingilotMark` renders in `OnboardingChrome` — the header on every onboarding
-page — and the tray takes the template image. The cold-boot gate still draws
-upstream's flapping bee; that surface is the loading animation's, and it changes
-with it.
+page — and the tray takes the template image. The cold-boot gate draws
+`VingilotMarkAnimation`, the sprite-sheet loop derived by
+`vingilot/brand/derive-animation.py`; upstream's `FlappingBee` still draws
+`SetupStep`, `PendingInviteGate` and `LandingBees`.
