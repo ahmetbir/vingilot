@@ -29,24 +29,45 @@ control plane serving two machines would be right about at most one of them.
 
 ## Task 1 — The project list becomes local
 
-- [ ] **Read first, report before building:** every path by which a project reaches the
+- [x] **Read first, report before building:** every path by which a project reaches the
       screen today — `coordinatorClient.ts`'s repos mutation, `lib/projects.ts`, the add and
       remove flows, and what a `Worktree` row needs from a repo. Say which of them the
       coordinator genuinely owns and which merely pass through it.
-- [ ] Projects are stored locally and are the authority for what the workspace shows. Prefer a
+      *No artifact of its own: the finding is that the coordinator owned nothing here except
+      the bytes. `readRepos`/`chooseRepo`/`removeProjectConfirm` were already pure and
+      already local, and a `Worktree` row needs only `repo.path` and `repo.id` from a repo —
+      `worktreeGit.ts` reads the checkout off the filesystem. Only the storage moved, which
+      is why `repoChoice.ts` is untouched by this task. The reasoning is in
+      `localProjects.ts`'s header where it stays next to the code it explains.*
+- [x] Projects are stored locally and are the authority for what the workspace shows. Prefer a
       file the owner can read and back up over WebKit storage, which a reset clears and which
       is invisible to him — and say where it lives.
-- [ ] **One direction, never two.** When the coordinator is reachable, the local list is
+      *`~/.vingilot/projects.json`, beside `~/.vingilot/worktrees`. Written by
+      `src-tauri/src/vingilot_projects/` (write-then-rename, so an interrupted save leaves
+      the old list); read by `localProjects.ts`, which refuses an unparseable file rather
+      than reading it as empty. When it cannot be read, `unreadableStoreNotice` says so on
+      screen — an empty list with nothing said beside it is what a fresh install looks like.*
+- [x] **One direction, never two.** When the coordinator is reachable, the local list is
       pushed into the workspace document so runs can still reference a repo; the coordinator
       never writes back into the local list. Two-way merge between a local file and a CAS
       document is a conflict machine, and this plan does not open it.
-- [ ] **His existing projects must not disappear.** On the Mac mini they live only in the
+      *`pushDecision`. One case does not push either: a coordinator holding a list this
+      machine has never taken, against a list started here, is a standoff rather than an
+      overwrite (`unreconciledNotice` names the way out). That order is reachable on the Mac
+      mini — launch while the coordinator is down, add one project, coordinator comes back
+      with five.*
+- [x] **His existing projects must not disappear.** On the Mac mini they live only in the
       coordinator today. Seed the local list from the workspace document the first time it is
       empty and the coordinator answers, and say in the UI that this happened. A silent
       import is indistinguishable from a silent loss when it goes wrong.
-- [ ] Tests: the pure model (store, add, remove, seed-once, push-when-reachable) proved
+      *`seedOnceDecision`: never imported before, local list empty, coordinator **answered**
+      (not "was polled"), and it has something to import. All four required, each one a way
+      to lose or duplicate the list. Said by `importNotice` in `ProjectsNav`, and recorded in
+      the file so the once survives a restart.*
+- [x] Tests: the pure model (store, add, remove, seed-once, push-when-reachable) proved
       red-first, including the case that matters most — **a machine that has never seen a
       coordinator can add a project and still has it after a restart.**
+      *38 in `localProjects.test.mjs`, 6 over real temp directories in `vingilot_projects`.*
 
 ## Task 2 — "Unreachable" stops lying on a machine that never had one
 
