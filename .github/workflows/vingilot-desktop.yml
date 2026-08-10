@@ -47,9 +47,32 @@ jobs:
           . ./bin/activate-hermit
           echo "$PWD/bin" >> "$GITHUB_PATH"
 
+      # **Both target directories, because there are two.** The sidecars build
+      # into the workspace's `./target`; the app itself builds into
+      # `desktop/src-tauri/target`, which is a separate Cargo workspace. Caching
+      # only the first left the expensive half — Tauri and its dependency tree —
+      # recompiling from scratch on every run, which is most of where the time
+      # went.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ". -> target"
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
+          # The key is per-run-attempt otherwise; this shares one cache across
+          # dispatches and tags, which is the point.
+          shared-key: vingilot-dmg-aarch64
+
+      - name: Find the pnpm store
+        id: pnpm_store
+        run: |
+          . ./bin/activate-hermit
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm_store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
 
       - name: Install desktop dependencies
         run: pnpm install --frozen-lockfile
@@ -145,15 +168,24 @@ jobs:
           # for prose: two earlier versions of this check reported a correctly
           # signed .dmg as unsigned, once by missing the output format and once
           # by passing a flag this codesign does not have.
-          if codesign --verify "$DMG" >/dev/null 2>&1; then
-            if xcrun stapler validate "$DMG" >/dev/null 2>&1; then
-              echo "state=signed and notarized" >> "$GITHUB_OUTPUT"
-            else
-              echo "state=signed, NOT notarized" >> "$GITHUB_OUTPUT"
-            fi
-          else
+          if ! codesign --verify "$DMG" >/dev/null 2>&1; then
             echo "state=UNSIGNED" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          # **The ticket is stapled to the app, not to the disk image.** Tauri
+          # notarizes and staples `Vingilot.app`, then bundles the .dmg around
+          # it, so asking `stapler validate` about the .dmg answers about the
+          # wrong object — it said "NOT notarized" about a build Apple had
+          # accepted, and the release told the owner to clear a quarantine
+          # attribute he did not have. Mount it and ask the app.
+          MOUNT="$RUNNER_TEMP/verify-dmg"
+          hdiutil attach -readonly -nobrowse -noautoopen "$DMG" -mountpoint "$MOUNT" >/dev/null
+          if xcrun stapler validate "$MOUNT"/*.app >/dev/null 2>&1; then
+            echo "state=signed and notarized" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=signed, NOT notarized" >> "$GITHUB_OUTPUT"
+          fi
+          hdiutil detach "$MOUNT" >/dev/null
 
       - uses: actions/upload-artifact@v4
         with:

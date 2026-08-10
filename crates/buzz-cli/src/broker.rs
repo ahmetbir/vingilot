@@ -101,14 +101,21 @@ pub const BROKER_SOCKET_FLAG: &str = "--broker-socket";
 /// a type, so that neither has to depend on the other.
 const OP_SEND_MESSAGE: &str = "send_message";
 
+// Gated with the socket they bound: the only reader of these three is the
+// `#[cfg(unix)]` send path below, and a unix socket is the whole mechanism.
+// Left ungated they are dead code on Windows, which upstream's `-D warnings`
+// build caught after every gate this fork runs on a Mac had passed them.
+#[cfg(unix)]
 /// How long to wait for the harness's answer. Generous, because the harness
 /// does a relay round trip inside it, and bounded because a wedged harness must
 /// not leave an agent's reply hanging forever.
 const READ_TIMEOUT: Duration = Duration::from_secs(90);
 
+#[cfg(unix)]
 /// How long to wait to hand over the request itself.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[cfg(unix)]
 /// Longest answer read from the socket. The broker's answer is an id and a
 /// short string; anything larger is not one, and is not worth buffering.
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024;

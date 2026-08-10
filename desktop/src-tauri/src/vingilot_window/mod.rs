@@ -57,6 +57,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::State;
 
+// **Gated to macOS, and the gate is the honest part.** The rule below is only
+// ever asked on macOS: `lib.rs` matches `WindowEvent::CloseRequested` inside a
+// `#[cfg(target_os = "macos")]` arm, because ⌘W and the red button are what it
+// answers. Compiled everywhere and used nowhere, these five items are dead code,
+// and `-D warnings` in upstream's CI is right to say so — it caught them on
+// Linux and Windows after they had passed every gate this fork runs on a Mac.
+//
+// `WindowLayers` and `window_set_dismissible` deliberately stay cross-platform:
+// the frontend pushes what it has stacked without knowing which OS it is on,
+// and a command that existed on one platform only would make that push fail
+// where nothing was wrong.
+#[cfg(target_os = "macos")]
 /// Emitted at the webview when a close request lands on a window that has
 /// something stacked over it. Carries no payload: what is on top, and which
 /// of it a close dismisses, is the frontend's model
@@ -64,6 +76,7 @@ use tauri::State;
 /// something is there.
 pub const CLOSE_REQUESTED_EVENT: &str = "vingilot://close-requested";
 
+#[cfg(target_os = "macos")]
 /// The window the app lives in. Any other window — a huddle, a future
 /// inspector — closes the way its own close request asks it to.
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -91,6 +104,7 @@ impl WindowLayers {
         Self::default()
     }
 
+    #[cfg(target_os = "macos")]
     pub fn dismissible(&self) -> bool {
         self.dismissible.load(Ordering::SeqCst)
     }
@@ -100,6 +114,7 @@ impl WindowLayers {
     }
 }
 
+#[cfg(target_os = "macos")]
 /// What to do with one close request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CloseRequest {
@@ -113,6 +128,7 @@ pub enum CloseRequest {
     Close,
 }
 
+#[cfg(target_os = "macos")]
 /// Resolves one `CloseRequested` into what should happen to the window.
 ///
 /// Pure, so the rule is readable and testable without a window, a menu or a
@@ -138,7 +154,10 @@ pub fn window_set_dismissible(layers: State<'_, WindowLayers>, dismissible: bool
     layers.set_dismissible(dismissible);
 }
 
-#[cfg(test)]
+// Every test here exercises the close-request rule, which only exists on
+// macOS — so the module is gated with what it tests rather than left to fail
+// to resolve on a platform where its subject is absent.
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 
