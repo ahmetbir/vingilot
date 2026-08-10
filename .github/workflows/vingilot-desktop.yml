@@ -1,0 +1,151 @@
+# Build the Vingilot desktop app and attach a signed, notarized .dmg to a release.
+#
+# The tag pattern is `vingilot-v*` and that is deliberate: this repo inherits
+# upstream's release automation, which fires on `desktop-v[0-9]*` (release.yml)
+# and `relay-v[0-9]*` (docker.yml). A tag that matched either would start a Buzz
+# release from a fork that cannot complete one.
+#
+# Why GitHub's macOS runners rather than the owner's own Linux box: a macOS app
+# cannot be built anywhere else — the SDK, `codesign` and `hdiutil` are Apple's.
+# Public repositories get these runners free and unmetered, which is what made
+# publishing worth doing on its own terms.
+#
+# The build itself is `vingilot/scripts/build-dmg.sh`, the same script used
+# locally, so CI and a laptop cannot drift. In particular it is the only thing
+# in the repo that puts the REAL sidecar binaries into the bundle: the checked-in
+# `externalBin` entries are zero-byte placeholders, and an app bundled around
+# them installs five empty files and fails at runtime with "ACP harness command
+# `buzz-acp` was not found".
+
+name: Vingilot desktop
+
+on:
+  push:
+    tags:
+      - "vingilot-v*"
+  workflow_dispatch:
+    inputs:
+      notarize:
+        description: "Notarize the .dmg (slow; needs the Apple secrets)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Activate the repo's toolchain
+        run: |
+          # Hermit pins Rust, Node and the rest; using it keeps CI on the same
+          # versions as the checkout rather than the runner's defaults.
+          . ./bin/activate-hermit
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install desktop dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Signing runs in a keychain created for this job and deleted after it,
+      # so the certificate never joins the runner's login keychain and no step
+      # can reach it once the build is done.
+      - name: Import the signing certificate
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build-${{ github.run_id }}.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+          # The identity name is read back from the keychain rather than written
+          # down here, so a renamed certificate fails loudly instead of building
+          # unsigned while claiming otherwise.
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
+          if [ -z "$IDENTITY" ]; then
+            echo "The certificate imported but carries no Developer ID Application identity." >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Build the .dmg
+        env:
+          # Tauri notarizes during the bundle when all three are present. Absent,
+          # it logs that it skipped and produces a signed-but-unnotarized .dmg —
+          # which is a real outcome, so the release notes below state which one
+          # this run produced rather than assuming.
+          APPLE_ID: ${{ (github.event_name == 'push' || inputs.notarize) && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ (github.event_name == 'push' || inputs.notarize) && secrets.APPLE_ID_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ (github.event_name == 'push' || inputs.notarize) && 'Z678QXV882' || '' }}
+        run: |
+          . ./bin/activate-hermit
+          ./vingilot/scripts/build-dmg.sh aarch64-apple-darwin
+
+      - name: Say what was produced
+        id: artifact
+        run: |
+          set -euo pipefail
+          DMG=$(ls -t desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          echo "dmg=$DMG" >> "$GITHUB_OUTPUT"
+          # `codesign --verify` is asked for its exit code rather than grepped
+          # for prose: two earlier versions of this check reported a correctly
+          # signed .dmg as unsigned, once by missing the output format and once
+          # by passing a flag this codesign does not have.
+          if codesign --verify "$DMG" >/dev/null 2>&1; then
+            if xcrun stapler validate "$DMG" >/dev/null 2>&1; then
+              echo "state=signed and notarized" >> "$GITHUB_OUTPUT"
+            else
+              echo "state=signed, NOT notarized" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "state=UNSIGNED" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vingilot-aarch64-dmg
+          path: ${{ steps.artifact.outputs.dmg }}
+          if-no-files-found: error
+
+      - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DMG: ${{ steps.artifact.outputs.dmg }}
+          STATE: ${{ steps.artifact.outputs.state }}
+        run: |
+          set -euo pipefail
+          NOTE="Apple Silicon build — $STATE."
+          if [ "$STATE" != "signed and notarized" ]; then
+            NOTE="$NOTE
+          macOS will refuse it on first launch. Clear the quarantine attribute:
+
+              xattr -d com.apple.quarantine /Applications/Vingilot.app"
+          fi
+          gh release create "${GITHUB_REF_NAME}" "$DMG" \
+            --title "${GITHUB_REF_NAME}" --notes "$NOTE" || \
+          gh release upload "${GITHUB_REF_NAME}" "$DMG" --clobber
+
+      - name: Remove the signing keychain
+        if: always() && env.KEYCHAIN != ''
+        run: security delete-keychain "$KEYCHAIN" || true

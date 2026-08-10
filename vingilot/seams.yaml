@@ -651,3 +651,17 @@ seams:
     removable_when: "The broker is started by something other than the harness's run loop, or upstream carries the wiring itself."
     status: "temporary"
     added: "2026-08-10"
+
+  - path: ".github/workflows/vingilot-desktop.yml"
+    reason: "The fork's own release build: GitHub's macOS runners are the only place a macOS .dmg can be produced, and Actions reads workflows from this fixed path, so it cannot live under vingilot/. The file is entirely fork-owned -- it adds a workflow rather than editing any of upstream's, and its tag pattern is vingilot-v* precisely so it cannot collide with upstream's release.yml (desktop-v[0-9]*) or docker.yml (relay-v[0-9]*), which this repo inherits and which a fork cannot complete. The build itself is vingilot/scripts/build-dmg.sh, so CI and a local build cannot drift."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships an application of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "README.md"
+    reason: "The first thing a stranger sees, and after the fork went public it had to say which of the two projects they are looking at. Upstream's text is kept because it is still true -- the relay, the event log, the agent harness, the CLI and the mobile app are upstream's and unmodified -- with a section added on top for what this fork adds, and the attribution and Apache 2.0 licence stated explicitly rather than left to be inferred. GitHub reads this path and no other."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork is published under its own name."
+    status: "permanent"
+    added: "2026-08-10"
