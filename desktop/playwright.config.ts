@@ -151,6 +151,7 @@ export default defineConfig({
         "**/diff-keeps-up.spec.ts",
         "**/workspace-diff-fits.spec.ts",
         "**/workspace-palette-over-thread.spec.ts",
+        "**/workspace-team-scope.spec.ts",
         "**/vingilot-boot-mark.spec.ts",
       ],
       use: {

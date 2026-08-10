@@ -33,10 +33,25 @@
 //
 // **Choosing the team is part of the pane**, per the plan — one team per
 // worktree, stored beside that worktree's tabs and panes, not a global setting.
+//
+// **The scope sentence can be put away, and it is not shortened**
+// (vingilot/docs/plans/2026-08-11-what-sent-him-to-vscode.md, Task 1). It earns
+// its length on first read and never again: measured on the owner's 16-inch
+// laptop, the header carrying it was 401px of a 992px pane. So it collapses,
+// per thread, with the same control bringing back the whole of it — see
+// `lib/teamScopeStore.ts` for why the choice is keyed by channel and why the
+// default is open. What it says is the honest part of this pane, and no layout
+// problem is a reason to say less of it.
 
 import * as React from "react";
 
 import { ChannelRouteScreen } from "@/app/routes/ChannelRouteScreen";
+import {
+  isScopeCollapsed,
+  readCollapsedScopes,
+  withScopeCollapsed,
+  writeCollapsedScopes,
+} from "@/features/runs/lib/teamScopeStore";
 import {
   canSend,
   scopeSentence,
@@ -377,6 +392,63 @@ function Scope({ cwd }: { cwd: string }) {
   );
 }
 
+/** Whether this thread's scope is put away, and how to change that. Read once
+ * per thread and mirrored back on every change — the same shape
+ * `useTeamThread.ts` uses for the binding record it owns.
+ *
+ * The record is read on every thread rather than held for the session because
+ * the pane is keyed by worktree and a worktree switch is a remount, so there is
+ * no session to hold it for; and because a second window of this app writing
+ * the same key should not be overwritten by a stale copy of it. */
+function useScopeCollapsed(channelId: string) {
+  const [collapsed, setCollapsed] = React.useState(() =>
+    isScopeCollapsed(readCollapsedScopes(), channelId),
+  );
+  // A different thread is a different question, and the pane is not remounted
+  // when the owner reopens one — so the answer is re-read rather than carried.
+  const asked = React.useRef(channelId);
+  if (asked.current !== channelId) {
+    asked.current = channelId;
+    setCollapsed(isScopeCollapsed(readCollapsedScopes(), channelId));
+  }
+  const put = React.useCallback(
+    (next: boolean) => {
+      setCollapsed(next);
+      writeCollapsedScopes(
+        withScopeCollapsed(readCollapsedScopes(), channelId, next),
+      );
+    },
+    [channelId],
+  );
+  return { collapsed, put };
+}
+
+/** The scope inside an open thread: the whole sentence, or a control that
+ * brings the whole sentence back.
+ *
+ * The collapsed label names the sentence rather than summarising it. That is
+ * the line this component is not allowed to cross — a one-line paraphrase of
+ * what is and is not sent would be a *different claim*, made by a layout
+ * problem, and the enumeration is the part of this pane that is worth trusting.
+ * So collapsed there is no claim at all, only a door. */
+function ThreadScope({ channelId, cwd }: { channelId: string; cwd: string }) {
+  const scope = useScopeCollapsed(channelId);
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        aria-expanded={!scope.collapsed}
+        className="self-start text-2xs text-muted-foreground underline"
+        data-testid="team-scope-toggle"
+        onClick={() => scope.put(!scope.collapsed)}
+        type="button"
+      >
+        {scope.collapsed ? "the scope of this thread…" : "hide the scope"}
+      </button>
+      {scope.collapsed ? null : <Scope cwd={cwd} />}
+    </div>
+  );
+}
+
 function Conversation({
   channel,
   cwd,
@@ -415,7 +487,7 @@ function Conversation({
           </span>
           <ChangeTeam thread={thread} />
         </div>
-        <Scope cwd={cwd} />
+        <ThreadScope channelId={channel.id} cwd={cwd} />
         {thread.opening ? (
           <p
             className="text-sm text-muted-foreground"
