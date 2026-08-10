@@ -37,6 +37,8 @@ mod templates;
 mod tray_menu;
 mod util;
 mod vingilot_agent;
+#[cfg(target_os = "macos")]
+mod vingilot_brand;
 mod vingilot_pty;
 mod vingilot_repo;
 mod vingilot_window;

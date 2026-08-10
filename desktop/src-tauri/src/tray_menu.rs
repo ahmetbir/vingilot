@@ -105,6 +105,10 @@ fn format_elapsed(elapsed: Duration) -> String {
 /// looks out of place beside the monochrome menu-bar icons. Keeping this
 /// vector-derived mask here also lets macOS tint it correctly in light and
 /// dark menu bars without a separate bitmap asset.
+// Unreferenced since the tray took the Vingilot mark, and kept anyway: this is
+// upstream's drawing of upstream's product, so it is preserved verbatim to keep
+// the seam at one call site and the merge clean.
+#[allow(dead_code)]
 fn tray_bee_icon() -> Image<'static> {
     const WIDTH: u32 = 64;
     const HEIGHT: u32 = 43;
@@ -481,7 +485,12 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     });
     let tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .icon(tray_bee_icon())
+        // The fork's own mark, not upstream's bee: this is the glyph that says
+        // which of the two installed apps the menu is attached to.
+        // `tray_bee_icon` stays where it is — it is upstream's drawing of
+        // upstream's product, and deleting it would be a merge conflict with no
+        // benefit.
+        .icon(crate::vingilot_brand::tray_mark_icon())
         .icon_as_template(true)
         .on_menu_event(|app, event| handle_menu_event(app, event.id.as_ref()))
         .build(app)?;

@@ -1,0 +1,26 @@
+/*
+ * The Vingilot mark is a raster, and rasters do not inherit text colour. The
+ * theme rule for this fork is that a mark takes `currentColor` — that is how
+ * upstream's SVG `BuzzMark` behaves, and matching it is what keeps the mark
+ * legible on both themes from one asset.
+ *
+ * So the element paints a flat `currentColor` fill and the artwork is applied
+ * as a *mask* over it: the PNG contributes shape, the cascade contributes
+ * colour. Painting the PNG as a background-image instead would ship a
+ * white-only bitmap that is invisible on the light theme — the exact failure
+ * this file exists to prevent. Nothing here may introduce a literal colour.
+ *
+ * `mask-image` itself is set inline by VingilotMark.tsx, because the URL is a
+ * build-hashed asset path that only the bundler knows.
+ */
+.vingilot-mark {
+  display: block;
+  background-color: currentColor;
+
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}

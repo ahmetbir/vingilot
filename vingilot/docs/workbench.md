@@ -1239,3 +1239,130 @@ keyboard — testable, no new dependency); `pr`/`surface` pin kinds (the
 Deck identities; Deck as a route independent of the Runs screen; interactive
 surface actions (the design's action protocol — its own replay-safety work,
 later).
+
+## The name, the mark, and what a new bundle identifier costs
+
+The app is called **Vingilot**. It is a fork of `block/buzz` and it has to be
+able to sit in the Dock next to the owner's existing Buzz without either one
+shadowing the other, which is what forces the identity change below.
+
+### The one sentence
+
+**Vingilot starts empty, and the existing Buzz install is untouched.** Nothing
+is copied, moved or deleted; Buzz keeps every file it has and keeps working
+exactly as before. What Vingilot inherits for free, and what it does not, is
+set out below — this is not a summary, it is the whole consequence.
+
+### What actually keys off the bundle identifier
+
+The identifier goes from `xyz.block.buzz.app` to `dev.ahmetbirinci.vingilot`.
+Three things in this codebase resolve their location from it, and three do not.
+The split was read out of the code, not assumed:
+
+| Storage | Keyed off | Consequence for Vingilot |
+|---|---|---|
+| App data dir — agent roster, personas, teams, retention db | `app_data_dir()` → `~/Library/Application Support/<identifier>` | **Empty.** Agents must be re-added. |
+| Webview storage — community/relay list, theme, accent, drafts, zoom | `~/Library/WebKit/<identifier>` (see `reset.rs`) | **Empty.** The relay must be added once. |
+| Single-instance lock | `tauri-plugin-single-instance`, per identifier | This is *why* the identifier must change: same identifier, and the second app refuses to launch. |
+| Nostr identity (the owner's nsec) | keychain service `"buzz-desktop"`, a constant in `app_state_keyring.rs` | **Carried.** Vingilot boots as him — same pubkey, same account. |
+| Agent keys | same keychain blob, same service | **Carried.** |
+| Agent nest — `AGENTS.md`, `RESEARCH/`, `PLANS/`, `GUIDES/`, `WORK_LOGS/`, `OUTBOX/`, `REPOS/` | `~/.buzz`, a constant in `managed_agents/nest.rs` | **Carried, and shared.** Both apps read and write the same nest. |
+
+So "starts empty" is narrower than it sounds. The identity and everything the
+agents have written down survive; the app's own configuration — which relay,
+which agents, which layout — does not.
+
+A macOS keychain item carries an access list per signing identity, so the first
+launch will raise *"Vingilot wants to use your confidential information stored
+in buzz-desktop"*. Answering **Always Allow** is what makes the identity carry;
+answering Deny makes Vingilot generate a fresh identity instead.
+
+### Why there is no migration, when the code already has one
+
+`migration.rs` has exactly the hook for this: `migrate_legacy_app_data_dir`
+copies from whatever `legacy_app_data_dir()` names, non-destructively, and it
+was written for precisely this case ("without this copy a product rename would
+look like a fresh install"). Teaching it `dev.ahmetbirinci.vingilot` →
+`xyz.block.buzz.app` is a four-line change.
+
+It is not made, because `reset.rs` consumes the same function for the opposite
+purpose: `ResetContext.legacy_app_data_dir` is *wiped* on a boot reset, "to
+prevent `migrate_legacy_app_data_dir` from restoring the old identity". Wiring
+the mapping would therefore mean that signing out of Vingilot deletes the
+owner's **Buzz** data directory. Re-adding a relay is a minute; that is not
+recoverable. If the agent roster turns out to be worth carrying, the honest
+version is a command he runs himself, once, with both apps closed:
+
+```sh
+cp -R ~/Library/Application\ Support/xyz.block.buzz.app/agents \
+      ~/Library/Application\ Support/dev.ahmetbirinci.vingilot/
+```
+
+### What was deliberately left alone
+
+- **The dev identifier stays `xyz.block.buzz.app.dev`.** `migration.rs` derives
+  the canonical dev data dir, `is_dev_data_dir_name`, and the worktree
+  identity-sharing symlinks from that exact literal. Renaming it strands every
+  dev instance's agent data for no gain — dev builds already name themselves
+  "Vingilot Dev" via `scripts/instance-env.sh`.
+- **The `buzz://` deep-link scheme.** It is woven through the frontend
+  (`shared/deep-link.ts`, the markdown link transform) and is what the relay and
+  CLI emit. Vingilot registers it too, so with both apps installed macOS awards
+  `buzz://` to one of them and which one is not defined. Links open *an* app,
+  and it may be the other one.
+- **`shared/ui/buzz-logo/**` and `tray_bee_icon`.** Upstream's bee is upstream's
+  drawing of upstream's product. Nothing there is edited or deleted; the fork's
+  mark is a sibling.
+
+### The mark: one derivation, three surfaces, one theme rule
+
+Everything is generated from the owner's single painting by
+`vingilot/brand/derive-mark.py` — nothing is hand-cropped, and the script writes
+each output directly to the place that consumes it so no second copy can drift:
+
+| Output | Surface |
+|---|---|
+| `desktop/src/features/vingilot-brand/mark.png` | in-app mark (45 KB, greyscale+alpha) |
+| `desktop/src-tauri/src/vingilot_brand/tray-mark.gray` | menu-bar template image (1,760 bytes) |
+| `desktop/src-tauri/icons/vingilot-source.png` | square source for `tauri icon` |
+
+**The theme rule: a mark takes `currentColor`, never a colour of its own.**
+Upstream's `BuzzMark` is an SVG filled with `currentColor`; a raster gets the
+same behaviour by being used as a *mask* over a `currentColor` fill rather than
+being painted as an image. The artwork is white on dark, so every shortcut —
+ship the white bitmap, key the glow in — looks right on the dark theme it is
+developed against and wrong on the light one. `vingilot-mark.css` may not
+contain a literal colour, and a test enforces that.
+
+Keying the white mark out of the painting is narrower than it looks: the
+artwork's "white" is 249-252, not 255, and the glow's brightest tail reaches
+248. The window is one level wide. Too low and the glow returns as a grey smudge
+that is only visible on a *light* background; too high and the mark's own body
+goes semi-transparent and the sails render as horizontal streaks. The script's
+header carries the histogram and the failure mode for each edge.
+
+### Why the app icon is not just the painting
+
+The Dock icon and the menu-bar icon are different problems, and the painting
+solves neither on its own.
+
+The painting is white on mid-grey — about 3.5:1. Shrunk to 16px it is a grey
+square with a smudge; that was rendered and looked at before anything was
+changed. So the icon composes the keyed mark, in white, over the owner's own
+gradient remapped onto a dark plate (~15:1), inside the macOS rounded-square
+grid (824/1024, radius 185.4) — a full-bleed square reads as oversized beside
+every other Dock icon. The glow is dropped: at 16px it is not a glow, it is a
+halo that closes the gap between the sails.
+
+The menu bar gets a separate asset, because a dark plate among monochrome
+glyphs is wrong there. It is a 44×40 alpha-only template image — 44 is 22pt at
+2x, the same budget upstream's 43px bee uses — which macOS tints for the light
+and dark menu bar. Rendered at 44, 36, 32, 22, 18 and 16px against both, the
+sails stop separating below about 32px; 44 is the number that is defended.
+
+### Where the mark is drawn today
+
+`VingilotMark` renders in `OnboardingChrome` — the header on every onboarding
+page — and the tray takes the template image. The cold-boot gate still draws
+upstream's flapping bee; that surface is the loading animation's, and it changes
+with it.
