@@ -94,6 +94,13 @@ export interface PaneProps {
    * a pane that only knew `!reachable` could only say "unreachable", which
    * on a machine that never had a coordinator is the lie Task 2 removed. */
   controlPlane: ControlPlaneKind;
+  /** How often a pane may poll the coordinator, decided by the host from what
+   * `controlPlane` is (`lib/reachability.ts`, `controlPlanePollMs`). It rides
+   * beside `controlPlane` because the two are one answer: a pane told "no
+   * control plane on this machine" and left on its own 2s timer would keep the
+   * hammer the settled cadence exists to stop, and the state it reads would
+   * run ahead of the banner the owner is looking at. */
+  pollMs: number;
   workspaceId: string;
   /** Put another pane in this slot. The one thing a pane can ask of the host,
    * and it is here because a pane that wanted it had no way to say so: a

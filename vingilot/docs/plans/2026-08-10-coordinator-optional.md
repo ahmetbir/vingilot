@@ -63,11 +63,14 @@ control plane serving two machines would be right about at most one of them.
       *`seedOnceDecision`: never imported before, local list empty, coordinator **answered**
       (not "was polled"), and it has something to import. All four required, each one a way
       to lose or duplicate the list. Said by `importNotice` in `ProjectsNav`, and recorded in
-      the file so the once survives a restart.*
+      the file so the once survives a restart. It takes the workspace document rather than a
+      list read out of it, which is a correction: it first shipped reading with `readRepos`,
+      the lossy reader, so entries this build cannot parse were dropped at exactly the moment
+      the coordinator's array became the file the owner is told to back up.*
 - [x] Tests: the pure model (store, add, remove, seed-once, push-when-reachable) proved
       red-first, including the case that matters most — **a machine that has never seen a
       coordinator can add a project and still has it after a restart.**
-      *38 in `localProjects.test.mjs`, 6 over real temp directories in `vingilot_projects`.*
+      *41 in `localProjects.test.mjs`, 6 over real temp directories in `vingilot_projects`.*
 
 ## Task 2 — "Unreachable" stops lying on a machine that never had one
 
@@ -99,7 +102,15 @@ prose.)*
       starts by hand right after launch is picked up at once), then settles to 30s, and
       "Check now" probes immediately at any time. It never stops entirely: `cargo run` on the
       Mac mini can start at any moment, and a state that needs a click to leave is one he
-      would not know to leave. The banner never renders a countdown in this state.*
+      would not know to leave. The banner never renders a countdown in this state.
+      The cadence reaches **every** coordinator poll, which it did not when this box was
+      first ticked: three of the five obeyed it and the deck and the run list kept 2s timers
+      of their own, so ~83% of the traffic was unchanged and the hammer never stopped under
+      a banner saying there was nothing to wait for. `pollMs` is now a prop, carried beside
+      `controlPlane` through `PaneProps`, and `controlPlaneCadence.test.mjs` refuses any poll
+      in the runs UI that does not take it — the two run-scoped exemptions are named there
+      with their reason. Only `RunDetail`/`EvidencePane` are fixed at 2s: both read one run,
+      and a run cannot exist on a machine that never had a coordinator.*
 - [x] Whatever is genuinely unavailable is named: runs cannot start. Everything else must not
       advertise itself as broken — the banner is not permitted to imply the workspace is
       read-only when terminals, worktrees, diffs, notes and the thread all work.
@@ -107,24 +118,90 @@ prose.)*
       Both name runs as the one thing unavailable and name what still works.
       `reachable: boolean` is gone from the pane chain in favour of the three-state reading —
       a component that only knew `!reachable` could only ever say "unreachable", which is how
-      the Deck composer note, both pin notes and the status bar inherited the same lie.*
+      the Deck composer note, both pin notes and the status bar inherited the same lie.
+      One clause of this box's own wording did not survive review: the thread is **not**
+      local. It is on the relay (`teamThread.ts`), and both sentences said it was. They now
+      name the five things that are on this machine and put the team thread where it is — a
+      different service, and the one that is down the next time this banner is wrong.*
 - [x] Tests on the pure derivation of which sentence applies, proved red-first.
-      *23 in `reachability.test.mjs`, over which sentence applies, what each may and may not
-      contain, and when the cadence settles. 19 mutations, each turning exactly the intended
-      tests red.*
+      *31 in `reachability.test.mjs`, over which sentence applies, what each may and may not
+      contain, and when the cadence settles — including that neither sentence may put the
+      team thread on this machine, in either word order. Each mutation turned exactly the
+      intended tests red.*
 
 ## Task 3 — Prove it the way he hit it
 
-- [ ] A Playwright spec over a real bundle with **no coordinator at all**: the workspace
+- [x] A Playwright spec over a real bundle with **no coordinator at all**: the workspace
       opens, a project can be added, it survives a reload, worktrees list from git, and the
       banner says the never-configured sentence rather than the outage one. Proved red first.
-- [ ] Check what else assumes the control plane before he finds it: run the workspace specs
+      *`desktop/tests/e2e/workspace-no-coordinator.spec.ts`, two tests. Nothing listens on
+      7117: every request to it is aborted at the transport, which is what a closed port
+      does. The project file is deliberately **not** held in the page — `projects_load` and
+      `projects_save` cross into the test process through `page.exposeFunction` — so
+      "survives a reload" means what it means on his disk rather than what a surviving React
+      tree would mean. The Tauri surface goes in as a property trap in an init script rather
+      than by overwriting `invoke` after boot: `projects_load` runs on the first render, and
+      a rejection there is remembered for the session as "no local store on this machine".
+      Proved able to fail with four product breaks, each rebuilt: `controlPlaneKind` forced
+      to `"outage"` (banner test only); the git listing dropped from `withLocalGroups` (the
+      `local:` row only); `readLocalProjects` always answering the empty document, so the
+      file is written and never read back (the reload assertion only); and `addProject`
+      re-gated on a reachable coordinator, the original bug.*
+- [x] Check what else assumes the control plane before he finds it: run the workspace specs
       with the coordinator stubbed absent and report anything that breaks or renders a lie.
-- [ ] `workbench.md`: what needs the coordinator and what does not, where the project list
+      *Two findings, and the first is the one that explains the gap.*
+
+      ***Every workspace spec's project fixture IS the control plane.*** *All fourteen
+      (`workspace-*`, `deck-two-devices`, `terminal-wheel`, `diff-keeps-up`) get their repos
+      out of a mocked `GET /v1/workspaces/{id}`, and not one of them stubs `projects_load`.
+      Run against a coordinator that does not answer, they do not fail on their subject —
+      they never reach it: `workspace-cheatsheet.spec.ts` was run that way and all 7 tests
+      timed out waiting for `projects-nav-repo-<id>`, a row that on the owner's machine
+      comes from `~/.vingilot/projects.json`. So the suite could not have caught this and
+      still cannot describe his machine; the new spec is the only one that can.*
+
+      ***Two sentences that are still untrue when nothing has ever answered***, found by
+      driving every surface with the coordinator absent and a project in the local file.
+      Both are empty states that point at an act the same screen has just said is
+      impossible, and neither is fixed here — they are reported, not repaired:
+      `DeckPane.tsx`'s **"no runs yet — start one above"**, rendered directly under a
+      disabled composer and the note "no control plane on this machine — runs cannot start
+      here" ("yet" promises they are coming; "above" points at the disabled thing); and
+      `RunList.tsx`'s **"no runs — start one from the Deck"** plus its live `+ New run`
+      row, which sends him to a Deck that says runs cannot start here. A third, much
+      smaller: the palette describes the Deck as "the project-less landing view — runs,
+      lanes, the composer", three things that do nothing on this machine.*
+
+      *What was checked and is honest: the banner, the status bar ("no control plane"), both
+      pin notes, the projects column, the worktree column (both rows off `worktree_list`),
+      Diff, Notes, Plan, the Team pane (relay-backed, correctly unaffected), the cheatsheet
+      and the palette's blocked-reason sentences. `RunDetail` and `EvidencePane` still say
+      "control plane unreachable" and are exempt for the reason Task 2 named: both read one
+      run, and there is no run to open on a machine that never had a coordinator.*
+- [x] `workbench.md`: what needs the coordinator and what does not, where the project list
       lives, the one-direction rule, and the seed-once behaviour.
+      *A new section, "The control plane is optional", with the needs-it/does-not table (and
+      the team thread on neither side of it — it is on the relay), the two banner states and
+      the retry policy, where `projects.json` lives and why not `localStorage`, the
+      one-direction rule with the standoff case that pushes nothing, and the seed's four
+      required facts. Three stale passages went with it: the "Run it" block no longer opens
+      with `docker compose up`, `UnreachableBanner` is `ControlPlaneBanner`, and the Notes
+      section no longer says `repos` lives in the workspace document.*
 - [ ] Owner checklist: install, add a project with no coordinator running, restart, confirm it
       is still there; then on the Mac mini confirm his existing projects are intact and that
       runs still work.
+      *Only he can close this one — it is two machines and one of them holds his real
+      projects. In order: (1) on the work Mac, with nothing on 7117, open the workspace and
+      confirm the banner is the muted "no control plane on this machine" note and not a red
+      box; (2) add a project, quit the app, reopen, confirm it is still listed and that
+      `cat ~/.vingilot/projects.json` shows it; (3) open a worktree, confirm terminals, diff
+      and notes work. Then on the Mac mini, **coordinator running**: (4) launch and confirm
+      every existing project is still on screen, and that the seeded-once notice appeared
+      exactly once and says how many came across; (5) `cat ~/.vingilot/projects.json` and
+      check the count against what he expects — this is the file he backs up from now on;
+      (6) start a run and confirm runs still work. The order matters: (4) before (5), and
+      nothing on the Mac mini before the work Mac, because the seed only runs once and
+      reading it wrong is not recoverable from the UI.*
 
 ## Task 4 — Standalone, said out loud
 

@@ -6,8 +6,9 @@
 // next in 2s"*, and on the owner's work Mac every clause of it was wrong.
 // Nothing became unreachable: there had never been a coordinator on that
 // machine. Nothing was read-only: since Task 1 the project list, worktrees,
-// terminals, diff, notes and the thread are all local. And a ticking countdown
-// is a promise that waiting will fix it, so he waited.
+// terminals, diff and notes are all on this machine, and the team thread is on
+// the relay — a different service, up or down on its own. And a ticking
+// countdown is a promise that waiting will fix it, so he waited.
 //
 // **The two states are different facts and get different sentences.** A
 // coordinator that answered and then stopped is an outage: it has a start
@@ -120,9 +121,16 @@ export interface ControlPlaneBanner {
  *
  * Neither sentence says "read-only", because the workspace is not: the
  * project list is a local file, worktrees come off the filesystem, terminals
- * are local processes, and notes, plan and the thread never went near the
- * coordinator. Runs are the one thing that genuinely needs it, and both
- * sentences name exactly that. */
+ * are local processes, and notes and plan are per-project storage. Runs are
+ * the one thing that genuinely needs the coordinator, and both sentences name
+ * exactly that.
+ *
+ * Neither sentence calls the team thread local either, which is the same
+ * class of clause in the other direction. The thread is on the relay
+ * (`teamThread.ts`: "This conversation lives there and not in this app") — it
+ * is unaffected by the control plane, which is what the sentence is about,
+ * but a banner that told him it was on this machine would be wrong the next
+ * time the relay was the thing that was down. */
 export function controlPlaneBanner(
   kind: ControlPlaneKind,
   since: Date | null,
@@ -135,10 +143,11 @@ export function controlPlaneBanner(
       action: "Check now",
       text:
         "no control plane on this machine — runs cannot start here. " +
-        "Everything else is local and unaffected: projects, worktrees, " +
-        "terminals, diff, notes and the thread. This is not an outage and " +
-        "there is nothing to wait for. If a coordinator starts here, this " +
-        "picks it up on its own.",
+        "Nothing else in the workspace goes through it: projects, worktrees, " +
+        "terminals, diff and notes are on this machine. The team thread is " +
+        "on the relay, which is a different service. This is not an outage " +
+        "and there is nothing to wait for. If a coordinator starts here, " +
+        "this picks it up on its own.",
       tone: "note",
     };
   }
@@ -152,7 +161,8 @@ export function controlPlaneBanner(
     text:
       `control plane not answering since ${view.since.toLocaleTimeString()} — ` +
       "new runs and transitions are unavailable. Projects, worktrees, " +
-      "terminals, diff, notes and the thread are local and still work. " +
+      "terminals, diff and notes are on this machine and still work. The " +
+      "team thread is on the relay, which is a different service. " +
       `Retrying, next in ${view.nextRetrySecs}s.`,
     tone: "alert",
   };

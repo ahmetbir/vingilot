@@ -9,7 +9,12 @@
 // Phase 3 (vingilot/docs/plans/2026-08-04-deck-phase-3.md) adds a pin toggle
 // per row. RunList polls the workspace's pin set independently of DeckPane —
 // two decoupled readers of the same CAS state rather than state lifted
-// through RunsScreen, so neither view depends on the other's presence. A
+// through RunsScreen, so neither view depends on the other's presence. What
+// is NOT decided here is how often to ask and what to say when the answer
+// stops coming: both arrive as props, because those are facts about the
+// machine rather than about this list, and two components answering them
+// apart is how the workspace ended up hammering a port it had already told
+// the owner was not there. A
 // 409 from a row's toggle is shown inline on that row, never silently
 // retried into an overwrite; DeckPane's PINNED region carries the full
 // conflict UX (`DeckConflict`) for pins toggled there.
@@ -31,7 +36,7 @@ import type {
   SemanticClass,
 } from "@/features/runs/lib/runModel";
 import {
-  controlPlaneKind,
+  type ControlPlaneKind,
   pinsUnavailableNote,
 } from "@/features/runs/lib/reachability";
 import { usePolling } from "@/features/runs/lib/usePolling";
@@ -41,6 +46,14 @@ interface RunListProps {
   activeRunId: string | null;
   onSelectRun: (id: string) => void;
   onSelectDeck: () => void;
+  /** Why the row toggles are inert, in the host's words rather than a reading
+   * this list takes for itself — see the note in the body. */
+  controlPlane: ControlPlaneKind;
+  /** The cadence the pin poll below runs at, decided by the host from
+   * `controlPlane` (`lib/reachability.ts`). A list on its own 2s timer would
+   * keep hammering a port nothing is listening on after the workspace had
+   * settled to 30s. */
+  pollMs: number;
   /** Workspace whose `deck.pins` this list reads/writes for its row toggles. */
   workspaceId: string;
 }
@@ -104,8 +117,10 @@ function rowMeta(run: RunSummary): string {
 
 export function RunList({
   activeRunId,
+  controlPlane,
   onSelectDeck,
   onSelectRun,
+  pollMs,
   runs,
   workspaceId,
 }: RunListProps) {
@@ -115,17 +130,18 @@ export function RunList({
     () => getWorkspace(workspaceId),
     [workspaceId],
   );
-  const {
-    data: snapshot,
-    lastOk: pinsLastOk,
-    reachable: pinsReachable,
-  } = usePolling(fetchWorkspace, 2000);
+  const { data: snapshot, reachable: pinsReachable } = usePolling(
+    fetchWorkspace,
+    pollMs,
+  );
   // Why the toggles are inert, in the words that fit this machine: a
   // coordinator that stopped answering and one that was never here are not
-  // the same sentence (`lib/reachability.ts`, Task 2).
-  const pinsNote = pinsUnavailableNote(
-    controlPlaneKind(pinsReachable, pinsLastOk !== null),
-  );
+  // the same sentence (`lib/reachability.ts`, Task 2). The state comes from
+  // the host rather than from this poll — this poll knows whether its own last
+  // tick landed, which is what disables the toggles below, but a *sentence*
+  // derived here would tick on its own offset and could contradict the banner
+  // for as long as a settled cadence.
+  const pinsNote = pinsUnavailableNote(controlPlane);
   const pinnedIds = React.useMemo(
     () => new Set(readPins(snapshot ? snapshot.state : null).map((p) => p.id)),
     [snapshot],

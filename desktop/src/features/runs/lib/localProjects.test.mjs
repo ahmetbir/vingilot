@@ -168,7 +168,7 @@ const AT = "2026-08-10T09:00:00.000Z";
 test("an empty machine seeds from a coordinator that answered", () => {
   const decision = seedOnceDecision(
     EMPTY_LOCAL_PROJECTS,
-    { answered: true, repos: [repo("buzz", "/src/buzz")] },
+    { answered: true, state: { repos: [repo("buzz", "/src/buzz")] } },
     AT,
   );
   assert.equal(decision.seed, true);
@@ -195,16 +195,59 @@ test("a coordinator that has not answered seeds nothing and marks nothing", () =
 test("a coordinator that answered with no projects does not burn the seed", () => {
   const decision = seedOnceDecision(
     EMPTY_LOCAL_PROJECTS,
-    { answered: true, repos: [] },
+    { answered: true, state: { repos: [] } },
     AT,
   );
+  assert.deepEqual(decision, { seed: false, why: "nothing-to-import" });
+});
+
+test("an entry the build cannot read crosses with the seed, into the file", () => {
+  // The seed is the moment the coordinator's array becomes the local file,
+  // and that file is then the original — the one he is told to back up. An
+  // entry dropped here survives only as long as the coordinator's document
+  // does, which on the machine this feature was written for is not a promise
+  // anyone made.
+  const alien = { id: "future", shape: "this build predates" };
+  const decision = seedOnceDecision(
+    EMPTY_LOCAL_PROJECTS,
+    { answered: true, state: { repos: [repo("buzz", "/src/buzz"), alien] } },
+    AT,
+  );
+  assert.equal(decision.seed, true);
+  assert.deepEqual(decision.doc.foreign, [{ index: 1, value: alien }]);
+  // And out through the file, at the index it came in at.
+  const written = JSON.parse(serializeLocalProjects(decision.doc));
+  assert.deepEqual(written.repos, [repo("buzz", "/src/buzz"), alien]);
+});
+
+test("the import count is the projects, not every entry that crossed", () => {
+  const decision = seedOnceDecision(
+    EMPTY_LOCAL_PROJECTS,
+    { answered: true, state: { repos: [repo("buzz", "/src/buzz"), 7] } },
+    AT,
+  );
+  // The notice says "projects", and an entry this build cannot name is not
+  // one it can show him.
+  assert.equal(decision.doc.imported.count, 1);
+  assert.match(importNotice(decision.doc), /1 project was imported/);
+});
+
+test("a coordinator holding only entries this build cannot read seeds nothing", () => {
+  const decision = seedOnceDecision(
+    EMPTY_LOCAL_PROJECTS,
+    { answered: true, state: { repos: [{ shape: "unknown" }] } },
+    AT,
+  );
+  // Not an import: it would burn the one seed this list has for a document
+  // it could show nothing of, and the entries are safe where they are — the
+  // push splices them back on every write.
   assert.deepEqual(decision, { seed: false, why: "nothing-to-import" });
 });
 
 test("a list that was already started is never merged into", () => {
   const decision = seedOnceDecision(
     doc([repo("talon", "/src/talon")]),
-    { answered: true, repos: [repo("buzz", "/src/buzz")] },
+    { answered: true, state: { repos: [repo("buzz", "/src/buzz")] } },
     AT,
   );
   assert.deepEqual(decision, { seed: false, why: "list-not-empty" });
@@ -214,13 +257,13 @@ test("a second launch does not import again, even into an emptied list", () => {
   // He imported five, then forgot all five. They do not come back.
   const seeded = seedOnceDecision(
     EMPTY_LOCAL_PROJECTS,
-    { answered: true, repos: [repo("buzz", "/src/buzz")] },
+    { answered: true, state: { repos: [repo("buzz", "/src/buzz")] } },
     AT,
   );
   const emptied = removeLocalProject(seeded.doc, "buzz");
   const again = seedOnceDecision(
     emptied,
-    { answered: true, repos: [repo("buzz", "/src/buzz")] },
+    { answered: true, state: { repos: [repo("buzz", "/src/buzz")] } },
     "2026-08-11T09:00:00.000Z",
   );
   assert.deepEqual(again, { seed: false, why: "already-imported" });
@@ -229,7 +272,7 @@ test("a second launch does not import again, even into an emptied list", () => {
 test("the import survives the file, so the once holds across a restart", () => {
   const seeded = seedOnceDecision(
     EMPTY_LOCAL_PROJECTS,
-    { answered: true, repos: [repo("buzz", "/src/buzz")] },
+    { answered: true, state: { repos: [repo("buzz", "/src/buzz")] } },
     AT,
   );
   const reopened = readLocalProjects(serializeLocalProjects(seeded.doc));
@@ -247,7 +290,7 @@ test("the import survives the file, so the once holds across a restart", () => {
 test("an import that happened is said, with its count and where the list is", () => {
   const seeded = seedOnceDecision(
     EMPTY_LOCAL_PROJECTS,
-    { answered: true, repos: [repo("a", "/a"), repo("b", "/b")] },
+    { answered: true, state: { repos: [repo("a", "/a"), repo("b", "/b")] } },
     AT,
   );
   const notice = importNotice(seeded.doc);
@@ -262,7 +305,7 @@ test("a machine that imported nothing says nothing", () => {
 test("the notice goes away once it is read, and stays away", () => {
   const seeded = seedOnceDecision(
     EMPTY_LOCAL_PROJECTS,
-    { answered: true, repos: [repo("a", "/a")] },
+    { answered: true, state: { repos: [repo("a", "/a")] } },
     AT,
   );
   const read = acknowledgeImport(seeded.doc);

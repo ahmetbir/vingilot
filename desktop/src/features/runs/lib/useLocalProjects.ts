@@ -107,6 +107,13 @@ export function useLocalProjects({
   snapshot,
   workspaceId,
 }: Options): LocalProjectStore {
+  // `usePolling` types its data `T | null`, but `coordinatorClient` answers a
+  // 200 with an empty body as `undefined` (`coordinatorClient.ts` — the
+  // coordinator's own endpoints are inconsistent about ack bodies). So the
+  // value arriving here can be either, while the type says one. Normalised
+  // once rather than guarded at each use: three places below ask "did the
+  // coordinator answer", and two of them dereference the answer.
+  const answer: WorkspaceSnapshot | null = snapshot ?? null;
   const [doc, setDoc] = React.useState<LocalProjects | null>(null);
   const [storeError, setStoreError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
@@ -154,11 +161,14 @@ export function useLocalProjects({
     if (doc === null) return;
     // The coordinator has never answered. Runs are unavailable and that is
     // all — there is nothing to seed from and nothing to push to.
-    if (snapshot === null) return;
+    if (answer === null) return;
 
+    // The whole document, not a list read out of it: which reader the seed
+    // needs is `seedOnceDecision`'s to know, and the one that drops entries
+    // this build cannot parse is the shorter name.
     const decision = seedOnceDecision(
       doc,
-      { answered: true, repos: readRepos(snapshot.state) },
+      { answered: true, state: answer.state },
       new Date().toISOString(),
     );
     if (decision.seed) {
@@ -166,15 +176,15 @@ export function useLocalProjects({
       return;
     }
 
-    const push = pushDecision(doc, snapshot.state);
+    const push = pushDecision(doc, answer.state);
     if (!push.push) return;
-    if (pushedAt.current === snapshot.revision) return;
-    pushedAt.current = snapshot.revision;
+    if (pushedAt.current === answer.revision) return;
+    pushedAt.current = answer.revision;
     // One direction: the local list is sent, and whatever comes back is not
     // applied to it. A lost CAS needs no retry here — the next poll reads the
     // winner's document and this runs again against it.
-    void putRepos(workspaceId, snapshot.revision, push.repos);
-  }, [doc, snapshot, persist, workspaceId]);
+    void putRepos(workspaceId, answer.revision, push.repos);
+  }, [doc, answer, persist, workspaceId]);
 
   const addProject = React.useCallback(() => {
     setError(null);
@@ -218,7 +228,18 @@ export function useLocalProjects({
   const removeProject = React.useCallback(
     (repo: Repo) => {
       setError(null);
-      if (doc === null) return;
+      if (doc === null) {
+        // Same refusal as `addProject`, and said for the same reason: the rows
+        // on screen in this state are the coordinator's, the × over each one
+        // is live, and a click that returns silently reads as "forgotten" —
+        // the project is still there at the next launch and nothing said why.
+        setError(
+          `cannot forget a project: the local project list could not be read (${
+            storeError ?? "no local store on this machine"
+          }).`,
+        );
+        return;
+      }
       setPending(true);
       void (async () => {
         await persist(removeLocalProject(doc, repo.id));
@@ -226,7 +247,7 @@ export function useLocalProjects({
         onRemoved?.(repo.id);
       })();
     },
-    [doc, onRemoved, persist],
+    [doc, onRemoved, persist, storeError],
   );
 
   const dismissError = React.useCallback(() => setError(null), []);
@@ -240,16 +261,16 @@ export function useLocalProjects({
   // read-only from here. On an installed app this branch is unreachable — it
   // is the browser preview and the E2E bridge, where `invoke` rejects.
   const repos = React.useMemo(
-    () => (doc === null ? readRepos(snapshot?.state ?? null) : doc.repos),
-    [doc, snapshot],
+    () => (doc === null ? readRepos(answer?.state ?? null) : doc.repos),
+    [doc, answer],
   );
 
   return {
     addProject,
     coordinatorNotice:
-      doc === null || snapshot === null
+      doc === null || answer === null
         ? null
-        : unreconciledNotice(doc, snapshot.state),
+        : unreconciledNotice(doc, answer.state),
     dismissError,
     dismissImportNotice,
     error,

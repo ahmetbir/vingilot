@@ -160,6 +160,21 @@ test("controlPlaneBanner: neither sentence calls the workspace read-only", () =>
   }
 });
 
+test("controlPlaneBanner: neither sentence puts the team thread on this machine", () => {
+  const outage = controlPlaneBanner("outage", T0, T0, 2000);
+  const absent = controlPlaneBanner("absent", null, T0, 2000);
+  for (const banner of [outage, absent]) {
+    // The thread is the one item in the list that is not local — it is on the
+    // relay (`teamThread.ts`). Saying otherwise is the same class of wrong
+    // clause as "read-only" above, so it gets the same kind of gate: the
+    // clause about what is on this machine may not reach the thread, in
+    // either word order, and the thread must be named with where it is.
+    assert.doesNotMatch(banner.text, /thread[^.]*\b(local|this machine)\b/i);
+    assert.doesNotMatch(banner.text, /\b(local|this machine)\b[^.]*thread/i);
+    assert.match(banner.text, /team thread is on the relay/);
+  }
+});
+
 test("controlPlaneStatus: three states, three readings", () => {
   assert.equal(controlPlaneStatus("reachable"), "synced");
   assert.equal(controlPlaneStatus("outage"), "not answering");
