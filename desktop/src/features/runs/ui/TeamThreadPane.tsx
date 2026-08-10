@@ -50,10 +50,14 @@ import type { Channel } from "@/shared/api/types";
 import { HostedChannelProvider } from "@/shared/context/HostedChannelContext";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 
-export function TeamThreadPane({ cwd, worktree }: PaneProps) {
+export function TeamThreadPane({ cwd, projectPath, worktree }: PaneProps) {
   const thread = useTeamThread({
     bindingId: worktree?.binding_id ?? null,
     cwd,
+    // For the channel's name only — team, then project, then branch, which is
+    // how the owner would have named it himself. The path the thread is *about*
+    // is `cwd`, and that goes in the description.
+    projectPath,
     worktreeLabel: worktree === null ? "" : worktreeSummary(worktree).label,
   });
 

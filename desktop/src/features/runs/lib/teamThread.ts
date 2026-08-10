@@ -215,8 +215,13 @@ export function scopeSentence(cwd: string): string {
  * **There is no `send` step any more.** The pane hosts upstream's composer, so a
  * message that does not leave is reported by the composer that took it, in the
  * words and the place every other channel uses. A second sentence for it here
- * would be this island claiming a failure it no longer sees. */
-export type TeamThreadStep = "open" | "deploy";
+ * would be this island claiming a failure it no longer sees.
+ *
+ * **`rename` is the one edit this pane makes to a channel it did not just
+ * create** (`threadChannelRepair`), and it is reported for the same reason the
+ * other two are: it is done on his behalf, without being asked for, to a thing
+ * he can see in his sidebar. */
+export type TeamThreadStep = "open" | "deploy" | "rename";
 
 /** What to say before the reason whatever refused gave.
  *
@@ -230,6 +235,8 @@ export function troubleSentence(step: TeamThreadStep): string {
       return "the thread could not be opened: ";
     case "deploy":
       return "the thread is open, but its members could not be deployed into it — the channel is there and you can send in it, and nobody may answer: ";
+    case "rename":
+      return "the thread is open and everything in it is where it was; its channel could not be given a name a human would give it, nor told which worktree it belongs to, so it keeps the name an older build made up and would have to be found by hand if this worktree ever lost its pointer to it: ";
   }
 }
 
@@ -243,6 +250,32 @@ function slug(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 24);
+}
+
+/** The last segment of a path — what a human calls the project. A `null` path
+ * and a path with nothing but separators in it are both no label, and the name
+ * goes without that part rather than carrying an empty one. */
+function projectLabel(projectPath: string | null): string {
+  if (projectPath === null) return "";
+  const segments = projectPath.split("/").filter((part) => part !== "");
+  return segments[segments.length - 1] ?? "";
+}
+
+/** A name as the relay stores it, lowercased.
+ *
+ * `canonical_channel_name` (`crates/buzz-core/src/channel.rs`) strips leading
+ * `#` and whitespace and trims the end, so two names differing only there are
+ * one name once they land. Case is not the relay's business — it stores what it
+ * is given, and there is no unique index on the name at all
+ * (`migrations/0001_initial_schema.sql` indexes `(community, nip29_group_id)`
+ * and the DM participant hash, and nothing else) — but `Design` and `design`
+ * are one channel to the eye reading the sidebar, and the eye is who the
+ * collision check below is for. */
+function canonicalName(name: string): string {
+  return name
+    .replace(/^[#\s]+/, "")
+    .trimEnd()
+    .toLowerCase();
 }
 
 /** A short, stable discriminator for a (worktree, team) pair.
@@ -261,37 +294,103 @@ function discriminator(bindingId: string, teamId: string): string {
   return hash.toString(36).padStart(6, "0").slice(-6);
 }
 
-/** What the thread's channel is called. Prefixed so a channel list sorted by
- * name keeps every worktree thread together, and so the owner can tell at a
- * glance which channels this pane made. */
+/** What the thread's channel is called: team, then project, then branch.
+ *
+ * **A name a human would have given it**, which is the whole of this change.
+ * The old one was `wt-<branch>-<team>-<hash>` — a prefix so the threads sorted
+ * together and a discriminator so two of them could never ask for one name —
+ * and the owner read it in his sidebar as `#wt-main-welcome-team-kbz5pz` and
+ * asked what `wt-main` was. Neither half was worth that: the sort order is a
+ * convenience this pane does not need (it reaches its thread by id), and the
+ * discriminator is bought below, at the moment a collision actually exists. */
 export function threadChannelName(
-  bindingId: string,
-  teamId: string,
   teamName: string,
+  projectPath: string | null,
   worktreeLabel: string,
 ): string {
-  const parts = [slug(worktreeLabel), slug(teamName)].filter(
-    (part) => part !== "",
-  );
-  const stem = parts.length > 0 ? parts.join("-") : "thread";
-  return `wt-${stem}-${discriminator(bindingId, teamId)}`;
+  const parts = [
+    slug(teamName),
+    slug(projectLabel(projectPath)),
+    slug(worktreeLabel),
+  ].filter((part) => part !== "");
+  return parts.length > 0 ? parts.join("-") : "team-thread";
 }
 
-/** Whether a channel in the owner's list is the one this pane would have made
- * for this (worktree, team) pair.
+/** The wanted name, or the nearest free one — the hash, bought honestly.
  *
- * Matched on the discriminator rather than the whole name, because the name
- * also carries the team's and the worktree's labels and either can be renamed
- * after the thread exists — a rename must not make the thread unfindable. The
- * `wt-` prefix keeps a hand-made channel that happens to end in six of the same
- * characters out of it.
+ * **The relay will not answer this for us.** It enforces no name uniqueness
+ * within a community after canonicalisation: nothing in the schema indexes the
+ * name, and `buzz-db`'s `create_channel`/`update_channel` only canonicalise it
+ * and refuse an empty one. So a collision is not an error to report — it is two
+ * identical rows in his sidebar, silently. That makes the check the client's
+ * job, against the list he can actually see, with the discriminator appended
+ * only when the plain name is taken. */
+export function availableChannelName(
+  wanted: string,
+  taken: readonly string[],
+  bindingId: string,
+  teamId: string,
+): string {
+  const used = new Set(taken.map(canonicalName));
+  if (!used.has(canonicalName(wanted))) return wanted;
+  const discriminated = `${wanted}-${discriminator(bindingId, teamId)}`;
+  if (!used.has(canonicalName(discriminated))) return discriminated;
+  // Reached only by a *second* thread for the same (worktree, team) pair, which
+  // `Preflight` asks about before opening: the discriminator is a function of
+  // that pair, so this is the one case where it cannot separate two channels.
+  for (let n = 2; n <= used.size + 2; n += 1) {
+    const numbered = `${discriminated}-${n}`;
+    if (!used.has(canonicalName(numbered))) return numbered;
+  }
+  // Unreachable: the loop tries more names than there are taken ones.
+  return discriminated;
+}
+
+/** The mark that says which (worktree, team) pair a channel is the thread of.
  *
- * **This is a recovery path, not the authority.** The pointer store is what
- * normally finds a thread; this is how a *lost* pointer is picked back up
- * without minting a second team, and its only consumer puts the channel's name
- * in front of the owner before adopting it, so a hash collision is something he
- * can see rather than something that happens to him. */
-export function isThreadChannelName(
+ * **In the description, and no longer in the name.** Recovery used to match on
+ * the name's shape, so giving the channel a name a human would give it would
+ * have disabled recovery without a word — a failure nothing notices until a
+ * pointer is actually lost, which is the one moment recovery is all there is.
+ *
+ * The description is carried on exactly the objects the recovery path reads,
+ * which was checked before this was relied on rather than after: `get_channels`
+ * builds every row from the kind:39000 metadata event's `about` tag
+ * (`nostr_convert::channel_info_from_event`), and `fromRawChannel` copies it
+ * onto `Channel.description` — the same list `findThreadChannel` is handed. And
+ * a rename does not disturb it: the relay's kind:9002 handler updates only the
+ * columns whose tags are present (`handle_edit_metadata`), so a name-only edit
+ * leaves `about` exactly where it was.
+ *
+ * The two ids go in whole rather than hashed. There is room for them here, and
+ * an exact pair is an exact answer — no discriminator, so no collision to put
+ * in front of the owner before adopting. The one shape this cannot survive is
+ * an id containing the marker's own delimiters, which no id in this app has:
+ * both are opaque strings minted by the coordinator and the team store. */
+export function threadChannelMarker(bindingId: string, teamId: string): string {
+  return `[vingilot-thread ${bindingId} ${teamId}]`;
+}
+
+/** Whether a channel's description says it is this pair's thread. */
+export function isThreadChannelDescription(
+  description: string,
+  bindingId: string,
+  teamId: string,
+): boolean {
+  return description.includes(threadChannelMarker(bindingId, teamId));
+}
+
+/** The name this pane gave a thread before 2026-08-10, for this exact pair.
+ *
+ * Kept for one reason: channels the old build made are on the owner's relay
+ * with no marker in their description, and until each is repaired this is the
+ * only thing that can find one. Nothing writes a name of this shape any more.
+ *
+ * Matched on the discriminator rather than the whole name, because the old name
+ * also carried the team's and the worktree's labels and either could be renamed
+ * after the thread existed. The `wt-` prefix keeps a hand-made channel that
+ * happens to end in six of the same characters out of it. */
+export function isLegacyThreadChannelName(
   name: string,
   bindingId: string,
   teamId: string,
@@ -302,26 +401,113 @@ export function isThreadChannelName(
   );
 }
 
+/** The same shape, without asking which pair it was made for.
+ *
+ * Only ever applied to a channel the *pointer* has already identified, which is
+ * what makes dropping the discriminator safe here: which pair this is was
+ * settled before this was asked, and all that is left to answer is "did an
+ * older build write this name" — so a channel the owner named himself is left
+ * alone rather than renamed out from under him. */
+export function hasLegacyThreadChannelShape(name: string): boolean {
+  return /^wt-[a-z0-9-]*-[a-z0-9]{6}$/.test(name);
+}
+
 /** The thread this worktree already has with this team, if the relay still has
  * it. `null` is "not in the list", which after a successful list means there is
- * none to reopen. */
-export function findThreadChannel<T extends { id: string; name: string }>(
-  channels: readonly T[],
-  bindingId: string,
-  teamId: string,
-): T | null {
+ * none to reopen.
+ *
+ * **This is a recovery path, not the authority.** The pointer store is what
+ * normally finds a thread; this is how a *lost* pointer is picked back up
+ * without minting a second team, and its only consumer puts the channel's name
+ * in front of the owner before adopting it.
+ *
+ * The marker is asked first and the old name second, so a repaired channel is
+ * matched on the pair itself and only an unrepaired one falls back to a shape. */
+export function findThreadChannel<
+  T extends { id: string; name: string; description?: string | null },
+>(channels: readonly T[], bindingId: string, teamId: string): T | null {
   return (
     channels.find((channel) =>
-      isThreadChannelName(channel.name, bindingId, teamId),
-    ) ?? null
+      isThreadChannelDescription(channel.description ?? "", bindingId, teamId),
+    ) ??
+    channels.find((channel) =>
+      isLegacyThreadChannelName(channel.name, bindingId, teamId),
+    ) ??
+    null
   );
 }
 
 /** What the channel says it is for, on the relay, where the owner will read it
- * from the ordinary channel list months later with this pane nowhere in sight. */
+ * from the ordinary channel list months later with this pane nowhere in sight —
+ * and, at the end, the marker that says which worktree and team it belongs to. */
 export function threadChannelDescription(
   teamName: string,
   cwd: string,
+  bindingId: string,
+  teamId: string,
 ): string {
-  return `Worktree thread with ${teamName} about ${cwd}. Opened from the Vingilot workspace; its members post under their own pubkeys.`;
+  return `Worktree thread with ${teamName} about ${cwd}. Opened from the Vingilot workspace; its members post under their own pubkeys. ${threadChannelMarker(bindingId, teamId)}`;
+}
+
+/** What one channel edit would have to change for a thread opened by an older
+ * build to be a thread this one can name and can find again — or `null` when
+ * there is nothing to change, which is every channel this build opened.
+ *
+ * Both halves ride in one `update_channel`, and that is deliberate: it is one
+ * kind:9002 event carrying both tags, so the name and the marker land together
+ * or neither does. The failed case therefore costs nothing — the old name is
+ * still there, and the old name is still what `isLegacyThreadChannelName`
+ * finds.
+ *
+ * The name is only rewritten when an older build wrote it. A channel the owner
+ * renamed himself keeps his name and gets the marker, because the marker is the
+ * half that recovery needs and the name is his. */
+export interface ThreadChannelRepair {
+  name?: string;
+  description?: string;
+}
+
+export function threadChannelRepair(input: {
+  channel: { name: string; description?: string | null };
+  /** Every other channel in the owner's list, so a new name can avoid them. */
+  otherNames: readonly string[];
+  bindingId: string;
+  teamId: string;
+  teamName: string;
+  cwd: string;
+  projectPath: string | null;
+  worktreeLabel: string;
+}): ThreadChannelRepair | null {
+  const description = input.channel.description ?? "";
+  const marked = isThreadChannelDescription(
+    description,
+    input.bindingId,
+    input.teamId,
+  );
+  const legacy = hasLegacyThreadChannelShape(input.channel.name);
+  if (marked && !legacy) return null;
+
+  const repair: ThreadChannelRepair = {};
+  if (!marked) {
+    // Appended rather than rewritten: whatever is in there may be something the
+    // owner typed, and the marker is the only part this pane needs to be true.
+    repair.description =
+      description.trim() === ""
+        ? threadChannelDescription(
+            input.teamName,
+            input.cwd,
+            input.bindingId,
+            input.teamId,
+          )
+        : `${description.trim()} ${threadChannelMarker(input.bindingId, input.teamId)}`;
+  }
+  if (legacy) {
+    repair.name = availableChannelName(
+      threadChannelName(input.teamName, input.projectPath, input.worktreeLabel),
+      input.otherNames,
+      input.bindingId,
+      input.teamId,
+    );
+  }
+  return repair;
 }

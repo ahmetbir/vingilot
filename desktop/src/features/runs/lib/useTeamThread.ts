@@ -24,6 +24,16 @@
 // the team was deployed and invisible: the autocomplete offered the *personas*
 // they were minted from, which mention nobody.
 //
+// **And one edit it makes to a channel it did not just open.** A thread from an
+// older build is called `wt-<branch>-<team>-<hash>` and carries no mark saying
+// whose it is, so on the first render that has it in hand this hook asks for
+// one kind:9002 that gives it both (`threadChannelRepair`,
+// vingilot/docs/plans/2026-08-09-team-thread-fidelity.md, Task 3). It is the
+// only channel this pane edits without being asked, it only ever touches the
+// channel this worktree's own pointer names, and a refusal is reported rather
+// than swallowed — the old name still finds the thread, which is why a failure
+// here costs nothing today and only matters if the pointer is lost later.
+//
 // **Why this is a hook and not a component.** The pane is a rendering of what
 // is below; keeping the questions here means the component is a function of an
 // answer, and the answer's shape is `teamThread.ts`'s, which is pure and
@@ -55,6 +65,7 @@ import {
   invalidateChannelState,
   useChannelsQuery,
   useCreateChannelMutation,
+  useUpdateChannelMutation,
 } from "@/features/channels/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
 import type {
@@ -66,6 +77,7 @@ import type {
 import { useRelayConnection } from "@/shared/api/useRelayConnection";
 
 import {
+  availableChannelName,
   findThreadChannel,
   readTeamThread,
   relayReach,
@@ -74,6 +86,7 @@ import {
   type TeamThreadStep,
   threadChannelDescription,
   threadChannelName,
+  threadChannelRepair,
 } from "./teamThread.ts";
 import {
   bindingFor,
@@ -142,9 +155,13 @@ const NO_TEAMS: AgentTeam[] = [];
 export function useTeamThread(input: {
   bindingId: string | null;
   cwd: string | null;
+  /** The open project's directory. Only its last segment is used, and only in
+   * the channel's *name* — the full path the thread is about is `cwd`, and that
+   * goes in the description. */
+  projectPath: string | null;
   worktreeLabel: string;
 }): TeamThread {
-  const { bindingId, cwd, worktreeLabel } = input;
+  const { bindingId, cwd, projectPath, worktreeLabel } = input;
 
   const [bindings, setBindings] = React.useState<TeamThreadBindings>(() =>
     readTeamThreadBindings(),
@@ -164,6 +181,7 @@ export function useTeamThread(input: {
   const { globalConfig } = useGlobalAgentConfig();
   const createChannel = useCreateChannelMutation();
   const queryClient = useQueryClient();
+  const channels = channelsQuery.data;
 
   const teams = teamsQuery.data ?? NO_TEAMS;
   const binding = bindingFor(bindings, bindingId);
@@ -172,9 +190,8 @@ export function useTeamThread(input: {
   const channel =
     binding?.channelId == null
       ? null
-      : ((channelsQuery.data ?? []).find(
-          (entry) => entry.id === binding.channelId,
-        ) ?? null);
+      : ((channels ?? []).find((entry) => entry.id === binding.channelId) ??
+        null);
   // "Not in the list" only means lost once the list has actually arrived.
   const lostChannel =
     binding?.channelId != null && channel === null && channelsQuery.isSuccess;
@@ -184,7 +201,7 @@ export function useTeamThread(input: {
   const existingThread =
     channel !== null || bindingId === null || team === null
       ? null
-      : findThreadChannel(channelsQuery.data ?? [], bindingId, team.id);
+      : findThreadChannel(channels ?? [], bindingId, team.id);
 
   const reading = readTeamThread({
     community: activeCommunity != null,
@@ -278,8 +295,23 @@ export function useTeamThread(input: {
       try {
         const channel = await createChannel.mutateAsync({
           channelType: "stream",
-          description: threadChannelDescription(team.name, cwd),
-          name: threadChannelName(bindingId, teamId, team.name, worktreeLabel),
+          description: threadChannelDescription(
+            team.name,
+            cwd,
+            bindingId,
+            teamId,
+          ),
+          // Checked against the owner's own channel list — the same one his
+          // sidebar draws — so the discriminator is appended only when the
+          // plain name would land beside something already called that. A list
+          // one render stale can only cost a duplicate name, never a wrong
+          // channel: the pointer is written from the id this call returns.
+          name: availableChannelName(
+            threadChannelName(team.name, projectPath, worktreeLabel),
+            (channels ?? []).map((entry) => entry.name),
+            bindingId,
+            teamId,
+          ),
           // Private: the thread names a directory on this machine, and the
           // owner did not ask for that to be readable by the whole community.
           visibility: "private",
@@ -323,14 +355,64 @@ export function useTeamThread(input: {
     })();
   }, [
     bindingId,
+    channels,
     createChannel,
     cwd,
     defaultRuntime,
     opening,
+    projectPath,
     queryClient,
     rememberChannel,
     resolved,
     runtimes,
+    team,
+    worktreeLabel,
+  ]);
+
+  const updateThreadChannel = useUpdateChannelMutation(channel?.id ?? null);
+  const editThreadChannel = updateThreadChannel.mutateAsync;
+  /** Channels this mount has already asked to repair.
+   *
+   * A ref and not state: the answer to the edit arrives as a *new channel row*,
+   * which re-runs the effect below, and a second identical kind:9002 queued
+   * while the first was in flight would be this pane editing his sidebar twice
+   * for one reason. */
+  const repairAsked = React.useRef<Set<string>>(new Set());
+
+  /** Give a thread opened by an older build the name and the mark this one
+   * would have given it — once, on the first render that has the channel in
+   * hand (`threadChannelRepair` says exactly what that means and why the
+   * marker half is the one that matters).
+   *
+   * It runs on the channel the *pointer* names, so it can only ever touch a
+   * channel this worktree already considers its thread. */
+  React.useEffect(() => {
+    if (bindingId === null || team === null || cwd === null) return;
+    if (channel === null || repairAsked.current.has(channel.id)) return;
+    const repair = threadChannelRepair({
+      bindingId,
+      channel,
+      cwd,
+      otherNames: (channels ?? [])
+        .filter((entry) => entry.id !== channel.id)
+        .map((entry) => entry.name),
+      projectPath,
+      teamId: team.id,
+      teamName: team.name,
+      worktreeLabel,
+    });
+    if (repair === null) return;
+    repairAsked.current.add(channel.id);
+    void editThreadChannel(repair).catch((error: unknown) => {
+      setTrouble({ message: reasonOf(error), step: "rename" });
+    });
+  }, [
+    bindingId,
+    channel,
+    channels,
+    cwd,
+    editThreadChannel,
+    projectPath,
     team,
     worktreeLabel,
   ]);

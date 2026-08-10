@@ -23,6 +23,12 @@
 //   more: the path is in the channel's description and the branch in its name.
 //   The spec asserts the claim and asserts that a sent message carries the
 //   typed words and nothing else;
+// - that the channel he ends up with in his sidebar is **named the way he
+//   would have named it** — team, project, branch, no `wt-` and no hash — and
+//   that a thread from the build before this one is renamed in place without
+//   the pointer or the recovery path losing it. The mark recovery matches on
+//   is asserted on the row `get_channels` returns, because a mark the recovery
+//   path cannot read is a recovery path that cannot work;
 // - that opening a thread reaches **the relay**: a channel that did not exist
 //   before, read off `sign_event`, which is where every relay message this app
 //   publishes is signed;
@@ -56,6 +62,19 @@ const REPO = { id: "repo-left", name: "vingilot", path: "/tmp/vingilot-left" };
  * must not put there any more. */
 const OLD_SCOPE_LINE = "worktree: /tmp/vingilot-left";
 const QUESTION = "why is the build red";
+
+/** What this pane calls the channel it opens: the team, then the project
+ * directory, then the branch. Written out rather than derived for the same
+ * reason as the line above — a spec that built the name the way the product
+ * does would pass through any change to either.
+ *
+ * `vingilot-left` is `REPO.path`'s last segment and `main` is the primary
+ * checkout's stand-in for a branch (`worktreeSummary`). */
+const THREAD_NAME = "launch-team-vingilot-left-main";
+
+/** The name an older build gave the same channel, and the one on the owner's
+ * relay right now: a `wt-` prefix, the labels, and a six-character hash. */
+const OLD_THREAD_NAME = "wt-main-launch-team-kbz5pz";
 
 const PERSONAS = [
   { displayName: "Planner", id: "persona-planner", systemPrompt: "Plan it." },
@@ -337,6 +356,38 @@ async function deployedAgentPubkey(page: Page, name: string) {
   }, name);
 }
 
+/** The channel this worktree's pointer names, read off the relay's own list.
+ *
+ * Both halves matter. The pointer is `teamThreadStore`'s and holds a channel
+ * *id*, so reading it is how "the pointer still resolves" can be asserted
+ * across a rename; the row comes from `get_channels`, which is the same list
+ * the recovery path is handed, so the description asserted here is the one
+ * recovery would actually get to read. */
+async function threadChannel(page: Page) {
+  return page.evaluate(async () => {
+    const raw = window.localStorage.getItem("vingilot-team-thread.v1");
+    const bindings = (raw === null ? {} : JSON.parse(raw)) as Record<
+      string,
+      { channelId: string | null }
+    >;
+    const channelId = Object.values(bindings)[0]?.channelId ?? null;
+    if (channelId === null) return null;
+    const internals = (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__;
+    const channels = (await internals.invoke("get_channels")) as {
+      id: string;
+      name: string;
+      description: string;
+    }[];
+    return channels.find((channel) => channel.id === channelId) ?? null;
+  });
+}
+
 /** Wait out the deploy. The channel — and therefore the composer — exists
  * before its members do, so typing `@` the moment the composer appears would
  * be asking for a candidate list that is still being written. */
@@ -557,6 +608,75 @@ test.describe("talk to a team about this worktree", () => {
     expect(fromPane?.tags).not.toContainEqual(["p", builder]);
   });
 
+  test("the channel is named for a human, and an older build's is renamed without losing it", async ({
+    page,
+  }) => {
+    await openWorktree(page);
+    await openThread(page);
+    await waitForDeploy(page);
+
+    // **What lands in his sidebar.** Team, project, branch — and nothing else:
+    // no `wt-` in front of it and no hash on the end, because the list it is
+    // going into had no name to collide with.
+    const opened = await threadChannel(page);
+    expect(opened?.name).toBe(THREAD_NAME);
+    expect(opened?.name).not.toMatch(/^wt-/);
+    expect(opened?.name).not.toMatch(/-[a-z0-9]{6}$/);
+
+    // **And what the recovery path has left to match on.** The mark moved off
+    // the name and into the description, which is where the worktree path
+    // already was — asserted on the row `get_channels` returns, because that
+    // is the list `findThreadChannel` reads and a mark the list did not carry
+    // would be a recovery path that cannot work.
+    expect(opened?.description).toContain(REPO.path);
+    expect(opened?.description).toMatch(/\[vingilot-thread /);
+
+    // Now put the channel back the way the build before this one left it: the
+    // ugly name, and a description with no mark in it. This is the state of
+    // #wt-main-welcome-team-kbz5pz on the owner's relay.
+    const channelId = opened?.id ?? "";
+    await page.evaluate(
+      async ({ channelId, name }) => {
+        const internals = (
+          window as unknown as {
+            __TAURI_INTERNALS__: {
+              invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+            };
+          }
+        ).__TAURI_INTERNALS__;
+        await internals.invoke("update_channel", {
+          input: {
+            channelId,
+            description:
+              "Worktree thread with Launch Team about /tmp/vingilot-left.",
+            name,
+          },
+        });
+        await window.__BUZZ_E2E_INVALIDATE_CHANNELS__?.();
+      },
+      { channelId, name: OLD_THREAD_NAME },
+    );
+
+    // On the first render that has it in hand, the pane asks for one edit that
+    // gives it both halves back.
+    await expect
+      .poll(async () => (await threadChannel(page))?.name ?? null, {
+        timeout: 15_000,
+      })
+      .toBe(THREAD_NAME);
+    const repaired = await threadChannel(page);
+    expect(repaired?.description).toMatch(/\[vingilot-thread /);
+    // Appended to what was there, not written over it.
+    expect(repaired?.description).toContain("Worktree thread with Launch Team");
+
+    // **The pointer survived the rename** — it is the same channel id it was
+    // before, and the pane is still standing in the conversation rather than
+    // offering to open a new one.
+    expect(repaired?.id).toBe(channelId);
+    await expect(hostedComposer(page)).toBeVisible();
+    await expect(page.getByTestId("team-trouble")).toHaveCount(0);
+  });
+
   test("with no team configured it says so, and nothing is hosted", async ({
     page,
   }) => {
@@ -612,7 +732,7 @@ test.describe("talk to a team about this worktree", () => {
     // go of.
     await page.getByTestId("team-change").click();
     const confirm = page.getByTestId("team-change-confirm");
-    await expect(confirm).toContainText("stops pointing at #wt-");
+    await expect(confirm).toContainText(`stops pointing at #${THREAD_NAME}`);
     await expect(confirm).toContainText("Nothing is deleted");
     await expect(confirm).toContainText("keep running");
     await expect(hostedComposer(page)).toBeVisible();
@@ -666,5 +786,8 @@ declare global {
     /** When true, the deploy's first call fails — an open whose channel was
      * made and whose members were not. */
     __FAIL_DEPLOY__?: boolean;
+    /** Flush the channels query so a channel edited through the bridge is
+     * visible to the app (declared by `e2eBridge.ts`). */
+    __BUZZ_E2E_INVALIDATE_CHANNELS__?: () => Promise<void>;
   }
 }
