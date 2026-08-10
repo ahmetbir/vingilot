@@ -63,11 +63,14 @@ control plane serving two machines would be right about at most one of them.
       *`seedOnceDecision`: never imported before, local list empty, coordinator **answered**
       (not "was polled"), and it has something to import. All four required, each one a way
       to lose or duplicate the list. Said by `importNotice` in `ProjectsNav`, and recorded in
-      the file so the once survives a restart.*
+      the file so the once survives a restart. It takes the workspace document rather than a
+      list read out of it, which is a correction: it first shipped reading with `readRepos`,
+      the lossy reader, so entries this build cannot parse were dropped at exactly the moment
+      the coordinator's array became the file the owner is told to back up.*
 - [x] Tests: the pure model (store, add, remove, seed-once, push-when-reachable) proved
       red-first, including the case that matters most — **a machine that has never seen a
       coordinator can add a project and still has it after a restart.**
-      *38 in `localProjects.test.mjs`, 6 over real temp directories in `vingilot_projects`.*
+      *41 in `localProjects.test.mjs`, 6 over real temp directories in `vingilot_projects`.*
 
 ## Task 2 — "Unreachable" stops lying on a machine that never had one
 
@@ -99,7 +102,15 @@ prose.)*
       starts by hand right after launch is picked up at once), then settles to 30s, and
       "Check now" probes immediately at any time. It never stops entirely: `cargo run` on the
       Mac mini can start at any moment, and a state that needs a click to leave is one he
-      would not know to leave. The banner never renders a countdown in this state.*
+      would not know to leave. The banner never renders a countdown in this state.
+      The cadence reaches **every** coordinator poll, which it did not when this box was
+      first ticked: three of the five obeyed it and the deck and the run list kept 2s timers
+      of their own, so ~83% of the traffic was unchanged and the hammer never stopped under
+      a banner saying there was nothing to wait for. `pollMs` is now a prop, carried beside
+      `controlPlane` through `PaneProps`, and `controlPlaneCadence.test.mjs` refuses any poll
+      in the runs UI that does not take it — the two run-scoped exemptions are named there
+      with their reason. Only `RunDetail`/`EvidencePane` are fixed at 2s: both read one run,
+      and a run cannot exist on a machine that never had a coordinator.*
 - [x] Whatever is genuinely unavailable is named: runs cannot start. Everything else must not
       advertise itself as broken — the banner is not permitted to imply the workspace is
       read-only when terminals, worktrees, diffs, notes and the thread all work.
@@ -107,11 +118,16 @@ prose.)*
       Both name runs as the one thing unavailable and name what still works.
       `reachable: boolean` is gone from the pane chain in favour of the three-state reading —
       a component that only knew `!reachable` could only ever say "unreachable", which is how
-      the Deck composer note, both pin notes and the status bar inherited the same lie.*
+      the Deck composer note, both pin notes and the status bar inherited the same lie.
+      One clause of this box's own wording did not survive review: the thread is **not**
+      local. It is on the relay (`teamThread.ts`), and both sentences said it was. They now
+      name the five things that are on this machine and put the team thread where it is — a
+      different service, and the one that is down the next time this banner is wrong.*
 - [x] Tests on the pure derivation of which sentence applies, proved red-first.
-      *23 in `reachability.test.mjs`, over which sentence applies, what each may and may not
-      contain, and when the cadence settles. 19 mutations, each turning exactly the intended
-      tests red.*
+      *31 in `reachability.test.mjs`, over which sentence applies, what each may and may not
+      contain, and when the cadence settles — including that neither sentence may put the
+      team thread on this machine, in either word order. Each mutation turned exactly the
+      intended tests red.*
 
 ## Task 3 — Prove it the way he hit it
 
