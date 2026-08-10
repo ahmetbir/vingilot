@@ -56,13 +56,6 @@ import {
   type PtyBacking,
 } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
-import type { Scratch } from "@/features/runs/lib/scratchTerminal";
-import {
-  closeScratch,
-  openScratch,
-  scratchBlocked,
-  scratchOnWorktree,
-} from "@/features/runs/lib/scratchTerminal";
 import {
   openTerminals,
   worktreeIndex,
@@ -107,6 +100,7 @@ import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useAttentionNotices } from "@/features/runs/lib/useAttentionNotices";
 import { useProjectActions } from "@/features/runs/lib/useProjectActions";
+import { useScratchTerminal } from "@/features/runs/lib/useScratchTerminal";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import { useWorktreeSignals } from "@/features/runs/lib/useWorktreeSignals";
 import { prunableWorktrees } from "@/features/runs/lib/worktreeAttention";
@@ -122,6 +116,7 @@ import { PlanWorktreeDialog } from "@/features/runs/ui/PlanWorktreeDialog";
 import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
+import { TriageBoard } from "@/features/runs/ui/TriageBoard";
 import { UnreachableBanner } from "@/features/runs/ui/UnreachableBanner";
 import { paneEntry, paneProbes } from "@/features/runs/ui/paneRegistry";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
@@ -334,14 +329,16 @@ export function RunsScreen() {
     [repos, grouped],
   );
 
-  // What is true of the open project's worktrees right now — git's numstat, the
-  // attention dots both this screen's columns draw, and the row order the ⌘1…9
-  // map follows. All one subject, and it has its own module.
+  // What is true of every project's worktrees right now — git's numstat, the
+  // attention dots this screen's columns draw, the triage board both landing
+  // surfaces render, and the row order the ⌘1…9 map follows. All one subject,
+  // and it has its own module (which also carries what the numstat costs).
   const signals = useWorktreeSignals(
     repos,
     grouped,
     selectedRepo,
     worktreeRoot,
+    runs,
   );
   const repoWorktrees = signals.ordered;
 
@@ -404,63 +401,8 @@ export function RunsScreen() {
     for (const sessionId of closed) void ptyClose(sessionId);
   }, [tabLayout, index, worktreeActions.settled, worktreeActions.unreadable]);
 
-  // The scratch shell, which is deliberately **not** part of the tab layout
-  // above: entering it would put this session in the saved layout and in the
-  // worktree's strip at once, and give ⇧⌘W a claim on it
-  // (`lib/scratchTerminal.ts`). It is held here for the reason the layout is —
-  // `WorkSurface` unmounts on the way to the landing view — and it is one
-  // nullable value beside it, never inside it.
-  const [scratch, setScratch] = React.useState<Scratch>(null);
-  // The ordinal the next scratch takes. Only ever rises, so a closed shell's
-  // id is never handed to a later one — the same argument `nextN` makes for a
-  // strip, and the same race it defends against.
-  const nextScratch = React.useRef(1);
-
-  const applyScratch = React.useCallback(
-    (change: { closed: readonly string[]; scratch: Scratch }) => {
-      setScratch(change.scratch);
-      for (const sessionId of change.closed) void ptyClose(sessionId);
-    },
-    [],
-  );
-
-  // This screen going away is the third door, and nothing was watching it.
-  //
-  // `RunsScreen` unmounts on any route change, on a reload, and on the
-  // community remount — none of which is an app run, and none of which closed
-  // the shell. It kept running behind nothing, and `nextScratch` is a ref, so
-  // the remount started the ordinals at 1 again: `pty_open` found that id still
-  // registered, took its replay branch, and returned **before** the spawn and
-  // before the cwd was applied. The next ⌥⌘T then drew the previous worktree's
-  // live shell, with its scrollback and its real cwd, under a header printing
-  // the new worktree's path.
-  //
-  // Read through a ref because a cleanup closes over the render it was created
-  // in, and the session that has to be ended is whichever one is open at the
-  // moment the screen goes — not whichever one existed when this effect ran.
-  const scratchNow = React.useRef<Scratch>(null);
-  scratchNow.current = scratch;
-  React.useEffect(
-    () => () => {
-      const open = scratchNow.current;
-      if (open !== null) void ptyClose(open.sessionId);
-    },
-    [],
-  );
-
-  // The owner went somewhere else. A shell kept alive behind a surface that no
-  // longer draws it is exactly the residue this terminal exists not to leave —
-  // and its header names a checkout that is no longer the one on screen.
-  React.useEffect(() => {
-    const change = scratchOnWorktree(scratch, selectedWorktreeId);
-    // Reference equality is the model's own "nothing happened" (staying put
-    // returns the same value), so this re-runs freely and acts only on a move.
-    if (change.scratch === scratch) return;
-    applyScratch(change);
-  }, [applyScratch, scratch, selectedWorktreeId]);
-
-  // The other one: the owner closed a tab. Unlike a worktree switch, that is a
-  // real close — the pty is killed and its tmux session ended.
+  // The owner closed a tab. A worktree switch leaves a strip's shells running;
+  // this is a real close — the pty is killed and its tmux session ended.
   const runTabCommand = React.useCallback(
     (command: TabCommand) => {
       if (selectedWorktreeId === null) return;
@@ -522,47 +464,15 @@ export function RunsScreen() {
       ? null
       : worktreeCwd(selectedRepo, selectedWorktree, worktreeRoot);
 
-  // Both doors to the scratch shell, over one rule. `scratchBlocked` is the
-  // same function the palette row's sentence comes from, so a chord cannot
-  // open a shell the palette says it will not, and neither of them can open
-  // one somewhere arbitrary.
-  const openScratchHere = React.useCallback(() => {
-    if (
-      selectedWorktreeId === null ||
-      selectedWorktreeCwd === null ||
-      scratchBlocked(selectedWorktreeId, selectedWorktreeCwd, !rootSettled) !==
-        null
-    ) {
-      return;
-    }
-    const change = openScratch(scratch, {
-      bindingId: selectedWorktreeId,
-      cwd: selectedWorktreeCwd,
-      nonce: nextScratch.current,
-    });
-    // Consumed only when it produced a new shell — reopening onto the one
-    // already running must not burn an ordinal, or the numbers would count
-    // key presses rather than shells.
-    if (change.scratch !== scratch) nextScratch.current += 1;
-    applyScratch(change);
-  }, [
-    applyScratch,
-    rootSettled,
-    scratch,
-    selectedWorktreeCwd,
-    selectedWorktreeId,
-  ]);
-
-  const closeScratchNow = React.useCallback(() => {
-    applyScratch(closeScratch(scratch));
-  }, [applyScratch, scratch]);
-
-  // ⌥⌘T both ways: a key that opens a surface and then does nothing is a key
-  // the owner presses twice looking for the way out.
-  const toggleScratch = React.useCallback(() => {
-    if (scratch !== null) closeScratchNow();
-    else openScratchHere();
-  }, [closeScratchNow, openScratchHere, scratch]);
+  // The scratch shell and every door into it (`lib/useScratchTerminal.ts`).
+  // Held here rather than in `WorkSurface` for the reason the tab layout is:
+  // that component unmounts on the way to the landing view, and a shell it
+  // forgot on the way out would run with nothing tracking it.
+  const scratch = useScratchTerminal({
+    cwd: selectedWorktreeCwd,
+    cwdPending: !rootSettled,
+    worktreeId: selectedWorktreeId,
+  });
 
   // What the panes are allowed to know about the worktree under them
   // (lib/paneModel.ts). `cwdPending` is the distinction that keeps a pane from
@@ -712,7 +622,7 @@ export function RunsScreen() {
           // Opens, never toggles: a row called "Scratch terminal" that closed
           // one would be a row whose label lied about what Enter does. The
           // chord is the toggle.
-          openScratchHere();
+          scratch.open();
           return;
         case "open-cheatsheet":
           sheet.show();
@@ -756,7 +666,7 @@ export function RunsScreen() {
       columns.toggleWorktrees,
       openPlanWorktree,
       openPrune,
-      openScratchHere,
+      scratch.open,
       panes.choose,
       panes.state.solo,
       panes.toggleSolo,
@@ -825,13 +735,13 @@ export function RunsScreen() {
         prunePreview !== null ||
         removingProject !== null,
       palette: palette.open,
-      scratch: scratch !== null,
+      scratch: scratch.session !== null,
     },
     {
       cheatsheet: sheet.close,
       dialog: dismissDialogs,
       palette: palette.close,
-      scratch: closeScratchNow,
+      scratch: scratch.close,
     },
   );
 
@@ -895,6 +805,7 @@ export function RunsScreen() {
               />
               {selectedRunId === null ? (
                 <DeckPane
+                  board={{ model: signals.triage, onOpen: openWorktree }}
                   onOpenRun={openRun}
                   reachable={reachable}
                   runs={runs}
@@ -924,25 +835,31 @@ export function RunsScreen() {
                 worktrees={repoWorktrees}
               />
               {selectedWorktree === null ? (
+                // The same board the Deck draws, narrowed to this project —
+                // the panel used to say "select a worktree" over nothing.
                 <main
                   aria-label="workspace"
-                  className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+                  className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5"
                 >
-                  select a worktree
+                  <TriageBoard
+                    model={signals.triage}
+                    onOpen={openWorktree}
+                    repoId={selectedRepo.id}
+                  />
                 </main>
               ) : (
                 <WorkSurface
                   documents={documents}
-                  onCloseScratch={closeScratchNow}
+                  onCloseScratch={scratch.close}
                   onPaneAct={runPaneAct}
                   onSelectWorktree={setSelectedWorktreeId}
                   onTabCommand={runTabCommand}
-                  onToggleScratch={toggleScratch}
+                  onToggleScratch={scratch.toggle}
                   paneContext={paneContext}
                   panes={panes}
                   reachable={reachable}
                   runs={runs}
-                  scratch={scratch}
+                  scratch={scratch.session}
                   selectedWorktreeId={selectedWorktreeId}
                   tabs={selectedTabs}
                   terminals={terminals}
@@ -981,7 +898,7 @@ export function RunsScreen() {
         reachable={reachable}
         repo={selectedRepo}
         run={ownerRun}
-        scratchOpen={scratch !== null}
+        scratchOpen={scratch.session !== null}
         stopEngaged={stopEngaged}
         terminalBacking={terminalBacking}
         worktree={selectedWorktree}

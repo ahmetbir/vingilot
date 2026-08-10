@@ -35,10 +35,12 @@ import { syncPins } from "@/features/runs/lib/deckSync";
 import { buildProvisionSpec } from "@/features/runs/lib/provisionSpec";
 import { railGroups } from "@/features/runs/lib/runModel";
 import type { RunMode, RunSummary } from "@/features/runs/lib/runModel";
+import type { TriageModel } from "@/features/runs/lib/triage";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { DeckConflict } from "@/features/runs/ui/DeckConflict";
 import { PinnedCard } from "@/features/runs/ui/PinnedCard";
 import { ModeChip, StatusDot } from "@/features/runs/ui/RunList";
+import { TriageBoard } from "@/features/runs/ui/TriageBoard";
 import { Button } from "@/shared/ui/button";
 
 const WALL_LIMIT_OPTIONS = [
@@ -63,6 +65,23 @@ interface DeckPaneProps {
   workspaceId: string;
   runs: RunSummary[];
   onOpenRun: (runId: string) => void;
+  /** The triage board, when this Deck is a landing surface.
+   *
+   * Absent inside the Runs pane (`ui/RunsPane.tsx`), which draws the same Deck
+   * beside a terminal in a worktree the owner has already chosen. A board
+   * saying where attention is needed belongs where he has not chosen yet; in a
+   * pane it would be a third copy of one surface, and its rows could not be
+   * doors — that host holds no project or worktree selection to send them
+   * through. One optional group rather than two optional props, so "board or
+   * no board" cannot come apart into half of one. */
+  board?: {
+    /** Every project's worktrees, already ordered and already carrying Task
+     * 1's dots (`lib/triage.ts`) — this pane renders the board, it does not
+     * build one. */
+    model: TriageModel;
+    /** Land on a worktree in a project. Both ids: the board spans projects. */
+    onOpen: (repoId: string, worktreeId: string) => void;
+  };
   /** false while the control plane is unreachable — the composer is
    * disabled rather than queuing a write it cannot honestly promise to
    * deliver (design 7c: disabled is honest, a fake queue is not). */
@@ -70,6 +89,7 @@ interface DeckPaneProps {
 }
 
 export function DeckPane({
+  board,
   onOpenRun,
   reachable,
   runs,
@@ -248,7 +268,9 @@ export function DeckPane({
       <div className="flex items-baseline gap-2">
         <h2 className="text-sm font-semibold">Deck</h2>
         <span className="text-2xs text-muted-foreground">
-          workspace home — start a run, pin what matters
+          {board === undefined
+            ? "workspace home — start a run, pin what matters"
+            : "workspace home — where attention is needed, start a run, pin what matters"}
         </span>
       </div>
 
@@ -311,6 +333,14 @@ export function DeckPane({
           {error}
         </p>
       ) : null}
+
+      {/* Below the composer and above everything the owner has to have asked
+       * for. The pins are what he chose to keep an eye on; this is what the
+       * workspace has to say without being asked, which is why it comes
+       * first. */}
+      {board === undefined ? null : (
+        <TriageBoard model={board.model} onOpen={board.onOpen} repoId={null} />
+      )}
 
       {/* Every pin toggle on this page — PINNED cards and lane rows alike —
        * disables while the control plane is unreachable (design 7c:

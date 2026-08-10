@@ -19,11 +19,27 @@
 //   workspace on one 2s poll (`usePolling.ts`), so the rollup on a project the
 //   owner is not standing in is as current as the one he is.
 //
-//   git's numstat is a subprocess per worktree, so it is asked only about the
-//   open project. A closed project's rows therefore arrive at `attentionMark`
-//   with `stat: null`: they can say "needs you" and "working" but never "dirty"
-//   or "quiet", and an absent answer becomes no dot rather than a quiet one.
-//   Widening this is Task 3's decision to take, with its cost stated.
+//   git's numstat used to be asked only about the open project, on the grounds
+//   that it is a subprocess per worktree. Task 3 widens it to every project,
+//   deliberately, and this is the price: `stat()` runs **four short git reads
+//   per worktree** (`rev-parse --git-dir`, `rev-parse --verify HEAD`, `diff
+//   --numstat -z HEAD`, `ls-files --others`, in
+//   `vingilot_worktree/stat.rs`), sequentially, on one blocking thread, once
+//   every 5s. Twelve worktrees is 48 short reads a tick; the reads are
+//   `--numstat` and `ls-files`, never `WorktreeDiff`'s per-file patches, which
+//   is the cost that made narrowing necessary in the first place.
+//
+//   **The cap is the backend's, and it is why the open project goes first.**
+//   `stat.rs`'s `MAX_PATHS` answers 64 paths and no more; past it the tail
+//   comes back unasked, which reaches `attentionMark` as `stat: null` and
+//   draws no dot — the honest rendering of a number this app declined to
+//   spend. Beyond 64 worktrees the *tail* is what loses its numbers, so the
+//   open project is put at the head of the batch: the surface the owner is
+//   standing on is the last thing that may go quiet.
+//
+//   A closed project's rows can therefore now say "dirty" and "quiet", which
+//   is what makes the dashboard a board rather than a list of the one project
+//   already on screen.
 
 import * as React from "react";
 
@@ -38,6 +54,9 @@ import type {
   Worktree,
 } from "@/features/runs/lib/projects";
 import { worktreeCwd } from "@/features/runs/lib/projects";
+import type { RunSummary } from "@/features/runs/lib/runModel";
+import type { TriageModel } from "@/features/runs/lib/triage";
+import { triageModel } from "@/features/runs/lib/triage";
 import { useAskPending } from "@/features/runs/lib/useAskPending";
 import {
   useWorktreeStats,
@@ -59,6 +78,11 @@ export interface WorktreeSignals {
   /** The dot for each project — the strongest state among its worktrees. Every
    * repo in `repos` gets an entry, possibly a no-dot one. */
   byRepo: Readonly<Record<string, AttentionMark>>;
+  /** Every project's worktrees as one ordered board, for the two landing
+   * surfaces (`lib/triage.ts`). Built here rather than in a screen because it
+   * is the same derivation the two dots above are: a third surface computing
+   * its own would be a third opinion about one worktree. */
+  triage: TriageModel;
 }
 
 export function useWorktreeSignals(
@@ -66,19 +90,28 @@ export function useWorktreeSignals(
   grouped: GroupedWorktrees,
   selectedRepo: Repo | null,
   worktreeRoot: string | null,
+  runs: readonly RunSummary[],
 ): WorktreeSignals {
   const known =
     selectedRepo === null ? [] : (grouped.byRepo[selectedRepo.id] ?? []);
-  const statTargets = React.useMemo<WorktreeTarget[]>(
-    () =>
-      selectedRepo === null || worktreeRoot === null
-        ? []
-        : known.flatMap((wt) => {
-            const path = worktreeCwd(selectedRepo, wt, worktreeRoot);
-            return path === null ? [] : [{ id: wt.binding_id, path }];
-          }),
-    [known, selectedRepo, worktreeRoot],
-  );
+  // Every project, with the open one at the head — see this module's header
+  // for what each entry costs and what the backend's cap does to the tail.
+  const statTargets = React.useMemo<WorktreeTarget[]>(() => {
+    if (worktreeRoot === null) return [];
+    const ordered =
+      selectedRepo === null
+        ? repos
+        : [
+            selectedRepo,
+            ...repos.filter((repo) => repo.id !== selectedRepo.id),
+          ];
+    return ordered.flatMap((repo) =>
+      (grouped.byRepo[repo.id] ?? []).flatMap((wt) => {
+        const path = worktreeCwd(repo, wt, worktreeRoot);
+        return path === null ? [] : [{ id: wt.binding_id, path }];
+      }),
+    );
+  }, [grouped, repos, selectedRepo, worktreeRoot]);
   const stats = useWorktreeStats(statTargets);
 
   const pending = useAskPending();
@@ -119,5 +152,16 @@ export function useWorktreeSignals(
     [known, stats],
   );
 
-  return { byRepo: dots.byRepo, byWorktree: dots.byWorktree, ordered, stats };
+  const triage = React.useMemo(
+    () => triageModel({ grouped, marks: dots.byWorktree, repos, runs, stats }),
+    [dots.byWorktree, grouped, repos, runs, stats],
+  );
+
+  return {
+    byRepo: dots.byRepo,
+    byWorktree: dots.byWorktree,
+    ordered,
+    stats,
+    triage,
+  };
 }
