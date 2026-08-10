@@ -75,16 +75,43 @@ control plane serving two machines would be right about at most one of them.
 work Mac that sentence is false in the way that matters: nothing became unreachable, and
 nothing is being read from. It reads as a fault to be waited out, so he waited.
 
-- [ ] Tell the two states apart and say each honestly: a coordinator that answered and then
+*(It is `ControlPlaneBanner` from here on — `data-testid="control-plane-banner"`, carrying
+`data-state="absent" | "outage"`, which is what a spec should assert on rather than the
+prose.)*
+
+- [x] Tell the two states apart and say each honestly: a coordinator that answered and then
       stopped (the current sentence is right there), versus **no control plane configured on
       this machine at all** — which is not an error, is not temporary, and should say what is
       and is not available rather than counting seconds since a failure.
-- [ ] Retrying forever against something that was never there is noise. Decide the retry
+      *`controlPlaneKind` in `reachability.ts`: `reachable` / `outage` / `absent`. What tells
+      the last two apart is `lastOk` — whether a poll has come back ok since this workspace
+      opened. Nothing **configures** a coordinator (the client always talks to
+      `127.0.0.1:7117`), so an answer is the only evidence one exists here. A durable "one
+      answered here once" record in `projects.json` was declined: that file holds his
+      projects, a wrong value in it is permanent, and the fact it buys is only right on a
+      machine that HAS a coordinator and was launched before it. The absent state is a muted
+      note announced politely, not a destructive box announced assertively — the red box that
+      never went away is how he learned to read this as a fault.*
+- [x] Retrying forever against something that was never there is noise. Decide the retry
       policy for the never-configured case and say what you chose.
-- [ ] Whatever is genuinely unavailable is named: runs cannot start. Everything else must not
+      *It keeps probing, but stops hammering and stops counting at him. `controlPlanePollMs`:
+      the 2s cadence holds for the first minute (`ABSENT_SETTLE_AFTER_MS` — a coordinator he
+      starts by hand right after launch is picked up at once), then settles to 30s, and
+      "Check now" probes immediately at any time. It never stops entirely: `cargo run` on the
+      Mac mini can start at any moment, and a state that needs a click to leave is one he
+      would not know to leave. The banner never renders a countdown in this state.*
+- [x] Whatever is genuinely unavailable is named: runs cannot start. Everything else must not
       advertise itself as broken — the banner is not permitted to imply the workspace is
       read-only when terminals, worktrees, diffs, notes and the thread all work.
-- [ ] Tests on the pure derivation of which sentence applies, proved red-first.
+      *"read-only" is gone from the app; a test asserts neither sentence can bring it back.
+      Both name runs as the one thing unavailable and name what still works.
+      `reachable: boolean` is gone from the pane chain in favour of the three-state reading —
+      a component that only knew `!reachable` could only ever say "unreachable", which is how
+      the Deck composer note, both pin notes and the status bar inherited the same lie.*
+- [x] Tests on the pure derivation of which sentence applies, proved red-first.
+      *23 in `reachability.test.mjs`, over which sentence applies, what each may and may not
+      contain, and when the cadence settles. 19 mutations, each turning exactly the intended
+      tests red.*
 
 ## Task 3 — Prove it the way he hit it
 
