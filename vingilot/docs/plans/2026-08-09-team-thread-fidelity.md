@@ -135,11 +135,14 @@ they are a head start, not a substitute for reading:
 
 ## Task 4 — Proof and docs
 
-- [ ] Playwright over a real bundle: the pane renders upstream's timeline (assert on an
+- [x] Playwright over a real bundle: the pane renders upstream's timeline (assert on an
       upstream-owned testid, not an island one), the composer mentions flow, the naming and
-      rename flows — each proved red first.
-- [ ] `workbench.md`: the hosting decision (the pane owns chrome, upstream owns the
-      conversation), the naming scheme, and the corrected statement of why mentions matter
+      rename flows — each proved red first. Extended with the two the verifier named and
+      nothing guarded: the hosted auxiliary panel never reaching the shared workspace URL,
+      and Escape inside a hosted drawer leaving the workspace's own surfaces their keystroke.
+- [x] `workbench.md`: the hosting decision (the pane owns chrome, upstream owns the
+      conversation) with each per-app coupling and what it cost, the naming scheme and where
+      the recovery marker lives now, and the corrected statement of why mentions matter
       (the harness's mention filter).
 - [ ] Owner checklist: open the thread, `@`-mention a deployed agent, watch it reply in the
       pane; confirm the channel's new name in the sidebar; confirm the old ugly name is gone.

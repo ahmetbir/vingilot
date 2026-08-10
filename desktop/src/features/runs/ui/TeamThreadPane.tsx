@@ -364,7 +364,11 @@ function ChosenTeam({ thread }: { thread: TeamThread }) {
   );
 }
 
-/** The scope, stated in the words of the line that will actually be sent. */
+/** What the team is told, and where. **No line is sent**: the pane hosts
+ * upstream's composer, so what the owner types is what leaves, and the scope
+ * lives in the channel's description and name instead (`scopeSentence` carries
+ * the argument). This says that, before a word is typed, in the same place the
+ * old prefix claim used to stand. */
 function Scope({ cwd }: { cwd: string }) {
   return (
     <p className="text-sm text-muted-foreground" data-testid="team-scope">
@@ -459,9 +463,11 @@ function Conversation({
 
 /** What refused, in the words of whatever refused it. Named by step, so a
  * thread that could not be made, a thread whose members could not be deployed,
- * and a message that did not go are not one sentence about "an error". The
- * words are `teamThread.ts`'s, where they can be tested against the states this
- * component only renders. */
+ * and a channel that could not be renamed are not one sentence about "an
+ * error" — `TeamThreadStep` is those three and nothing else. A message that did
+ * not go is **not** among them: upstream's composer took it and reports it
+ * where every other channel does. The words are `teamThread.ts`'s, where they
+ * can be tested against the states this component only renders. */
 function Trouble({ thread }: { thread: TeamThread }) {
   if (thread.trouble === null) return null;
   return (
