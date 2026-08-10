@@ -646,7 +646,7 @@ seams:
     added: "2026-08-10"
 
   - path: "crates/buzz-acp/src/broker/tests.rs"
-    reason: "The broker module's own child test file, declared separately from broker.rs rather than covered by a `broker*` glob: check-seams.sh matches with bash case patterns, where `*` crosses `/`, so that glob also pre-authorised `broker_v2.rs` and anything else under a broker/ directory -- a wider set than the two files its reason described. It asserts what the module refuses and that no response on any path carries key material."
+    reason: "The broker module's own child test file, declared separately from broker.rs rather than covered by a `broker*` glob: check-seams.sh matches with bash case patterns, where `*` crosses `/`, so that glob also pre-authorised `broker_v2.rs` and anything else under a broker/ directory -- a wider set than the two files its reason described. It asserts what the module refuses and that no response on any path carries key material, and now also pins CLI_WIRE_REQUEST: the exact line the real buzz binary writes, copied verbatim from crates/buzz-cli/tests/keyless_agent_reply.rs and served here through handle_request with a fake sink. The two crates share a wire format and not a type, deliberately; without this literal at both ends both suites can stay green while the CLI writes a line this broker no longer serves, and the only place that surfaces is an agent going quiet."
     owner: "vingilot/agents"
     removable_when: "With crates/buzz-acp/src/broker.rs."
     status: "temporary"
@@ -712,6 +712,13 @@ seams:
     reason: "One word: normalize_explicit_mentions becomes pub(crate) so the brokered send path normalises --mention values (npub or hex, deduped, capped) through the same function as the keyed path rather than growing a second one that could drift. No behaviour change, no new caller inside this file."
     owner: "vingilot/agents"
     removable_when: "The mention normaliser moves to a module both paths can already reach, or the brokered path is removed."
+    status: "temporary"
+    added: "2026-08-10"
+
+  - path: "crates/buzz-cli/tests/keyless_agent_reply.rs"
+    reason: "The proof, and the only test in this branch that reproduces the reported failure rather than a model of it. Every other test drives run_without_key in-process, where the environment is whatever the test runner inherited -- which is not the case that broke: a harness that runs each tool command in a sanitised environment, where BUZZ_PRIVATE_KEY, BUZZ_RELAY_URL and BUZZ_AUTH_TAG all arrive empty. This spawns the real buzz binary with Command::env_clear (the whole environment, not a BUZZ_ prefix -- stricter than any sanitiser the owner has hit), hands it only the socket path on its command line as the agent's [Tools] note now instructs, and asserts the message lands: exit 0, the event id printed, and the request received by a stand-in harness equal to WIRE_REQUEST, the literal the real broker parses in crates/buzz-acp/src/broker/tests.rs. A second test holds the other half: with no socket named, the same stripped shell still fails exit 3 and its message names neither --private-key nor any key variable. It must live under crates/buzz-cli/tests/ because CARGO_BIN_EXE_buzz is set only for integration tests of the package that defines the binary -- an in-crate unit test cannot run the binary, and running the binary is the point. No key exists anywhere in this file: the identity in play is the stand-in harness's, and it never has one."
+    owner: "vingilot/agents"
+    removable_when: "Every harness this fork supports carries its environment into its shell, or upstream owns an equivalent end-to-end test of the keyless path."
     status: "temporary"
     added: "2026-08-10"
 
