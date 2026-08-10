@@ -57,13 +57,22 @@ jobs:
       # Signing runs in a keychain created for this job and deleted after it,
       # so the certificate never joins the runner's login keychain and no step
       # can reach it once the build is done.
+      # Whether there is a certificate to sign with, answered in a step rather
+      # than in a condition. `secrets` is not a named value a step `if:` can
+      # read — a workflow using one there does not run at all, it fails to
+      # parse — and `env` does not carry a secret that was never put there, so
+      # a condition reading `env.APPLE_CERTIFICATE_P12` decides by looking at
+      # something unset. This asks the shell, where the secret really is, and
+      # publishes one bit.
+      - name: Is there a certificate
+        id: have_cert
+        env:
+          P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          if [ -n "$P12" ]; then echo "yes=1" >> "$GITHUB_OUTPUT"; else echo "yes=0" >> "$GITHUB_OUTPUT"; fi
+
       - name: Import the signing certificate
-        # Asked of `secrets`, not `env`: the secret is not in the env context
-        # when this condition is evaluated, so reading it there decides whether
-        # to sign by looking at something that was never set. It happened to
-        # run; a skipped signing step would have produced an unsigned .dmg with
-        # nothing saying so.
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        if: ${{ steps.have_cert.outputs.yes == '1' }}
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
