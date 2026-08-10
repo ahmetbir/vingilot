@@ -47,9 +47,32 @@ jobs:
           . ./bin/activate-hermit
           echo "$PWD/bin" >> "$GITHUB_PATH"
 
+      # **Both target directories, because there are two.** The sidecars build
+      # into the workspace's `./target`; the app itself builds into
+      # `desktop/src-tauri/target`, which is a separate Cargo workspace. Caching
+      # only the first left the expensive half — Tauri and its dependency tree —
+      # recompiling from scratch on every run, which is most of where the time
+      # went.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ". -> target"
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
+          # The key is per-run-attempt otherwise; this shares one cache across
+          # dispatches and tags, which is the point.
+          shared-key: vingilot-dmg-aarch64
+
+      - name: Find the pnpm store
+        id: pnpm_store
+        run: |
+          . ./bin/activate-hermit
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm_store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
 
       - name: Install desktop dependencies
         run: pnpm install --frozen-lockfile
