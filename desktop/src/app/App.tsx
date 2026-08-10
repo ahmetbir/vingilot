@@ -57,6 +57,7 @@ import { CommunityApplyErrorScreen } from "@/features/communities/ui/CommunityAp
 import { CommunityChangeOverlay } from "@/features/communities/ui/CommunityChangeOverlay";
 import { setAvatarProfileSyncQueryClient } from "@/features/profile/avatarProfileSync";
 import { EncryptedBackupProvider } from "@/features/settings/EncryptedBackupProvider";
+import { VingilotMarkAnimation } from "@/features/vingilot-brand/VingilotMarkAnimation";
 import { createBuzzQueryClient } from "@/shared/api/queryClient";
 import { isSharedIdentity as isSharedIdentityCmd } from "@/shared/api/tauri";
 import { getProfile } from "@/shared/api/tauriProfiles";
@@ -66,7 +67,6 @@ import {
 } from "@/shared/deep-link";
 import { cn } from "@/shared/lib/cn";
 import { BuzzMark } from "@/shared/ui/buzz-logo/BuzzMark";
-import { FlappingBee } from "@/shared/ui/buzz-logo/FlappingBee";
 import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
@@ -74,8 +74,8 @@ const LOADING_TEXT = "Setting up your community...";
 
 // Minimum time the cold-boot splash stays on screen. A real boot resolves the
 // community in well under 100ms, and the native window setup plus first paint
-// can take longer than that — without a hold, the bee is unmounted before it is
-// ever visible. The hold runs as an overlay above the already-mounted app, so
+// can take longer than that — without a hold, the mark is unmounted before it
+// is ever visible. The hold runs as an overlay above the already-mounted app, so
 // time-to-interactive is unchanged; only the reveal waits.
 const BOOT_SPLASH_MIN_VISIBLE_MS = 1_200;
 const BOOT_SPLASH_FADE_MS = 200;
@@ -159,10 +159,11 @@ function BeeLoader({
   );
 }
 
-// Cold boot gate: the theme-adaptive grainient background with a single
-// centered Buzz bee flying over it — the same static mark as before, now with
-// its wings flapping (ported from the Buzz website's wing-flap). Replaces the
-// old "Setting up your community" text, which stays as an sr-only caption.
+// Cold boot gate: the theme-adaptive grainient background with the Vingilot
+// mark sailing over it — the fork's own mark, because this screen is the first
+// thing the product says about which application this is. Upstream's flapping
+// bee still draws every other gate it drew. The "Setting up your community"
+// text stays as an sr-only caption.
 function AppLoadingGate() {
   return (
     <div
@@ -173,7 +174,7 @@ function AppLoadingGate() {
       <StartupWindowDragRegion />
       <ThemeGrainientBackground />
       <span className="sr-only">{LOADING_TEXT}</span>
-      <FlappingBee className="relative z-10 h-auto w-28" />
+      <VingilotMarkAnimation className="relative z-10 w-28" />
     </div>
   );
 }

@@ -285,7 +285,7 @@ seams:
     added: "2026-08-08"
 
   - path: "desktop/playwright.config.ts"
-    reason: "Registers the fork's desktop e2e specs in the smoke project's testMatch: deck-two-devices.spec.ts (vingilot/docs/plans/2026-08-04-deck-phase-3.md, Task 4), workspace-no-overlays.spec.ts and workspace-columns.spec.ts (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Tasks 1c and 6), workspace-palette.spec.ts, workspace-ask.spec.ts, workspace-notes.spec.ts and workspace-plan.spec.ts (vingilot/docs/plans/2026-08-08-palette-and-documents.md, Tasks 1, 2, 3 and 4), workspace-team.spec.ts and workspace-scratch.spec.ts (vingilot/docs/plans/2026-08-08-scratch-and-team-thread.md, Tasks 2 and 1), terminal-wheel.spec.ts (registered once it went green with the wheel fix), diff-keeps-up.spec.ts (registered once it went green with the refreshing diff pane), workspace-close-request.spec.ts and workspace-cheatsheet.spec.ts (vingilot/docs/plans/2026-08-09-keys-and-type.md, Tasks 1 and 4). Checked first per the plan: every existing testMatch entry is a literal per-file basename (no glob like **/*.spec.ts that would pick up a new file automatically), so a new spec has no way to run without this one-line addition. Smallest possible touch: one added array entry per spec, appended after the existing list."
+    reason: "Registers the fork's desktop e2e specs in the smoke project's testMatch: deck-two-devices.spec.ts (vingilot/docs/plans/2026-08-04-deck-phase-3.md, Task 4), workspace-no-overlays.spec.ts and workspace-columns.spec.ts (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Tasks 1c and 6), workspace-palette.spec.ts, workspace-ask.spec.ts, workspace-notes.spec.ts and workspace-plan.spec.ts (vingilot/docs/plans/2026-08-08-palette-and-documents.md, Tasks 1, 2, 3 and 4), workspace-team.spec.ts and workspace-scratch.spec.ts (vingilot/docs/plans/2026-08-08-scratch-and-team-thread.md, Tasks 2 and 1), terminal-wheel.spec.ts (registered once it went green with the wheel fix), diff-keeps-up.spec.ts (registered once it went green with the refreshing diff pane), workspace-close-request.spec.ts and workspace-cheatsheet.spec.ts (vingilot/docs/plans/2026-08-09-keys-and-type.md, Tasks 1 and 4), vingilot-boot-mark.spec.ts (vingilot/docs/plans/2026-08-10-ship-it.md, Task 2). Checked first per the plan: every existing testMatch entry is a literal per-file basename (no glob like **/*.spec.ts that would pick up a new file automatically), so a new spec has no way to run without this one-line addition. Smallest possible touch: one added array entry per spec, appended after the existing list."
     owner: "vingilot/runs"
     removable_when: "Never, while deck-two-devices.spec.ts (or any future vingilot desktop e2e spec) needs to run in CI's smoke project."
     status: "permanent"
@@ -465,5 +465,31 @@ seams:
     reason: "The header shown on every onboarding page after the landing screen is the fork's product identity on first run; upstream's bee there would name the wrong product. Two lines: the import, and a width-driven box changed to height-driven because the Vingilot mark is portrait where the bee is landscape."
     owner: "vingilot/brand"
     removable_when: "Onboarding takes its mark from a configured product identity rather than importing one directly."
+    status: "permanent"
+    added: "2026-08-10"
+
+  # ---------------------------------------------------------------------------
+  # The loading animation (ship-it Task 2). The cold-boot gate is the first
+  # thing the product draws, and upstream owns the component that draws it.
+  # ---------------------------------------------------------------------------
+
+  - path: "desktop/src/app/App.tsx"
+    reason: "One component swap inside AppLoadingGate: the cold-boot gate renders VingilotMarkAnimation instead of upstream's FlappingBee, because that gate is the first thing on screen and it should name which of two installed applications is starting. The gate is a private function inside this file with no props and no configuration hook, so there is no smaller seam available -- the import, the element, and the comments that described a bee are the whole diff. Upstream's bee is not deleted and not orphaned: FlappingBee still draws SetupStep, PendingInviteGate and LandingBees, and BeeLoader/FuzzyLogo elsewhere in this same file is untouched. Sizing changed from h-auto w-28 to w-28 because the animation's cell is landscape and declares its own aspect ratio."
+    owner: "vingilot/brand"
+    removable_when: "The cold-boot gate takes its mark from a configured product identity rather than importing one directly."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/boot-splash.spec.ts"
+    reason: "Upstream's own spec for the boot splash asserted the gate's contract THROUGH the bee: it read .bee-wing-left and expected the animation named bee-wing-left-flap. Once the gate draws the Vingilot mark that selector matches nothing, so the spec had to move to .vingilot-mark-animation__ink and vingilot-sail or be deleted, and deleting upstream's proof that the splash holds and then dismisses is the worse trade. What the spec asserts is unchanged -- something is drawn and animating while the overlay holds, the app boots underneath it, the overlay goes away -- only the element it reads changed. What the fork's own mark does on screen is asserted separately in vingilot-boot-mark.spec.ts, so this file keeps upstream's scope."
+    owner: "vingilot/brand"
+    removable_when: "The boot splash's proof no longer needs to name the element the gate draws."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/vingilot-boot-mark.spec.ts"
+    reason: "The proof that the loading animation works in the BUILT BUNDLE rather than on paper, which the plan required because the mechanism could not be chosen from documentation. Four readings, none reachable from a unit test because all four are claims about what a browser did with the shipped asset: that the loop moves and moves in steps (the animation is paused, driven to exact times, and the rendered frames and transforms compared -- a mask that would not animate, a timing function that failed to parse, or a frame count disagreeing with the sheet all render a mark that merely sits there, with nothing failing anywhere); that the mark takes the THEME's ink, read as painted pixels on both themes; that a sheet which never arrives leaves the still poster and not an empty box, and not the solid rectangle an unresolved mask paints; and that reduced motion holds it still. Two findings are recorded in the file because they are traps rather than trivia: the theme claim must be read at the image's luminance extremes, since every patch of an antialiased mark is a blend that lands near mid-grey on BOTH themes (measured 156 against 148, which is why the first form of this test failed for the wrong reason); and test.use({ reducedMotion: 'reduce' }) does not reach the page in this config under Playwright 1.60, so the spec calls page.emulateMedia explicitly and asserts the media query matches before asserting anything about the mark. Proved able to fail: four product breaks, each rebuilt and re-run -- animation-name removed, the ink pinned to white instead of currentColor, the poster fallback removed, the reduced-motion block deleted -- each turning exactly the intended test red. Lives at the upstream-owned desktop/tests/e2e/ path for the same reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the cold-boot gate draws an animated mark."
     status: "permanent"
     added: "2026-08-10"

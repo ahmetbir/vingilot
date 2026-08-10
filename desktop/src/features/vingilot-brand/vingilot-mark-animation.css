@@ -1,0 +1,89 @@
+/*
+ * The Vingilot mark, sailing. Same theme rule as the static mark: the artwork
+ * is a *mask* over a `currentColor` fill, never an image, so one asset works on
+ * both themes and no literal colour appears in this file (a test enforces it).
+ * What is new here is motion, and motion is where a loading surface can go
+ * wrong in ways a screenshot never shows.
+ *
+ * Two decisions, both load-bearing:
+ *
+ * 1. The frames are one sprite sheet and the animation MOVES THE ELEMENT, not
+ *    the mask. Animating `mask-position` across the sheet is the obvious form
+ *    and it repaints on the main thread every step. This surface is the cold
+ *    boot gate: the main thread is running bundle evaluation and the app's
+ *    first render for exactly as long as the gate is on screen, so a repaint
+ *    animation freezes precisely when it is being watched. Upstream learned
+ *    this on the same surface with the same webview (see FlappingBee.tsx, on
+ *    why its wings are HTML elements and not SVG children). A transform on an
+ *    HTML element is composited — Core Animation in WKWebView — and keeps
+ *    running while the thread is busy. So the strip is FRAMES boxes tall inside
+ *    an overflow-hidden window, and it slides.
+ *
+ * 2. The slide is stepped, never interpolated. `steps(FRAMES, jump-none)` is
+ *    supplied inline by VingilotMarkAnimation.tsx along with the frame count,
+ *    because both come from the derivation (vingilot/brand/derive-animation.py)
+ *    rather than from anything CSS can know. `jump-none` is the variant that
+ *    holds every frame including the last: plain `steps(n)` would drop one end
+ *    of the loop, and a missing timing function altogether would slide the
+ *    strip smoothly and show two half-frames at once.
+ */
+.vingilot-mark-animation {
+  display: block;
+  position: relative;
+  overflow: hidden;
+}
+
+/*
+ * The ink. In the poster state this is one cell tall and shows the frame the
+ * loop starts on; in the sailing state it is the whole strip, anchored at the
+ * top, and the animation walks it upward by exactly one cell per step.
+ */
+.vingilot-mark-animation__ink {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 100%;
+  background-color: currentColor;
+
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+}
+
+.vingilot-mark-animation[data-state="sailing"] .vingilot-mark-animation__ink {
+  height: calc(var(--vingilot-sail-frames) * 100%);
+  animation-name: vingilot-sail;
+  animation-iteration-count: infinite;
+}
+
+/*
+ * Translate percentages resolve against the element's own height, which is
+ * FRAMES boxes — so one cell is 100%/FRAMES, and the last cell sits at
+ * (FRAMES - 1)/FRAMES. Ending there rather than at -100% is what makes the
+ * final step land on the final frame instead of past the end of the sheet.
+ */
+@keyframes vingilot-sail {
+  to {
+    transform: translateY(
+      calc(
+        -100% *
+        (var(--vingilot-sail-frames) - 1) /
+        var(--vingilot-sail-frames)
+      )
+    );
+  }
+}
+
+/*
+ * Reduced motion holds the frame the loop starts on — the strip keeps its full
+ * height and simply never moves, so what is on screen is the same still ship
+ * the poster draws. Upstream's marks answer this query the same way.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .vingilot-mark-animation[data-state="sailing"] .vingilot-mark-animation__ink {
+    animation: none;
+  }
+}

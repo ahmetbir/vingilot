@@ -146,6 +146,7 @@ export default defineConfig({
         "**/workspace-cheatsheet.spec.ts",
         "**/terminal-wheel.spec.ts",
         "**/diff-keeps-up.spec.ts",
+        "**/vingilot-boot-mark.spec.ts",
       ],
       use: {
         ...devices["Desktop Chrome"],
