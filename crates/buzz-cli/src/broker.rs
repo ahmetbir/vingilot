@@ -18,9 +18,13 @@
 //! # The order, which is the part that must not drift
 //!
 //! Identity is resolved as: an explicit `--private-key`, then
-//! `BUZZ_PRIVATE_KEY`, and only when neither exists, the broker. Clap resolves
-//! the first two into one `Option` (the flag wins over the env var); [`resolve`]
-//! decides the last step and nothing else does.
+//! `BUZZ_PRIVATE_KEY`, and only when neither holds a value, the broker. Clap
+//! resolves the first two into one `Option` (the flag wins over the env var);
+//! [`resolve`] decides the last step and nothing else does.
+//!
+//! "Holds a value" rather than "exists", because the shells this exists for
+//! blank variables as readily as they unset them, and clap passes a blank env
+//! value through as `Some("")`.
 //!
 //! Consulting the broker any earlier would change every setup that works today:
 //! an agent that *does* have a key would silently stop using it, and would send
@@ -84,9 +88,9 @@ const MAX_RESPONSE_BYTES: u64 = 64 * 1024;
 
 /// Where this invocation's identity comes from.
 pub(crate) enum Identity {
-    /// A key was supplied — by `--private-key`, or by `BUZZ_PRIVATE_KEY`, which
-    /// clap has already resolved into one value with the flag winning. The
-    /// broker is not consulted at all in this case.
+    /// A non-blank key was supplied — by `--private-key`, or by
+    /// `BUZZ_PRIVATE_KEY`, which clap has already resolved into one value with
+    /// the flag winning. The broker is not consulted at all in this case.
     Key(String),
     /// No key here, but a harness offered a broker to ask.
     Broker(PathBuf),
@@ -106,12 +110,19 @@ pub(crate) fn socket_from_env() -> Option<String> {
 /// is deliberate and load-bearing: a harness may offer a broker to an agent
 /// that also has a key, and that agent must keep signing with its own.
 pub(crate) fn resolve(private_key: Option<String>, broker_socket: Option<String>) -> Identity {
-    if let Some(key) = private_key {
+    // Both variables are blank-checked, and for the same reason: a sanitising
+    // shell may blank a variable rather than unset it, and clap hands a blank
+    // env value straight through as `Some("")`. A blank key is no key. Taken as
+    // one it would short-circuit here and die with "invalid BUZZ_PRIVATE_KEY"
+    // without the broker ever being consulted — the harness that could have
+    // sent the reply would never be asked, and the agent would read the same
+    // *I have no credentials* this module exists to stop it reading.
+    if let Some(key) = private_key.filter(|key| !key.trim().is_empty()) {
         return Identity::Key(key);
     }
     match broker_socket {
-        // An empty value is how an env var survives a sanitising shell that
-        // blanks rather than unsets — it names no socket, so it is no broker.
+        // Same reasoning on this side: a blank value names no socket, so it is
+        // no broker.
         Some(path) if !path.trim().is_empty() => Identity::Broker(PathBuf::from(path)),
         _ => Identity::Neither,
     }

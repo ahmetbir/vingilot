@@ -128,6 +128,26 @@ fn a_key_alone_never_reaches_for_a_broker() {
 }
 
 #[test]
+fn a_blanked_key_is_no_key_and_the_broker_still_stands_in() {
+    // The shells this whole module exists for blank variables as readily as
+    // they unset them, and clap passes a blank env value through as `Some("")`.
+    // Read as a key it short-circuits before the socket is looked at, and the
+    // harness that could have sent the reply is never asked — the agent gets
+    // "invalid BUZZ_PRIVATE_KEY" and reads it as *I have no credentials*, which
+    // is the exact outcome this module replaces.
+    for blank in ["", "   ", "\n", "\t"] {
+        match resolve(Some(blank.to_string()), Some("/run/bz/s".to_string())) {
+            Identity::Broker(socket) => assert_eq!(socket, PathBuf::from("/run/bz/s")),
+            _ => panic!("a blanked key must not short-circuit the broker: {blank:?}"),
+        }
+        assert!(
+            matches!(resolve(Some(blank.to_string()), None), Identity::Neither),
+            "a blanked key with no broker is the keyless case, not a bad key: {blank:?}"
+        );
+    }
+}
+
+#[test]
 fn no_key_and_a_socket_asks_the_broker() {
     match resolve(None, Some("/run/bz/s".to_string())) {
         Identity::Broker(socket) => assert_eq!(socket, PathBuf::from("/run/bz/s")),
