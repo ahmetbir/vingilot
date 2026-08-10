@@ -146,6 +146,7 @@ export default defineConfig({
         "**/workspace-close-request.spec.ts",
         "**/workspace-cheatsheet.spec.ts",
         "**/workspace-no-coordinator.spec.ts",
+        "**/workspace-readme-shots.spec.ts",
         "**/terminal-wheel.spec.ts",
         "**/diff-keeps-up.spec.ts",
         "**/vingilot-boot-mark.spec.ts",
