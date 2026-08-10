@@ -22,8 +22,9 @@
 //
 // The words are the mark's own (`AttentionMark.sentence`), so the tooltip names
 // the signal the dot came from and cannot drift from it. The mark is
-// `aria-hidden` and its sentence is repeated in the row's own `title` by both
-// callers: the dot decorates a statement the row already makes in words.
+// `aria-hidden` and its sentence is repeated in the row's own `title` by all
+// three callers — `ProjectsNav`, `WorktreeColumn`, `TriageBoard`: the dot
+// decorates a statement the row already makes in words.
 
 import type {
   AttentionMark,

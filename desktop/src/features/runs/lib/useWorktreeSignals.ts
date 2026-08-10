@@ -67,8 +67,10 @@ import { orderWorktrees } from "@/features/runs/lib/worktreeAttention";
 import { usableStat } from "@/features/runs/lib/worktreeStat";
 
 export interface WorktreeSignals {
-  /** git's read of the open project's worktrees, by binding id. A worktree with
-   * no entry is one nothing is known about — never one that is clean. */
+  /** git's read of every project's worktrees, by binding id — Task 3 widened
+   * this past the open project, at the cost this module's header prices. A
+   * worktree with no entry is one nothing is known about — never one that is
+   * clean, and past the backend's 64-path cap the tail is what has no entry. */
   stats: WorktreeStats;
   /** The open project's worktrees in the order the column shows them, which is
    * also the order the ⌘1…9 shortcuts follow. */
