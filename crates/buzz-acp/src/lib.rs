@@ -1599,6 +1599,14 @@ async fn tokio_main() -> Result<()> {
         memory_enabled: config.memory_enabled,
         harness_name: crate::config::normalize_agent_command_identity(&config.agent_command),
         relay_url: config.relay_url.clone(),
+        // Read back out of the same entry the spawn environment gets, so the
+        // path the agent is told in its prompt is the path it is told in its
+        // environment — one socket, named once, in two places because the
+        // shells this exists for keep only one of them.
+        broker_socket: broker_env
+            .iter()
+            .find(|(name, _)| name == broker::BROKER_SOCKET_ENV)
+            .map(|(_, path)| path.clone()),
     });
 
     if !config.memory_enabled {
@@ -3656,6 +3664,37 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("what it should do day-to-day"));
         assert!(prompt.contains("owner saves it"));
         assert!(prompt.contains("Do not ask about runtime, provider, model, credentials"));
+    }
+
+    /// The lesson this branch exists to delete. An agent told its credentials
+    /// are environment variables reads `auth_error` (exit 3) as *I have no
+    /// credentials* and stops — which is what happened, on a machine where the
+    /// harness held the key the whole time and the agent's shell simply never
+    /// saw it.
+    #[test]
+    fn shared_base_prompt_never_teaches_the_agent_to_handle_a_key() {
+        let prompt = include_str!("base_prompt.md");
+        assert!(
+            !prompt.contains("Auth env vars"),
+            "naming the credentials as this agent's env vars is the sentence that \
+             made a sanitised shell look like a missing identity"
+        );
+        assert!(
+            !prompt.contains("BUZZ_PRIVATE_KEY"),
+            "the agent must never be told the name of the variable holding the key: \
+             knowing it invites setting it, echoing it, or passing it on"
+        );
+        assert!(prompt.contains("You do not hold, handle, or supply Buzz credentials"));
+        assert!(prompt.contains("Never pass `--private-key`"));
+        assert!(prompt.contains(
+            "Exit code 3 means the shell you ran the command in was handed no credentials"
+        ));
+        assert!(
+            prompt.contains("If a `[Tools]` section is present"),
+            "the base prompt must hand off to the section that names this machine's \
+             reply path, or the agent has been told the exit code means nothing and \
+             given nothing to do about it"
+        );
     }
 
     #[test]
