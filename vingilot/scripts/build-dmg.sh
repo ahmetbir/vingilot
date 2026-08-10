@@ -73,10 +73,15 @@ echo
 echo "==> $dmg"
 echo "    $(stat -f %z "$dmg") bytes"
 # Ask codesign whether the signature verifies, rather than pattern-matching its
-# prose: a grep for "^Authority" reported a correctly signed .dmg as unsigned
-# once already, and a build script that lies about what it produced is worse
-# than one that says nothing.
-if codesign --verify --quiet "$dmg" 2>/dev/null; then
+# prose. Both earlier attempts reported a correctly signed .dmg as unsigned: a
+# grep for "^Authority" missed the format, and `--verify --quiet` is not an
+# option this codesign has, so it exited 2 and the `if` read that as "no". The
+# lesson is in how they failed rather than in the flag — an unrecognised option
+# and a missed pattern both look exactly like an honest negative, so this one
+# was checked against a signed file (exit 0) AND an unsigned one (exit 1)
+# before being trusted. A build script that lies about what it produced is
+# worse than one that says nothing.
+if codesign --verify "$dmg" >/dev/null 2>&1; then
     codesign -dv "$dmg" 2>&1 \
         | grep -E "^(Authority|TeamIdentifier|Timestamp)" | sed 's/^/    /'
     echo "    Signed, and NOT notarized — Gatekeeper will still ask on a"
