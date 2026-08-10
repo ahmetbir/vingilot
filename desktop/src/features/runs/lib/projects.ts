@@ -26,8 +26,7 @@
 // entries aside and put them back where they were. `readRepos` remains the
 // right read for anything that only renders.
 
-import type { RunStatus, SemanticClass } from "./runModel.ts";
-import { statusClass } from "./runModel.ts";
+import type { RunStatus } from "./runModel.ts";
 
 export interface Repo {
   id: string;
@@ -248,27 +247,22 @@ export interface WorktreeSummary {
    * itself when there is one, else a readable stand-in for the primary/main
    * checkout (which has no branch in the coordinator's model). */
   label: string;
-  /** `"clean"` for a worktree with no owner run (nothing running there);
-   * otherwise the owner run's own semantic class (runModel.ts's
-   * `statusClass`), so the worktree column and the Runs tab agree on what
-   * each hue means. */
-  stateClass: SemanticClass | "clean";
   /** `null` when no diff evidence exists yet — never coerced to `{0, 0}`,
    * which would claim "no changes" instead of "no data". */
   diff: { added: number; removed: number } | null;
 }
 
-/** Pure render-model for one worktree row. `WorktreeColumn` renders exactly
- * this shape and nothing else. */
+/** Pure render-model for one worktree: the label every surface that names one
+ * shows (`WorktreeColumn`, `ProjectStatusBar`, the palette) and the diff counts
+ * the status bar puts beside it. Nothing is carried here that no surface draws
+ * — a field with no reader agrees with nothing and drifts unnoticed. */
 export function worktreeSummary(wt: Worktree): WorktreeSummary {
   const label = wt.branch ?? (wt.role === "primary" ? "main" : wt.role);
-  const stateClass =
-    wt.owner_run_status === null ? "clean" : statusClass(wt.owner_run_status);
   const diff =
     wt.added !== null && wt.removed !== null
       ? { added: wt.added, removed: wt.removed }
       : null;
-  return { label, stateClass, diff };
+  return { label, diff };
 }
 
 /** Default root the executor checks task worktrees out under
