@@ -14,6 +14,33 @@ four gestures VS Code trained into him that this app answers with nothing.
 
 ---
 
+## Task 0 — Bring the viewer to life
+
+He opened a 726-line file and got plain text with an apology. His words: *"biraz hayata ihtiyacı
+var. highlighting. şuan çok cansız."*
+
+The cause is inherited, not chosen: the viewer reuses `SyntaxHighlightedCode` from
+`shared/ui/markdown/CodeBlock.tsx`, whose `MAX_HIGHLIGHT_LINES = 150` was sized for a **chat
+message**, and whose `codeToTokens` runs synchronously on the main thread. `fileViewer.ts`'s
+header lays out all three costs honestly — the fix is to stop paying them, not to re-document them.
+
+- [ ] **Highlight asynchronously, off the render path.** Render the file as plain text
+      immediately (the pane must never wait on a tokeniser), then tokenise in the background and
+      swap spans in when ready. Chunked (`requestIdleCallback` or a worker — measure, then pick,
+      and write the measurement down), so a 5,000-line file never blocks the terminal beside it.
+      The 150-line ceiling dies with the synchronous path; the ceiling that remains is the
+      backend's 512 KiB read cap and a stated tokenise budget, not a chat-message constant.
+- [ ] **Do not fork the highlighter.** One Shiki singleton, one grammar cache, still shared with
+      markdown. What changes is *when* it is asked, not *what* is asked. If `CodeBlock.tsx` needs
+      an export or an async variant, that is one small upstream touch with a seams entry — better
+      than a second highlighter.
+- [ ] The plain-text fallback sentence survives for the cases that remain (binary, over the read
+      cap, unknown grammar) — but a file the viewer *chose* not to highlight must no longer exist.
+- [ ] While in there: the viewer's copy says "to keep the terminal responsive" — it is a file
+      viewer, not a terminal; fix the sentence.
+- [ ] Tests: the swap (plain → highlighted) asserted; a large-file fixture proving the render
+      commits before tokenising finishes; the remaining fallback sentences pinned.
+
 ## Task 1 — ⌘F: find in the thing I am looking at
 
 Not ⌘⇧F (the project search, already built). ⌘F searches **the open pane**.
