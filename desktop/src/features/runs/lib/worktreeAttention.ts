@@ -1,4 +1,4 @@
-// What the worktree column puts first, and what it folds away
+// What the worktree disclosure puts first, and what it folds away
 // (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 3).
 //
 // **The column answers one question: what is happening right now?** The
@@ -30,7 +30,7 @@
 // broken. Nothing folds while a filter query is on, because a search that
 // hides matches is not a search.
 //
-// Pure: no Tauri, no React, no client. `WorktreeColumn` renders exactly what
+// Pure: no Tauri, no React, no client. `WorktreeDisclosure` renders exactly what
 // this returns.
 
 import { isMainCheckout, type Worktree, worktreeSummary } from "./projects.ts";

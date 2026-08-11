@@ -344,8 +344,9 @@ test("the pointer aims at the divider's middle, which is where the boundary look
 
 test("a surface too narrow for both floors still keeps the terminal's 80 columns", () => {
   // The band where the two floors conflict starts at 992px of shared width and
-  // is not exotic: a 1280 window with the sidebar and the worktree column open
-  // is already inside it. The taste cap used to bind here instead of the
+  // is not exotic: a 1280 window with the sidebar and the workspace nav open is
+  // already inside it — 747px of surface, and 549px before the two nav columns
+  // became one. The taste cap used to bind here instead of the
   // floor — measured, a 900px surface gave the terminal 75 columns while the
   // comment above the clamp said the terminal's floor had won.
   for (const surface of [990, 940, 900, 800, 770]) {
@@ -372,8 +373,11 @@ test("the right pane gives way to the terminal, not the other way round", () => 
 });
 
 test("a surface too narrow even for the terminal gives it everything there is", () => {
-  // 549px is the real measurement: sidebar plus worktree column on a 1280
-  // window. Nothing here is a good layout, and it is not dressed up as one —
+  // 549px was the real measurement on the three-column build: sidebar plus a
+  // projects rail plus a worktree column, on a 1280 window. The merged nav puts
+  // the same window at 747px, so this width now needs a smaller one — the
+  // arithmetic under test is the clamp's, not the shell's, and a surface this
+  // narrow is still reachable by dragging a window down. Nothing here is a good layout, and it is not dressed up as one —
   // the right pane gets nothing, because the alternative is spending the
   // terminal's columns on a pane that cannot be read at that width either.
   // ⌥⌘B, or a wider window, is the way out.

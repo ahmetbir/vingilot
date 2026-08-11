@@ -221,7 +221,7 @@ export function putRepos(
 /** Lists a workspace's worktrees — `worktree_bindings` joined to their
  * owner run's live status/objective, plus diff counts (see
  * `run::list_worktrees_for_workspace` on the coordinator side). This is the
- * read model the worktree column polls; `projects.ts`'s `worktreeSummary`
+ * read model the workspace nav polls; `projects.ts`'s `worktreeSummary`
  * turns each row into what the column actually renders. */
 export function listWorktrees(
   workspaceId: string,

@@ -4,7 +4,8 @@
 //
 // **The complaint, and what was actually wrong.** On the owner's 16-inch
 // MacBook Pro the diff was not merely cramped — the patch was gone. Measured at
-// its default 1728×1117: the sidebar takes 300px, the projects rail 192px and
+// its default 1728×1117, on the three-column build this screen had at the time:
+// the sidebar takes 300px, the projects rail 192px and
 // the worktree column 224px, which leaves the work surface **1003px**. Of that,
 // `paneModel.ts`'s `MIN_LEFT_PX` — 80 terminal columns, the top-ranked rule on
 // that surface — claims 752px, and the divider 8px, so the Diff pane is laid
@@ -28,6 +29,16 @@
 // at all: it becomes a drawer over it, opened from the patch header. The patch
 // then has the whole pane, which at 243px is a narrow patch — but a narrow
 // patch is a patch, and 32px was not.
+//
+// **The numbers moved once and the decision did not.** Merging the two nav
+// columns into one (vingilot/docs/plans/2026-08-11-one-column-design.md) gave
+// the work surface the 192px the project list was spending, and all of it lands
+// here, because `MIN_LEFT_PX` is a floor the terminal was already sitting on:
+// the same laptop now measures a **1195px** surface and a **435px** Diff pane.
+// That is still under `PATCH_MIN_PX`, so the list still yields and the patch
+// still wraps — the pane would have needed another 32px before any of the
+// reasoning above changed, which is worth knowing before the next window of
+// space arrives and someone assumes it did.
 //
 // **The numbers are derived, not chosen.** Every one below comes off the
 // measurement above so the arithmetic can be checked against what is drawn.

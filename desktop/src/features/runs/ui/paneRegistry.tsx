@@ -122,7 +122,7 @@ export interface PaneEntry {
   id: PaneId;
   title: string;
   /** A glyph, not a component — this island draws its chrome in text
-   * (`WorktreeColumn`'s rail, `TerminalTabStrip`'s ×) and a pane row is data
+   * (`WorkspaceNav`'s rail, `TerminalTabStrip`'s ×) and a pane row is data
    * the picker prints, not a component tree. */
   icon: string;
   /** `null` for a pane the work surface renders in place; see the note above.

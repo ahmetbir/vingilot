@@ -9,10 +9,10 @@ test("primary+b toggles the sidebar", () => {
   });
 });
 
-test("shift+primary+b toggles the worktree column", () => {
+test("shift+primary+b toggles the nav column", () => {
   assert.deepEqual(
     resolveColumnKey({ key: "b", primaryModifier: true, shiftKey: true }),
-    { column: "worktrees", type: "toggle-column" },
+    { column: "nav", type: "toggle-column" },
   );
 });
 
@@ -23,7 +23,7 @@ test("caps lock does not lose either chord", () => {
   });
   assert.deepEqual(
     resolveColumnKey({ key: "B", primaryModifier: true, shiftKey: true }),
-    { column: "worktrees", type: "toggle-column" },
+    { column: "nav", type: "toggle-column" },
   );
 });
 

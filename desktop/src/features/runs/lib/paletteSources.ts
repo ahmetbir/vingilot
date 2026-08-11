@@ -58,7 +58,7 @@ export interface PaletteChoice {
  * be tested. */
 export interface PaletteContext {
   repos: readonly Repo[];
-  /** The open project's worktrees, in the worktree column's own order, so the
+  /** The open project's worktrees, in the nav disclosure's own order, so the
    * palette's second row for a project is the column's second row. */
   worktrees: readonly Worktree[];
   selectedRepoId: string | null;
@@ -75,11 +75,12 @@ export interface PaletteContext {
   paneChoices: readonly PaletteChoice[];
   /** How many of the open project's worktrees git reports as prunable. */
   prunable: number;
-  /** True while the worktree column is on screen at all — false on the
-   * project-less landing view, where there is no column to toggle. */
-  hasWorktreeColumn: boolean;
   sidebarCollapsed: boolean;
-  worktreesCollapsed: boolean;
+  /** True while the workspace nav is collapsed to its rail. There is no
+   * `hasNav` beside it: the nav holds the project list, so it is on screen on
+   * every view of this screen including the Deck, and a row blocked on a
+   * condition that cannot occur is a sentence nobody can ever read. */
+  navCollapsed: boolean;
   /** Which side has the work surface to itself, or `null` for the split. */
   solo: "left" | "right" | null;
 }
@@ -125,7 +126,7 @@ export const projectSource: PaletteSource = (ctx, query) => {
   return matchAll(candidates, query);
 };
 
-/** The line under a worktree row. git's own numbers are the worktree column's
+/** The line under a worktree row. git's own numbers are the nav disclosure's
  * job and are not repeated here — what the palette needs is enough to tell two
  * similarly-named branches apart, which is the role and the run that owns it. */
 function worktreeDetail(wt: Worktree): string {
@@ -313,23 +314,19 @@ export const actionSource: PaletteSource = (ctx, query) => {
       blocked: null,
       chord: "⌘B",
       command: { type: "toggle-sidebar" },
-      detail: "the app's own sidebar, on the left",
+      detail: "the app's own sidebar, left of the workspace",
       id: "action:toggle-sidebar",
       kind: "action",
       label: ctx.sidebarCollapsed ? "Show the sidebar" : "Hide the sidebar",
     },
     {
-      blocked: ctx.hasWorktreeColumn
-        ? null
-        : "there is no worktree column on the landing view.",
+      blocked: null,
       chord: "⇧⌘B",
-      command: { type: "toggle-worktrees" },
-      detail: "the worktree column, beside the projects",
-      id: "action:toggle-worktrees",
+      command: { type: "toggle-nav" },
+      detail: "the projects, and the open one's worktrees",
+      id: "action:toggle-nav",
       kind: "action",
-      label: ctx.worktreesCollapsed
-        ? "Show the worktrees"
-        : "Hide the worktrees",
+      label: ctx.navCollapsed ? "Show the projects" : "Hide the projects",
     },
     {
       blocked:

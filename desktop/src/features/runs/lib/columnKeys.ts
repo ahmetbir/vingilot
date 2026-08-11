@@ -1,6 +1,7 @@
 // Pure keyboard-resolution for collapsing the workspace's columns, on the
 // bindings the owner's hands already know from VS Code: ⌘B hides the sidebar,
-// ⇧⌘B hides the worktree column. Same shape as `terminalKeys.ts` — a
+// ⇧⌘B hides the workspace nav — the projects and, under the open one, its
+// worktrees (`ui/WorkspaceNav.tsx`). Same shape as `terminalKeys.ts` — a
 // `resolveKey`-style function so the map is unit-testable without React or a
 // real keyboard, and the caller decides whether now is the time for it.
 //
@@ -60,7 +61,7 @@ export function resolveColumnKey(input: KeyInput): ColumnKeyAction | null {
   // sidebar toggle to caps lock would be a bug nobody would think to look for.
   if (input.key.toLowerCase() !== "b") return null;
   return {
-    column: input.shiftKey === true ? "worktrees" : "sidebar",
+    column: input.shiftKey === true ? "nav" : "sidebar",
     type: "toggle-column",
   };
 }

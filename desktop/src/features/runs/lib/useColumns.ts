@@ -1,6 +1,12 @@
 // The workspace's collapsible chrome, wired: ⌘B hides the sidebar, ⇧⌘B hides
-// the worktree column, and both come back the way the owner left them, per
+// the workspace nav, and both come back the way the owner left them, per
 // project (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 6).
+//
+// ⇧⌘B is bound on every view of this screen, the Deck included. It used to
+// fall through when no project was open, because the column it hid held one
+// project's worktrees and there was none; the merged nav holds the project
+// list itself and is on screen everywhere
+// (vingilot/docs/plans/2026-08-11-one-column-design.md, §4.1).
 //
 // Every decision here is somebody else's: what a chord means is
 // `columnKeys.ts`, what is collapsed and how it is stored is
@@ -39,11 +45,11 @@ import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 
 export interface Columns {
-  /** True while the selected project's worktree column is collapsed to its
-   * rail. The rail is what makes the shortcut safe to have — see
-   * `WorktreeColumn`. */
-  worktreesCollapsed: boolean;
-  toggleWorktrees: () => void;
+  /** True while the workspace nav — the projects, and the open one's
+   * worktrees — is collapsed to its rail. The rail is what makes the shortcut
+   * safe to have; see `ui/WorkspaceNav.tsx`. */
+  navCollapsed: boolean;
+  toggleNav: () => void;
   /** Upstream's sidebar, as this hook sees it right now. `false` outside a
    * `SidebarProvider`, where there is no sidebar to be collapsed — read as
    * "not collapsed", which is what a surface labelling the toggle should say
@@ -59,16 +65,9 @@ interface ColumnsOptions {
   /** The project the owner is standing in, or `null` for the landing view.
    * Collapse state is remembered against this. */
   projectId: string | null;
-  /** False when no worktree column is on screen (the landing view). ⇧⌘B then
-   * falls through untouched rather than toggling a column that is not there —
-   * a shortcut that visibly does nothing is worse than one that is unbound. */
-  hasWorktreeColumn: boolean;
 }
 
-export function useColumns({
-  hasWorktreeColumn,
-  projectId,
-}: ColumnsOptions): Columns {
+export function useColumns({ projectId }: ColumnsOptions): Columns {
   const layoutKey = projectId ?? LANDING_KEY;
   const [layout, setLayout] = React.useState<ColumnLayout>(readColumnLayout);
   React.useEffect(() => {
@@ -124,8 +123,8 @@ export function useColumns({
     setLayout((prev) => withColumn(prev, layoutKey, "sidebar", !sidebarOpen));
   }, [sidebarOpen, layoutKey]);
 
-  const toggleWorktrees = React.useCallback(() => {
-    setLayout((prev) => toggleColumn(prev, layoutKey, "worktrees"));
+  const toggleNav = React.useCallback(() => {
+    setLayout((prev) => toggleColumn(prev, layoutKey, "nav"));
   }, [layoutKey]);
 
   // Stable across renders, and reads the provider out of the ref for the same
@@ -152,19 +151,18 @@ export function useColumns({
         bar.toggleSidebar();
         return;
       }
-      if (!hasWorktreeColumn) return;
       event.preventDefault();
-      toggleWorktrees();
+      toggleNav();
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [hasWorktreeColumn, toggleWorktrees]);
+  }, [toggleNav]);
 
   return {
+    navCollapsed: columnsFor(layout, layoutKey).nav,
     sidebarCollapsed: sidebarOpen === null ? false : !sidebarOpen,
+    toggleNav,
     toggleSidebar,
-    toggleWorktrees,
-    worktreesCollapsed: columnsFor(layout, layoutKey).worktrees,
   };
 }

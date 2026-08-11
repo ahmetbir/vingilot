@@ -7,7 +7,8 @@
 // **The viewport is the test.** 1728×1117 is the 16-inch MacBook Pro's default
 // logical resolution, and this spec runs at it rather than at whatever width
 // happens to be convenient — the whole reason the defect shipped is that it is
-// invisible on a large display. Measured there before anything was changed:
+// invisible on a large display. Measured there before anything was changed, on
+// the three-column build this screen no longer has:
 //
 //   window 1728 → sidebar 300 + projects rail 192 + worktree column 224
 //               → work surface 1003
@@ -16,6 +17,23 @@
 //               → **Diff pane 243px**
 //   inside it: a `w-72 shrink-0` file list of **288px**, and a patch scroller
 //              with **32px** of client width against 704px of content.
+//
+// **Re-measured after the two nav columns became one**
+// (vingilot/docs/plans/2026-08-11-one-column-design.md, §6.8). The work surface
+// gained the 192px the project list was spending, and the whole of that gain
+// lands in this pane, because `MIN_LEFT_PX` is a floor and the terminal was
+// already sitting on it:
+//
+//   window 1728 → sidebar 300 + workspace nav 224
+//               → work surface 1195
+//               → less the same 8px divider and the same 752px floor
+//               → **Diff pane 435px**
+//
+// Nothing below was repaired for that; every assertion still reads true,
+// which is the point worth recording. 435 is still under `PATCH_MIN_PX`, so
+// the list still yields and the patch still wraps — the decision this spec
+// exists for is unchanged by 192px, and would have needed another 32 before it
+// was. What did move is written into the two comments that quote a number.
 //
 // So there are two constraints and only one of them is wrong. `MIN_LEFT_PX` is
 // the terminal's 80 columns and outranks everything on that surface for a
@@ -58,15 +76,18 @@ const REPO = { id: "repo-fit", name: "vingilot", path: "/tmp/vingilot-fit" };
 const SIXTEEN_INCH = { height: 1117, width: 1728 };
 
 /** What the owner's own move gives the pane: ⇧⌥⌘B hands the right pane the
- * whole work surface (`paneKeys.ts`), which on the same laptop is 1003px. The
- * "both fit" case is tested through that rather than through a 2800px viewport,
- * because the point is that the arrangement is reachable on the machine in
- * front of him and not only on a display he does not own.
+ * whole work surface (`paneKeys.ts`), which on the same laptop is 1195px —
+ * 1159px of it to this pane, once the left rail has its 36. The "both fit" case
+ * is tested through that rather than through a 2800px viewport, because the
+ * point is that the arrangement is reachable on the machine in front of him and
+ * not only on a display he does not own.
  *
- * Worth saying why the split alone does not get there: once `MIN_LEFT_PX` is
- * satisfied the ratio is `DEFAULT_RATIO`, so a 1003px surface gives the right
- * pane 0.4 of it — 398px — and the pane would have to be 755px before the list
- * could take its preferred width beside a patch above its floor. */
+ * Worth saying why the split alone does not get there: `MIN_LEFT_PX` is a
+ * floor and the terminal is on it, so a 1195px surface leaves the right pane
+ * 435px — and the pane would have to be 755px before the list could take its
+ * preferred width beside a patch above its floor. The one column bought 192px
+ * and that is still 320 short, which is the measurement that says this gesture
+ * is not a workaround for a window that is merely a bit narrow. */
 const RIGHT_SOLO = "Shift+Alt+Meta+b";
 
 /** `MIN_LEFT_PX` in `lib/paneModel.ts`: 80 columns × 9px + 32px of chrome.
@@ -328,10 +349,11 @@ test("at his width the patch line is whole and every row names its file", async 
 }) => {
   await openDiffPane(page, SIXTEEN_INCH);
 
-  // The patch has the pane and is *still* under its own floor — 243px is 29
-  // columns against a floor of 60 — so it wraps instead of running off the
-  // side. This is the reading the previous version of this file did not take:
-  // it asserted the pane was below `PATCH_MIN_PX` and stopped there.
+  // The patch has the pane and is *still* under its own floor — 435px against
+  // a `PATCH_MIN_PX` of 467, where before the nav columns merged it was 243 —
+  // so it wraps instead of running off the side. This is the reading the
+  // previous version of this file did not take: it asserted the pane was below
+  // `PATCH_MIN_PX` and stopped there.
   const before = await legibility(page);
   expect(before.wrapped).toBe("true");
   expect(before.lines.length).toBeGreaterThan(0);

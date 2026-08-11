@@ -1,11 +1,12 @@
 // Which of the workspace's columns are collapsed, per project.
 //
 // Per project, not per app: the owner works in one project with the chrome
-// out of the way and in another with the worktree list open, and coming back
+// out of the way and in another with the workspace nav open, and coming back
 // to either should look like how he left it
 // (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 6). The
-// project-less landing view is a key like any other, `LANDING_KEY` — it has
-// no worktree column, but it does have the sidebar.
+// project-less landing view is a key like any other, `LANDING_KEY` — it holds
+// the same nav (the project list, with nothing disclosed) and the same
+// sidebar.
 //
 // The sidebar's collapsed flag is recorded here even though upstream's
 // `SidebarProvider` owns the live state: that provider writes a
@@ -24,13 +25,18 @@
 
 /** The columns this app can collapse. The right pane is deliberately absent:
  * it does not exist yet (it is Task 4's pane host), and a column that cannot
- * be shown cannot be hidden. */
-export type CollapsibleColumn = "sidebar" | "worktrees";
+ * be shown cannot be hidden.
+ *
+ * `nav` is the workspace's one navigation column — the projects and, under the
+ * open one, its worktrees (`ui/WorkspaceNav.tsx`). It was `worktrees` while
+ * that was a second column beside the project list; the flag now hides both,
+ * which is why the stored key below is a new one rather than a migration. */
+export type CollapsibleColumn = "sidebar" | "nav";
 
 /** `true` means collapsed. */
 export interface ColumnState {
   sidebar: boolean;
-  worktrees: boolean;
+  nav: boolean;
 }
 
 export type ColumnLayout = Record<string, ColumnState>;
@@ -41,10 +47,20 @@ export const LANDING_KEY = "@landing";
 
 /** Versioned: a future shape change gets a new key rather than a migration,
  * so an older build reading a newer layout finds nothing and starts with
+ * everything expanded.
+ *
+ * `.v2` is that rule being followed, not a tidy-up. The record's shape is
+ * unchanged — two independent booleans — but `worktrees: true` used to hide a
+ * 224px list of branches, while `nav: true` hides the whole navigation of the
+ * workspace, projects included. Carrying a `true` across that rename would
+ * open the app, once, to a project whose entire nav is gone for reasons the
+ * owner cannot see. `.v1` is never read again and is deliberately left in
+ * storage: an older build must still find its own layout. The price, stated:
+ * the `sidebar` flag lives in the same record, so one launch starts with
  * everything expanded. */
-const LAYOUT_KEY = "vingilot-columns.v1";
+const LAYOUT_KEY = "vingilot-columns.v2";
 
-const ALL_EXPANDED: ColumnState = { sidebar: false, worktrees: false };
+const ALL_EXPANDED: ColumnState = { nav: false, sidebar: false };
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -109,8 +125,8 @@ function readState(value: unknown): ColumnState | null {
   }
   const record = value as Record<string, unknown>;
   return {
+    nav: record.nav === true,
     sidebar: record.sidebar === true,
-    worktrees: record.worktrees === true,
   };
 }
 
@@ -134,7 +150,7 @@ export function parseColumnLayout(raw: string | null): ColumnLayout {
   for (const [key, value] of Object.entries(parsed)) {
     if (key === "") continue;
     const state = readState(value);
-    if (state === null || (!state.sidebar && !state.worktrees)) continue;
+    if (state === null || (!state.sidebar && !state.nav)) continue;
     layout[key] = state;
   }
   return layout;

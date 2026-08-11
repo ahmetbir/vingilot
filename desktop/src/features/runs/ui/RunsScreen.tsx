@@ -1,9 +1,9 @@
-// The Projects screen: three columns per the layout contract
-// (vingilot/docs/plans/2026-08-06-projects-and-terminal.md) — ProjectsNav
-// (pick a project or the project-less landing view), WorktreeColumn (that
-// project's worktrees, live state), WorkSurface (the terminal, and whichever
-// pane the owner has put beside it). A persistent ProjectStatusBar names where
-// the owner is.
+// The Projects screen: two columns per the layout contract
+// (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, narrowed from
+// three by vingilot/docs/plans/2026-08-11-one-column-design.md) — WorkspaceNav
+// (the projects, and under the open one its worktrees, live state) and
+// WorkSurface (the terminal, and whichever pane the owner has put beside it).
+// A persistent ProjectStatusBar names where the owner is.
 // The project-less landing view is the old Deck (composer + lanes),
 // unchanged — nothing is deleted, it just stops being the front door.
 //
@@ -34,7 +34,7 @@
 // The screen has no title bar of its own. Everywhere else in this app an `h1`
 // names the thing you are looking at — a channel in `ChatHeader`, a run's
 // objective in `RunDetail` — never the screen; a static "Projects" named the
-// leftmost column, which `ProjectsNav` already heads itself, and put a second
+// leftmost column, which `WorkspaceNav` already heads itself, and put a second
 // `h1` on screen whenever a run was open. What that row was reaching for —
 // where am I — is the status bar's job, and the status bar is always there.
 
@@ -121,14 +121,13 @@ import { CommandPalette } from "@/features/runs/ui/CommandPalette";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { KeyCheatsheet } from "@/features/runs/ui/KeyCheatsheet";
 import { PlanWorktreeDialog } from "@/features/runs/ui/PlanWorktreeDialog";
-import { ProjectsNav } from "@/features/runs/ui/ProjectsNav";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
 import { TriageBoard } from "@/features/runs/ui/TriageBoard";
 import { ControlPlaneBanner } from "@/features/runs/ui/ControlPlaneBanner";
 import { paneEntry, paneProbes } from "@/features/runs/ui/paneRegistry";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
-import { WorktreeColumn } from "@/features/runs/ui/WorktreeColumn";
+import { WorkspaceNav } from "@/features/runs/ui/WorkspaceNav";
 
 // Hardcoded dev workspace id — matches the donor App.tsx. A workspace
 // picker is a later plan; V1 is single-workspace dev use.
@@ -303,10 +302,24 @@ export function RunsScreen() {
   const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
   const [stopEngaged, setStopEngaged] = React.useState(false);
 
-  const selectRepo = React.useCallback((id: string) => {
-    setSelectedRepoId(id);
-    setSelectedWorktreeId(null);
-  }, []);
+  // **Idempotent, and that is the whole point.** Choosing a *different*
+  // project clears the worktree so the auto-select effect below lands on its
+  // primary checkout — that is why disclosing a project immediately shows a
+  // terminal. Choosing the project you are already standing in must do
+  // neither: this callback has three doors (the nav's project row, the
+  // collapsed rail's dot, the palette's `open-project`), all three of which
+  // the owner reaches *while inside* the project they name, and clearing the
+  // selection there would silently move him off the worktree he has open onto
+  // `main`. `ProjectRow.tsx` and the design's §2.1 both promise this is a
+  // no-op; the guard is what makes the promise true.
+  const selectRepo = React.useCallback(
+    (id: string) => {
+      if (id === selectedRepoId) return;
+      setSelectedRepoId(id);
+      setSelectedWorktreeId(null);
+    },
+    [selectedRepoId],
+  );
   // Also clears any open run detail — clicking "Deck" while already on the
   // landing view is the way back to the Deck from a RunDetail, since the
   // old RunList's "+ New run" row (which used to do this) now lives inside
@@ -323,10 +336,7 @@ export function RunsScreen() {
   // Which columns are out of the way, and the ⌘B / ⇧⌘B that put them there.
   // Keyed by project rather than held here, so it survives both a project
   // switch and a restart (`lib/useColumns.ts`).
-  const columns = useColumns({
-    hasWorktreeColumn: selectedRepo !== null,
-    projectId: selectedRepoId,
-  });
+  const columns = useColumns({ projectId: selectedRepoId });
 
   // The terminal-tab layout, seeded from and mirrored back into storage
   // (lib/terminalTabStore.ts): this component unmounts on any route change
@@ -614,7 +624,7 @@ export function RunsScreen() {
   });
 
   const paletteContext: PaletteContext = {
-    hasWorktreeColumn: selectedRepo !== null,
+    navCollapsed: columns.navCollapsed,
     paneChoices,
     prunable: prunableWorktrees(repoWorktrees).length,
     repos,
@@ -625,7 +635,6 @@ export function RunsScreen() {
     worktreeCwd: selectedWorktreeCwd,
     worktreeCwdPending: !rootSettled,
     worktrees: repoWorktrees,
-    worktreesCollapsed: columns.worktreesCollapsed,
   };
 
   // Every command the palette can produce, run against the actions that
@@ -690,8 +699,8 @@ export function RunsScreen() {
         case "toggle-sidebar":
           columns.toggleSidebar();
           return;
-        case "toggle-worktrees":
-          columns.toggleWorktrees();
+        case "toggle-nav":
+          columns.toggleNav();
           return;
         case "toggle-solo":
           panes.toggleSolo(command.side);
@@ -710,8 +719,8 @@ export function RunsScreen() {
       }
     },
     [
+      columns.toggleNav,
       columns.toggleSidebar,
-      columns.toggleWorktrees,
       openPlanWorktree,
       openPrune,
       scratch.open,
@@ -819,23 +828,38 @@ export function RunsScreen() {
       data-testid="runs-screen"
     >
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <ProjectsNav
+        <WorkspaceNav
+          actions={worktreeActions}
+          collapsed={columns.navCollapsed}
           confirming={removingProject}
           coordinatorNotice={projectActions.coordinatorNotice}
+          creating={creatingWorktree}
           error={projectActions.error}
           importNotice={projectActions.importNotice}
           onAddProject={projectActions.addProject}
           onConfirmingChange={setRemovingProject}
+          onCreatingChange={setCreatingWorktree}
           onDismissError={projectActions.dismissError}
           onDismissImportNotice={projectActions.dismissImportNotice}
+          onOpenPrune={openPrune}
+          onPrunePreviewChange={setPrunePreview}
           onRemoveProject={projectActions.removeProject}
           onSelectLanding={selectLanding}
           onSelectRepo={selectRepo}
-          marks={signals.byRepo}
+          onSelectWorktree={setSelectedWorktreeId}
+          onToggleCollapsed={columns.toggleNav}
           pending={projectActions.pending}
+          prunePreview={prunePreview}
+          repoMarks={signals.byRepo}
           repos={repos}
+          selectedRepo={selectedRepo}
           selectedRepoId={selectedRepoId}
+          selectedWorktreeId={selectedWorktreeId}
+          stats={signals.stats}
           storeNotice={projectActions.storeNotice}
+          worktreeMarks={signals.byWorktree}
+          worktreeRoot={worktreeRoot}
+          worktrees={repoWorktrees}
         />
 
         {/* Everything right of the project nav, in a box the palette can be
@@ -868,60 +892,39 @@ export function RunsScreen() {
                 <RunDetail key={selectedRunId} runId={selectedRunId} />
               )}
             </main>
-          ) : (
-            <>
-              <WorktreeColumn
-                actions={worktreeActions}
-                collapsed={columns.worktreesCollapsed}
-                creating={creatingWorktree}
-                marks={signals.byWorktree}
-                onCreatingChange={setCreatingWorktree}
-                onOpenPrune={openPrune}
-                onPrunePreviewChange={setPrunePreview}
-                onSelectWorktree={setSelectedWorktreeId}
-                onToggleCollapsed={columns.toggleWorktrees}
-                prunePreview={prunePreview}
-                repo={selectedRepo}
-                selectedWorktreeId={selectedWorktreeId}
-                stats={signals.stats}
-                worktreeRoot={worktreeRoot}
-                worktrees={repoWorktrees}
+          ) : selectedWorktree === null ? (
+            // The same board the Deck draws, narrowed to this project —
+            // the panel used to say "select a worktree" over nothing.
+            <main
+              aria-label="workspace"
+              className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5"
+            >
+              <TriageBoard
+                model={signals.triage}
+                onOpen={openWorktree}
+                repoId={selectedRepo.id}
               />
-              {selectedWorktree === null ? (
-                // The same board the Deck draws, narrowed to this project —
-                // the panel used to say "select a worktree" over nothing.
-                <main
-                  aria-label="workspace"
-                  className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5"
-                >
-                  <TriageBoard
-                    model={signals.triage}
-                    onOpen={openWorktree}
-                    repoId={selectedRepo.id}
-                  />
-                </main>
-              ) : (
-                <WorkSurface
-                  documents={documents}
-                  onCloseScratch={scratch.close}
-                  onPaneAct={runPaneAct}
-                  onSelectWorktree={setSelectedWorktreeId}
-                  onTabCommand={runTabCommand}
-                  onToggleScratch={scratch.toggle}
-                  paneContext={paneContext}
-                  panes={panes}
-                  controlPlane={controlPlane}
-                  pollMs={pollMs}
-                  runs={runs}
-                  scratch={scratch.session}
-                  selectedWorktreeId={selectedWorktreeId}
-                  tabs={selectedTabs}
-                  terminals={terminals}
-                  worktrees={repoWorktrees}
-                  workspaceId={WORKSPACE_ID}
-                />
-              )}
-            </>
+            </main>
+          ) : (
+            <WorkSurface
+              documents={documents}
+              onCloseScratch={scratch.close}
+              onPaneAct={runPaneAct}
+              onSelectWorktree={setSelectedWorktreeId}
+              onTabCommand={runTabCommand}
+              onToggleScratch={scratch.toggle}
+              paneContext={paneContext}
+              panes={panes}
+              controlPlane={controlPlane}
+              pollMs={pollMs}
+              runs={runs}
+              scratch={scratch.session}
+              selectedWorktreeId={selectedWorktreeId}
+              tabs={selectedTabs}
+              terminals={terminals}
+              worktrees={repoWorktrees}
+              workspaceId={WORKSPACE_ID}
+            />
           )}
           {selectedRepo === null ? null : (
             <PlanWorktreeDialog

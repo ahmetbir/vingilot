@@ -8,7 +8,7 @@
 // rather than a list of the four states retyped in this file — a second copy of
 // a precedence is how two surfaces come to disagree about the same worktree.
 // The `+`/`−` is `worktreeAttention.ts`'s `rowDetail`, the same sentence the
-// worktree column puts under a row.
+// worktree disclosure puts under a row.
 //
 // **Ordering, and why an unanswered row sinks rather than rises.** needs-you,
 // working, dirty, quiet — then the rows nothing has answered about, last.
@@ -63,7 +63,7 @@ export interface TriageRow {
   /** Task 1's mark for this worktree, carried, never re-derived. */
   mark: AttentionMark;
   /** The line under a row's label, from `rowDetail` — the same sentence the
-   * worktree column puts under the same worktree, so the two surfaces cannot
+   * worktree disclosure puts under the same worktree, so the two surfaces cannot
    * report different numbers for one tree.
    *
    * With a stat it is git's own count, the cheap numstat on the 5s poll, never

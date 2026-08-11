@@ -27,7 +27,7 @@
 //   sentence does not count seconds at him.
 //
 // A fifth reading rides along because the same absence would break it: the
-// worktree column still lists, and its rows come from `git worktree list`
+// disclosed worktrees still list, and their rows come from `git worktree list`
 // (`worktree_list`) rather than from the coordinator's `/worktrees`. The
 // non-main row asserted below can have no other origin — the coordinator's
 // endpoint never answers here at all.
@@ -195,9 +195,10 @@ async function stubTauri(page: Page, disk: Disk) {
 }
 
 async function openWorkspace(page: Page, disk: Disk) {
-  // Wide enough that the three columns are all on screen at once — the
-  // narrower default puts the worktree column's contents behind a rail, and
-  // this spec asserts on rows in it.
+  // The same window `workspace-columns.spec.ts` asks for, and for the same
+  // reason: wide enough that the nav is at its full width with a work surface
+  // beside it that can still hold a split. This spec asserts on the nav's rows,
+  // so it wants the nav drawn rather than folded into anything.
   await page.setViewportSize({ height: 900, width: 1700 });
   await installMockBridge(page);
   await noCoordinator(page);

@@ -18,7 +18,7 @@
 // right pane — the layout the four ported panes had when they were tabs, which
 // the split otherwise takes away for good. It passes the same four-claimant
 // check: adding ⇧ to a chord no claimant holds cannot collide with one, and
-// `columnKeys.ts` refuses every ⌥ chord, so ⇧⌥⌘B is not also a worktree-column
+// `columnKeys.ts` refuses every ⌥ chord, so ⇧⌥⌘B is not also a workspace-nav
 // toggle.
 //
 // **The divider's keys are the reason the divider exists in this file at

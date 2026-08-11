@@ -243,7 +243,7 @@ export function groupWorktrees(
 }
 
 export interface WorktreeSummary {
-  /** What the worktree column shows in place of a branch name: the branch
+  /** What the worktree rows show in place of a branch name: the branch
    * itself when there is one, else a readable stand-in for the primary/main
    * checkout (which has no branch in the coordinator's model). */
   label: string;
@@ -253,7 +253,7 @@ export interface WorktreeSummary {
 }
 
 /** Pure render-model for one worktree: the label every surface that names one
- * shows (`WorktreeColumn`, `ProjectStatusBar`, the palette) and the diff counts
+ * shows (`WorktreeRow`, `ProjectStatusBar`, the palette) and the diff counts
  * the status bar puts beside it. Nothing is carried here that no surface draws
  * — a field with no reader agrees with nothing and drifts unnoticed. */
 export function worktreeSummary(wt: Worktree): WorktreeSummary {

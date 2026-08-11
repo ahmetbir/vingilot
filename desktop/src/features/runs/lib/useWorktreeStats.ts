@@ -1,4 +1,4 @@
-// Keeping the worktree column's `+`/`−` current without freezing anything
+// Keeping the worktree rows' `+`/`−` current without freezing anything
 // (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 3).
 //
 // **Three decisions, all of them about cost.**

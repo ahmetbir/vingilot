@@ -85,7 +85,7 @@ import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 interface WorkSurfaceProps {
   workspaceId: string;
   /** Ordered — index N backs the ⌘(N+1) shortcut for N < 9; the same order
-   * `WorktreeColumn` renders. */
+   * `WorktreeDisclosure` renders. */
   worktrees: Worktree[];
   selectedWorktreeId: string | null;
   onSelectWorktree: (bindingId: string) => void;
@@ -563,7 +563,7 @@ function RightPane({
 
 /** A side that has no box, reduced to the way back. A hidden pane plus a
  * shortcut the owner has to remember is a trap — the same reason
- * `WorktreeColumn` keeps a rail — and it is what makes either solo safe to
+ * `WorkspaceNav` keeps a rail — and it is what makes either solo safe to
  * have at all. For a keyboard owner it is only not a trap if focus arrives
  * here when the pane goes; the work surface sees to that.
  *

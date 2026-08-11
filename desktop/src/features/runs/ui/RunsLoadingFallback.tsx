@@ -1,5 +1,5 @@
 // Suspense fallback for the /workspace route. Shaped like RunsScreen's first
-// paint — ProjectsNav-shaped aside + DeckPane-shaped main pane +
+// paint — WorkspaceNav-shaped aside + DeckPane-shaped main pane +
 // ProjectStatusBar-shaped footer, because `selectedRepoId` starts null and
 // the landing view is the Deck —
 // rather than reusing ViewLoadingFallback's "agents" kind, which renders the
@@ -60,7 +60,7 @@ export function RunsLoadingFallback() {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-48 shrink-0 flex-col overflow-hidden border-r border-border/60 px-2 py-3">
+        <aside className="flex w-56 shrink-0 flex-col overflow-hidden border-r border-border/60 px-2 py-3">
           <div className="px-2 py-1.5">
             <Skeleton className="h-4 w-10" />
           </div>

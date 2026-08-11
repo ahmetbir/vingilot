@@ -57,7 +57,7 @@ export type PaletteCommand =
   | { type: "remove-project" }
   | { type: "prune-worktrees" }
   | { type: "toggle-sidebar" }
-  | { type: "toggle-worktrees" }
+  | { type: "toggle-nav" }
   | { type: "toggle-solo"; side: "left" | "right" }
   /** Not a row: the ask mode's question, carried out the same door every other
    * command leaves by (`askMode.ts`). The host decides where it is asked — the

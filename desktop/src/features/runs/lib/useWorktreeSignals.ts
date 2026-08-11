@@ -7,7 +7,7 @@
 // module is where that subject lives, so the surfaces below it render an answer
 // rather than compute one.
 //
-// **One derivation, two surfaces.** The worktree column draws a dot per row and
+// **One derivation, two surfaces.** The worktree rows draw a dot each and
 // the project nav draws the rollup beside the project; both read `attention`
 // from here, and neither derives anything itself. A second derivation is how
 // two dots come to disagree about the same worktree, and the whole argument for

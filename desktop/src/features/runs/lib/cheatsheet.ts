@@ -317,9 +317,9 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
     section: "columns",
     what: "show or hide the app's own sidebar",
   },
-  "column:toggle-column:column=worktrees": {
+  "column:toggle-column:column=nav": {
     section: "columns",
-    what: "show or hide the worktree column",
+    what: "show or hide the projects and their worktrees",
   },
   "deck:move-card": {
     section: "deck",
@@ -423,7 +423,7 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
   },
   "terminal:switch-worktree": {
     section: "workspace",
-    what: "switch to the Nth worktree in the column",
+    what: "switch to the Nth worktree under the open project",
   },
 };
 

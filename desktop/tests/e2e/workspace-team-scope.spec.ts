@@ -5,11 +5,22 @@
 // > tuşu da gelmeli."*
 //
 // **Why it was in the way, measured.** At 1728×1117 — his 16-inch MacBook
-// Pro's own resolution — the team pane is 243px wide, and the sentence is a
+// Pro's own resolution — the team pane was 243px wide, and the sentence is a
 // little under 500 characters because it enumerates what is and is not sent.
 // Wrapped in a 243px column that came to a header of **401px inside a 992px
 // pane**: 40% of the conversation, above the conversation, on every visit for
 // the life of the thread.
+//
+// **Re-measured after the two nav columns became one**
+// (vingilot/docs/plans/2026-08-11-one-column-design.md, §5): the work surface
+// gained 192px and all of it landed in this pane, which is now **435px wide**.
+// The sentence wraps into fewer lines for it — **242px inside the same 992px
+// pane, 24%** — and the fraction below moved with it. That is a real
+// improvement and it is not the fix: a quarter of the conversation, on every
+// visit, for the life of the thread, is still the complaint. The number is
+// written down here rather than left as an inequality nobody can date, because
+// the next thing that changes the pane's width will change it again and the
+// reader deserves to know which build the reading came from.
 //
 // **The thing this must not become.** The cheap fix is to write a shorter
 // sentence, and the shorter sentence would be a different claim — "the path is
@@ -201,9 +212,14 @@ test("the scope earns its length once, and is put away for good after that", asy
   const open = await heights(page);
   expect(open.header).not.toBeNull();
   expect(open.pane).not.toBeNull();
-  // The complaint, as a number: it is a large fraction of the pane.
+  // The complaint, as a number: it is a large fraction of the pane. A fifth
+  // rather than the three tenths this read on the three-column build — the
+  // merged nav gave the pane 192px, the sentence wraps shorter for it, and 242
+  // of 992 is where it landed (see the header). The floor is under the
+  // measurement rather than on it, so a wrap that costs one line does not turn
+  // this red on its own.
   expect(open.header as number).toBeGreaterThan(
-    ((open.pane as number) * 3) / 10,
+    ((open.pane as number) * 2) / 10,
   );
 
   // 2. Put away, the header stops being most of the pane and the conversation
@@ -212,8 +228,11 @@ test("the scope earns its length once, and is put away for good after that", asy
   await expect(scope).toHaveCount(0);
   const shut = await heights(page);
   expect(shut.header as number).toBeLessThan(120);
+  // Measured 184 on the merged-nav build, where it was over 280 when the
+  // sentence had a 243px column to wrap in. The header gives back what it was
+  // holding either way; how much it was holding is the pane's width's business.
   expect((shut.thread as number) - (open.thread as number)).toBeGreaterThan(
-    250,
+    150,
   );
 
   // The collapsed state says nothing *about* the scope — no summary stands in

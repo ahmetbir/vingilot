@@ -16,12 +16,11 @@ naming decision). Nothing was deleted on either side.
 
 ## The workspace, in one screen
 
-Three columns, left to right (`ui/RunsScreen.tsx`):
+Two columns, left to right (`ui/RunsScreen.tsx`):
 
 | column | what it holds | what it is for |
 |---|---|---|
-| **Projects** (`ProjectsNav`) | the local checkouts the owner has added, plus a project-less landing view | pick what you are working on. `+ Add project` opens the native folder picker; the choice is validated as a git repository *before* any workspace state is written. **Removing a project forgets the path — it never touches the directory on disk.** |
-| **Worktrees** (`WorktreeColumn`) | that project's worktrees: its own checkout plus every `git worktree` | pick where you are working. New worktrees are `git worktree add`; closing one is `git worktree remove`, never a recursive delete. If git refuses because the tree is dirty, what is dirty is shown and nothing happens — that refusal is the feature. |
+| **Workspace nav** (`WorkspaceNav`) | one 224px column holding a two-level tree: the local checkouts the owner has added and a project-less landing view, with the **selected project's worktrees disclosed underneath its row**, indented (`ProjectRow`, `WorktreeDisclosure`, `WorktreeRow`) — its own checkout plus every `git worktree`. It was two columns, 192px and 224px, until vingilot/docs/plans/2026-08-11-one-column-design.md gave the 192 back to the work surface. A tree, not a drill-in: every project keeps its row and its rollup attention dot while you work inside one of them, because the dots on the projects you are *not* standing in are the triage story. ⇧⌘B collapses the whole column to a 36px rail that still carries one dot per project. | pick what you are working on, and where. `+ Add project` opens the native folder picker; the choice is validated as a git repository *before* any workspace state is written. **Removing a project forgets the path — it never touches the directory on disk.** New worktrees are `git worktree add`; closing one is `git worktree remove`, never a recursive delete. If git refuses because the tree is dirty, what is dirty is shown and nothing happens — that refusal is the feature. |
 | **Work surface** (`WorkSurface`) | the terminal on the left, a divider, and a pane on the right chosen from that pane's own header (`PanePicker`, out of `ui/paneRegistry.tsx`): **Diff**, **Agent**, **Team**, **Evidence**, **Runs**, **Notes**, **Plan**, or a second **Terminal** — with the **scratch shell** drawn over all of it when it is open | do the work. The terminal is fixed to the left because in iTerm the terminal *is* the work surface, not a drawer — and because a terminal that changed slots would change parents, which is a new xterm and a replayed session. Either side can have the whole surface. |
 
 A persistent `ProjectStatusBar` names where the owner is and what is backing
@@ -104,7 +103,7 @@ shows the same board filtered to that project. One component, two filters, in
 DeckPane's existing idiom rather than a new pane or a chart page.
 
 Every project × worktree is one row: Task 1's dot **carried, never re-derived**,
-the branch, the same `rowDetail` line the worktree column puts under the same
+the branch, the same `rowDetail` line the nav disclosure puts under the same
 worktree, and one date. Ordering is attention-first and stable within a rank,
 with the rows nothing has answered about **last** — an unknown row ranked above
 a quiet one would leap to the top of the board and drop back seconds later,
@@ -142,7 +141,7 @@ Columns and panes (`lib/columnKeys.ts`, `lib/paneKeys.ts`):
 | chord | does |
 |---|---|
 | `⌘B` | show or hide upstream's sidebar |
-| `⇧⌘B` | show or hide the worktree column |
+| `⇧⌘B` | show or hide the projects and their worktrees |
 | `⌥⌘B` | give the terminal the whole surface, and back |
 | `⇧⌥⌘B` | give the right pane the whole surface, and back |
 
@@ -1255,7 +1254,9 @@ across a reload, lists worktrees from git, and says the absent sentence.
     make it up; the deck, the columns, the repo picker and the type scale have
     their own files under the same directory and are not spelled out here —
     `find lib -name '*.ts'` is the list, this is the map.
-  - `ui/` — `RunsScreen` (the three columns), `ProjectsNav`, `WorktreeColumn`,
+  - `ui/` — `RunsScreen` (the two columns), `WorkspaceNav` and the three
+    files the tree is split across (`ProjectRow`, `WorktreeDisclosure`,
+    `WorktreeRow`),
     `WorkSurface` and the pane host (`PaneFrame`, `PaneDivider`, `PanePicker`,
     `paneRegistry`), `Terminal`, `TerminalTabStrip`, `WorktreeDiffPanel`,
     `AgentPanel`, `CommandPalette`, `KeyCheatsheet`, `Chord` (the kbd boxes
@@ -1322,13 +1323,19 @@ optional* above for which state says what, and why neither of them says
   the workspace. (This line used to read "no global ⌘K in the Runs screen —
   Buzz owns that shortcut for search". It does not any more.)
 - **Six `localStorage` keys are this island's, all origin-scoped and all
-  local:** `vingilot-columns.v1` (which columns are collapsed),
+  local:** `vingilot-columns.v2` (which columns are collapsed),
   `vingilot-panes.v1` (the pane arrangement), `vingilot-terminal-tabs.v1` (the
   terminal tabs), `vingilot-palette.v1` (the palette's recents),
   `vingilot-ask.v1` (the ask conversation), `vingilot-documents.v1` (Notes and
   Plan). Each is versioned so a shape change
   takes a new key rather than a migration — an older build reading a newer
-  library finds nothing rather than something it half-understands. None of them
+  library finds nothing rather than something it half-understands. The columns
+  key is `.v2` because that rule was followed rather than argued with: the
+  record still holds two booleans, but the second one used to hide a list of
+  branches and now hides the whole workspace nav, so carrying a `true` across
+  would have opened the app to a missing column for reasons the owner could not
+  see. `.v1` is deliberately left in storage rather than deleted, so an older
+  build still finds its own layout. None of them
   is backed up, synced, or reachable from another machine, and the panes say
   so.
 

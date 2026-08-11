@@ -156,9 +156,10 @@ test.describe("one key to go anywhere and do anything", () => {
     await page.getByTestId("projects-nav-repo-repo-left").click();
     await expect(page.getByTestId("worktree-column")).toBeVisible();
 
-    // ⇧⌘B hides the worktree column when nothing is in front of it — that is
-    // workspace-columns.spec.ts's subject, and it is what makes this test able
-    // to fail rather than able to pass.
+    // ⇧⌘B hides the workspace nav — and with it the disclosed worktrees —
+    // when nothing is in front of it. That is workspace-columns.spec.ts's
+    // subject, and it is what makes this test able to fail rather than able to
+    // pass.
     await openPalette(page);
     await page.keyboard.press("ControlOrMeta+Shift+b");
     await expect(page.getByTestId("palette")).toBeVisible();
@@ -221,8 +222,9 @@ test.describe("one key to go anywhere and do anything", () => {
 
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("palette")).toBeHidden();
-    // The project really opened: its worktree column is on screen, headed by
-    // its name.
+    // The project really opened: its worktrees are disclosed under its row, and
+    // the disclosed section is named for it (an `sr-only` heading — the visible
+    // name is the project row itself).
     await expect(page.getByTestId("worktree-column")).toBeVisible();
     await expect(
       page.getByTestId("worktree-column").getByRole("heading"),
@@ -297,7 +299,7 @@ test.describe("one key to go anywhere and do anything", () => {
     );
   });
 
-  test("an action the palette can reach really runs — the worktree column hides", async ({
+  test("an action the palette can reach really runs — the nav hides", async ({
     page,
   }) => {
     await openWorkspace(page);
@@ -305,7 +307,7 @@ test.describe("one key to go anywhere and do anything", () => {
     await expect(page.getByTestId("worktree-column")).toBeVisible();
 
     await openPalette(page);
-    await page.getByTestId("palette-input").fill("hide the worktrees");
+    await page.getByTestId("palette-input").fill("hide the projects");
     await page.keyboard.press("Enter");
 
     await expect(page.getByTestId("palette")).toBeHidden();
@@ -356,9 +358,9 @@ test.describe("one key to go anywhere and do anything", () => {
     await openWorkspace(page);
     await page.getByTestId("projects-nav-repo-repo-left").click();
     await openPalette(page);
-    await page.getByTestId("palette-input").fill("hide the worktrees");
+    await page.getByTestId("palette-input").fill("hide the projects");
 
-    const row = page.getByTestId("palette-row-action:toggle-worktrees");
+    const row = page.getByTestId("palette-row-action:toggle-nav");
     await expect(row).toBeVisible();
     // Three keys in three boxes. A `kbd` per key is what settings' own
     // shortcut list draws, and it is what makes ⇧⌘B read as a chord rather
@@ -366,30 +368,56 @@ test.describe("one key to go anywhere and do anything", () => {
     await expect(row.locator("kbd")).toHaveText(["⇧", "⌘", "B"]);
     // And the line under the label is a sentence about what moves, which is
     // what the chord used to be sitting in place of.
-    await expect(row).toContainText("the worktree column, beside the projects");
+    await expect(row).toContainText(
+      "the projects, and the open one's worktrees",
+    );
   });
 
   test("a blocked row keeps its name, states why, and drops the chord", async ({
     page,
   }) => {
-    // No project open, so the worktree column does not exist to be toggled —
-    // and ⇧⌘B does nothing here either, which is why the row must not print
-    // it. The same row with a project open is the control: it is runnable, and
-    // then the keys are there.
+    // This used to be the worktree column's own toggle, blocked on the landing
+    // view because the column it hid held one project's worktrees and there
+    // was none. The merged nav holds the project list, so it is on screen on
+    // every view including the Deck and its row is never blocked
+    // (vingilot/docs/plans/2026-08-11-one-column-design.md, §4.1) — which
+    // leaves the *shape* under test here without a subject unless another
+    // chord-carrying row is blocked. ⌥⌘B is: with no worktree open there is no
+    // split to give away. Same three readings, same reason for each.
     await openWorkspace(page);
     await openPalette(page);
-    await page.getByTestId("palette-input").fill("hide the worktrees");
-    const row = page.getByTestId("palette-row-action:toggle-worktrees");
+    await page.getByTestId("palette-input").fill("give the terminal");
+    const row = page.getByTestId("palette-row-action:solo-left");
     await expect(row).toHaveAttribute("data-blocked", "true");
-    await expect(row).toContainText("no worktree column on the landing view");
+    await expect(row).toContainText("no worktree is open");
     await expect(row.locator("kbd")).toHaveCount(0);
 
     await page.keyboard.press("Escape");
     await page.getByTestId("projects-nav-repo-repo-left").click();
     await openPalette(page);
-    await page.getByTestId("palette-input").fill("hide the worktrees");
+    await page.getByTestId("palette-input").fill("give the terminal");
     await expect(row).not.toHaveAttribute("data-blocked", "true");
     await expect(row.locator("kbd")).toHaveCount(3);
+  });
+
+  test("the nav's toggle is reachable from the Deck, where there is no project", async ({
+    page,
+  }) => {
+    // The row `hasWorktreeColumn` used to block. It is the palette half of the
+    // §4.1 decision: the nav is on screen on the landing view too, so the
+    // toggle is runnable there, with its chord printed.
+    await openWorkspace(page);
+    await expect(page.getByTestId("projects-nav")).toBeVisible();
+    await openPalette(page);
+    await page.getByTestId("palette-input").fill("hide the projects");
+    const row = page.getByTestId("palette-row-action:toggle-nav");
+    await expect(row).not.toHaveAttribute("data-blocked", "true");
+    await expect(row.locator("kbd")).toHaveText(["⇧", "⌘", "B"]);
+
+    await row.click();
+    await expect(page.getByTestId("palette")).toBeHidden();
+    await expect(page.getByTestId("projects-nav")).toBeHidden();
+    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
   });
 
   test("the cursor, the mouse and neither are three different paints", async ({

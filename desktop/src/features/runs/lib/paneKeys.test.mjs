@@ -62,7 +62,7 @@ test("the chord without alt is the sidebar's, and is left alone", () => {
 
 test("no column chord fires on either solo — alt is refused over there", () => {
   // Two listeners, two maps. A ⇧⌘B that also fired on ⇧⌥⌘B would hide the
-  // worktree column every time the owner maximised a pane.
+  // nav column every time the owner maximised a pane.
   const mirror = chord({ altKey: true, shiftKey: true });
   assert.equal(resolveColumnKey(mirror), null);
   assert.equal(resolveKey(mirror), null);
@@ -85,7 +85,7 @@ test("the pane host does not shadow the column chords", () => {
   });
   assert.equal(resolvePaneKey(chord()), null);
   assert.deepEqual(resolveColumnKey(chord({ shiftKey: true })), {
-    column: "worktrees",
+    column: "nav",
     type: "toggle-column",
   });
   assert.equal(resolvePaneKey(chord({ shiftKey: true })), null);
