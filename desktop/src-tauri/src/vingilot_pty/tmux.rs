@@ -156,6 +156,73 @@ pub(crate) fn session_name(session_id: &str) -> String {
     name
 }
 
+/// The session id a name was derived from, or `None` for a name that is not
+/// one of ours.
+///
+/// The inverse of `session_name`, and it exists because a session's *name* is
+/// the only record of what it was opened for that survives the app losing its
+/// saved tab layout. `sweep.rs` reads a worktree path back out of it.
+///
+/// **The round trip is checked by the caller, not asserted here.** Decoding is
+/// deliberately permissive — it accepts `-41` for `A`, which `session_name`
+/// would never emit — so this is not injective on arbitrary input, and a
+/// caller that kills by re-deriving a name from a decoded id could reach a
+/// different session than the one it read. `sweep.rs` therefore requires
+/// `session_name(&decoded) == name` before acting. Making the decoder strict
+/// instead would move that check somewhere harder to see.
+pub(crate) fn session_id(name: &str) -> Option<String> {
+    let rest = name.strip_prefix(SESSION_PREFIX)?;
+    let bytes = rest.as_bytes();
+    let mut id = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let byte = bytes[at];
+        if byte == b'-' {
+            // `get` rather than indexing: a name may hold any UTF-8, and a
+            // slice that would split a character answers `None` here.
+            let hex = rest.get(at + 1..at + 3)?;
+            id.push(u8::from_str_radix(hex, 16).ok()?);
+            at += 3;
+        } else if byte.is_ascii_alphanumeric() || byte == b'_' {
+            id.push(byte);
+            at += 1;
+        } else {
+            return None;
+        }
+    }
+    String::from_utf8(id).ok()
+}
+
+/// Every session name the tmux server is holding, ours and the owner's alike.
+///
+/// **An empty answer means "nothing was said", not "there is nothing".** No
+/// tmux, no server running, a refusal — all arrive here as an empty list, and
+/// the only caller (`sweep.rs`) responds by sweeping nothing. That is the safe
+/// direction for this particular emptiness, and it is the reason this returns a
+/// plain `Vec` rather than an `Option` the caller could forget to unwrap.
+pub(crate) fn list_session_names() -> Vec<String> {
+    let Some(tmux) = path() else {
+        return Vec::new();
+    };
+    let Ok(output) = Command::new(tmux)
+        .args(["list-sessions", "-F", "#{session_name}"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// A tmux `-t` target that only an exactly-named session can satisfy.
 ///
 /// **Why the `=` is load-bearing.** A tmux target-session falls back to a

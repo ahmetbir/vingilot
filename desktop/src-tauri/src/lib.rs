@@ -354,6 +354,18 @@ pub fn run() {
                 return Ok(());
             }
 
+            // A terminal must not outlive the worktree it was opened on. The
+            // app closes them on every path it knows, but each of those starts
+            // from the tab layout in the webview's local storage, so a layout
+            // that is lost takes the only reference with it. This sweeps from
+            // tmux's own listing instead; vingilot_pty::sweep holds the rules,
+            // including the refusal that keeps an unmounted volume from
+            // reading as a removed worktree.
+            //
+            // On its own thread: it shells out to tmux once and then once per
+            // orphan, and nothing on screen is waiting for the answer.
+            std::thread::spawn(vingilot_pty::sweep_orphaned_terminals);
+
             // Run all pre-identity data migrations before state loads from disk.
             if reset_outcome.completed {
                 migration::run_boot_migrations_after_reset(&app_handle);

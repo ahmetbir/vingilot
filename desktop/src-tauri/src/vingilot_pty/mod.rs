@@ -50,6 +50,7 @@ mod live;
 mod query_filter;
 mod scrollback;
 mod session;
+mod sweep;
 mod tmux;
 mod utf8_stream;
 
@@ -337,6 +338,16 @@ pub fn pty_close(sessions: State<'_, PtySessions>, session: String) -> Result<()
         eprintln!("buzz-desktop: could not end tmux session for {session}: {reason}");
     }
     Ok(())
+}
+
+/// End the tmux sessions of worktrees that no longer exist.
+///
+/// Called once from `lib.rs`'s setup, at app start, and never from the webview:
+/// the whole point is to reach sessions the webview has no record of, so making
+/// it a command the frontend calls would put the lost bookkeeping back in the
+/// path. `sweep.rs` holds every rule about what it will and will not end.
+pub fn sweep_orphaned_terminals() {
+    sweep::sweep_orphans();
 }
 
 /// What is keeping terminals alive, so the UI can say so and claim no more.
