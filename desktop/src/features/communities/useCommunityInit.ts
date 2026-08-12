@@ -28,6 +28,7 @@ import { resetAgentWorkingSignal } from "@/features/agents/agentWorkingSignal";
 import { resetAgentObserverStore } from "@/features/agents/observerRelayStore";
 import { resetAvatarPresentations } from "@/features/profile/avatarPresentationStore";
 import { resetAvatarProfileSync } from "@/features/profile/avatarProfileSync";
+import { resetFileTargets } from "@/features/runs/lib/filesTarget";
 import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
@@ -64,6 +65,11 @@ function resetCommunityState({
     resetAvatarPresentations();
   }
   resetSidebarRelayConnectionCardState();
+  // A file target names a worktree. A target filed against the community just
+  // left must not still be waiting when the next one's Files pane mounts —
+  // the module-level rule this file's header states, applied to the fork's
+  // Files pane (vingilot/docs/plans/2026-08-12-files-pane-design.md, §6).
+  resetFileTargets();
   resetMediaCaches();
   resetVideoPlayerState();
   resetRenderScopedReactionHydration();

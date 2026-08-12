@@ -7,9 +7,39 @@ import {
   diffSummary,
   fileLabel,
   fileNote,
+  firstHunkLine,
   labelParts,
   readWorktreeDiff,
 } from "./worktreeDiff.ts";
+
+test("a patch says where it starts in the file as it is now", () => {
+  // The `+` side, because the file the viewer opens is the file as it is now.
+  // "Show the whole file" landing at line 1 of a 2,000-line file answers a
+  // different question than the one the patch raised.
+  assert.equal(
+    firstHunkLine(
+      ["--- a/x.rs", "+++ b/x.rs", "@@ -12,7 +14,9 @@ fn main() {", " a"].join(
+        "\n",
+      ),
+    ),
+    14,
+  );
+  // A single-line hunk has no comma on either side.
+  assert.equal(firstHunkLine("@@ -1 +1 @@\n-a\n+b"), 1);
+  // The FIRST hunk, not the last: it is where he starts reading.
+  assert.equal(firstHunkLine("@@ -1,2 +3,4 @@\n a\n@@ -40,2 +60,4 @@\n b"), 3);
+});
+
+test("a patch that names no line lands at the top rather than inventing one", () => {
+  // A line invented from a header that was not there would put him somewhere
+  // the change is not, which is worse than the top of the file.
+  assert.equal(firstHunkLine(""), null);
+  assert.equal(firstHunkLine("--- a/x.rs\n+++ b/x.rs"), null);
+  // git's `+0`: a hunk against a side of the diff that has no lines there.
+  assert.equal(firstHunkLine("@@ -1,2 +0,0 @@\n-a\n-b"), null);
+  // A header shape this does not understand is not guessed at.
+  assert.equal(firstHunkLine("@@ something else @@"), null);
+});
 
 const limits = {
   maxFiles: 400,

@@ -192,6 +192,34 @@ export function labelParts(label: string): { lead: string; name: string } {
   return { lead: label.slice(0, cut + 1), name: label.slice(cut + 1) };
 }
 
+/** Where this patch starts in the file as it is now — the `+` side of its first
+ * hunk header, 1-based — or `null` when the patch names no line.
+ *
+ * **What makes "show the whole file" land where he was reading.** A patch is a
+ * reading of a few lines and the question it raises is about the rest of them;
+ * dropping him at line 1 of a 2,000-line file answers a different question. The
+ * `+` side and not the `-` side because the file the viewer opens is the file
+ * as it is now.
+ *
+ * The hunk's own start rather than the first `+`/`-` line inside it: git puts
+ * three lines of context there, and landing on them is landing on the change
+ * with its surroundings already on screen.
+ *
+ * `null` — the top of the file — for a binary file, an empty patch, a header
+ * this does not recognise, and git's `+0` (a hunk against a side of the diff
+ * that has no lines). A line invented from a header that was not there would
+ * put him somewhere the change is not, which is worse than the top. */
+export function firstHunkLine(patch: string): number | null {
+  for (const line of patch.split("\n")) {
+    if (!line.startsWith("@@")) continue;
+    const found = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (found === null) return null;
+    const at = Number(found[1]);
+    return at >= 1 ? at : null;
+  }
+  return null;
+}
+
 /** What this file is not showing, in words, or `null` when it is showing all
  * of itself. The limits come from the answer, so the number here is the number
  * that was applied. */
