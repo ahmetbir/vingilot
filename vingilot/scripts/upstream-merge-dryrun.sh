@@ -12,6 +12,23 @@
 # non-zero only on operational failure (not a git repo, bad ref, etc).
 set -euo pipefail
 
+# One definition of what a seam pattern means and how the registry is parsed,
+# shared with vingilot/scripts/check-seams.sh. See the Seam intersection block
+# below for why sharing it is not optional.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Same guard, same reason as check-seams.sh: the library is a separate file, so
+# a commit that stages only tracked edits leaves this script sourcing something
+# that is not there. A bash "No such file or directory" under `set -e` does not
+# say which of the two it is.
+if [[ ! -f "$script_dir/lib/seam-glob.sh" ]]; then
+  echo "upstream-merge-dryrun: vingilot/scripts/lib/seam-glob.sh is missing." >&2
+  echo "It holds the seam pattern matcher this script decides coverage with." >&2
+  echo "  git add vingilot/scripts/lib/seam-glob.sh" >&2
+  exit 1
+fi
+# shellcheck source=lib/seam-glob.sh
+. "$script_dir/lib/seam-glob.sh"
+
 # "origin" is this fork's own remote (Vingilot); the real upstream (block/buzz)
 # is the "upstream" remote (see vingilot/docs/upstream-merge.md § Remotes).
 remote="upstream"
@@ -144,36 +161,54 @@ conflict_count=0
 # `path` is always the first key, on the same line as the leading "- ", as a
 # single-line double-quoted string (see the file's header for the full
 # contract; vingilot/scripts/check-seams.sh enforces the same contract from
-# the other direction — our outgoing diffs against it). Parsed the same way
-# check-seams.sh parses it, so both scripts agree on what a seam pattern is.
+# the other direction — our outgoing diffs against it).
+#
+# Both the parsing and the matching come from vingilot/scripts/lib/seam-glob.sh,
+# which check-seams.sh also sources, so the two scripts cannot disagree about
+# what a seam pattern covers. They did until 2026-08-11: this script matched
+# with bash `case`, where `*` crosses `/`, while the gate had been taught that
+# `*` stays inside one path segment — so `desktop/ds-*` "hit" on
+# `desktop/ds-x/deep/y.ts` here and would NOT have been authorised there. The
+# dry-run's job is to predict the gate's answer, so it has to compute it the
+# same way.
+#
+# The registry is a root file plus vingilot/seams/*.yaml fragments;
+# --seams-file overrides the whole set with one file (used by tests).
 seams_status="ok"
-seam_candidates=""
+seam_pattern_count=0
 if [ -n "$seams_file_override" ] && [ ! -f "$seams_file_override" ]; then
   echo "error: --seams-file given but not found: $seams_file_override" >&2
   exit 1
 fi
+seam_registry=""
+if [ -n "$seams_file_override" ]; then
+  seam_registry="$seams_file_override"
+else
+  seam_registry=$(seam_registry_files "$repo_root")
+fi
 if [ ! -f "$seams_file" ]; then
   seams_status="missing"
 else
-  seam_candidates=$(
-    grep -E '^[[:space:]]*-[[:space:]]*path:[[:space:]]*"' "$seams_file" \
-      | sed -E 's/^[[:space:]]*-[[:space:]]*path:[[:space:]]*"([^"]*)".*/\1/' \
-      | sort -u || true
-  )
+  # $seam_registry is one path per line; split on newlines only, so a fragment
+  # path containing a space survives.
+  old_ifs="${IFS:-}"
+  IFS=$'\n'
+  # shellcheck disable=SC2086 # deliberate split: one registry path per line
+  seam_load_regexes $seam_registry
+  IFS="$old_ifs"
+  seam_pattern_count="${#SEAM_REGEXES[@]}"
 fi
 
 seam_hits=""
-if [ -n "$seam_candidates" ] && [ -n "$incoming_files" ]; then
+if [ "$seams_status" = "ok" ] && [ -n "$incoming_files" ]; then
+  # One compile of the whole registry, then one pass per incoming file. The
+  # obvious nesting -- compile a pattern inside the per-file loop -- is ~160
+  # subshells per file and took minutes on a real upstream range.
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    while IFS= read -r p; do
-      [ -z "$p" ] && continue
-      # Unquoted $p on purpose: per seams.yaml's format rule 3, `path` is a
-      # case/glob pattern (`*` matches across `/`), not a literal string.
-      case "$f" in
-        $p) seam_hits="${seam_hits}${f}"$'\n'; break ;;
-      esac
-    done < <(printf '%s\n' "$seam_candidates")
+    if seam_regex_match "$f"; then
+      seam_hits="${seam_hits}${f}"$'\n'
+    fi
   done < <(printf '%s\n' "$incoming_files")
   seam_hits=$(printf '%s' "$seam_hits" | sed '/^$/d' | sort -u)
 fi
@@ -215,11 +250,11 @@ echo "Incoming commits:  $incoming_commit_count"
 echo "Incoming files:    $incoming_file_count"
 echo
 
-echo "Seam check: vingilot/seams.yaml"
+echo "Seam check: $(printf '%s\n' "$seam_registry" | sed "s|^$repo_root/||" | paste -sd' ' -)"
 if [ "$seams_status" = "missing" ]; then
   echo "  SKIPPED — file not found at $seams_file"
 else
-  echo "  $(printf '%s\n' "$seam_candidates" | sed '/^$/d' | wc -l | tr -d ' ') seam path(s)/pattern(s) declared"
+  echo "  $seam_pattern_count seam path(s)/pattern(s) declared"
   if [ "$seam_hit_count" -gt 0 ]; then
     echo "  $seam_hit_count incoming file(s) touch a declared seam:"
     printf '%s\n' "$seam_hits" | sed 's/^/    /'

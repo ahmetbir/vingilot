@@ -106,6 +106,21 @@ fmt-check:
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
 
+# Vingilot fork only: check the upstream boundary (vingilot/seams.yaml).
+#
+# Two commands, in this order and for one reason: the gate's whole value is
+# rejection, so the assertions that prove rejection still works run before the
+# gate itself. The `seams` job of .github/workflows/vingilot-desktop.yml runs the
+# same pair, so a local pass means what a CI pass means.
+#
+# Needs the `upstream` remote fetched (git fetch upstream) — the gate compares
+# this branch against the merge-base with block/buzz's main, not against origin.
+# Deliberately NOT a dependency of `check`: this repo's `check` is upstream's
+# recipe and runs on machines with no `upstream` remote at all.
+seams:
+    ./vingilot/scripts/check-seams.sh --self-test
+    ./vingilot/scripts/check-seams.sh
+
 # Install JS dependencies (pnpm workspace — installs all packages from root)
 desktop-install:
     pnpm install

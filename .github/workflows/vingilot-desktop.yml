@@ -1,9 +1,39 @@
-# Build the Vingilot desktop app and attach a signed, notarized .dmg to a release.
+# Gate the fork's own code, and build the Vingilot desktop app and attach a
+# signed, notarized .dmg to a release.
+#
+# Four jobs. Three of them are gates and run on every pull request and branch
+# push; the fourth is the release build and runs only for a tag or a manual
+# dispatch.
+#
+#   seams        the upstream-boundary gate (vingilot/scripts/check-seams.sh)
+#   lint-root    fmt + clippy, root Cargo workspace
+#   lint-desktop fmt + clippy, the desktop/src-tauri workspace
+#   dmg          the signed, notarized macOS build
+#
+# The gates exist because until they did this repo ran no checks of its own at
+# all. Three platform-gating bugs went out over that gap — code that compiled on
+# the owner's Mac and could not compile anywhere else — and the seam registry
+# spent months asserting it was "enforced in CI" while nothing invoked it.
+#
+# **Two lint jobs, not one.** They are one gate conceptually and two jobs
+# practically: the root workspace and `desktop/src-tauri` are separate Cargo
+# workspaces with separate dependency graphs and separate caches, and upstream's
+# own CI budgets them separately (`rust-lint`, 30 minutes; `desktop-core`, 45).
+# A single job would have to carry the sum of both cold builds inside one
+# timeout, and a timeout reads as a red X with no findings — the least
+# informative way for a gate to fail. Split, they run in parallel, each keeps
+# the budget upstream measured, and a failure names which workspace broke.
 #
 # The tag pattern is `vingilot-v*` and that is deliberate: this repo inherits
 # upstream's release automation, which fires on `desktop-v[0-9]*` (release.yml)
 # and `relay-v[0-9]*` (docker.yml). A tag that matched either would start a Buzz
 # release from a fork that cannot complete one.
+#
+# The `pull_request` trigger is what makes the gates guard anything: a gate that
+# fires only on one named branch guards only the pushes someone remembers to
+# make. The `vingilot-ci` branch trigger is kept beside it so the workflow file
+# itself can be exercised deliberately — a `workflow_dispatch` cannot test a
+# change to a workflow that is not yet on the default branch.
 #
 # Why GitHub's macOS runners rather than the owner's own Linux box: a macOS app
 # cannot be built anywhere else — the SDK, `codesign` and `hdiutil` are Apple's.
@@ -20,9 +50,14 @@
 name: Vingilot desktop
 
 on:
+  pull_request:
   push:
     tags:
       - "vingilot-v*"
+    # A branch whose only job is to exercise this workflow, so the gates can be
+    # run deliberately without cutting a release and without opening a PR.
+    branches:
+      - vingilot-ci
   workflow_dispatch:
     inputs:
       notarize:
@@ -34,7 +69,240 @@ permissions:
   contents: write
 
 jobs:
+  # The upstream boundary, checked. Per ADR-001 the fork owns vingilot/ and
+  # nothing else; every other path it touches must be a declared seam in
+  # vingilot/seams.yaml (plus its vingilot/seams/*.yaml fragments).
+  #
+  # This job is the reason the registry's header can say "enforced in CI" and be
+  # telling the truth. For months it said so while nothing anywhere invoked the
+  # script: not a workflow, not the justfile, not a git hook. A gate nobody runs
+  # rejects nothing.
+  #
+  # No toolchain, no cache, seconds of runtime — git and bash are all it needs,
+  # which is why it is a job of its own rather than two steps bolted onto a
+  # 45-minute Rust build. It fails fast and it fails legibly.
+  seams:
+    # Never in upstream's repo. A `pull_request` workflow runs from the MERGE
+    # commit, so a fork→upstream PR would carry this file into block/buzz's CI
+    # and run the fork's private gates there. Every job here is guarded the same
+    # way.
+    #
+    # **The OWNER, not the full `owner/name`.** A skipped job is not a failing
+    # job: GitHub reports the whole workflow green with zero work done, so
+    # anything that makes this condition false turns off every gate in this file
+    # silently. `github.repository` would do that on a repository RENAME — an
+    # ordinary, one-click, entirely unrelated action. The owner is the thing the
+    # guard is actually about (keep this out of block/buzz), and it survives the
+    # rename. A transfer to a different owner still disables the gates, which is
+    # the residual risk and is accepted: a transfer is a deliberate act, and the
+    # workflow would need attention anyway.
+    if: github.repository_owner == 'ahmetbir'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gate diffs this branch against the merge-base with upstream's
+          # main. A depth-1 checkout has no history for a merge-base to be found
+          # in, so the whole thing is needed here.
+          fetch-depth: 0
+
+      # First, because the gate's entire value is rejection and this is what
+      # proves rejection still works. It drives the pattern matcher, the
+      # allow/reject decision, the change-collection pipeline (against a stubbed
+      # git) and the guards on the registry file set. Three separate mutations
+      # that made the gate silently accept undeclared paths were caught by
+      # exactly these assertions.
+      - name: The gate's own assertions
+        run: ./vingilot/scripts/check-seams.sh --self-test
+
+      # `actions/checkout` gives the runner one remote, `origin`, pointing at
+      # this fork — there is no `upstream` here the way there is in the owner's
+      # working copy, and the gate's default base ref is `upstream/main`. Adding
+      # it is a line, and encoding that line once here is cheaper than
+      # discovering it on the first real run.
+      #
+      # Not shallow: `--depth` would very likely cut the history above the
+      # merge-base, and a merge-base that cannot be found is a hard error rather
+      # than a lenient fallback.
+      - name: Fetch the upstream the fork is measured against
+        run: |
+          set -euo pipefail
+          git remote get-url upstream >/dev/null 2>&1 \
+            || git remote add upstream https://github.com/block/buzz.git
+          git fetch --no-tags upstream main
+
+      - name: Seam inventory
+        run: ./vingilot/scripts/check-seams.sh upstream/main
+
+  # The root Cargo workspace — the relay, the CLI, the harness crates —
+  # formatted and clippy-clean on Linux.
+  #
+  # **On Linux, because the bugs were about Linux.** Every lint here also runs on
+  # the owner's Mac before a commit, so a job that ran on macOS would only repeat
+  # what already passed. What escaped instead was code guarded for one platform
+  # and compiled on one platform — `#[cfg(target_os)]` arms nobody built, and
+  # imports that exist only in the macOS half of a module. Those are compile
+  # errors, not style, and ubuntu-latest is the cheapest machine that finds them.
+  #
+  # 30 minutes, which is what upstream's `rust-lint` is budgeted for the same two
+  # commands over the same workspace.
+  lint-root:
+    # Owner, not owner/name — see the note on the `seams` job.
+    if: github.repository_owner == 'ahmetbir'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Activate the repo's toolchain
+        run: |
+          # Hermit pins Rust, Node and the rest; using it keeps CI on the same
+          # versions as the checkout rather than the runner's defaults.
+          . ./bin/activate-hermit
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      # Linking is most of a cold clippy run's wall clock on this workspace, and
+      # both of upstream's Rust jobs use mold for that reason. Pinned to the same
+      # commit they pin.
+      - uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # A key of its own, not the dmg job's: that cache is macOS aarch64
+          # artifacts and these are Linux x86-64 ones. Sharing a key would have
+          # each job evict the other's cache on every run and neither would ever
+          # get a hit. Same reasoning splits it from lint-desktop's key — a
+          # different workspace with a different dependency graph.
+          shared-key: vingilot-lint-root
+
+      # Formatting first, for BOTH workspaces: it compiles nothing, so a
+      # misformatted tree fails in seconds here instead of after a cold clippy
+      # in the other job. Upstream's rust-lint does the same.
+      - name: Rust format check, both workspaces
+        run: |
+          . ./bin/activate-hermit
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --all -- --check
+
+      - name: Root workspace clippy
+        run: |
+          . ./bin/activate-hermit
+          cargo clippy --workspace --all-targets -- -D warnings
+
+  # The `desktop/src-tauri` workspace, which the root workspace excludes — so
+  # `cargo clippy` at the root does not see a line of the app's native code, and
+  # this job is the only thing that lints it.
+  #
+  # 45 minutes and a job of its own, matching upstream's `desktop-core`: this
+  # half needs the system webview, a pnpm install and a frontend build before
+  # clippy can even start, and Tauri's dependency tree is the expensive one. Run
+  # beside lint-root rather than after it, so the two cold builds do not stack
+  # inside one timeout.
+  lint-desktop:
+    # Owner, not owner/name — see the note on the `seams` job.
+    if: github.repository_owner == 'ahmetbir'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Activate the repo's toolchain
+        run: |
+          # Hermit pins Rust, Node and the rest; using it keeps CI on the same
+          # versions as the checkout rather than the runner's defaults.
+          . ./bin/activate-hermit
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      - uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          shared-key: vingilot-lint-desktop
+
+      # Needed by this workspace only, whose crates link against the system
+      # webview. The root workspace builds without any of it, which is part of
+      # why that half is a separate job.
+      - name: Install Tauri's Linux dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30
+          sudo apt-get install -y --no-install-recommends \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            -o DPkg::Lock::Timeout=120 \
+            build-essential \
+            curl \
+            file \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            wget
+
+      - name: Find the pnpm store
+        id: pnpm_store
+        run: |
+          . ./bin/activate-hermit
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm_store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      # The Tauri workspace cannot be linted from a bare checkout, and both
+      # reasons are build-script failures rather than lint findings:
+      #
+      #   - `tauri::generate_context!` embeds `desktop/dist`, which is generated
+      #     and gitignored. Without it the macro fails to expand and clippy
+      #     reports a missing directory, not a warning.
+      #   - `tauri-build` verifies every `externalBin` sidecar exists for the
+      #     host target. The real ones are built by build-dmg.sh; linting only
+      #     needs the paths to exist, which is what the stub recipe makes.
+      - name: Install desktop dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the frontend the Tauri crate embeds
+        run: |
+          . ./bin/activate-hermit
+          just desktop-build
+
+      - name: Desktop Tauri clippy
+        env:
+          # A transitive C dependency ships a CMakeLists.txt older than the
+          # minimum this CMake accepts; upstream's CI sets the same variable.
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          . ./bin/activate-hermit
+          just _ensure-sidecar-stubs
+          cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+
   dmg:
+    # Tags and manual dispatches only. A pull request or a push to `vingilot-ci`
+    # is there to run the gates, and a 90-minute signed macOS build is not what
+    # either is asking for. The repository check is the same guard the gates
+    # carry: this must never start in upstream's CI.
+    if: >-
+      github.repository_owner == 'ahmetbir'
+      && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
     runs-on: macos-15
     timeout-minutes: 90
     steps:

@@ -1,0 +1,550 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the product-name and mark sweep
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Why it is a separate file: the sweep's entries are enumerated one file each
+# (they replaced three blanket globs that pre-authorised whole trees), and that
+# enumeration pushed vingilot/seams.yaml past the repo's 1000-line-per-file
+# ceiling. The house rule is "split, never raise", so it was split. Fragments
+# are globbed by vingilot/scripts/lib/seam-glob.sh, so adding another one needs
+# no change to any script.
+#
+# Scope of this fragment: every entry here authorises ONE class of change —
+# renaming the product on the surfaces that name it, and swapping upstream's
+# bee for the fork's mark. Three blocks, all of the same sweep: the frontend
+# half, the native half, and the upstream Playwright specs that assert on the
+# copy the sweep changed. Anything that is not product name or mark belongs in
+# an entry of its own, in vingilot/seams.yaml.
+#
+# No schema_version here: the root file carries it for the whole registry.
+# ------------------------------------------------------------------------------
+
+seams:
+  # ---------------------------------------------------------------------------
+  # Product-name and mark sweep (ship-it, finishing pass), frontend half.
+  #
+  # The owner installed the renamed build and reported the rebrand as
+  # unfinished -- the app was called Vingilot but every screen it drew still
+  # said Buzz and drew upstream's bee. Renaming a product is not a feature
+  # landing in one place; it is a property of every surface at once, and there
+  # is no message catalogue or product-identity module in this codebase to
+  # override, so the strings and the marks are where they are rendered.
+  #
+  # This block was previously a single blanket entry, desktop/src/*, which
+  # under the old bash-case matcher pre-authorised every file in the tree
+  # forever and left the gate unable to reject anything there. It is now the
+  # list of files the sweep actually touched, one entry each.
+  #
+  # These entries authorize exactly one class of change and no other: prose
+  # naming the application, window/dialog titles, alt text, aria-labels,
+  # sr-only captions, notification and error bodies, onboarding copy, settings
+  # copy, and swapping upstream's bee for the fork's mark. Explicitly NOT
+  # covered, and no string of these kinds was touched anywhere in the list:
+  # the keychain service buzz-desktop, the agent nest ~/.buzz, the dev bundle
+  # identifier xyz.block.buzz.app.dev, the buzz CLI and its subcommands, the
+  # buzz-acp / buzz-agent / buzz-dev-mcp binaries, BUZZ_* env vars, event-kind
+  # and protocol vocabulary, relay hostnames and paths, the xyz.block.buzz
+  # product on the relay side, package names, the buzz / buzz-dark theme ids
+  # and their Shiki aliases, the Buzz Agent runtime's own label and vendor
+  # mark, or test fixtures asserting upstream strings.
+  # ---------------------------------------------------------------------------
+
+  - path: "desktop/src/features/agents/ui/AgentCardMintDialog.tsx"
+    reason: "Product-name sweep: the mint-in-progress line telling the user they can keep using the app while the agent card is minted."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/agents/ui/AgentConfigPanel.tsx"
+    reason: "Product-name sweep: the Set in Vingilot badge shown on a config value the app owns rather than the harness."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/agents/ui/AgentSessionTranscriptList.tsx"
+    reason: "Mark swap: the waiting-for-ACP placeholder drew upstream's animated bee. It now draws VingilotMark, aria-hidden, with the label the bee carried moved into an sr-only span so the branch keeps its accessible caption."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/agents/ui/TurnLivenessIndicator.tsx"
+    reason: "Mark swap: the three staggered bees that mean an agent turn is running are three static VingilotMarks. The per-mark morph went with them -- a ship reads as a silhouette at 20px whichever frame it is on -- and the fuzz prop that selected it is dropped, no caller passed it."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/agents/ui/personaModelDiscoveryStatus.ts"
+    reason: "Product-name sweep: the four shared-compute discovery status messages, each of which names the application as the actor that could not reach the relay."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/communities/ui/HostedCommunityCreateFlow.tsx"
+    reason: "Product-name sweep: the Builderlab sign-in prose describing what the app will do to create and host a community."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/communities/ui/HostedCommunityOnboarding.tsx"
+    reason: "Mark swap: the hosted-community dialog header drew the bee. It draws VingilotMark, sized by height rather than width because the mark is portrait where the bee was landscape and a fixed width would grow the header."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/custom-emoji/ui/CustomEmojiSettingsCard.tsx"
+    reason: "Product-name sweep: the hint saying the app will suggest an emoji name from the chosen image."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/mesh-compute/ui/MeshComputeSettingsCard.tsx"
+    reason: "Product-name sweep: the model-source line and the brief-restart warning on the shared-compute card."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/notifications/hooks.ts"
+    reason: "Product-name sweep: the message shown when the OS has blocked desktop notifications for this app, which has to name the app the user must find in system settings."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/notifications/lib/feed.ts"
+    reason: "Product-name sweep: the fallback notification body used when a feed item has no more specific text."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/BackupStep.tsx"
+    reason: "Product-name sweep and mark swap: the three keychain-state explanations naming the app that holds the identity key, plus the identity-creation wait, which drew the animated bee and now draws VingilotMarkAnimation with its caption moved to an sr-only span."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/BackupTestFlow.tsx"
+    reason: "Product-name sweep: the one line telling the user what the backup file restores."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/CommunityOnboardingFlow.tsx"
+    reason: "Product-name sweep: the community welcome copy and the Take me to Vingilot button that ends onboarding."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/DefaultConfigStep.tsx"
+    reason: "Product-name sweep: the default-model copy naming where the setting applies, and the bundled runtime label, which becomes Buzz Agent rather than the bare Buzz -- in a list beside Claude Code, Codex and Goose the bare product name now reads as the application the user is standing in."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/DownloadKeyStep.tsx"
+    reason: "Product-name sweep: the warning that the app cannot reset a lost backup password."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/IdentityKeyHelpDialog.tsx"
+    reason: "Product-name sweep: the identity-key explainer, which names the app four times while explaining that the key is the user's and not the app's."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/KeyringLockedScreen.tsx"
+    reason: "Product-name sweep: the locked-keyring instruction and the relaunch button label."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/MachineOnboardingFlow.tsx"
+    reason: "Mark swap: upstream drew LandingBees here -- a corner mark plus a field of thirty-eight flapping bees over the whole screen. Both are replaced by one VingilotWordmark at hero size, so the identity lives in the wordmark and no second small mark is pinned to the corner."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/OnboardingFlow.tsx"
+    reason: "Product-name sweep: the recovery and profile-restore prose naming the app as the actor that will finish recovery."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/PendingInviteGate.tsx"
+    reason: "Mark swap: the pending-invite wait drew the animated bee; it draws VingilotMarkAnimation."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/ProfileStep.tsx"
+    reason: "Product-name sweep: the prompt for the name people and agents will see in the app."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/RecoveryScreen.tsx"
+    reason: "Product-name sweep: the Relaunch Vingilot button label."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/RelaunchRequiredScreen.tsx"
+    reason: "Product-name sweep: the restart-required title and body, both of which name the app that has to restart."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/ResetFailedScreen.tsx"
+    reason: "Product-name sweep: the body text saying the app could not fully clear local data."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/RuntimeIcon.tsx"
+    reason: "Product-name sweep, the label half only: the bundled runtime answers to Buzz Agent rather than the bare Buzz, for the same reason as DefaultConfigStep. Its vendor mark is deliberately left alone -- Goose keeps the goose."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/ui/SetupStep.tsx"
+    reason: "Product-name sweep and mark swap: the harness-scan prose naming the app doing the scanning, and the step's animated bee, now VingilotMarkAnimation."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/welcomeCanvas.ts"
+    reason: "Product-name sweep: the Welcome to Vingilot heading of the canvas seeded into a new user's home base."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/welcomeGuide.ts"
+    reason: "Product-name sweep: the welcome message the guide agent posts, which greets the user by the product name twice."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/onboarding/welcomeKickoff.ts"
+    reason: "Product-name sweep: both kickoff greetings, solo and with teammates, which open by welcoming the user to the product."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/profile/ui/AnimatedAvatarCapture.tsx"
+    reason: "Product-name sweep: the camera-denied error, which has to name the app whose camera permission the user must change."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/profile/ui/NostrBindConsentDialog.tsx"
+    reason: "Product-name sweep: the clipboard-failure message, the browser-opened status line, and the alt text on the app icon the dialog draws beside the site being authenticated. The message is lifted to a module const because it is now asserted by a spec."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/profile/ui/UserProfileAgentActions.tsx"
+    reason: "Product-name sweep: the remote-deletion explanation, which names the app as the sender of the shutdown command."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/profile/ui/UserProfilePanelTabs.tsx"
+    reason: "Product-name sweep: the config-changed note saying the app can restart the agent automatically."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/EncryptedBackupProvider.tsx"
+    reason: "Product-name sweep: the toast description telling the user they may close the window while the app finishes."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/UpdateChecker.tsx"
+    reason: "Product-name sweep: the updates card description."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/hooks/useSendFeedback.ts"
+    reason: "Product-name sweep: the subject line of the diagnostics bundle attached to user feedback."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/BackupTestFlow.tsx"
+    reason: "Product-name sweep: the one line telling the user what the backup file restores -- the settings-side copy of the onboarding flow of the same name."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/CustomHarnessForm.tsx"
+    reason: "Product-name sweep: the environment-variable hint saying which vars the app manages and always wins on."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/EncryptedBackupCreator.tsx"
+    reason: "Product-name sweep: the backup-in-progress line and the warning that the app cannot reset the backup password."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/HarnessesSettingsPanel.tsx"
+    reason: "Product-name sweep: the panel description naming the app that will use the selected agent tools."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/HostedCommunitiesSettingsCard.tsx"
+    reason: "Product-name sweep: the Block-hosting card copy, which has to distinguish the app (works with any relay) from Block-provided hosting (this page only) -- so it names the product in three places and none of them can be dropped."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/MobilePairingCard.tsx"
+    reason: "Product-name sweep: the confirmation warning before transferring the identity to another device."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/ProfileSettingsCard.tsx"
+    reason: "Product-name sweep: the card description saying where the name, avatar and bio appear."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/SettingsPanels.tsx"
+    reason: "Product-name sweep: the appearance panel description, Choose a theme for Vingilot. The buzz and buzz-dark theme ids in this file are untouched."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/VoiceSettingsCard.tsx"
+    reason: "Product-name sweep: the voice card description saying the app reads agent responses aloud."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/features/settings/ui/harnessCatalogCopy.ts"
+    reason: "Product-name sweep: the two catalogue descriptions saying a harness connects to the app (cursor, grok), and the bundled runtime description, which stops possessing the sentence and just says the built-in agent runtime. The buzz-agent key itself is a runtime id and is untouched."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src/shared/lib/localStorageQuota.ts"
+    reason: "Product-name sweep: the quota-exceeded warning, which names the app that could not save local data."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own. Removable only if upstream grows a product-identity module the fork can supply, at which point every touch here collapses into it."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/public/app-icon@*x.png"
+    reason: "The two app-icon rasters the web layer loads by URL -- the Nostr bind dialog draws one beside the site it authenticates to, and the mobile-pairing QR code sets it as its centre image. Both were upstream's bee on yellow. Regenerated from the same source and the same script as every other mark (vingilot/brand/derive-mark.py now emits them from the shared icon plate), so there is no hand-cropped copy that can drift. Deliberately narrow rather than desktop/public/*: upstream's buzz.svg and landing/buzz-wordmark.png stay exactly where they are, still upstream's drawings, and buzz.svg is additionally a fixture three e2e specs load."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships a mark of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  # ---------------------------------------------------------------------------
+  # Product-name and mark sweep, native half -- the strings the Tauri layer
+  # owns and the frontend cannot reach. Same single class of change as the
+  # frontend block above, same boundary: product name and mark only.
+  #
+  # Identifiers on this side were left alone deliberately and are named in the
+  # frontend block; the nest module, the keyring service and the managed-Node
+  # data directory are all in this tree and all untouched. This block was
+  # previously the blanket entry desktop/src-tauri/src/*, which authorised the
+  # entire native tree; it is now the files the sweep touched.
+  # ---------------------------------------------------------------------------
+
+  - path: "desktop/src-tauri/src/app_state.rs"
+    reason: "Product-name sweep: the mesh-llm node doc comment naming the desktop that starts it, and the error telling the user the app must be relaunched before the restored identity takes effect."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/builderlab.rs"
+    reason: "Product-name sweep and mark swap, in the one HTML page this app serves to a real browser: the Builderlab OAuth callback. It named upstream and drew upstream's inline bee SVG. The mark replaces it as a CSS mask over currentColor rather than an img, because the mark starts as a painting and has no vector form -- one asset then works on a light or dark card. The template gained a {mark} placeholder and a OnceLock built page (replace, not format!, because the document is full of literal braces). Two tests were added: one that the page names this app and not upstream, one that the placeholder was substituted. Upstream's palette is untouched -- this is Block's flow returning from Block's domain and its chartreuse is a design decision, not a product name."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/commands/agent_discovery/managed_node.rs"
+    reason: "Product-name sweep: the managed Node.js install guidance -- unsupported-platform message, install hints, app-data and npm-prefix failure text, and the one test asserting the hint. Every occurrence is the app naming itself to the user; the app-data path itself is unchanged."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/commands/agent_discovery/post_install_verification.rs"
+    reason: "Product-name sweep: the post-install failure guidance, which names the app three times in one sentence because the fix is to restart that app after installing the vendor CLI."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/commands/mesh_llm.rs"
+    reason: "Product-name sweep: the three restart reasons shown while switching this machine into or out of shared compute."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/huddle/tts_settings.rs"
+    reason: "Product-name sweep: the settings-storage location error and the settings-version-too-new error, plus the test asserting the latter."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/managed_agents/discovery/presets.rs"
+    reason: "Product-name sweep: the install_hint strings of the tier-2 harness presets, each of which opens by naming the app that talks to that vendor CLI. The runtime ids and the CLI commands they name are untouched."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/src-tauri/src/prevent_sleep.rs"
+    reason: "Product-name sweep: the macOS sleep-assertion reason, which is the string the OS shows the user when it explains why the machine is being kept awake."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships under a name of its own."
+    status: "permanent"
+    added: "2026-08-10"
+
+  # ---------------------------------------------------------------------------
+  # A consequence of the rename rather than a string in it, so it is its own
+  # entry and not part of the native sweep block above.
+  # ---------------------------------------------------------------------------
+
+  - path: "desktop/src-tauri/src/managed_agents/runtime/instance_reaper.rs"
+    reason: "Teaches the dead-instance reaper the name of the executable this bundle actually ships. productName in tauri.conf.json names the binary inside the bundle and this fork changed it, so the reaper found no live process for its own instance id, concluded every instance was dead, and killed the agents of a running app -- a failure that reads on screen as agents quitting by themselves. Upstream's names are kept alongside rather than replaced: the two apps share ~/.buzz and the same keychain service, so both write agent records into the same nest and a reaper that stopped recognising a live Buzz would reap that app's agents. The added test covers both directions, and lives in this file rather than beside the other reaper tests because tests.rs is already over the file-size ratchet."
+    owner: "vingilot/brand"
+    removable_when: "Upstream resolves the running executable's own name from its bundle metadata instead of matching a hardcoded list."
+    status: "permanent"
+    added: "2026-08-10"
+
+  # ---------------------------------------------------------------------------
+  # Upstream Playwright specs that assert on copy the product-name sweep
+  # renamed, reconciled with it. Eight files, and every edit is the same edit:
+  # the string the spec looks for is now the string the app renders. No
+  # assertion was weakened, deleted or made less specific, and no spec's scope
+  # changed. Deliberately NOT changed in these files: the many install_hint
+  # values seeded as mock fixtures inside the specs themselves -- those seed
+  # and assert the same literal, so they are self-consistent and say nothing
+  # about the product's name.
+  #
+  # This block was previously the blanket entry desktop/tests/e2e/*, which
+  # authorised every spec in the tree -- including the fork's own, which are
+  # declared individually above and no longer need it.
+  # ---------------------------------------------------------------------------
+
+  - path: "desktop/tests/e2e/config-bridge-screenshots.spec.ts"
+    reason: "Reconciled with the sweep: two assertions on the config badge, Set in Buzz to Set in Vingilot."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/deep-link-invite.spec.ts"
+    reason: "Reconciled with the sweep: the button this spec clicks to leave onboarding is now named Take me to Vingilot."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/mesh-compute.spec.ts"
+    reason: "Reconciled with the sweep: the shared-compute card's model-source line and brief-restart warning, both of which name the product."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/needs-restart-screenshots.spec.ts"
+    reason: "Reconciled with the sweep: the needs-restart banner text asserting the app can restart the agent automatically."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/nostr-bind.spec.ts"
+    reason: "Reconciled with the sweep: the clipboard-failure message asserted on the Nostr bind dialog."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/onboarding-agent-defaults.spec.ts"
+    reason: "Reconciled with the sweep: the bundled runtime is labelled Buzz Agent rather than the bare Buzz in the defaults list this spec reads."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/onboarding.spec.ts"
+    reason: "Reconciled with the sweep: the guide agent's welcome line, asserted twice."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"
+
+  - path: "desktop/tests/e2e/profile-backup-settings.spec.ts"
+    reason: "Reconciled with the sweep: the restores-your-identity line, asserted both as rendered copy and as the seeded message."
+    owner: "vingilot/brand"
+    removable_when: "Never, while upstream specs assert on copy that names the product."
+    status: "permanent"
+    added: "2026-08-10"
+
