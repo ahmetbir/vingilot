@@ -270,7 +270,7 @@ export const actionSource: PaletteSource = (ctx, query) => {
       // machine. A condition that cannot occur is a sentence nobody can ever
       // read, so there is none.
       blocked: null,
-      chord: "⌥⌘M",
+      chord: "⇧⌘M",
       command: { type: "open-scratch-markdown" },
       // Directly under "Scratch terminal", and the detail is the mirror of that
       // row's: the two sit together because they are one gesture with a letter

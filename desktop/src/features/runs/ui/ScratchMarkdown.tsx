@@ -203,7 +203,7 @@ export function ScratchMarkdown({ buffer }: Props) {
             className="shrink-0 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             data-testid="scratch-markdown-close"
             onClick={onClose}
-            title="Close the scratch markdown buffer (⌥⌘M)"
+            title="Close the scratch markdown buffer (⇧⌘M)"
             type="button"
           >
             ×

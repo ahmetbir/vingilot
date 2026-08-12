@@ -448,7 +448,7 @@ export function RunsScreen() {
     worktreeId: selectedWorktreeId,
   });
 
-  // The scratch shell's sibling: one global markdown buffer, ⌥⌘M, kept in a file
+  // The scratch shell's sibling: one global markdown buffer, ⇧⌘M, kept in a file
   // on this machine (`lib/useScratchMarkdown.ts`). It takes no arguments at all,
   // which is the feature — there is one of it wherever he is, so it needs no
   // worktree, no project and no checkout. The hook binds its own chord, so this
@@ -634,7 +634,7 @@ export function RunsScreen() {
         case "open-scratch-markdown":
           // Opens, never toggles, for the reason the row above it does: a row
           // called "Scratch markdown" that closed one would be a row whose label
-          // lied about what Enter does. ⌥⌘M is the toggle.
+          // lied about what Enter does. ⇧⌘M is the toggle.
           notepad.show();
           return;
         case "open-cheatsheet":
@@ -788,15 +788,29 @@ export function RunsScreen() {
   useCloseRequest(
     {
       cheatsheet: sheet.open,
+      // Only when there is a tab to *remove*: `closeTab` answers a lone tab by
+      // ending its shell and spawning a fresh one, and ⌘W must never spend a
+      // tmux session to hand back an empty prompt. See `closeRequest.ts`.
+      closableTab: (selectedTabs?.tabs.length ?? 0) > 1,
       dialog: anyDialogOpen,
       palette: palette.open,
       scratch: scratch.session !== null,
+      scratchMarkdown: notepad.open,
     },
     {
       cheatsheet: sheet.close,
+      // A plain closure over this render's `selectedTabs`: `useCloseRequest`
+      // re-reads its arguments through a ref it refreshes every render, so
+      // what runs is never stale.
+      closableTab: () => {
+        if (selectedTabs !== null) {
+          runTabCommand({ n: selectedTabs.active, type: "close" });
+        }
+      },
       dialog: dismissDialogs,
       palette: palette.close,
       scratch: scratch.close,
+      scratchMarkdown: notepad.close,
     },
   );
 

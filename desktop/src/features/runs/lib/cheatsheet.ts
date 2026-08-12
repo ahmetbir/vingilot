@@ -564,7 +564,7 @@ export const MENU_CHORDS: readonly string[] = [
 const ELSEWHERE: readonly CheatRow[] = [
   {
     chords: ["⌘W"],
-    what: "takes what is on top — a dialog, else the palette, else this sheet, else the scratch shell. With nothing stacked the window minimizes into the Dock: it never hides, and it never closes",
+    what: "takes what is on top — a dialog, else the palette, else this sheet, else a scratch (markdown, then shell), else the active terminal tab when it is not the last. Past all of that the window minimizes into the Dock: it never hides, and it never closes",
   },
   {
     chords: ["⌘Q"],

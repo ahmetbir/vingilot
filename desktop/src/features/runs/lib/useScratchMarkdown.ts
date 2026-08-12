@@ -181,7 +181,7 @@ export interface ScratchMarkdown {
    * about what Enter does. */
   show: () => void;
   close: () => void;
-  /** ⌥⌘M both ways: a key that opens a surface and then does nothing is a key the
+  /** ⇧⌘M both ways: a key that opens a surface and then does nothing is a key the
    * owner presses twice looking for the way out. */
   toggle: () => void;
 }
@@ -208,7 +208,7 @@ export function useScratchMarkdown(): ScratchMarkdown {
     else show();
   }, [close, open, show]);
 
-  // ⌥⌘M, bound here rather than in the screen for the reason `useSearchChord.ts`
+  // ⇧⌘M, bound here rather than in the screen for the reason `useSearchChord.ts`
   // binds ⇧⌘F: the chord belongs to the thing it opens. It is on `window` and not
   // on the work surface — deliberately, because this buffer is the one scratch
   // that needs no worktree, so it has to be reachable from the landing view and

@@ -153,14 +153,21 @@ test("⇧ steps back, and both ends wrap", () => {
   assert.equal(stepSwitcher({ index: 0 }, places.length, -1).index, 3);
 });
 
-test("fewer than two places is closed, whatever was asked", () => {
-  // One place is where he is standing, and an overlay offering to take him
-  // there is an overlay that flashes and does nothing.
-  assert.equal(stepSwitcher(SWITCHER_CLOSED, 1, 1).index, null);
+test("one place opens on itself — heard must never look like silent", () => {
+  // The first behaviour here was "fewer than two is closed", and the owner
+  // pressed the chord on a fresh trail and reported that ⌃Tab did nothing —
+  // indistinguishable from the chord never arriving. The overlay now opens on
+  // the one place and says there is nowhere else yet (`PlaceSwitcher.tsx`).
+  assert.equal(stepSwitcher(SWITCHER_CLOSED, 1, 1).index, 0);
+  assert.equal(stepSwitcher(SWITCHER_CLOSED, 1, -1).index, 0);
+  // An open switcher whose list shrank to one under the held key clamps to the
+  // survivor rather than vanishing mid-gesture.
+  assert.equal(stepSwitcher({ index: 2 }, 1, 1).index, 0);
+});
+
+test("zero places stays closed — there is no row to draw", () => {
   assert.equal(stepSwitcher(SWITCHER_CLOSED, 0, -1).index, null);
-  // Including an open one whose list shrank under it — a worktree removed while
-  // he held the key.
-  assert.equal(stepSwitcher({ index: 2 }, 1, 1).index, null);
+  assert.equal(stepSwitcher(SWITCHER_CLOSED, 0, 1).index, null);
 });
 
 /** A report, as the Files pane makes it. `path` `null` is "nothing open". */

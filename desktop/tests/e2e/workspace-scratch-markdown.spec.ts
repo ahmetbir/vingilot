@@ -4,7 +4,7 @@
 // The pure halves are proved without a browser and deliberately kept there:
 // `src/features/runs/lib/scratchAutosave.test.mjs` owns when a write happens and
 // what the owner is told between asking and being answered;
-// `scratchMarkdownKeys.test.mjs` owns what ⌥⌘M means and which chords an open
+// `scratchMarkdownKeys.test.mjs` owns what ⇧⌘M means and which chords an open
 // buffer shields; and `src-tauri/src/vingilot_scratch/mod.rs`'s own cargo tests own
 // the bytes on disk — the one path, the ceiling in both directions, and the four
 // refusals.
@@ -284,7 +284,7 @@ test.describe("a markdown buffer one gesture away, that keeps what you put in it
     await openWorkspace(page);
     expect(await fileHolds(page)).toBeNull();
 
-    await page.keyboard.press("ControlOrMeta+Alt+m");
+    await page.keyboard.press("ControlOrMeta+Shift+m");
     await expect(overlay(page)).toBeVisible();
     // The keyboard goes into the buffer he just opened: a scratch he has to
     // click into is a scratch he stops using.
@@ -303,7 +303,7 @@ test.describe("a markdown buffer one gesture away, that keeps what you put in it
     await page.keyboard.press("Escape");
     await expect(overlay(page)).toBeHidden();
 
-    await page.keyboard.press("ControlOrMeta+Alt+m");
+    await page.keyboard.press("ControlOrMeta+Shift+m");
     await expect(overlay(page)).toBeVisible();
     await expect(editor(page)).toHaveValue(TYPED);
     await expect(page.getByTestId("scratch-md-state")).toHaveText("saved");
@@ -313,7 +313,7 @@ test.describe("a markdown buffer one gesture away, that keeps what you put in it
     page,
   }) => {
     await openWorkspace(page);
-    await page.keyboard.press("ControlOrMeta+Alt+m");
+    await page.keyboard.press("ControlOrMeta+Shift+m");
     await fillAndSave(page, TYPED);
 
     // The whole page goes, which is what takes the module singleton with it —
@@ -324,7 +324,7 @@ test.describe("a markdown buffer one gesture away, that keeps what you put in it
       await page.evaluate(() => (window as ScratchStubWindow).__READS__ ?? 0),
     ).toBe(0);
 
-    await page.keyboard.press("ControlOrMeta+Alt+m");
+    await page.keyboard.press("ControlOrMeta+Shift+m");
     await expect(overlay(page)).toBeVisible();
     await expect(editor(page)).toHaveValue(TYPED);
     expect(
@@ -341,7 +341,7 @@ test.describe("a markdown buffer one gesture away, that keeps what you put in it
     // keyed by worktree would have put that note in the one place he will not be
     // when he needs it.
     await openWorkspace(page);
-    await page.keyboard.press("ControlOrMeta+Alt+m");
+    await page.keyboard.press("ControlOrMeta+Shift+m");
     await fillAndSave(page, TYPED);
     await page.keyboard.press("Escape");
     await expect(overlay(page)).toBeHidden();
@@ -349,14 +349,14 @@ test.describe("a markdown buffer one gesture away, that keeps what you put in it
     await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
     await expect(page.getByTestId("work-surface")).toBeVisible();
 
-    await page.keyboard.press("ControlOrMeta+Alt+m");
+    await page.keyboard.press("ControlOrMeta+Shift+m");
     await expect(overlay(page)).toBeVisible();
     await expect(editor(page)).toHaveValue(TYPED);
   });
 
   test("nothing carries the text off this machine", async ({ page }) => {
     await openWorkspace(page);
-    await page.keyboard.press("ControlOrMeta+Alt+m");
+    await page.keyboard.press("ControlOrMeta+Shift+m");
     await fillAndSave(page, TYPED);
     await page.keyboard.press("Escape");
     // Give anything that publishes on a close, a navigation or an idle tick its
@@ -392,7 +392,7 @@ test.describe("a markdown buffer one gesture away, that keeps what you put in it
     // gesture that does not exist.
     const row = page.getByTestId("palette-row-action:scratch-markdown");
     await expect(row).toBeVisible();
-    await expect(row).toContainText("⌥⌘M");
+    await expect(row).toContainText("⇧⌘M");
     await expect(row).toContainText("never sent anywhere");
 
     await page.keyboard.press("Enter");
@@ -417,7 +417,7 @@ test.describe("a markdown buffer one gesture away, that keeps what you put in it
     // The failure that would destroy his work: an editor drawn over a refused
     // read arms an autosave that rewrites a file this build could not open.
     await openWorkspace(page, { refuse: true });
-    await page.keyboard.press("ControlOrMeta+Alt+m");
+    await page.keyboard.press("ControlOrMeta+Shift+m");
     await expect(overlay(page)).toBeVisible();
 
     await expect(page.getByTestId("scratch-markdown-refusal")).toHaveText(

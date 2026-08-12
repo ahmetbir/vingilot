@@ -187,15 +187,24 @@ export const SWITCHER_CLOSED: SwitcherState = { index: null };
  * list you cannot fall off is one you can drive without watching where you are
  * (the palette's own rule, `moveCursor`).
  *
- * Fewer than two places is closed, whatever was asked. One place is where he is
- * standing, and an overlay offering to take him there is an overlay that
- * flashes and does nothing. */
+ * **One place still opens, on itself.** This answered "fewer than two is
+ * closed" for a day, and the owner pressed the chord and reported that it did
+ * nothing — which was true three different ways (an empty trail, a blocked
+ * surface, a key that never arrived) and indistinguishable from all of them.
+ * A gesture must not be silent when it is heard: with one place the overlay
+ * opens on the place he is standing in and the surface says there is nowhere
+ * else yet (`PlaceSwitcher.tsx`), so "the chord works, navigate first" and
+ * "the chord never arrived" stop looking identical. VS Code's own switcher
+ * does the same with a single tab. Landing on index 0 is a navigation to
+ * where he already is, which every `onGo` target treats as a no-op. Zero
+ * places stays closed — there is nothing to draw a row for. */
 export function stepSwitcher(
   state: SwitcherState,
   count: number,
   delta: number,
 ): SwitcherState {
-  if (count < 2) return SWITCHER_CLOSED;
+  if (count < 1) return SWITCHER_CLOSED;
+  if (count === 1) return { index: 0 };
   const from = state.index ?? 0;
   // Two `% count`s: the first can leave a negative for a ⇧Tab off the front,
   // and the second is what brings it back into range.

@@ -116,6 +116,19 @@ export function PlaceSwitcher({
               rowIndex={at}
             />
           ))}
+          {/* One place is the trail's first morning: the chord was heard, and
+           * saying so is the point — "the switcher opened with nowhere to go"
+           * and "the chord never arrived" must not look identical
+           * (`placeMru.ts`'s stepSwitcher, the day this was learned). */}
+          {places.length === 1 ? (
+            <li
+              className="px-2 py-1.5 text-2xs text-muted-foreground/80"
+              data-testid="place-switcher-only-place"
+            >
+              nowhere else yet — this trail grows as you move between worktrees,
+              panes and files
+            </li>
+          ) : null}
         </ul>
         {/* The gesture, said once. The overlay is the only place he can be told
          * how to leave it, and he is holding the key that put it there. */}

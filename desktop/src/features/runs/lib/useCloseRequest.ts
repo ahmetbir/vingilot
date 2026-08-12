@@ -72,7 +72,13 @@ export function useCloseRequest(
       if (action.type === "dismiss-cheatsheet") {
         latest.current.dismiss.cheatsheet();
       }
+      if (action.type === "dismiss-scratchMarkdown") {
+        latest.current.dismiss.scratchMarkdown();
+      }
       if (action.type === "dismiss-scratch") latest.current.dismiss.scratch();
+      if (action.type === "dismiss-closableTab") {
+        latest.current.dismiss.closableTab();
+      }
     })
       .then((unlisten) => {
         if (detached) unlisten();

@@ -35,8 +35,21 @@ export interface StackedSurfaces {
   palette: boolean;
   /** The keyboard cheatsheet (⌘/). */
   cheatsheet: boolean;
+  /** The scratch markdown buffer (⇧⌘M). Before its shell sibling: the two are
+   * drawn at the same layer, and the buffer is a *typing* surface — ⌘W with
+   * text on screen must take the thing the cursor is in, never the shell
+   * behind it. */
+  scratchMarkdown: boolean;
   /** The scratch shell (⌥⌘T) — the surface the owner pressed ⌘W over. */
   scratch: boolean;
+  /** Whether the selected worktree's terminal strip has a tab that closing
+   * would merely *remove* — true only when there is more than one, because
+   * `terminalTabs.ts`'s `closeTab` answers a lone tab by ending its shell and
+   * spawning a fresh one, and a ⌘W that silently killed a tmux session to hand
+   * back an empty prompt would be destruction dressed as tidying. The last tab
+   * is the worktree's terminal itself, and a close request over it is about
+   * the window — VS Code's own reading of ⌘W on the last editor. */
+  closableTab: boolean;
 }
 
 /** Which surface a close request takes, or `null` when the request is about
@@ -45,7 +58,9 @@ export type CloseRequestAction =
   | { type: "dismiss-dialog" }
   | { type: "dismiss-palette" }
   | { type: "dismiss-cheatsheet" }
-  | { type: "dismiss-scratch" };
+  | { type: "dismiss-scratchMarkdown" }
+  | { type: "dismiss-scratch" }
+  | { type: "dismiss-closableTab" };
 
 /** Resolves a close request against what is on screen.
  *
@@ -67,7 +82,14 @@ export function resolveCloseRequest(
   if (stacked.dialog) return { type: "dismiss-dialog" };
   if (stacked.palette) return { type: "dismiss-palette" };
   if (stacked.cheatsheet) return { type: "dismiss-cheatsheet" };
+  if (stacked.scratchMarkdown) return { type: "dismiss-scratchMarkdown" };
   if (stacked.scratch) return { type: "dismiss-scratch" };
+  // The bottom rung, and the one that is not an overlay: with nothing stacked,
+  // ⌘W closes the active terminal tab the way ⇧⌘W always has — the VS Code hand
+  // the owner asked for by pressing it. Only past this does the backend
+  // minimize, so "⌘W closes the thing I am looking at, then the window" is one
+  // rule from the top of the stack to the Dock.
+  if (stacked.closableTab) return { type: "dismiss-closableTab" };
   return null;
 }
 

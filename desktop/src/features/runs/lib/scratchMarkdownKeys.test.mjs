@@ -1,4 +1,4 @@
-// ⌥⌘M, and what an open scratch buffer shields
+// ⇧⌘M, and what an open scratch buffer shields
 // (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md, Task 4).
 //
 // The chord half of this is about the two readings macOS can deliver for one key
@@ -19,7 +19,7 @@ const OPEN = { type: "open-scratch-markdown" };
 /** A keydown, with the fields this map reads. */
 function press(
   key,
-  { alt = true, primary = true, repeat = false, shift } = {},
+  { alt = false, primary = true, repeat = false, shift = true } = {},
 ) {
   return {
     altKey: alt,
@@ -30,29 +30,26 @@ function press(
   };
 }
 
-test("⌥⌘M opens the buffer", () => {
+test("⇧⌘M opens the buffer", () => {
   assert.deepEqual(resolveScratchMarkdownKey(press("m")), OPEN);
 });
 
-test("the reading macOS gives when ⌥ still composes is the same chord", () => {
-  // ⌥m is "µ" on a US layout, exactly as ⌥t is "†" and ⌥b is "∫". Losing the
-  // chord to the composition would make it work on nobody's machine.
-  assert.deepEqual(resolveScratchMarkdownKey(press("µ")), OPEN);
-});
-
-test("a stuck caps lock does not take the chord away", () => {
-  // "M" with no ⇧ held: the bug nobody would think to look for.
+test("⇧m reports an uppercase M, and the chord still resolves", () => {
+  // The shifted key's own reading — and a stuck caps lock, which reports a
+  // lowercase "m" with ⇧ held, folds to the same place.
   assert.deepEqual(resolveScratchMarkdownKey(press("M")), OPEN);
+  assert.deepEqual(resolveScratchMarkdownKey(press("m")), OPEN);
 });
 
 test("the three neighbours it must not answer to", () => {
-  // ⌘M is the default macOS menu's minimize (muda's own table) and never reaches
-  // the webview at all; ⌥M without ⌘ is a composed character somebody is typing;
-  // and ⇧⌥⌘M is nobody's, so claiming it would take a chord the four-claimant
-  // check in this module's header was never run for.
-  assert.equal(resolveScratchMarkdownKey(press("m", { alt: false })), null);
-  assert.equal(resolveScratchMarkdownKey(press("m", { primary: false })), null);
-  assert.equal(resolveScratchMarkdownKey(press("m", { shift: true })), null);
+  // ⌘M is macOS's Minimize and ⌥⌘M is the Minimize All AppKit synthesizes from
+  // it — the claimant that cost this chord its first binding (the header's
+  // story). Neither reaches the webview, and a map that also answered to ⇧⌥⌘M
+  // would disagree with the machine about what the chord did. ⇧M without ⌘ is
+  // somebody typing a capital letter.
+  assert.equal(resolveScratchMarkdownKey(press("m", { shift: false })), null);
+  assert.equal(resolveScratchMarkdownKey(press("m", { alt: true })), null);
+  assert.equal(resolveScratchMarkdownKey(press("M", { primary: false })), null);
 });
 
 test("a held-down chord is one press, not fifteen a second", () => {
@@ -71,11 +68,11 @@ test("no other key opens it", () => {
 
 test("the same chord closes what it opened", () => {
   // A key that opens a surface and then does nothing is a key the owner presses
-  // twice looking for the way out.
+  // twice looking for the way out. ⇧m reports "M"; both spellings fold.
   assert.deepEqual(resolveScratchMarkdownShield(press("m")), {
     type: "close",
   });
-  assert.deepEqual(resolveScratchMarkdownShield(press("µ")), {
+  assert.deepEqual(resolveScratchMarkdownShield(press("M")), {
     type: "close",
   });
 });
@@ -85,7 +82,7 @@ test("Escape closes it, which is the one thing the two scratches do not share", 
   // reader. A textarea does not, and every modal editor he has used closes on it.
   assert.deepEqual(
     resolveScratchMarkdownShield(
-      press("Escape", { alt: false, primary: false }),
+      press("Escape", { alt: false, primary: false, shift: false }),
     ),
     { type: "close" },
   );
@@ -96,14 +93,17 @@ test("the chords the surfaces underneath would have acted on are shielded", () =
   // ⇧⌘W ends a shell, ⌘T opens one he cannot see, ⌘` and ⌘1 move the keyboard or
   // the worktree out from under the buffer, ⌥⌘B and ⌘B rearrange the columns
   // behind it.
+  // Every modifier written out: the press helper's defaults are this module's
+  // own chord, and a shield test that leaned on them would quietly test the
+  // wrong chords the day the buffer's binding moves again.
   const shielded = [
     press("w", { alt: false, shift: true }),
-    press("t", { alt: false }),
-    press("`", { alt: false }),
-    press("1", { alt: false }),
-    press("b"),
-    press("b", { alt: false }),
-    press("ArrowRight"),
+    press("t", { alt: false, shift: false }),
+    press("`", { alt: false, shift: false }),
+    press("1", { alt: false, shift: false }),
+    press("b", { alt: true, shift: false }),
+    press("b", { alt: false, shift: false }),
+    press("ArrowRight", { alt: true, shift: false }),
   ];
   for (const input of shielded) {
     assert.deepEqual(
