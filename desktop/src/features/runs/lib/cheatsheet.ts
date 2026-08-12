@@ -50,7 +50,9 @@ import { resolveColumnKey } from "./columnKeys.ts";
 import { resolveDiffKey } from "./diffKeys.ts";
 import { resolvePaletteKey, resolvePaletteListKey } from "./paletteKeys.ts";
 import { resolveDividerKey, resolvePaneKey } from "./paneKeys.ts";
+import { resolvePlaceKey, resolvePlaceListKey } from "./placeKeys.ts";
 import { RATIO_STEP, RATIO_STEP_COARSE } from "./paneModel.ts";
+import { resolveScratchMarkdownKey } from "./scratchMarkdownKeys.ts";
 import { resolveSearchKey } from "./searchKeys.ts";
 import type { KeyInput } from "./terminalKeys.ts";
 import { resolveKey } from "./terminalKeys.ts";
@@ -71,14 +73,22 @@ interface KeyMap {
 }
 
 /** Every keyboard map in the island, in the order their rows are first met.
- * `scratchTerminal.ts`'s `resolveScratchKey` is deliberately absent: it
- * resolves nothing of its own, it re-reads the three maps below it to decide
- * what an open scratch shell shields, so listing it would print ⌥⌘T twice. */
+ *
+ * Two maps are deliberately absent, both for one reason: they resolve nothing of
+ * their own. `scratchTerminal.ts`'s `resolveScratchKey` and
+ * `scratchMarkdownKeys.ts`'s `resolveScratchMarkdownShield` re-read the maps
+ * below to decide what an open scratch surface shields, so listing either would
+ * print its own chord twice and would print ⌘T, ⌘`, ⌘1…9 and ⌥⌘B again as
+ * "shield". What the sheet has to say about those chords is what they do, which
+ * is the row the map that owns them already generates. */
 const KEY_MAPS: readonly KeyMap[] = [
   { module: "sheet", resolve: resolveCheatsheetKey },
   { module: "sheet-open", resolve: resolveOpenCheatsheetKey },
   { module: "palette", resolve: resolvePaletteKey },
+  { module: "place", resolve: resolvePlaceKey },
+  { module: "place-open", resolve: resolvePlaceListKey },
   { module: "search", resolve: resolveSearchKey },
+  { module: "scratch-md", resolve: resolveScratchMarkdownKey },
   { module: "terminal", resolve: resolveKey },
   { module: "column", resolve: resolveColumnKey },
   { module: "pane", resolve: resolvePaneKey },
@@ -107,10 +117,10 @@ const LETTERS = "abcdefghijklmnopqrstuvwxyz";
  * its key here too, and this list is the place to look when a chord works and
  * the sheet does not know it.
  *
- * The three composed characters are what macOS reports when ⌥ still applies to
- * a letter — ⌥t is "†", ⌥b is "∫", ⇧⌥b is "ı" — which `terminalKeys.ts` and
- * `paneKeys.ts` accept so the chord survives the composition. They fold back
- * onto their letter in `chordOf`.
+ * The four composed characters are what macOS reports when ⌥ still applies to
+ * a letter — ⌥t is "†", ⌥b is "∫", ⇧⌥b is "ı", ⌥m is "µ" — which
+ * `terminalKeys.ts`, `paneKeys.ts` and `scratchMarkdownKeys.ts` accept so the
+ * chord survives the composition. They fold back onto their letter in `chordOf`.
  *
  * The order is the order a section's rows are read in, which is why the digits
  * are last: `⌘1…⌘9` and the divider's `0` are the ordinal cases, and each one
@@ -123,6 +133,7 @@ const KEY_SPACE: readonly string[] = [
   "†",
   "∫",
   "ı",
+  "µ",
   "ArrowLeft",
   "ArrowRight",
   "ArrowUp",
@@ -138,10 +149,36 @@ const KEY_SPACE: readonly string[] = [
 const PRIMARY = 1;
 const SHIFT = 2;
 const ALT = 4;
+/** The raw Control key. Every map but `placeKeys.ts` ignores it — the rest read
+ * `primaryModifier`, which on macOS is ⌘ and explicitly not ⌃ — so enumerating
+ * it produces a ⌃-prefixed twin of nearly every chord in the island. Every one
+ * of those twins is folded away by the rule below (same map, same action, same
+ * key, strictly fewer modifiers), which is the honest outcome: ⌃⌘K really does
+ * open the palette, and it is not a second thing to learn. What survives the
+ * fold is the chord that only resolves *with* ⌃, which is exactly ⌃⇥.
+ *
+ * Only ⌃ and ⇧⌃ are enumerated, not the other six combinations it could join.
+ * Same bound, and same cost, as `KEY_SPACE`'s: no map in this island answers to
+ * ⌃ alongside ⌥ or ⌘ — `placeKeys.ts` refuses ⌥ by `altKey` and ⌘ by `metaKey`,
+ * both explicitly — so the six would generate twins and nothing else. If a map
+ * is ever written that does, its combination belongs here too, and this
+ * paragraph is where to look.
+ *
+ * **`metaKey` is not enumerated at all, and `PRIMARY` is not a stand-in for
+ * it.** The bit below means "the platform's primary modifier", which `chordOf`
+ * writes as ⌘ because this app is written on a Mac; off-mac it is Ctrl, so
+ * `CTRL | PRIMARY` would not be a second chord to print but the same ⌃⇥ spelled
+ * with a modifier the platform already resolved. The one map that reads the
+ * physical ⌘ therefore cannot be refused by anything this enumeration sets,
+ * which is why ⌃⇥ prints on every platform — the same answer the app now
+ * gives. */
+const CTRL = 8;
 
 /** Every modifier combination, fewest first. The order matters twice: it is
  * the order a row's chords are listed in, and it is what makes the fold below
- * keep ⇥ rather than ⇧⇥ when a map answers the same thing to both. */
+ * keep ⇥ rather than ⇧⇥ when a map answers the same thing to both. ⌃ is last
+ * for that second reason: a ⌃-less reading must be met first so the twin it
+ * folds away has something to be folded onto. */
 const MOD_SPACE: readonly number[] = [
   0,
   SHIFT,
@@ -151,6 +188,8 @@ const MOD_SPACE: readonly number[] = [
   PRIMARY | SHIFT,
   PRIMARY | ALT,
   PRIMARY | ALT | SHIFT,
+  CTRL,
+  CTRL | SHIFT,
 ];
 
 /** How a key is written on a sheet. Anything absent is written as it arrives —
@@ -166,11 +205,13 @@ const GLYPH: Record<string, string> = {
   "†": "T",
   "∫": "B",
   ı: "B",
+  µ: "M",
 };
 
-/** The chord one keydown would be written as: ⇧ then ⌥ then ⌘, which is the
- * order every chord already written in this island uses (`paletteSources.ts`'s
- * `⇧⌥⌘B`), then the key.
+/** The chord one keydown would be written as: ⇧ then ⌥ then ⌃ then ⌘, which is
+ * the order every chord already written in this island uses
+ * (`paletteSources.ts`'s `⇧⌥⌘B`) with ⌃ placed where the two chords this sheet
+ * already carries put it (`⌃⌘F`, muda's own spelling), then the key.
  *
  * **A letter is capitalised only in a chord.** `⌘T` is how a menu writes it,
  * and capitalising is also what folds the caps-lock readings the maps accept —
@@ -179,11 +220,12 @@ const GLYPH: Record<string, string> = {
  * and `J` there would read as ⇧J, which that map refuses. */
 export function chordOf(input: KeyInput): string {
   const glyph = GLYPH[input.key] ?? input.key;
-  const modified = input.primaryModifier || input.altKey === true;
+  const modified =
+    input.primaryModifier || input.altKey === true || input.ctrlKey === true;
   const key = modified && glyph.length === 1 ? glyph.toUpperCase() : glyph;
   return `${input.shiftKey === true ? "⇧" : ""}${
     input.altKey === true ? "⌥" : ""
-  }${input.primaryModifier ? "⌘" : ""}${key}`;
+  }${input.ctrlKey === true ? "⌃" : ""}${input.primaryModifier ? "⌘" : ""}${key}`;
 }
 
 /** A resolved action's identity for the purpose of a row.
@@ -237,6 +279,7 @@ export function resolvedChords(): readonly ResolvedChord[] {
       for (const mods of MOD_SPACE) {
         const input: KeyInput = {
           altKey: (mods & ALT) !== 0,
+          ctrlKey: (mods & CTRL) !== 0,
           key,
           primaryModifier: (mods & PRIMARY) !== 0,
           repeat: false,
@@ -285,6 +328,11 @@ const SECTIONS = [
   },
   { id: "terminal", note: null, title: "The terminal" },
   { id: "palette", note: "while the palette is open", title: "The palette" },
+  {
+    id: "switcher",
+    note: "while ⌃ is still held down",
+    title: "The place switcher",
+  },
   {
     id: "diff",
     note: "with the caret outside a field",
@@ -379,6 +427,14 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
     section: "workspace",
     what: "the palette — go anywhere, do anything. Again to put it away",
   },
+  "place-open:cancel": {
+    section: "switcher",
+    what: "stay where you are — let go of ⌃ afterwards and nothing moves",
+  },
+  "place:step:delta=1": {
+    section: "workspace",
+    what: "hold ⌃ and press ⇥ to walk back through where you have been; ⇧⇥ walks the other way. Letting go of ⌃ lands you there, and a quick tap goes straight to the last place",
+  },
   "pane:solo:side=left": {
     section: "panes",
     what: "give the terminal the whole surface, and back",
@@ -386,6 +442,10 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
   "pane:solo:side=right": {
     section: "panes",
     what: "give the right pane the whole surface, and back",
+  },
+  "scratch-md:open-scratch-markdown": {
+    section: "workspace",
+    what: "the scratch markdown buffer — one of it, wherever you are, kept in ~/.vingilot/scratch.md on this machine and never sent anywhere. Again to put it away, and Esc does too",
   },
   "search:open-search": {
     section: "workspace",

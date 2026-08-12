@@ -264,6 +264,24 @@ export const actionSource: PaletteSource = (ctx, query) => {
       label: "Scratch terminal",
     },
     {
+      // Never blocked, and that is the feature rather than an oversight: there is
+      // one buffer for everything (`scratchMarkdown.ts`), so unlike every row
+      // above it this one needs no project, no worktree and no checkout on this
+      // machine. A condition that cannot occur is a sentence nobody can ever
+      // read, so there is none.
+      blocked: null,
+      chord: "⌥⌘M",
+      command: { type: "open-scratch-markdown" },
+      // Directly under "Scratch terminal", and the detail is the mirror of that
+      // row's: the two sit together because they are one gesture with a letter
+      // swapped, and what separates them is what happens to what you put in them.
+      detail:
+        "one throwaway markdown buffer, the same wherever you are — kept in ~/.vingilot/scratch.md on this machine, and never sent anywhere",
+      id: "action:scratch-markdown",
+      kind: "action",
+      label: "Scratch markdown",
+    },
+    {
       // Never blocked, and that is the point: this is the row for someone who
       // does not know the chord, so a state in which it refused would be a
       // state in which the workspace's keys are unfindable.

@@ -38,31 +38,20 @@
 // `h1` on screen whenever a run was open. What that row was reaching for —
 // where am I — is the status bar's job, and the status bar is always there.
 
-import { homeDir } from "@tauri-apps/api/path";
 import * as React from "react";
 
 import {
-  applyMutations,
   getWorkspace,
   listRuns,
   listWorktrees,
   transitionRun,
 } from "@/features/runs/lib/coordinatorClient";
 import {
-  DEFAULT_WORKTREE_ROOT_SUFFIX,
   groupWorktrees,
   type Repo,
   worktreeCwd,
 } from "@/features/runs/lib/projects";
-import {
-  ptyBacking,
-  ptyClose,
-  type PtyBacking,
-} from "@/features/runs/lib/ptyClient";
-import {
-  controlPlaneKind,
-  controlPlanePollMs,
-} from "@/features/runs/lib/reachability";
+import { ptyClose } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import {
   openTerminals,
@@ -101,6 +90,10 @@ import type {
 import { useAskPending } from "@/features/runs/lib/useAskPending";
 import { useCheatsheet } from "@/features/runs/lib/useCheatsheet";
 import { useCloseRequest } from "@/features/runs/lib/useCloseRequest";
+import {
+  POLL_INTERVAL_MS,
+  useControlPlane,
+} from "@/features/runs/lib/useControlPlane";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
@@ -111,6 +104,10 @@ import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
 import { useAttentionNotices } from "@/features/runs/lib/useAttentionNotices";
 import { useLocalProjects } from "@/features/runs/lib/useLocalProjects";
+import { useMachineFacts } from "@/features/runs/lib/useMachineFacts";
+import type { FileReport } from "@/features/runs/lib/placeMru";
+import { usePlaceSwitcher } from "@/features/runs/lib/usePlaceSwitcher";
+import { useScratchMarkdown } from "@/features/runs/lib/useScratchMarkdown";
 import { useScratchTerminal } from "@/features/runs/lib/useScratchTerminal";
 import { useWorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import { useWorktreeSignals } from "@/features/runs/lib/useWorktreeSignals";
@@ -123,9 +120,11 @@ import { localBindingId } from "@/features/runs/lib/projects";
 import { CommandPalette } from "@/features/runs/ui/CommandPalette";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { KeyCheatsheet } from "@/features/runs/ui/KeyCheatsheet";
+import { PlaceSwitcher } from "@/features/runs/ui/PlaceSwitcher";
 import { PlanWorktreeDialog } from "@/features/runs/ui/PlanWorktreeDialog";
 import { ProjectStatusBar } from "@/features/runs/ui/ProjectStatusBar";
 import { RunDetail } from "@/features/runs/ui/RunDetail";
+import { ScratchMarkdown } from "@/features/runs/ui/ScratchMarkdown";
 import { TriageBoard } from "@/features/runs/ui/TriageBoard";
 import { ControlPlaneBanner } from "@/features/runs/ui/ControlPlaneBanner";
 import { paneEntry, paneProbes } from "@/features/runs/ui/paneRegistry";
@@ -135,18 +134,11 @@ import { WorkspaceNav } from "@/features/runs/ui/WorkspaceNav";
 // Hardcoded dev workspace id — matches the donor App.tsx. A workspace
 // picker is a later plan; V1 is single-workspace dev use.
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
-const POLL_INTERVAL_MS = 2000;
 
 export function RunsScreen() {
-  // The cadence EVERY coordinator poll in the app runs at — the three below,
-  // and the pin polls inside DeckPane and RunList, which take it as a prop
-  // rather than keeping timers of their own. A cadence only some of the polls
-  // obeyed would not be a policy: the settle to 30s exists to stop hammering a
-  // port nothing is listening on, and one 2s timer left behind keeps most of
-  // the hammer. State rather than a plain derivation because it is decided by
-  // what those polls report, and a value can only be chosen from what the
-  // previous tick found — it is adjusted during render below, the same way
-  // `useDocument` re-reads on a key change.
+  // The cadence every coordinator poll in the app runs at, held here because the
+  // polls below take it and `useControlPlane` decides it from what they report —
+  // declared before them, decided after them (that hook's header has the knot).
   const [pollMs, setPollMs] = React.useState(POLL_INTERVAL_MS);
   const {
     data: runsData,
@@ -193,106 +185,27 @@ export function RunsScreen() {
     workspaceId: WORKSPACE_ID,
   });
   const repos = projectActions.repos;
-  // The moment reachability first flipped false — null while reachable.
-  const [unreachableSince, setUnreachableSince] = React.useState<Date | null>(
-    null,
-  );
-  React.useEffect(() => {
-    if (!reachable) {
-      setUnreachableSince((prev) => prev ?? new Date());
-    } else {
-      setUnreachableSince(null);
-    }
-  }, [reachable]);
 
-  const [now, setNow] = React.useState(() => new Date());
-  React.useEffect(() => {
-    const handle = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(handle);
-  }, []);
-
-  // Which of the two sentences the workspace is entitled to say, and how hard
-  // it should keep looking (`lib/reachability.ts`). `lastOk` is the whole of
-  // the evidence that a control plane exists on this machine: nothing
-  // configures one, so an answer is the only thing that can tell a coordinator
-  // that went down apart from a machine that never had one.
-  const controlPlane = controlPlaneKind(reachable, lastOk !== null);
-  const nextPollMs = controlPlanePollMs(
-    controlPlane,
-    unreachableSince,
+  // Which of the two sentences the workspace is entitled to say, how hard it
+  // should keep looking, and the once-on-the-way-in bootstrap of the workspace
+  // row (`lib/useControlPlane.ts`). Every rule it applies is
+  // `lib/reachability.ts`'s.
+  const {
+    kind: controlPlane,
     now,
-    POLL_INTERVAL_MS,
-  );
-  if (nextPollMs !== pollMs) setPollMs(nextPollMs);
+    unreachableSince,
+  } = useControlPlane({
+    lastOk,
+    pollMs,
+    reachable,
+    setPollMs,
+    workspaceId: WORKSPACE_ID,
+  });
 
-  // Workspace bootstrap: the dev workspace id is hardcoded above, but the
-  // row may not exist yet on a fresh coordinator DB. GET first; if that
-  // 404s, POST an (empty) mutation — the mutations endpoint has ensure
-  // semantics server-side, so this creates the workspace row as a side
-  // effect of its first write.
-  React.useEffect(() => {
-    let cancelled = false;
-    async function bootstrap() {
-      const snapshot = await getWorkspace(WORKSPACE_ID);
-      if (cancelled || snapshot.ok) return;
-      if (snapshot.kind === "api" && snapshot.status === 404) {
-        await applyMutations(WORKSPACE_ID, 0, []);
-      }
-    }
-    void bootstrap();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Home-dir resolution for terminal cwds, once. A non-Tauri context (or
-  // any failure) leaves this null — every open terminal shows its waiting
-  // state instead of throwing.
-  const [worktreeRoot, setWorktreeRoot] = React.useState<string | null>(null);
-  // Whether the lookup above has *finished*, however it finished. A failure is
-  // an answer, and one that never arrives is not: without this, a rejected
-  // homeDir() reads for the rest of the session as "still waiting", and the
-  // panes tell the owner to wait for a checkout nothing is going to name.
-  const [rootSettled, setRootSettled] = React.useState(false);
-  React.useEffect(() => {
-    let cancelled = false;
-    homeDir()
-      .then((home) => {
-        if (cancelled) return;
-        const base = home.endsWith("/") ? home.slice(0, -1) : home;
-        setWorktreeRoot(`${base}/${DEFAULT_WORKTREE_ROOT_SUFFIX}`);
-      })
-      .catch(() => {
-        // Non-Tauri context (e.g. a plain browser preview) — worktreeRoot
-        // stays null, terminals stay in their waiting state.
-      })
-      .finally(() => {
-        if (!cancelled) setRootSettled(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // What is keeping terminals alive, asked once — the backend probes tmux
-  // once per app run, so the answer cannot change under us. Stays null if the
-  // call fails (a non-Tauri preview), and the status bar then says nothing
-  // about persistence rather than guessing at it.
-  const [terminalBacking, setTerminalBacking] =
-    React.useState<PtyBacking | null>(null);
-  React.useEffect(() => {
-    let cancelled = false;
-    ptyBacking()
-      .then((backing) => {
-        if (!cancelled) setTerminalBacking(backing);
-      })
-      .catch(() => {
-        // No backend to ask. Claiming either mode would be a guess.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // The two questions this machine is asked once on the way in — where home is
+  // (every terminal's cwd derives from it) and what is keeping terminals alive
+  // (`lib/useMachineFacts.ts`, which also carries why a *failure* is an answer).
+  const { rootSettled, terminalBacking, worktreeRoot } = useMachineFacts();
 
   const [selectedRepoId, setSelectedRepoId] = React.useState<string | null>(
     null,
@@ -535,6 +448,14 @@ export function RunsScreen() {
     worktreeId: selectedWorktreeId,
   });
 
+  // The scratch shell's sibling: one global markdown buffer, ⌥⌘M, kept in a file
+  // on this machine (`lib/useScratchMarkdown.ts`). It takes no arguments at all,
+  // which is the feature — there is one of it wherever he is, so it needs no
+  // worktree, no project and no checkout. The hook binds its own chord, so this
+  // surface is reachable from the landing view and the triage board too, neither
+  // of which mounts `WorkSurface`.
+  const notepad = useScratchMarkdown();
+
   // What the panes are allowed to know about the worktree under them
   // (lib/paneModel.ts). `cwdPending` is the distinction that keeps a pane from
   // telling the owner his worktree has no checkout when all that has happened
@@ -592,9 +513,24 @@ export function RunsScreen() {
   // could be on screen at once is not a thing either of them asked for.
   const [planningWorktree, setPlanningWorktree] = React.useState(false);
   const [prunePreview, setPrunePreview] = React.useState<string[] | null>(null);
+  // The Files pane's own report of what it has open, held as it arrived. Kept
+  // here because a place needs it (`lib/placeMru.ts`'s `FileReport`) and the pane
+  // reports it rather than being asked: two answers to "which file is open" is
+  // one too many. A `path` of `null` is the pane saying it has nothing open, and
+  // whether a report is still a reading of the pane on screen is decided in one
+  // place — `readFileReport`, not here.
+  const [openedFile, setOpenedFile] = React.useState<FileReport | null>(null);
   const [removingProject, setRemovingProject] = React.useState<Repo | null>(
     null,
   );
+  // Whether any of the four is up. One reading, two readers — ⌘W's stack and
+  // ⌃Tab's `blocked` — because two spellings of "a dialog is open" are two
+  // things that can come to disagree about the fifth one.
+  const anyDialogOpen =
+    creatingWorktree ||
+    planningWorktree ||
+    prunePreview !== null ||
+    removingProject !== null;
 
   const previewPrune = worktreeActions.previewPrune;
   const openPrune = React.useCallback(() => {
@@ -695,6 +631,12 @@ export function RunsScreen() {
           // chord is the toggle.
           scratch.open();
           return;
+        case "open-scratch-markdown":
+          // Opens, never toggles, for the reason the row above it does: a row
+          // called "Scratch markdown" that closed one would be a row whose label
+          // lied about what Enter does. ⌥⌘M is the toggle.
+          notepad.show();
+          return;
         case "open-cheatsheet":
           sheet.show();
           return;
@@ -732,6 +674,7 @@ export function RunsScreen() {
     [
       columns.toggleNav,
       columns.toggleSidebar,
+      notepad.show,
       openPlanWorktree,
       openPrune,
       scratch.open,
@@ -755,6 +698,16 @@ export function RunsScreen() {
     (act: PaneAct) => {
       if (act.type === "plan-to-worktree") {
         openPlanWorktree(true);
+        return;
+      }
+      // Not a request — a report, `null` path included. The Files pane is the
+      // only surface that knows what it has open, and a place is worktree + pane
+      // + file (`lib/placeMru.ts`). Nothing is opened here: acting on it would
+      // reopen the file the pane just opened. Stored as a fresh object every
+      // time, which is how the switcher tells a report that just arrived from one
+      // it is still holding from a pane that has gone.
+      if (act.type === "file-opened") {
+        setOpenedFile({ path: act.path, worktree: act.worktree });
         return;
       }
       // "Show me file X at line N in worktree W"
@@ -802,6 +755,24 @@ export function RunsScreen() {
     onCommand: runPaletteCommand,
   });
 
+  // ⌃Tab (`lib/usePlaceSwitcher.ts`). Declared after the palette because of
+  // `blocked`: a surface stacked over the workspace is a question the owner has
+  // not answered yet, and switching places while one is up would be answering
+  // it by walking away. The scratch shell is deliberately not in that list —
+  // it is a terminal over the surface rather than a question, and being in a
+  // shell is the state this gesture exists for.
+  const switcher = usePlaceSwitcher({
+    blocked: palette.open || sheet.open || anyDialogOpen,
+    file: openedFile,
+    onSelectWorktree: setSelectedWorktreeId,
+    pane: panes.state.right,
+    showPane,
+    worktreeCwd: selectedWorktreeCwd,
+    worktreeId: selectedWorktreeId,
+    worktreeIndex: index,
+    worktreeRoot,
+  });
+
   // ⌘W, and the red button with it. Neither reaches this app as a keydown
   // (lib/closeRequest.ts's header), so what arrives is the close request the
   // backend refused to act on, and this screen answers it by giving up
@@ -817,11 +788,7 @@ export function RunsScreen() {
   useCloseRequest(
     {
       cheatsheet: sheet.open,
-      dialog:
-        creatingWorktree ||
-        planningWorktree ||
-        prunePreview !== null ||
-        removingProject !== null,
+      dialog: anyDialogOpen,
       palette: palette.open,
       scratch: scratch.session !== null,
     },
@@ -971,10 +938,21 @@ export function RunsScreen() {
               worktreeRoot={worktreeRoot}
             />
           )}
+          {/* The scratch markdown buffer, in this box rather than in
+           * `WorkSurface` — it needs no worktree, so it has to be able to draw
+           * over the landing view and the triage board as well as over the panes.
+           * `z-20`, which is the scratch shell's own layer: under the palette,
+           * the sheet and the switcher (all `z-30`), over the surface. */}
+          {notepad.open ? <ScratchMarkdown buffer={notepad} /> : null}
           {/* Before the palette, so the palette draws over it at the same
            * z — ⌘K over an open sheet is a question about the workspace, and
            * the order here is the order `closeRequest.ts` gives up. */}
           <KeyCheatsheet sheet={sheet} />
+          {/* Same box, same z as the palette — see `PlaceSwitcher.tsx`'s
+           * header. Before it in the tree so that if the two ever were on
+           * screen at once the palette would be the one on top, which is the
+           * order `closeRequest.ts` already gives up. */}
+          <PlaceSwitcher switcher={switcher} worktrees={repoWorktrees} />
           <CommandPalette palette={palette} />
         </div>
       </div>

@@ -87,9 +87,38 @@ export type PaneId = (typeof PANE_IDS)[number];
  *
  * The argument does not ride on `PaneProps`. Widening the props for one pane's
  * case would make every pane pay for it, and a non-pane caller — a deep link, a
- * notification — could not use it at all. */
+ * notification — could not use it at all.
+ *
+ * `file-opened` is the third, and the first that is a **report rather than a
+ * request**: the pane is not asking for anything, it is telling the workspace
+ * where the owner now is. It exists because a *place* is worktree + pane + file
+ * (`placeMru.ts`) and the workspace can see the first two for itself — which
+ * pane is in the slot is `usePanes`', which worktree is selected is
+ * `RunsScreen`'s — while the third is only ever known inside the Files pane.
+ *
+ * A report and not a second `show-file` in the other direction: `show-file`
+ * makes something happen and this one must not, or opening a file from the tree
+ * would ask the workspace to open the file it already opened. And a report
+ * rather than a module-level signal like `filesTarget.ts`'s, because what reads
+ * it is a list that must die with the community that made it — a module-level
+ * store would need a line in `resetCommunityState()` and a seam to put it
+ * there, to hold a trail nothing is allowed to persist anyway. */
 export type PaneAct =
   | { type: "plan-to-worktree" }
+  | {
+      type: "file-opened";
+      /** The checkout's own directory, for `show-file`'s reason: two worktrees
+       * of one project both have `src/main.rs`. */
+      worktree: string;
+      /** Worktree-relative, or `null` for "this pane has nothing open".
+       *
+       * **Emptiness is a report and not a silence.** The pane is remounted by
+       * both a pane switch and a worktree switch and comes back with an empty
+       * viewer, so a pane that only ever spoke when a file was opened would
+       * leave the workspace holding a file that is no longer on screen. `null`
+       * is the surface that owns the answer saying so. */
+      path: string | null;
+    }
   | {
       type: "show-file";
       /** The checkout's own directory. A path without it is ambiguous: two

@@ -45,6 +45,7 @@ mod vingilot_files;
 mod vingilot_projects;
 mod vingilot_pty;
 mod vingilot_repo;
+mod vingilot_scratch;
 mod vingilot_search;
 mod vingilot_window;
 mod vingilot_worktree;
@@ -689,6 +690,8 @@ pub fn run() {
             vingilot_pty::pty_close,
             vingilot_pty::pty_backing,
             vingilot_repo::repo_probe,
+            vingilot_scratch::scratch_read,
+            vingilot_scratch::scratch_write,
             vingilot_search::worktree_search,
             vingilot_window::window_set_dismissible,
             vingilot_worktree::worktree_list,

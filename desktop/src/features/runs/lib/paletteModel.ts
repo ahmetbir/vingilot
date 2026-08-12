@@ -50,6 +50,11 @@ export type PaletteCommand =
    * row above it, and the reason both are here: one keeps everything, the
    * other keeps nothing (`scratchTerminal.ts`). */
   | { type: "open-scratch-terminal" }
+  /** Open the scratch markdown buffer over the work surface. The shell's sibling
+   * and the row directly under it: one throwaway shell that keeps nothing, one
+   * throwaway buffer that keeps everything (`scratchMarkdown.ts`). Opens rather
+   * than toggles, for the reason below. */
+  | { type: "open-scratch-markdown" }
   /** Put the keyboard cheatsheet on screen. Opens rather than toggles — the
    * chord is the toggle (`useCheatsheet.ts`). */
   | { type: "open-cheatsheet" }

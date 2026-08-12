@@ -42,6 +42,18 @@ export interface KeyInput {
   primaryModifier: boolean;
   shiftKey?: boolean;
   altKey?: boolean;
+  /** The raw Control key, which every map here but one deliberately ignores —
+   * `primaryModifier` is the platform-agnostic reading and is the one to use.
+   * It is here for `placeKeys.ts`, whose chord is *named after* Control (⌃⇥ is
+   * VS Code's on every platform, and ⌘⇥ is macOS's own and unreachable), and
+   * whose header argues why that one map reads the physical modifier instead. */
+  ctrlKey?: boolean;
+  /** The raw Command/Super key, here for the same one map and for the other
+   * half of its reading. `primaryModifier` cannot express "⌘ is down" off-mac —
+   * there it *is* `ctrlKey` — so a map that refuses ⌘ by refusing
+   * `primaryModifier` refuses Ctrl on Linux and Windows. `placeKeys.ts` refuses
+   * this instead, which is the same chord on every platform. */
+  metaKey?: boolean;
   /** True for the auto-repeat keydowns a held-down chord delivers. */
   repeat?: boolean;
 }
