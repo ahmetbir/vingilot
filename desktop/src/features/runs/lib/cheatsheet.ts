@@ -51,6 +51,7 @@ import { resolveDiffKey } from "./diffKeys.ts";
 import { resolvePaletteKey, resolvePaletteListKey } from "./paletteKeys.ts";
 import { resolveDividerKey, resolvePaneKey } from "./paneKeys.ts";
 import { RATIO_STEP, RATIO_STEP_COARSE } from "./paneModel.ts";
+import { resolveSearchKey } from "./searchKeys.ts";
 import type { KeyInput } from "./terminalKeys.ts";
 import { resolveKey } from "./terminalKeys.ts";
 
@@ -77,6 +78,7 @@ const KEY_MAPS: readonly KeyMap[] = [
   { module: "sheet", resolve: resolveCheatsheetKey },
   { module: "sheet-open", resolve: resolveOpenCheatsheetKey },
   { module: "palette", resolve: resolvePaletteKey },
+  { module: "search", resolve: resolveSearchKey },
   { module: "terminal", resolve: resolveKey },
   { module: "column", resolve: resolveColumnKey },
   { module: "pane", resolve: resolvePaneKey },
@@ -384,6 +386,10 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
   "pane:solo:side=right": {
     section: "panes",
     what: "give the right pane the whole surface, and back",
+  },
+  "search:open-search": {
+    section: "workspace",
+    what: "find something in this worktree's checkout — git's own search, so it reads what git reads. ⌘F is still find-in-this-channel",
   },
   "sheet-open:close-cheatsheet": {
     section: "workspace",

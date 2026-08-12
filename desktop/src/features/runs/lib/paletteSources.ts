@@ -51,6 +51,15 @@ export interface PaletteChoice {
   id: string;
   title: string;
   availability: PaneAvailability;
+  /** The chord that puts this pane on screen, or absent for a pane with none —
+   * `paneRegistry.tsx`'s `chord`, carried down by the host the same way
+   * `availability` is.
+   *
+   * It is here rather than written into a candidate below because the palette
+   * row is the door for somebody who does not know the chord, and a row that
+   * did not print it would be a door that never teaches the shortcut. Only the
+   * Search pane has one today. */
+  chord?: string;
 }
 
 /** Everything the sources are allowed to know. Facts about where the owner is,
@@ -180,7 +189,7 @@ function paneBlocked(
 export const paneSource: PaletteSource = (ctx, query) => {
   const candidates: Candidate[] = ctx.paneChoices.map((choice) => ({
     blocked: paneBlocked(choice, ctx.selectedWorktreeId),
-    chord: null,
+    chord: choice.chord ?? null,
     command: { pane: choice.id, type: "choose-pane" },
     detail: `show the ${choice.title} pane beside the terminal`,
     id: `pane:${choice.id}`,
