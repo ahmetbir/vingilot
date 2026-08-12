@@ -423,9 +423,21 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
     section: "palette",
     what: "run the row under the cursor, or ask the question",
   },
-  "palette:toggle-palette": {
+  // **The three doors, one line each** (vingilot/docs/plans/
+  // 2026-08-12-an-ide-of-a-kind.md, Task 2). One palette, three opening lists;
+  // the prefixes are on every line because a grammar taught in one place is a
+  // grammar he learns in whichever door he opened.
+  "palette:toggle-palette:door=go": {
     section: "workspace",
-    what: "the palette — go anywhere, do anything. Again to put it away",
+    what: "go anywhere — projects, worktrees, channels, the files you have opened, and every command. The same key everywhere in this app now. Type > for commands or # for channels; again to put it away",
+  },
+  "palette:toggle-palette:door=files": {
+    section: "workspace",
+    what: "open a file in this worktree, by name. Nothing else is in this list; > and # still switch, and on a screen with no checkout the key is not ours",
+  },
+  "palette:toggle-palette:door=commands": {
+    section: "workspace",
+    what: "run a command — the panes and the actions, without the places. The same list a > gets you from any door",
   },
   "place-open:cancel": {
     section: "switcher",

@@ -9,34 +9,78 @@
 
 The cheapest trust in the plan.
 
-- [ ] **Out:** "Open in editor" wherever a file is shown — Files viewer, search hit, diff file
-      row, source-control row — opening VS Code/Cursor/Zed at file:line. Detect what is
-      installed (`code`, `cursor`, `zed` CLIs; `open -a` fallback), remember the choice, never
-      guess between two. The gesture is one keystroke (`⌘⇧O`?) and a row in ⌘K.
-- [ ] **In:** a `vingilot` CLI shim, installed the way VelaTerm installs its shims (an app-owned
-      bin dir prepended to *our* terminals' PATH; an explicit "install to /usr/local/bin" action
-      for outside terminals — never a silent write outside the app's own dirs).
-      `vingilot .` opens the app on this directory: if it is a known project, select it in the
-      Deck; if it is a worktree of one, land on that worktree; if unknown, open the add-project
-      flow pre-filled. `vingilot <file>[:line]` lands in the Files viewer. The owner marked
-      `vingilot .` as "belki" — build the shim for files first, and the `.` behaviour behind it.
-- [ ] Tests: the target-resolution logic (path → project/worktree/file) is pure and unit-tested;
-      the shim is exercised by a test that runs it against a fake `open` recorder.
+- [x] **Out:** "Open in editor" wherever a file is shown — Files viewer header, search hit,
+      diff file row, source-control (status) row — opening Cursor/VS Code/Zed at file:line.
+      `vingilot_editor` probes `cursor`, `code`, `zed` on PATH *and* in the well-known install
+      locations (`tmux.rs`'s rule: a Finder-launched app has no login shell's PATH), caches the
+      answer for the app run, and launches with an **arg vector** — never a shell string. The
+      webview names only a validated editor id (`vingilot_scratch`'s closed-route model); the
+      file goes through `vingilot_files::inside`. The choice is remembered in
+      `lib/editors.ts` (diff-mode's storage shape) and is asked exactly once when several are
+      installed. **`open -a` is not a fallback**: it cannot carry a line, and file:line is the
+      whole rung — no editor found is `vingilot_editor::no_editor`'s sentence.
+- [x] **Chord: none, and the check is why.** ⇧⌘O is upstream's (`AppShell.tsx`, `key === "o"
+      && event.shiftKey`). ⌥⌘O passes the documentary half of the claimant check — not in
+      muda's table, not an ⌥-variant AppKit synthesizes (that rule is Window-menu items; ⌘O is
+      not one), held by no map in this island — but the empirical half cannot be run without
+      launching the app, and ⌘W and ⌥⌘M were both lost to claimants a *reading* could not see.
+      The gesture is also per-row: a window-level key would have to guess which of four
+      surfaces is its subject. So: buttons on the four surfaces, plus a ⌘K row. Argued in
+      `ui/OpenInEditor.tsx`'s header.
+- [x] **In:** a `vingilot` CLI shim (`vingilot_shim`), five lines of `#!/bin/sh` in
+      `~/.vingilot/bin`, prepended to **our** terminals' PATH by `vingilot_pty`'s spawn env.
+      ⌘K *"Install vingilot command…"* symlinks it into `/usr/local/bin` after he asks, and
+      prints the `ln -s` line when the directory refuses — nothing here runs `sudo`.
+      `vingilot <file>[:line]` lands in the Files viewer; `vingilot .` resolves against known
+      projects and worktrees (`lib/openTarget.ts`, pure). One honest gap: the OS folder picker
+      takes no starting path, so an unknown directory gets the sentence naming it *and* the
+      add-project dialog, rather than a pre-filled one.
+- [x] Tests: `lib/openTarget.test.mjs` (resolution) and `lib/editors.test.mjs` (the pick) are
+      pure; `vingilot_editor`'s cargo tests cover every refusal; `vingilot_shim`'s
+      `recorder_tests.rs` runs the **shipped script** under `/bin/sh` with `VINGILOT_OPEN`
+      pointed at a recorder; `tests/e2e/workspace-open-in-editor.spec.ts` reads the button, the
+      ask-once menu, the disabled no-editor control and the door in.
+
+### How the shim reaches the app — the choice, and what was rejected
+
+**Chosen: `buzz://open?arg=…&cwd=…`, handed to `/usr/bin/open`.** Least new surface by a wide
+margin, because it adds none: the `buzz://` scheme is already registered by the bundle,
+`deep_link.rs` already parses and dispatches those URLs, and macOS already routes them to the
+running instance (launching it first when it is down, which is what a terminal command should
+do anyway). The seam in `deep_link.rs` is one arm; the parameters, the resolution and the
+payload live in `vingilot_shim`.
+
+Rejected:
+
+- **A 127.0.0.1 HTTP listener** (the media proxy already binds one). Needs a new inbound
+  socket, a port the shim can discover (a port file, with its staleness problem) and a token —
+  a loopback port is reachable by every process on the machine, so "show this file" becomes an
+  unauthenticated local RPC unless defended. Three mechanisms and a trust boundary, for a
+  message the OS carries for free.
+- **A new `vingilot://` scheme.** A second registration in `Info.plist` and `tauri.conf.json`,
+  a second scheme for macOS to arbitrate between two installed builds, and a rename to do
+  twice when the fork's rebrand lands.
+- **A unix socket or a drop file under `~/.vingilot`.** The same discovery and staleness
+  problems as the port, plus a lifecycle (who removes the socket after a crash) and a watcher
+  in the app — and it cannot start the app, which `open` does.
+
+The one cost: `open` returns to the shim before the app answers, so a refusal cannot be printed
+in the terminal. That is why the refusal is a sentence *in the app* (`escape-hatch-notice`).
 
 ## Task 2 — One palette engine, three doors
 
-- [ ] Extract the workspace palette's engine (input, ranking, keyboard loop, row rendering) so
+- [x] Extract the workspace palette's engine (input, ranking, keyboard loop, row rendering) so
       it can host multiple *sources* — it already half-does this (`paletteSources.ts`).
-- [ ] **⌘K = go**, one behaviour app-wide: channels (upstream's switcher entries), projects,
+- [x] **⌘K = go**, one behaviour app-wide: channels (upstream's switcher entries), projects,
       worktrees, recent files. This replaces the route-split where ⌘K means upstream's dialog in
       chat and ours in the workspace — the owner named it: *"cmd k buzz kısmında farklı deck
       kısmında farklı çalışıyor."* Hosting upstream's channel list as a source, not rewriting
       their dialog (ADR-001 discipline; seams entry for the swap point).
-- [ ] **⌘P = files** in the selected worktree (the Files pane's listing is the source),
+- [x] **⌘P = files** in the selected worktree (the Files pane's listing is the source),
       **⌘⇧P = commands** (today's actions). Prefix grammar inside any door: `>` commands,
       `#` channels — VS Code's own.
-- [ ] The cheatsheet and the palette teach the grammar (one hint row, not a tutorial).
-- [ ] Tests: source-merging and prefix routing unit-tested; a spec per door; the chat-side ⌘K
+- [x] The cheatsheet and the palette teach the grammar (one hint row, not a tutorial).
+- [x] Tests: source-merging and prefix routing unit-tested; a spec per door; the chat-side ⌘K
       spec updated deliberately (its old assertion described the split this removes).
 
 ## Task 3 — Light editing in the viewer

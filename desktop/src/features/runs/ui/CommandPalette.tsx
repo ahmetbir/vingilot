@@ -61,14 +61,17 @@
 import * as React from "react";
 import {
   Ban,
+  FileCode,
   FolderGit2,
   GitBranch,
+  Hash,
   PanelRight,
   Zap,
   type LucideIcon,
 } from "lucide-react";
 
 import type { Ask } from "@/features/runs/lib/askMode";
+import type { PaletteHint } from "@/features/runs/lib/paletteDoors";
 import { resolvePaletteListKey } from "@/features/runs/lib/paletteKeys";
 import type {
   MatchRange,
@@ -122,6 +125,11 @@ function Marked({
  * keep in step. */
 const KIND_ICON: Record<PaletteKind, LucideIcon> = {
   action: Zap,
+  // A hash for a channel — the mark every chat product in the owner's day uses
+  // for the same noun, including this one's own sidebar. Borrowing it is what
+  // makes a channel row legible in a list of worktrees without reading it.
+  channel: Hash,
+  file: FileCode,
   pane: PanelRight,
   project: FolderGit2,
   worktree: GitBranch,
@@ -225,8 +233,10 @@ export function CommandPalette({ palette }: { palette: Palette }) {
     ask,
     close,
     cursor,
+    hints,
     moveCursor,
     open,
+    placeholder,
     query,
     run,
     runCursor,
@@ -299,17 +309,18 @@ export function CommandPalette({ palette }: { palette: Palette }) {
         data-testid="palette"
       >
         <input
-          aria-label={
-            ask === null
-              ? "go somewhere, or do something"
-              : "ask about this worktree"
-          }
+          aria-label={ask === null ? placeholder : "ask about this worktree"}
           autoCapitalize="none"
           autoCorrect="off"
           className="w-full shrink-0 border-b border-border/60 bg-transparent px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
           data-testid="palette-input"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Go somewhere, or do something… (? to ask)"
+          // Names the door rather than the app, and it is the only thing on
+          // screen that does — the surface is identical in all four modes on
+          // purpose (`paletteDoors.ts`), so this line and the hint row below
+          // are what keep "which list is this" answerable without pressing
+          // anything.
+          placeholder={placeholder}
           ref={inputRef}
           spellCheck={false}
           type="text"
@@ -349,7 +360,48 @@ export function CommandPalette({ palette }: { palette: Palette }) {
             ))}
           </ul>
         )}
+        {ask === null ? <HintRow hints={hints} /> : null}
       </div>
+    </div>
+  );
+}
+
+/** **The three doors, one line each** — the whole of what this surface teaches
+ * about the grammar (`paletteDoors.ts`, Task 2's "one hint row, not a
+ * tutorial").
+ *
+ * It is a footer rather than an empty-state, because the state it has to be
+ * read in is the one where the list is *wrong*: he pressed ⌘K, got projects,
+ * and wants commands. A hint that only appeared over an empty box would be
+ * absent exactly then.
+ *
+ * The mode he is standing in is not offered, and neither is a door this host
+ * has no sources for — both cuts are `paletteHints`', handed down through
+ * `palette.hints` so this surface never has to know what a host can answer for.
+ * A row that offered ⌘P on a chat route would be teaching a chord that
+ * deliberately falls through there. What is left is one to three ways out,
+ * drawn as keys in the same boxes the rows draw their chords in, so the one
+ * vocabulary for "press this" holds across the whole surface.
+ *
+ * With nothing left to teach the row does not draw: a rule with no lines in it
+ * is a border, and a border under a list is a division that means nothing. */
+function HintRow({ hints }: { hints: readonly PaletteHint[] }) {
+  if (hints.length === 0) return null;
+  return (
+    <div
+      className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-3 py-1.5"
+      data-testid="palette-hints"
+    >
+      {hints.map((hint) => (
+        <span
+          className="flex items-center gap-1 text-2xs text-muted-foreground/80"
+          data-testid={`palette-hint-${hint.what}`}
+          key={hint.what}
+        >
+          <Chord chord={hint.key} />
+          {hint.what}
+        </span>
+      ))}
     </div>
   );
 }

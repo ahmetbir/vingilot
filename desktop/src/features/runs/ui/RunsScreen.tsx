@@ -71,7 +71,6 @@ import {
   worktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
 import type {
-  PaneAct,
   PaneContext,
   PaneFacts,
   PaneId,
@@ -81,8 +80,6 @@ import {
   rightChoices,
 } from "@/features/runs/lib/paneModel";
 import { ask } from "@/features/runs/lib/askRunner";
-import { requestFile } from "@/features/runs/lib/filesTarget";
-import type { PaletteCommand } from "@/features/runs/lib/paletteModel";
 import type {
   PaletteChoice,
   PaletteContext,
@@ -94,7 +91,15 @@ import {
   POLL_INTERVAL_MS,
   useControlPlane,
 } from "@/features/runs/lib/useControlPlane";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { usePalette } from "@/features/runs/lib/usePalette";
+import { usePaletteCommands } from "@/features/runs/lib/usePaletteCommands";
+import { usePaneActs } from "@/features/runs/lib/usePaneActs";
+import {
+  openFileFromPalette,
+  useWorkspacePalette,
+} from "@/features/runs/lib/useWorkspacePalette";
+import { useEscapeHatch } from "@/features/runs/lib/useEscapeHatch";
 import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
 import { useSearchChord } from "@/features/runs/lib/useSearchChord";
@@ -206,6 +211,9 @@ export function RunsScreen() {
   // (every terminal's cwd derives from it) and what is keeping terminals alive
   // (`lib/useMachineFacts.ts`, which also carries why a *failure* is an answer).
   const { rootSettled, terminalBacking, worktreeRoot } = useMachineFacts();
+  // Where a ⌘K channel row goes — upstream's own navigation, the same call
+  // their switcher makes (ADR-001: host their list, do not re-route it).
+  const { goChannel } = useAppNavigation();
 
   const [selectedRepoId, setSelectedRepoId] = React.useState<string | null>(
     null,
@@ -573,159 +581,113 @@ export function RunsScreen() {
     };
   });
 
+  // The escape hatch, both directions
+  // (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md, Task 1). The two
+  // gestures and the one sentence surface they share are
+  // `lib/useEscapeHatch.ts`; what this screen contributes is the state they act
+  // on — which project is open, which file the viewer reported, and where the
+  // executor checks worktrees out.
+  const hatch = useEscapeHatch({
+    addProject: projectActions.addProject,
+    openedFile,
+    repoWorktrees,
+    repos,
+    selectRepo,
+    selectWorktree: setSelectedWorktreeId,
+    selectedRepo,
+    showFiles: () => showPane("files"),
+    worktreeRoot,
+  });
+
+  // The four sources this screen did not already hold — channels, recent
+  // files, this worktree's listing — and the wires that make ⌘K one gesture
+  // app-wide (`lib/useWorkspacePalette.ts`, Task 2).
+  const workspacePalette = useWorkspacePalette({
+    repos,
+    selectRepo,
+    selectWorktree: setSelectedWorktreeId,
+    showFiles: () => showPane("files"),
+    worktreeCwd: selectedWorktreeCwd,
+    worktrees: repoWorktrees,
+  });
+
+  // Built after the hatch because one row is a reading of what the hatch read:
+  // "Install vingilot command…" over a link that is already there would be an
+  // offer to do work that is done (`paletteSources.ts`'s `shim`).
   const paletteContext: PaletteContext = {
+    channels: workspacePalette.channels,
     navCollapsed: columns.navCollapsed,
+    // The file the viewer reported, and only while that report is still a
+    // reading of the pane on screen — the same `openedFile` the place switcher
+    // reads, not a second answer to "which file is open".
+    openFile:
+      openedFile !== null && openedFile.worktree === selectedWorktreeCwd
+        ? openedFile.path
+        : null,
     paneChoices,
     prunable: prunableWorktrees(repoWorktrees).length,
+    recentFiles: workspacePalette.recentFiles,
     repos,
     selectedRepoId,
     selectedWorktreeId,
+    shim: hatch.shim,
     sidebarCollapsed: columns.sidebarCollapsed,
     solo: panes.state.solo,
     worktreeCwd: selectedWorktreeCwd,
     worktreeCwdPending: !rootSettled,
+    worktreeFiles: workspacePalette.worktreeFiles,
     worktrees: repoWorktrees,
   };
 
   // Every command the palette can produce, run against the actions that
-  // already exist. Nothing new is reachable from here — a palette that could
-  // do something no button could would be a second implementation of it.
-  const runPaletteCommand = React.useCallback(
-    (command: PaletteCommand) => {
-      switch (command.type) {
-        case "open-landing":
-          selectLanding();
-          return;
-        case "open-project":
-          selectRepo(command.repoId);
-          return;
-        case "open-worktree":
-          setSelectedWorktreeId(command.bindingId);
-          return;
-        case "choose-pane": {
-          // Narrowed against the model's own list rather than cast: the
-          // command carries a string so `paletteSources.ts` needs no import
-          // from the pane registry, and an id that is not a pane must land as
-          // nothing rather than as a lookup on a key that does not exist.
-          const pane: PaneId | undefined = rightChoices().find(
-            (id) => id === command.pane,
-          );
-          if (pane !== undefined) panes.choose(pane);
-          return;
-        }
-        case "new-worktree":
-          setCreatingWorktree(true);
-          return;
-        case "plan-to-worktree":
-          // The same dialog the Plan pane's button opens, and it is what reads
-          // the plan — so a palette row cannot act on a plan the owner has
-          // edited since the row was drawn.
-          if (selectedRepo !== null) openPlanWorktree(true);
-          return;
-        case "new-terminal-tab":
-          runTabCommand({ type: "new" });
-          return;
-        case "open-scratch-terminal":
-          // Opens, never toggles: a row called "Scratch terminal" that closed
-          // one would be a row whose label lied about what Enter does. The
-          // chord is the toggle.
-          scratch.open();
-          return;
-        case "open-scratch-markdown":
-          // Opens, never toggles, for the reason the row above it does: a row
-          // called "Scratch markdown" that closed one would be a row whose label
-          // lied about what Enter does. ⇧⌘M is the toggle.
-          notepad.show();
-          return;
-        case "open-cheatsheet":
-          sheet.show();
-          return;
-        case "add-project":
-          projectActions.addProject();
-          return;
-        case "remove-project":
-          // Straight to the same confirm the × on a project row opens. The
-          // palette never removes anything itself: the exact words of that
-          // interruption are a tested promise (`lib/repoChoice.ts`).
-          if (selectedRepo !== null) setRemovingProject(selectedRepo);
-          return;
-        case "prune-worktrees":
-          openPrune();
-          return;
-        case "toggle-sidebar":
-          columns.toggleSidebar();
-          return;
-        case "toggle-nav":
-          columns.toggleNav();
-          return;
-        case "toggle-solo":
-          panes.toggleSolo(command.side);
-          return;
-        case "ask":
-          // The palette refuses an ask with no directory (`askMode.ts`), so
-          // this is the same fact read twice rather than a second rule.
-          if (selectedWorktreeCwd === null) return;
-          // Where the answer lands, brought forward (`lib/useShowPane.ts`).
-          showPane("agent");
-          void ask(selectedWorktreeCwd, command.question);
-          return;
-      }
+  // already exist — the table itself is `lib/usePaletteCommands.ts`, split out
+  // when this file reached the 1000-line ratchet. Nothing new is reachable
+  // through it: every field below is a handler some button already calls.
+  const runPaletteCommand = usePaletteCommands({
+    addProject: projectActions.addProject,
+    ask: (cwd, question) => void ask(cwd, question),
+    choosePane: (id) => {
+      // Narrowed against the registry's own list rather than cast: the command
+      // carries a string so `paletteSources.ts` needs no import from the pane
+      // registry, and an id that is not a pane must land as nothing.
+      const pane: PaneId | undefined = rightChoices().find(
+        (known) => known === id,
+      );
+      if (pane !== undefined) panes.choose(pane);
     },
-    [
-      columns.toggleNav,
-      columns.toggleSidebar,
-      notepad.show,
-      openPlanWorktree,
-      openPrune,
-      scratch.open,
-      panes.choose,
-      panes.toggleSolo,
-      projectActions.addProject,
-      runTabCommand,
-      selectedRepo,
-      selectedWorktreeCwd,
-      selectLanding,
-      selectRepo,
-      sheet.show,
-      showPane,
-    ],
-  );
+    installShim: hatch.installShim,
+    newTerminalTab: () => runTabCommand({ type: "new" }),
+    newWorktree: () => setCreatingWorktree(true),
+    openChannel: (channelId) => void goChannel(channelId),
+    openCheatsheet: sheet.show,
+    openFile: (worktree, path, line) =>
+      openFileFromPalette(worktree, path, line, () => showPane("files")),
+    openInEditor: hatch.openCurrentFileInEditor,
+    openLanding: selectLanding,
+    openPlanWorktree: () => openPlanWorktree(true),
+    openPrune,
+    openScratchMarkdown: notepad.show,
+    openScratchTerminal: scratch.open,
+    removeProject: setRemovingProject,
+    selectRepo,
+    selectWorktree: setSelectedWorktreeId,
+    selectedRepo,
+    selectedWorktreeCwd,
+    showPane: (pane) => showPane(pane as PaneId),
+    toggleNav: columns.toggleNav,
+    toggleSidebar: columns.toggleSidebar,
+    toggleSolo: panes.toggleSolo,
+  });
 
-  // What a pane asks the workspace for. Each act lands on the same state the
-  // palette's command does — a pane is a second door, not a second
-  // implementation.
-  const runPaneAct = React.useCallback(
-    (act: PaneAct) => {
-      if (act.type === "plan-to-worktree") {
-        openPlanWorktree(true);
-        return;
-      }
-      // Not a request — a report, `null` path included. The Files pane is the
-      // only surface that knows what it has open, and a place is worktree + pane
-      // + file (`lib/placeMru.ts`). Nothing is opened here: acting on it would
-      // reopen the file the pane just opened. Stored as a fresh object every
-      // time, which is how the switcher tells a report that just arrived from one
-      // it is still holding from a pane that has gone.
-      if (act.type === "file-opened") {
-        setOpenedFile({ path: act.path, worktree: act.worktree });
-        return;
-      }
-      // "Show me file X at line N in worktree W"
-      // (vingilot/docs/plans/2026-08-12-files-pane-design.md, §6), and the
-      // Search pane's results are the second caller of it.
-      //
-      // The target is filed BEFORE the pane is brought forward, on purpose: the
-      // pane reads whatever is pending on mount, so the order is what makes a
-      // request from a pane that is not yet on screen work at all.
-      requestFile({
-        line: act.line,
-        path: act.path,
-        worktree: act.worktree,
-      });
-      showPane("files");
-    },
-    [openPlanWorktree, showPane],
-  );
+  // What a pane asks the workspace for — the table is `lib/usePaneActs.ts`,
+  // split out at the ratchet. Each act lands on the same state the palette's
+  // command does: a pane is a second door, not a second implementation.
+  const runPaneAct = usePaneActs({
+    openPlanWorktree: () => openPlanWorktree(true),
+    rememberOpenFile: workspacePalette.rememberOpenFile,
+    reportFile: setOpenedFile,
+    showFiles: () => showPane("files"),
+  });
 
   // ⇧⌘F. Choosing a pane already chosen is a no-op, which is what the Search
   // pane's own listener on this chord is for — it re-focuses the field.
@@ -752,8 +714,19 @@ export function RunsScreen() {
       inFlight: askInFlight,
     },
     context: paletteContext,
+    // Which doors this screen answers to. ⌘P is here and falls through on a
+    // screen with no checkout under it (`lib/usePalette.ts`'s `offers`).
+    offers: workspacePalette.offers,
     onCommand: runPaletteCommand,
   });
+
+  // The one direction the files listing cannot flow during render: the door and
+  // the query live inside the palette, and the listing is an input to it. See
+  // `lib/useWorkspacePalette.ts`'s header — deepening is allowed to arrive a
+  // render late because it is progressive by construction.
+  React.useEffect(() => {
+    workspacePalette.setQuery(palette.mode === "files" ? palette.query : "");
+  }, [palette.mode, palette.query, workspacePalette.setQuery]);
 
   // ⌃Tab (`lib/usePlaceSwitcher.ts`). Declared after the palette because of
   // `blocked`: a surface stacked over the workspace is a question the owner has
@@ -958,6 +931,28 @@ export function RunsScreen() {
            * `z-20`, which is the scratch shell's own layer: under the palette,
            * the sheet and the switcher (all `z-30`), over the surface. */}
           {notepad.open ? <ScratchMarkdown buffer={notepad} /> : null}
+          {hatch.notice === null ? null : (
+            // The escape hatch's one sentence surface (`useEscapeHatch.ts`).
+            // Bottom-left rather than centred: it is an answer to something he
+            // did, not a question, and the middle of the surface is where the
+            // palette and the switcher live. `z-10` — under all four of those,
+            // over the panes.
+            <p
+              className="absolute bottom-2 left-2 z-10 flex max-w-lg items-baseline gap-2 rounded-sm border border-border/60 bg-popover px-2 py-1 text-2xs text-muted-foreground shadow-lg"
+              data-testid="escape-hatch-notice"
+            >
+              <span className="min-w-0">{hatch.notice}</span>
+              <button
+                aria-label="Dismiss"
+                className="ml-auto shrink-0 rounded-sm px-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                data-testid="escape-hatch-notice-dismiss"
+                onClick={hatch.dismissNotice}
+                type="button"
+              >
+                ×
+              </button>
+            </p>
+          )}
           {/* Before the palette, so the palette draws over it at the same
            * z — ⌘K over an open sheet is a question about the workspace, and
            * the order here is the order `closeRequest.ts` gives up. */}

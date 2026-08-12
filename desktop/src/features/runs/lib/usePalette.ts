@@ -28,10 +28,19 @@
 //   `stopImmediatePropagation`: other capture listeners on `window` are none
 //   of this module's business.
 //
-// The claim is only as wide as this hook's lifetime, and this hook is
-// `RunsScreen`'s — mounted on /workspace and nowhere else. Every other screen
-// keeps ⌘K for upstream's search, and the sidebar's "Search everything" button
-// still opens it with a click on this screen too.
+// The claim is as wide as this hook's lifetime, and there are now **two**
+// hosts of it: `RunsScreen`'s, on /workspace, and `ShellPalette`'s, mounted at
+// the root route for every other screen (`paletteClaim.ts` is what keeps
+// exactly one of them bound at a time). So ⌘K is one gesture app-wide — which
+// is Task 2's whole subject, and the owner's *"cmd k buzz kısmında farklı deck
+// kısmında farklı çalışıyor"*.
+//
+// **Upstream's search is not removed, it is inside.** Its channel list is a
+// source here (`paletteSources.ts`'s `channelSource`, read from the same
+// `useChannelsQuery` its own dialog reads), a channel row navigates through the
+// same `goChannel`, and the sidebar's "Search everything" button still opens
+// their dialog with a click on every screen including this one. What changed is
+// which surface a key lands on, not which surfaces exist.
 
 import * as React from "react";
 
@@ -41,6 +50,19 @@ import {
   askState,
   readAsk,
 } from "@/features/runs/lib/askMode";
+import {
+  composerHoldsGo,
+  readComposerCaret,
+} from "@/features/runs/lib/composerClaim";
+import {
+  type PaletteDoor,
+  type PaletteHint,
+  paletteHints,
+  type PaletteMode,
+  palettePlaceholder,
+  type PaletteSourceId,
+  readPaletteQuery,
+} from "@/features/runs/lib/paletteDoors";
 import { resolvePaletteKey } from "@/features/runs/lib/paletteKeys";
 import {
   assembleView,
@@ -52,7 +74,8 @@ import {
   type PaletteContext,
   paletteMatches,
   type PaletteSource,
-  PALETTE_SOURCES,
+  sourceIdsForMode,
+  sourcesForMode,
 } from "@/features/runs/lib/paletteSources";
 import {
   readRecents,
@@ -64,6 +87,22 @@ import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 export interface Palette {
   open: boolean;
   query: string;
+  /** Which chord opened it. */
+  door: PaletteDoor;
+  /** Which sources the list is showing — the door, unless a `>` or a `#` moved
+   * it (`paletteDoors.ts`). */
+  mode: PaletteMode;
+  /** The prefix in force, or `null`. */
+  prefix: string | null;
+  /** What the empty field says, which is the only thing on screen naming the
+   * list underneath it. */
+  placeholder: string;
+  /** The doors the hint row may teach here: never the one he is standing in,
+   * and never one this host has no sources for. Assembled here rather than in
+   * the surface because `offers` is this hook's — a component that had to be
+   * handed the host's capabilities to draw a footer would be a second place
+   * that knows what a host can answer for. */
+  hints: readonly PaletteHint[];
   /** The ask the query describes, or `null` while the query is a filter. When
    * it is set the list is empty and the palette is answering a different
    * question — see `askMode.ts`. */
@@ -98,17 +137,31 @@ interface Options {
    * asked again — two answers to "is there an agent?" is one too many. */
   ask: Omit<AskInputs, "question">;
   onCommand: (command: PaletteCommand) => void;
-  /** Overridable for tests and for nothing else. */
+  /** Overridable for tests and for nothing else. When given it replaces the
+   * mode's own list, which is why it is not the way a door is selected. */
   sources?: readonly PaletteSource[];
+  /** **What this host can answer for**, by source name, or `undefined` for
+   * everything (`paletteSources.ts`'s `sourcesForMode`).
+   *
+   * It does two jobs, and they are one rule: it narrows the list a door shows,
+   * and — because a door whose sources are all absent has nothing to show at
+   * all — it decides **which chords this host answers to**. ⌘P on a chat route
+   * is the case that matters: with no worktree there are no files, so the chord
+   * is neither resolved nor prevented and falls through untouched. A chord this
+   * app answers with an empty box is a chord the owner learns not to press,
+   * which is the opposite of a muscle memory. */
+  offers?: readonly PaletteSourceId[];
 }
 
 export function usePalette({
   ask: askInputs,
   context,
+  offers,
   onCommand,
-  sources = PALETTE_SOURCES,
+  sources,
 }: Options): Palette {
   const [open, setOpen] = React.useState(false);
+  const [door, setDoor] = React.useState<PaletteDoor>("go");
   const [query, setQueryState] = React.useState("");
   const [cursor, setCursorState] = React.useState(0);
   const [recents, setRecents] = React.useState<string[]>(readRecents);
@@ -120,7 +173,12 @@ export function usePalette({
   // Assembled only while the palette is on screen: the sources walk every
   // project, worktree and pane, and this hook lives on a component that
   // re-renders on a 2s poll.
-  const trimmed = query.trim();
+  // Which sources the field is currently pointed at, and the text with the
+  // prefix taken off. The grammar is a pure function of the door and the raw
+  // query (`paletteDoors.ts`), which is why it is read during render rather
+  // than held: there is no way to be in a mode the field does not say, and no
+  // way to leave one except by deleting the character that chose it.
+  const { mode, prefix, query: trimmed } = readPaletteQuery(door, query);
   // Ask mode is the query's own shape, not a second piece of state: there is no
   // way to be in it with a query that is not a question, and no way to leave it
   // except by deleting the prefix — which is the same gesture that put it on.
@@ -130,7 +188,11 @@ export function usePalette({
   const view =
     open && ask === null
       ? assembleView(
-          paletteMatches(context, trimmed, sources),
+          paletteMatches(
+            context,
+            trimmed,
+            sources ?? sourcesForMode(mode, offers),
+          ),
           trimmed,
           recents,
         )
@@ -183,6 +245,13 @@ export function usePalette({
     });
   }, [run]);
 
+  // The doors this host will answer to, read through a ref so the listener
+  // below is still bound once for the life of the hook — it is registered over
+  // a screen that re-renders on a 2s poll, and a re-register drops the events
+  // that land in the gap.
+  const doorsOpen = React.useRef({ door, offers });
+  doorsOpen.current = { door, offers };
+
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const action = resolvePaletteKey({
@@ -193,18 +262,48 @@ export function usePalette({
         shiftKey: event.shiftKey,
       });
       if (action === null) return;
+      // **The fall-through.** A door this host has no source for is not this
+      // hook's chord: it is neither prevented nor stopped, so ⌘P on a chat
+      // route reaches whatever else wants it. See `Options.offers`.
+      if (
+        sourceIdsForMode(action.door, doorsOpen.current.offers).length === 0
+      ) {
+        return;
+      }
+      // **The second fall-through: upstream's composer keeps the ⌘K it
+      // actually uses.** Its link editor claims the chord at the element level
+      // and only when the shortcut applies, and a capture listener that stopped
+      // propagation here would take it unconditionally — see
+      // `composerClaim.ts`, which is the claimant check re-run for the app-wide
+      // scope. Read from the document rather than from state: the answer is
+      // about where the caret is *at this keystroke*.
+      if (
+        action.door === "go" &&
+        composerHoldsGo(readComposerCaret(event.target, window.getSelection()))
+      ) {
+        return;
+      }
       // See this file's header: both calls, and why each is there.
       event.preventDefault();
       event.stopPropagation();
       setOpen((prev) => {
-        // Opening is always onto a fresh query. A palette that reopened
-        // holding the last search would answer a question the owner asked
-        // minutes ago, and he would have to clear it before he could ask his.
-        if (!prev) {
+        // **A second chord on an open palette changes the list, it does not
+        // close it.** ⌘P from an open ⌘K is "no, files" — a surface that shut
+        // and reopened there would flicker, and one that ignored the chord
+        // would make the doors reachable only from a closed palette. Closing is
+        // still what the *same* chord does, which is the way out the owner
+        // already knows.
+        const next = prev ? action.door !== doorsOpen.current.door : true;
+        // Opening — or switching — is always onto a fresh query. A palette that
+        // reopened holding the last search would answer a question the owner
+        // asked minutes ago, and he would have to clear it before he could ask
+        // his.
+        if (next) {
+          setDoor(action.door);
           setQueryState("");
           setCursorState(0);
         }
-        return !prev;
+        return next;
       });
     }
 
@@ -217,6 +316,9 @@ export function usePalette({
     ask,
     close,
     cursor: safeCursor,
+    door,
+    hints: paletteHints(mode, offers),
+    mode,
     moveCursor: React.useCallback((delta: number) => {
       setCursorState((prev) => {
         const rows = latest.current.rows.length;
@@ -224,6 +326,8 @@ export function usePalette({
       });
     }, []),
     open,
+    placeholder: palettePlaceholder(mode),
+    prefix,
     query,
     run,
     runCursor,

@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   actionSource,
+  channelSource,
   paletteMatches,
   paneSource,
   projectSource,
+  recentFileSource,
+  sourceIdsForMode,
+  sourcesForMode,
+  worktreeFileSource,
   worktreeSource,
 } from "./paletteSources.ts";
+import { rankMatches } from "./paletteModel.ts";
 
 const REPOS = [
   { id: "p1", name: "vingilot", path: "/Users/me/vingilot" },
@@ -47,11 +53,13 @@ const PANES = [
 function ctx(overrides = {}) {
   return {
     navCollapsed: false,
+    openFile: null,
     paneChoices: PANES,
     prunable: 0,
     repos: REPOS,
     selectedRepoId: "p1",
     selectedWorktreeId: "main:p1",
+    shim: null,
     sidebarCollapsed: false,
     solo: null,
     worktrees: [
@@ -313,4 +321,214 @@ test("the union is produced in source order: where you can go, then what you can
   assert.ok(all.indexOf("worktree:main:p1") > all.indexOf("project:landing"));
   assert.ok(all.indexOf("pane:diff") > all.indexOf("worktree:wt-1"));
   assert.ok(all.indexOf("action:new-worktree") > all.indexOf("pane:agent"));
+});
+
+test("the escape hatch's row is blocked on the FILE, not on the pane", () => {
+  // The pane can be on screen with nothing in it — that is its own designed
+  // empty state — and this row acts on a file:line. Blocking on the pane would
+  // offer a door onto nothing.
+  const shut = row(actionSource(ctx(), ""), "action:open-in-editor");
+  assert.match(shut.blocked, /no file is open in the viewer/);
+  // And the sentence says where the other doors are, because they are the ones
+  // that work right now.
+  assert.match(shut.blocked, /search hit|changed file/);
+
+  const open = row(
+    actionSource(ctx({ openFile: "src/main.rs" }), ""),
+    "action:open-in-editor",
+  );
+  assert.equal(open.blocked, null);
+  // The detail names the file, so Enter is a promise about which one.
+  assert.match(open.detail, /src\/main\.rs/);
+});
+
+test("installing the shell command needs nothing and is never automatic", () => {
+  // Needs no project and no worktree. Never automatic: the whole reason it is
+  // a row is that it writes outside this app's own directories, which is the
+  // owner's decision (ADR-003).
+  const install = row(actionSource(ctx(), ""), "action:install-shim");
+  assert.equal(install.blocked, null);
+  assert.equal(install.chord, null);
+  assert.match(install.label, /Install vingilot command…/);
+  // The detail says both halves: what it does outside, and what already works
+  // inside.
+  assert.match(install.detail, /\/usr\/local\/bin/);
+  assert.match(install.detail, /this app's own terminals already have it/);
+});
+
+test("the shell command's row reads the disk before it offers to install", () => {
+  const status = {
+    linkPath: "/usr/local/bin/vingilot",
+    linked: true,
+    shimPath: "/Users/me/.vingilot/bin/vingilot",
+  };
+
+  // Linked: the label is a statement, not an offer, and the row is blocked for
+  // the reason "nothing to prune" is — the work it names has been done.
+  const done = row(
+    actionSource(ctx({ shim: status }), ""),
+    "action:install-shim",
+  );
+  assert.match(done.label, /vingilot command installed/);
+  assert.doesNotMatch(done.label, /Install/);
+  // Both ends of the link, in the sentence rather than the detail: a blocked
+  // row shows its reason INSTEAD of its detail, so this is the only line the
+  // owner can check "installed" against.
+  assert.match(done.blocked, /\/usr\/local\/bin\/vingilot/);
+  assert.match(done.blocked, /\/Users\/me\/\.vingilot\/bin\/vingilot/);
+  assert.match(done.blocked, /nothing left to install/);
+
+  // Not linked, and not yet known, are the same row: a status that has not
+  // answered must never be read as "installed".
+  for (const shim of [{ ...status, linked: false }, null]) {
+    const offer = row(actionSource(ctx({ shim }), ""), "action:install-shim");
+    assert.match(offer.label, /Install vingilot command…/);
+    assert.equal(offer.blocked, null);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The three doors' new sources (vingilot/docs/plans/
+// 2026-08-12-an-ide-of-a-kind.md, Task 2).
+// ---------------------------------------------------------------------------
+
+const CHANNELS = [
+  { dm: false, id: "c-general", name: "general", topic: "everything else" },
+  { dm: false, id: "c-eng", name: "engineering", topic: null },
+  { dm: true, id: "c-alice", name: "alice", topic: null },
+];
+
+const FILES = [
+  { line: 12, path: "src/main.rs", worktree: "/w" },
+  { line: null, path: "src/features/runs/lib/paletteModel.ts", worktree: "/w" },
+];
+
+test("a channel keeps its hash and a direct message keeps its person", () => {
+  // Both are how this app writes them everywhere else; a palette that renamed
+  // them would be a second vocabulary for one set of places.
+  const found = channelSource(ctx({ channels: CHANNELS }), "");
+  assert.deepEqual(ids(found), [
+    "channel:c-general",
+    "channel:c-eng",
+    "channel:c-alice",
+  ]);
+  assert.equal(row(found, "channel:c-general").label, "#general");
+  assert.equal(row(found, "channel:c-alice").label, "alice");
+});
+
+test("a channel row goes where upstream's switcher would have gone", () => {
+  // "gineer" rather than "eng": the looser query also finds #general through
+  // its topic line, which is the matcher working and not this row.
+  const found = channelSource(ctx({ channels: CHANNELS }), "gineer");
+  assert.deepEqual(ids(found), ["channel:c-eng"]);
+  assert.deepEqual(found[0].candidate.command, {
+    channelId: "c-eng",
+    type: "open-channel",
+  });
+});
+
+test("a channel's topic is its second line, and a channel without one still says what it is", () => {
+  const found = channelSource(ctx({ channels: CHANNELS }), "");
+  assert.equal(row(found, "channel:c-general").detail, "everything else");
+  assert.equal(
+    row(found, "channel:c-eng").detail,
+    "a channel in this community",
+  );
+  assert.equal(row(found, "channel:c-alice").detail, "a direct message");
+});
+
+test("a host with no channel list draws no channel rows", () => {
+  assert.deepEqual(channelSource(ctx(), ""), []);
+});
+
+test("a file is matched by its name first and its path second", () => {
+  // Asserted on the BEST row rather than on the only one: the matcher will find
+  // a subsequence of "main.rs" in any long enough path, and that is the
+  // matcher working. What this test is about is which field won.
+  const byName = rankMatches(
+    recentFileSource(ctx({ recentFiles: FILES }), "main.rs"),
+    [],
+  );
+  assert.equal(byName[0].candidate.id, "file:/w\u0000src/main.rs");
+  assert.equal(byName[0].field, "label");
+
+  const byPath = rankMatches(
+    recentFileSource(ctx({ recentFiles: FILES }), "features/runs"),
+    [],
+  );
+  assert.equal(
+    byPath[0].candidate.id,
+    "file:/w\u0000src/features/runs/lib/paletteModel.ts",
+  );
+  assert.equal(byPath[0].field, "detail");
+});
+
+test("a file row carries the worktree, the path and the line it left off at", () => {
+  const found = recentFileSource(ctx({ recentFiles: FILES }), "main.rs");
+  assert.deepEqual(found[0].candidate.command, {
+    line: 12,
+    path: "src/main.rs",
+    type: "open-file",
+    worktree: "/w",
+  });
+});
+
+test("a file id is scoped by its checkout", () => {
+  // Two checkouts of one project both have src/main.rs, and the id is what a
+  // recent is recorded as — an unscoped one would hand the wrong file's row
+  // yesterday's recency.
+  const two = recentFileSource(
+    ctx({
+      recentFiles: [
+        { line: null, path: "src/main.rs", worktree: "/a" },
+        { line: null, path: "src/main.rs", worktree: "/b" },
+      ],
+    }),
+    "main",
+  );
+  assert.equal(new Set(ids(two)).size, 2);
+});
+
+test("the two file sources are the same rows from different lists", () => {
+  const one = { line: null, path: "src/main.rs", worktree: "/w" };
+  assert.deepEqual(
+    ids(recentFileSource(ctx({ recentFiles: [one] }), "")),
+    ids(worktreeFileSource(ctx({ worktreeFiles: [one] }), "")),
+  );
+  // And neither reads the other's list — the front door must not list a
+  // checkout's whole tree.
+  assert.deepEqual(worktreeFileSource(ctx({ recentFiles: [one] }), ""), []);
+});
+
+test("a mode asks its own sources, and a host narrows them", () => {
+  assert.deepEqual(sourceIdsForMode("go"), [
+    "projects",
+    "worktrees",
+    "channels",
+    "recent-files",
+    "panes",
+    "actions",
+  ]);
+  // What the shell can honestly answer for: no work surface, so no pane and no
+  // action.
+  assert.deepEqual(
+    sourceIdsForMode("go", [
+      "channels",
+      "projects",
+      "worktrees",
+      "recent-files",
+    ]),
+    ["projects", "worktrees", "channels", "recent-files"],
+  );
+  // And the door that offers nothing here is the one that must fall through.
+  assert.deepEqual(sourceIdsForMode("files", ["channels", "projects"]), []);
+});
+
+test("the commands door is the panes and the actions, unchanged", () => {
+  const held = ctx();
+  const commands = paletteMatches(held, "", sourcesForMode("commands"));
+  assert.deepEqual(
+    ids(commands),
+    ids([...paneSource(held, ""), ...actionSource(held, "")]),
+  );
 });

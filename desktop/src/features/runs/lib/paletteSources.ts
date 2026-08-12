@@ -29,6 +29,8 @@
 // it found, which also keeps the availability rules the pane host uses and the
 // ones the palette shows the *same* rules rather than a second copy.
 
+import type { PaletteMode, PaletteSourceId } from "./paletteDoors.ts";
+import { MODE_SOURCES, sourceIdsForMode } from "./paletteDoors.ts";
 import type { PaneAvailability } from "./paneModel.ts";
 import {
   type Candidate,
@@ -62,10 +64,73 @@ export interface PaletteChoice {
   chord?: string;
 }
 
+/** What the backend said about the `vingilot` shell command: where this app
+ * keeps it, where a link outside would go, and whether that link is there.
+ * `vingilot_shim`'s `ShimStatus`, narrowed to what one row needs.
+ *
+ * Declared here rather than imported from `editorClient.ts` for the reason
+ * `PaletteChoice` is declared here: that module reaches for the Tauri bridge,
+ * and the `node --test` run beside this file cannot load it. */
+export interface ShimLinkage {
+  linked: boolean;
+  linkPath: string;
+  shimPath: string;
+}
+
+/** One channel, as the palette needs it — **upstream's own list, narrowed**
+ * (`shared/api/types.ts`'s `Channel`, read through `useChannelsQuery`, which is
+ * the store the switcher and the sidebar read too).
+ *
+ * Declared here rather than imported for the reason `PaletteChoice` is: the
+ * `node --test` run beside this file loads no upstream module. Narrowing is
+ * also the boundary — this source reads four fields of a record it does not
+ * own, so an upstream shape change lands as a compile error at the host rather
+ * than as a palette quietly full of `undefined`. */
+export interface PaletteChannel {
+  id: string;
+  name: string;
+  /** A direct message rather than a channel. Kept because it changes what the
+   * row is *called*: `#general` is a place, "alice" is a person, and printing
+   * a hash in front of a person is upstream's own distinction to keep. */
+  dm: boolean;
+  /** The channel's topic, or `null`. Matched at a discount like any detail. */
+  topic: string | null;
+}
+
+/** One file the palette can open. `worktree` is the checkout's own directory,
+ * for `filesTarget.ts`'s reason: two checkouts of one project both have
+ * `src/main.rs`. */
+export interface PaletteFile {
+  worktree: string;
+  /** Worktree-relative, as the backend takes it. */
+  path: string;
+  /** Where to land, or `null` for the top of the file. Recents carry the line
+   * he left off at; a row from the tree carries none. */
+  line: number | null;
+}
+
 /** Everything the sources are allowed to know. Facts about where the owner is,
  * never callbacks — a source that could act would be a source that could not
  * be tested. */
 export interface PaletteContext {
+  /** The community's channels, or absent on a host that has none to offer.
+   *
+   * **Optional, and read as an empty listing rather than as "no answer".** The
+   * two are different everywhere else in this island, and here they are not:
+   * a host with no channel list has no channel rows to draw either way, and
+   * the palette's own empty state ("nothing here matches") is the sentence
+   * that says so. Making it required would put an array in every unit fixture
+   * that has nothing to do with channels. */
+  channels?: readonly PaletteChannel[];
+  /** The files he has opened, most recent first — the MRU trail's file
+   * entries (`placeMru.ts`), which is a list of what he *did* rather than a
+   * listing of what exists. ⌘K's file rows, and only ⌘K's. */
+  recentFiles?: readonly PaletteFile[];
+  /** The selected worktree's listing, as far as it has been read — ⌘P's
+   * source. Lazy on purpose: the Files pane reads top-level plus the
+   * directories he has opened, and this is that same listing rather than a
+   * second walk of the disk. */
+  worktreeFiles?: readonly PaletteFile[];
   repos: readonly Repo[];
   /** The open project's worktrees, in the nav disclosure's own order, so the
    * palette's second row for a project is the column's second row. */
@@ -92,6 +157,20 @@ export interface PaletteContext {
   navCollapsed: boolean;
   /** Which side has the work surface to itself, or `null` for the split. */
   solo: "left" | "right" | null;
+  /** The worktree-relative path the Files viewer currently has open, or `null`.
+   *
+   * **The file, not the pane.** The escape-hatch row acts on a file:line, and
+   * "the Files pane is on screen" is not the same fact — the pane can be up
+   * with nothing in it, which is its own designed empty state. The workspace
+   * already tracks this for the place switcher (`RunsScreen`'s `openedFile`),
+   * so this is a second reader of one answer rather than a second answer. */
+  openFile: string | null;
+  /** What the disk says about the `vingilot` command, or `null` while the
+   * backend has not answered — which is every render before the first
+   * `shim_status` returns, and every render on a machine where that read
+   * failed. `null` is read as "not known to be installed", so the row offers
+   * to install rather than claiming a state it has not checked. */
+  shim: ShimLinkage | null;
 }
 
 export type PaletteSource = (
@@ -294,6 +373,61 @@ export const actionSource: PaletteSource = (ctx, query) => {
       label: "Keyboard shortcuts",
     },
     {
+      // The escape hatch's chord-less door
+      // (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md, Task 1). Blocked
+      // on the *file*, not on the worktree: this row acts on what the viewer
+      // has open, and with nothing open there is no file:line to carry — which
+      // is the whole difference between this and `open -a`.
+      blocked:
+        ctx.openFile === null
+          ? "no file is open in the viewer, so there is none to open elsewhere. Pick one in the Files pane, or use the button on a search hit or a changed file."
+          : null,
+      chord: null,
+      command: { type: "open-in-editor" },
+      detail:
+        ctx.openFile === null
+          ? "Cursor, VS Code or Zed, at the line you are on"
+          : `${ctx.openFile} in Cursor, VS Code or Zed — at the line you are on`,
+      id: "action:open-in-editor",
+      kind: "action",
+      label: "Open the current file in an editor",
+    },
+    {
+      // Never done for him: the app's own terminals already have `vingilot` on
+      // their PATH, and this row is the *outside* half — a symlink into
+      // /usr/local/bin, which is a write outside this app's directories and
+      // therefore his to authorise (ADR-003).
+      //
+      // **The label is a reading of the disk, not of what the last install
+      // returned** (`vingilot_shim`'s `shim_status`). A row that still said
+      // "Install…" over a link that is already there would be offering work
+      // that has been done, and once it is done the honest state is a blocked
+      // row carrying the link — the same shape "nothing to prune" has, three
+      // rows below.
+      //
+      // **Both ends of the link are in the sentence**, because a blocked row
+      // shows its reason *instead of* its detail (`CommandPalette.tsx`) — so
+      // this line is the only place "installed" can be made checkable, and a
+      // path carried across the bridge and never printed would be a fact
+      // nobody can read.
+      blocked:
+        ctx.shim?.linked === true
+          ? `${ctx.shim.linkPath} already points at ${ctx.shim.shimPath} — there is nothing left to install.`
+          : null,
+      chord: null,
+      command: { type: "install-shim" },
+      // Unconditional: the detail says what the row *is*, and the row is the
+      // same act whether or not it has been done.
+      detail:
+        "symlinks `vingilot` into /usr/local/bin so `vingilot <file>:<line>` works in any terminal — this app's own terminals already have it",
+      id: "action:install-shim",
+      kind: "action",
+      label:
+        ctx.shim?.linked === true
+          ? "vingilot command installed"
+          : "Install vingilot command…",
+    },
+    {
       blocked: null,
       chord: null,
       command: { type: "add-project" },
@@ -389,14 +523,103 @@ export const actionSource: PaletteSource = (ctx, query) => {
   return matchAll(candidates, query);
 };
 
+/** **Upstream's channel list, read as a source and not forked.**
+ *
+ * The rows are built from `useChannelsQuery`'s records — the same store
+ * `AppShell` hands its sidebar, its switcher and `TopbarSearch` — and selecting
+ * one lands through `useAppNavigation`'s `goChannel`, which is where upstream's
+ * own switcher would have gone. Nothing about their dialog is copied here: what
+ * this file takes is a list of channels, which is data, and ADR-001's rule is
+ * about behaviour.
+ *
+ * A DM keeps its person's name and a channel gains its hash, because that is
+ * how both are written everywhere else in this app and a palette that renamed
+ * them would be a second vocabulary for one set of places. */
+export const channelSource: PaletteSource = (ctx, query) => {
+  const candidates: Candidate[] = (ctx.channels ?? []).map((channel) => ({
+    blocked: null,
+    chord: null,
+    command: { channelId: channel.id, type: "open-channel" },
+    detail:
+      channel.topic !== null && channel.topic !== ""
+        ? channel.topic
+        : channel.dm
+          ? "a direct message"
+          : "a channel in this community",
+    id: `channel:${channel.id}`,
+    kind: "channel",
+    label: channel.dm ? channel.name : `#${channel.name}`,
+  }));
+  return matchAll(candidates, query);
+};
+
+/** What separates a checkout from a path inside it, in a file row's id.
+ *
+ * NUL, written as an escape rather than typed: it is the one byte a path cannot
+ * contain and no worktree directory carries, so no filename can fake a boundary
+ * and spell two files into one id. `placeMru.ts`'s own separator, for its
+ * reason — and an id is what a recent is recorded as. */
+const FILE_SEP = "\u0000";
+
+/** The last segment of a worktree-relative path — what a file is *called*, and
+ * therefore what is matched first. */
+function fileName(path: string): string {
+  const at = path.lastIndexOf("/");
+  return at === -1 ? path : path.slice(at + 1);
+}
+
+/** A file row. The name is the label and the whole path is the detail, which is
+ * the arrangement `matchCandidate`'s label-then-detail rule was built for:
+ * `main.rs` typed against forty `main.rs`es matches every label equally and
+ * then the path is what tells them apart, and typing part of the path finds it
+ * at the detail discount. */
+function fileCandidate(file: PaletteFile): Candidate {
+  return {
+    blocked: null,
+    chord: null,
+    command: {
+      line: file.line,
+      path: file.path,
+      type: "open-file",
+      worktree: file.worktree,
+    },
+    detail: file.path,
+    // Scoped by worktree, because the recents list is keyed on this id and two
+    // checkouts of one project both have `src/main.rs`. NUL is the one byte a
+    // path cannot contain — `placeMru.ts`'s own separator, for its reason.
+    id: `file:${file.worktree}${FILE_SEP}${file.path}`,
+    kind: "file",
+    label: fileName(file.path),
+  };
+}
+
+/** ⌘K's file rows: the ones he has actually opened. */
+export const recentFileSource: PaletteSource = (ctx, query) =>
+  matchAll((ctx.recentFiles ?? []).map(fileCandidate), query);
+
+/** ⌘P's rows: the selected worktree's listing. */
+export const worktreeFileSource: PaletteSource = (ctx, query) =>
+  matchAll((ctx.worktreeFiles ?? []).map(fileCandidate), query);
+
+/** Every source by the name `paletteDoors.ts` knows it as. The two modules meet
+ * here and nowhere else: doors decide *which*, this file decides *what*. */
+export const SOURCES_BY_ID: Record<PaletteSourceId, PaletteSource> = {
+  actions: actionSource,
+  channels: channelSource,
+  panes: paneSource,
+  projects: projectSource,
+  "recent-files": recentFileSource,
+  worktrees: worktreeSource,
+  "worktree-files": worktreeFileSource,
+};
+
 /** The sources, in the order an empty query lists them: where you can go
- * first, then what you can do. */
-export const PALETTE_SOURCES: readonly PaletteSource[] = [
-  projectSource,
-  worktreeSource,
-  paneSource,
-  actionSource,
-];
+ * first, then what you can do. **The `go` door's own list**, which is what ⌘K
+ * has always shown — kept under its old name so that every caller and every
+ * test written against it still means the same thing. */
+export const PALETTE_SOURCES: readonly PaletteSource[] = MODE_SOURCES.go.map(
+  (id) => SOURCES_BY_ID[id],
+);
 
 /** Every source's matches for one query, unordered — `assembleView` is what
  * puts them in an order, and it is the only thing that does. */
@@ -407,3 +630,27 @@ export function paletteMatches(
 ): PaletteMatch[] {
   return sources.flatMap((source) => source(ctx, query));
 }
+
+/** The sources one mode asks, narrowed to what this host actually has.
+ *
+ * **`offers` is the host saying what it can answer for**, and it is why the
+ * shell's palette on a chat route lists channels and projects but no panes: a
+ * screen with no work surface has no pane to put anything in, and a row that
+ * ran nothing would be worse than no row. It is also what makes a door *fall
+ * through* rather than open on an empty box — see `usePalette.ts`'s
+ * `doorOffers`.
+ *
+ * `undefined` is "everything this build has", which is the workspace. */
+export function sourcesForMode(
+  mode: PaletteMode,
+  offers?: readonly PaletteSourceId[],
+): readonly PaletteSource[] {
+  return sourceIdsForMode(mode, offers).map((id) => SOURCES_BY_ID[id]);
+}
+
+/** The same narrowing, by name — **`paletteDoors.ts`'s now**, and re-exported
+ * here because it was this module's and its callers named it here. It moved for
+ * one reason: the hint row has to ask the same question ("does this door have
+ * anything on this host?") and it cannot import this file, which builds every
+ * source function to answer it. */
+export { sourceIdsForMode };

@@ -30,7 +30,22 @@
  * per kind and the eye can tell a project from an action without reading
  * either — **it is not an input to the ranking**, which is the whole point of
  * having one ranking. */
-export type PaletteKind = "project" | "worktree" | "pane" | "action";
+export type PaletteKind =
+  | "project"
+  | "worktree"
+  | "pane"
+  | "action"
+  /** A channel of the community the app is connected to — upstream's own list,
+   * read as a source (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md,
+   * Task 2). It is a `kind` like any other precisely so that the one ranking
+   * orders a channel against a worktree: ⌘K means go, and which of the two he
+   * meant is a property of what he typed, not of which product half owns the
+   * row. */
+  | "channel"
+  /** A file in a worktree — the ⌘P door's rows, and the recent ones ⌘K
+   * carries. One kind for both, because a file is a file: what differs is the
+   * source that produced it, and a source is not something a row says. */
+  | "file";
 
 /** Everything the palette can do, as data. The host runs these; the model
  * never calls anything. */
@@ -38,6 +53,15 @@ export type PaletteCommand =
   | { type: "open-landing" }
   | { type: "open-project"; repoId: string }
   | { type: "open-worktree"; bindingId: string }
+  /** Go where upstream's channel switcher would have gone. The host calls
+   * `useAppNavigation`'s `goChannel` — the same function the sidebar row, the
+   * search dialog and every deep link land through — so this is a second door
+   * to one navigation and not a second implementation of it (ADR-001). */
+  | { type: "open-channel"; channelId: string }
+  /** Show a file in the Files viewer at a line, through `filesTarget.ts`'s one
+   * landing. `worktree` is the checkout's own directory: two checkouts of one
+   * project both have `src/main.rs`, so a target without it names nothing. */
+  | { type: "open-file"; worktree: string; path: string; line: number | null }
   | { type: "choose-pane"; pane: string }
   | { type: "new-worktree" }
   /** Open the dialog that turns this project's plan into a worktree. The
@@ -58,6 +82,18 @@ export type PaletteCommand =
   /** Put the keyboard cheatsheet on screen. Opens rather than toggles — the
    * chord is the toggle (`useCheatsheet.ts`). */
   | { type: "open-cheatsheet" }
+  /** Open the file the viewer is showing in the owner's editor
+   * (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md, Task 1). **The only
+   * door to this gesture that is not a button**, and it is here rather than on
+   * a chord because the claimant check refused ⇧⌘O and could not clear a
+   * replacement without pressing it in the running app — the argument is in
+   * `ui/OpenInEditor.tsx`'s header. */
+  | { type: "open-in-editor" }
+  /** Symlink the `vingilot` shell command into /usr/local/bin, after asking.
+   * **A row and never a startup step**: the app's own terminals get the shim on
+   * their PATH for free, and writing outside the app's directories is a thing
+   * the owner does, not a thing that happens to him (ADR-003). */
+  | { type: "install-shim" }
   | { type: "add-project" }
   | { type: "remove-project" }
   | { type: "prune-worktrees" }

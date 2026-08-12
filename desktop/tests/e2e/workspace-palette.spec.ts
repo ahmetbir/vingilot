@@ -518,12 +518,19 @@ test.describe("one key to go anywhere and do anything", () => {
     await expect(page.getByTestId("palette-list")).toContainText("Recent");
   });
 
-  test("primary+K is still upstream's search everywhere else", async ({
+  test("primary+K is this palette everywhere else too, and upstream's search stays shut", async ({
     page,
   }) => {
-    // The claim is scoped to this screen. A palette that took ⌘K from the
-    // whole app would have taken the owner's message search away, and that is
-    // not the trade that was made.
+    // **This assertion is the inverse of the one it replaces, deliberately**
+    // (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md, Task 2). It used to
+    // read "⌘K is still upstream's search everywhere else", which described the
+    // split the owner filed: *"cmd k buzz kısmında farklı deck kısmında farklı
+    // çalışıyor."* One chord now means one thing app-wide.
+    //
+    // Nothing was taken away, and the two assertions under this one are what
+    // say so: upstream's channel list is INSIDE this palette (a channel row is
+    // drawn from the same store their dialog reads), and their dialog is still
+    // one click away on the sidebar's button.
     await page.setViewportSize(SPLITTABLE);
     await installMockBridge(page);
     await mockCoordinator(page);
@@ -531,8 +538,18 @@ test.describe("one key to go anywhere and do anything", () => {
     await expect(page.getByTestId("open-search")).toBeVisible();
 
     await page.keyboard.press("ControlOrMeta+k");
-    await expect(upstreamSearch(page)).toBeVisible();
+    await expect(page.getByTestId("palette")).toBeVisible();
+    await expect(upstreamSearch(page)).toBeHidden();
+    // Their list, hosted: a channel row, from the same query their own dialog
+    // and the sidebar read.
+    await expect(
+      page.getByTestId("palette-list").locator('[data-kind="channel"]').first(),
+    ).toBeVisible();
+
+    await page.keyboard.press("Escape");
     await expect(page.getByTestId("palette")).toBeHidden();
+    await page.getByTestId("open-search").click();
+    await expect(upstreamSearch(page)).toBeVisible();
   });
 
   test("and its button still opens it on the workspace screen too", async ({
