@@ -22,6 +22,13 @@
 // **It is a viewer and not an editor.** Nothing here writes. He has terminals
 // and agents for changing things, and an editor is a different promise — undo,
 // saves, a conflict with the agent writing the same file two panes over.
+//
+// **⌘F is taken here and nowhere else** (muscle-memory Task 1). The chord is
+// upstream's find-in-this-channel; `lib/findKeys.ts`'s header is where the
+// boundary is argued and `lib/useFindInFile.ts` is where it is enforced, drawn on
+// this component's own `paneRef`. The match set is computed over `file.text` and
+// never over the rendered spans, which is what keeps the count and the amber the
+// same before and after Task 0's background tokenise lands.
 
 import * as React from "react";
 import type { ThemedToken } from "shiki";
@@ -55,12 +62,22 @@ import {
 } from "@/features/runs/lib/filesClient";
 import {
   type FileRequest,
+  pendingFile,
   shouldLand,
   subscribeFileTarget,
   takeFile,
 } from "@/features/runs/lib/filesTarget";
 import { markedLineIndex, viewerPlan } from "@/features/runs/lib/fileViewer";
+import type { PaneAct } from "@/features/runs/lib/paneModel";
+import {
+  type FindLine,
+  type FindMatch,
+  NO_MATCHES,
+  segmentSpan,
+} from "@/features/runs/lib/findInFile";
+import { useFindInFile } from "@/features/runs/lib/useFindInFile";
 import { labelParts } from "@/features/runs/lib/worktreeDiff";
+import { FindBar } from "@/features/runs/ui/FindBar";
 import { PaneEmpty } from "@/features/runs/ui/PaneEmpty";
 import type { PaneProps } from "@/features/runs/ui/paneRegistry";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
@@ -79,7 +96,7 @@ type ViewState =
 
 const NOTHING_OPEN: ViewState = { status: "empty" };
 
-export function FilesPane({ cwd }: PaneProps) {
+export function FilesPane({ cwd, onPaneAct }: PaneProps) {
   // `filesAvailability` has already refused a worktree with no directory, so
   // the frame is showing a sentence rather than this component. The guard is
   // for the type, and for the frames in between.
@@ -88,10 +105,16 @@ export function FilesPane({ cwd }: PaneProps) {
   // they are a reading of. The registry's `identity` already remounts the pane
   // on a worktree switch; this is the same guarantee for a `cwd` that resolves
   // late, which is a different event.
-  return <FilesBody cwd={cwd} key={cwd} />;
+  return <FilesBody cwd={cwd} key={cwd} onPaneAct={onPaneAct} />;
 }
 
-function FilesBody({ cwd }: { cwd: string }) {
+function FilesBody({
+  cwd,
+  onPaneAct,
+}: {
+  cwd: string;
+  onPaneAct: (act: PaneAct) => void;
+}) {
   const [dirs, setDirs] = React.useState<TreeDirs>({});
   const [expanded, setExpanded] = React.useState<Expanded>({});
   const [selected, setSelected] = React.useState<string | null>(null);
@@ -145,6 +168,13 @@ function FilesBody({ cwd }: { cwd: string }) {
       wanted.current = path;
       setSelected(path);
       setView({ path, status: "reading" });
+      // **Where he is, reported the moment he asks rather than when the read
+      // lands.** A place is worktree + pane + file (`lib/placeMru.ts`), and the
+      // workspace can see the first two for itself. Told here and not after the
+      // `await`: a file that refused is still a file he opened and still where
+      // ⌃Tab should bring him back to, and a read that never answers must not
+      // leave the trail one place behind.
+      onPaneAct({ path, type: "file-opened", worktree: cwd });
       const answered = await readFile(cwd, path);
       // Not `!==` on the state: two reads of the same path racing is fine, and
       // what must not happen is an older path's answer landing.
@@ -155,7 +185,7 @@ function FilesBody({ cwd }: { cwd: string }) {
           : { error: answered.error, path, status: "refused" },
       );
     },
-    [cwd],
+    [cwd, onPaneAct],
   );
 
   // **The listing is fired beside the state update, never inside it.** An
@@ -207,13 +237,51 @@ function FilesBody({ cwd }: { cwd: string }) {
   );
 
   React.useEffect(() => {
-    const pending = takeFile();
-    if (pending !== null) land(pending);
+    const pending = pendingFile();
+    // **Consumed only if it is ours, on both doors.** `takeFile()` used to run
+    // before the ownership check on the subscription, which made *any* live
+    // Files pane swallow a target meant for another checkout — and the request
+    // is a one-shot, so the pane that should have landed on it found nothing
+    // waiting when it mounted. That was invisible while the only caller was the
+    // Diff pane's "show the whole file", which always names the worktree already
+    // on screen. ⌃Tab is the caller that does not: it files the target and
+    // selects a different worktree in the same commit, so the pane being
+    // unmounted hears the request first (`workspace-places.spec.ts` is what
+    // caught it).
+    if (pending !== null && shouldLand(pending, cwd)) {
+      takeFile();
+      land(pending);
+    }
     return subscribeFileTarget((request) => {
+      if (!shouldLand(request, cwd)) return;
       takeFile();
       land(request);
     });
-  }, [land]);
+  }, [cwd, land]);
+
+  // **And what it has open when that is nothing.** The report above is made when
+  // a file is opened; this is the same report made on arrival, because arriving
+  // with an empty viewer is a state and not the absence of one. This pane is
+  // remounted by a pane switch as well as by a worktree switch (`WorkSurface`
+  // keys the slot `${pane}:${identity}`) and nothing here caches a file across
+  // that, so a workspace still holding the last report would draw "Files ·
+  // src/main.rs" for a pane showing the empty state, and "Files with nothing
+  // open" would never be a place he could go back to (`placeMru.ts`'s
+  // `FileReading`).
+  //
+  // **Guarded on `wanted`, which is what makes it right twice.** A mount that
+  // landed on a pending target has already reported that file — the effect above
+  // runs first, in source order — and `<React.StrictMode>` runs both a second
+  // time, where an unconditional "nothing open" would take that file straight
+  // back out of the place. `onPaneAct` is read through a ref rather than
+  // depended on so that a host callback which is not reference-stable cannot
+  // turn one report per mount into one per render.
+  const latestAct = React.useRef(onPaneAct);
+  latestAct.current = onPaneAct;
+  React.useEffect(() => {
+    if (wanted.current !== null) return;
+    latestAct.current({ path: null, type: "file-opened", worktree: cwd });
+  }, [cwd]);
 
   // This pane's own width: who yields to whom is decided in pixels
   // (`diffLayout.ts`) and no class name can express it. A layout effect so the
@@ -321,7 +389,7 @@ function FilesBody({ cwd }: { cwd: string }) {
               rows — and a drawer laid over the whole pane is a drawer with no
               way out. */}
           <div className="relative flex min-h-0 flex-1 flex-col">
-            <FileViewer state={view} />
+            <FileViewer paneRef={paneRef} state={view} />
             {placement.where === "over" && drawerOpen ? (
               // A drawer, not a replacement: the tree is one gesture away and
               // the viewer keeps the file it had.
@@ -451,7 +519,15 @@ function FileTree({
   );
 }
 
-function FileViewer({ state }: { state: ViewState }) {
+function FileViewer({
+  paneRef,
+  state,
+}: {
+  /** The pane's own root, handed down for one reason: it is where the ⌘F
+   * boundary is drawn (`findKeys.ts`'s header). */
+  paneRef: React.RefObject<HTMLElement | null>;
+  state: ViewState;
+}) {
   if (state.status === "empty") {
     // The pane's one designed moment (`PaneEmpty`). The old single sentence
     // ("Pick a file on the left. Arrow keys move, Enter opens.") split into
@@ -492,51 +568,169 @@ function FileViewer({ state }: { state: ViewState }) {
     );
   }
 
-  return <FileBody file={state.file} line={state.line} />;
+  return <FileBody file={state.file} line={state.line} paneRef={paneRef} />;
+}
+
+/** The amber wash `badge.tsx`'s warning variant already speaks and the Search
+ * pane already uses for a hit — the one hue every editor uses for a find match,
+ * so this is the app's existing vocabulary rather than a new colour.
+ *
+ * `text-foreground` is not decoration: a `<mark>` carries a UA background *and* a
+ * UA colour, so a match inside a Shiki token would otherwise lose the token's
+ * colour to `marktext`. On the highlighted path the token's own inline colour
+ * overrides this; on the plain path this is what keeps the text readable. */
+const MATCH_CLASS = "rounded-sm bg-amber-500/25 text-foreground";
+
+/** The current match, emphasised. **The same hue, more of it, plus a ring** —
+ * rather than a second colour, because the two marks mean the same thing and
+ * differ only in which one he is on. A ring rather than a weight change: bold
+ * would re-flow a monospace line and make the walk look like the file is moving. */
+const CURRENT_MATCH_CLASS =
+  "rounded-sm bg-amber-500/60 text-foreground ring-1 ring-amber-500";
+
+/** One span of the file, drawn with the find's amber where a match covers it.
+ *
+ * **This is the seam between the find and the highlighter, and it works over the
+ * text on purpose.** `matches` are offsets into `file.text` (`findInFile.ts`'s
+ * header argues why), `offset` says where this particular span starts in that
+ * same text, and `segmentSpan` does the arithmetic. So one function serves both
+ * render paths: on the plain path a span is a whole line, on the highlighted path
+ * it is one of Shiki's tokens, and a match that straddles two tokens arrives as
+ * two segments carrying the same match index — both amber, both emphasised
+ * together when it is the current one.
+ *
+ * With no matches on the line this renders exactly what the viewer rendered
+ * before ⌘F existed: the bare text, or one coloured span. A closed find bar costs
+ * the viewer no extra elements at all. */
+function Painted({
+  color,
+  current,
+  first,
+  matches,
+  offset,
+  text,
+}: {
+  color: string | undefined;
+  current: number;
+  /** Where this line's matches start in the file's list — without it the
+   * emphasis lands once per line instead of once per file (`FindLine`'s own
+   * doc comment records the defect). */
+  first: number;
+  matches: FindMatch[];
+  offset: number;
+  text: string;
+}) {
+  const style = color === undefined ? undefined : { color };
+  if (matches.length === 0) {
+    if (style === undefined) return text;
+    return <span style={style}>{text}</span>;
+  }
+  return segmentSpan(text, offset, matches, first).map((segment, at) =>
+    segment.match === null ? (
+      <span
+        // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional and never reordered
+        key={at}
+        style={style}
+      >
+        {segment.text}
+      </span>
+    ) : (
+      <mark
+        // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional and never reordered
+        key={at}
+        className={
+          segment.match === current ? CURRENT_MATCH_CLASS : MATCH_CLASS
+        }
+        data-testid={
+          segment.match === current ? "files-find-current" : "files-find-match"
+        }
+        style={style}
+      >
+        {segment.text}
+      </mark>
+    ),
+  );
 }
 
 /** One rendered line of the viewer, either path. Empty lines render one space
  * — a block-level span with no content collapses to zero height, which is a
- * file whose blank lines have vanished (`PatchView` keeps the same rule). */
+ * file whose blank lines have vanished (`PatchView` keeps the same rule).
+ *
+ * `lines` is the find's per-line match set or `null` for "no find running", and
+ * it is indexed positionally — the same positional agreement between the two
+ * render paths that `markedLineIndex` already depends on. */
 function ViewerLines({
+  current,
+  lines,
   text,
   tokens,
 }: {
+  current: number;
+  lines: FindLine[] | null;
   text: string;
   tokens: ThemedToken[][] | null;
 }) {
   if (tokens !== null) {
-    return tokens.map((lineTokens, index) => (
+    return tokens.map((lineTokens, index) => {
+      const line = lines?.[index];
+      // Where each token starts in the file, accumulated across the line.
+      // Shiki tokenises the very text this walk measures — `tokenizeChunked` is
+      // handed `file.text` and its tokens partition each line of it — so the
+      // running total and `line.start` are two readings of one string.
+      let at = line?.start ?? 0;
+      return (
+        <span
+          // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+          key={index}
+          className="block"
+          data-line=""
+        >
+          {lineTokens.length === 0
+            ? " "
+            : lineTokens.map((token, tokenAt) => {
+                const offset = at;
+                at += token.content.length;
+                return (
+                  <Painted
+                    // biome-ignore lint/suspicious/noArrayIndexKey: tokens are positional and never reordered
+                    key={tokenAt}
+                    color={token.color}
+                    current={current}
+                    first={line?.first ?? 0}
+                    matches={line?.matches ?? NO_MATCHES}
+                    offset={offset}
+                    text={token.content}
+                  />
+                );
+              })}
+        </span>
+      );
+    });
+  }
+  return text.split("\n").map((lineText, index) => {
+    const line = lines?.[index];
+    return (
       <span
         // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
         key={index}
         className="block"
         data-line=""
       >
-        {lineTokens.length === 0
-          ? " "
-          : lineTokens.map((token, at) => (
-              <span
-                // biome-ignore lint/suspicious/noArrayIndexKey: tokens are positional and never reordered
-                key={at}
-                style={token.color ? { color: token.color } : undefined}
-              >
-                {token.content}
-              </span>
-            ))}
+        {lineText === "" ? (
+          " "
+        ) : (
+          <Painted
+            color={undefined}
+            current={current}
+            first={line?.first ?? 0}
+            matches={line?.matches ?? NO_MATCHES}
+            offset={line?.start ?? 0}
+            text={lineText}
+          />
+        )}
       </span>
-    ));
-  }
-  return text.split("\n").map((lineText, index) => (
-    <span
-      // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
-      key={index}
-      className="block"
-      data-line=""
-    >
-      {lineText === "" ? " " : lineText}
-    </span>
-  ));
+    );
+  });
 }
 
 /** Both render paths share one class list, so the background swap changes the
@@ -551,9 +745,11 @@ const VIEWER_BODY_CLASS =
 function FileBody({
   file,
   line,
+  paneRef,
 }: {
   file: FileTextValue;
   line: number | null;
+  paneRef: React.RefObject<HTMLElement | null>;
 }) {
   const plan = viewerPlan(file.path, file.bytes);
 
@@ -602,7 +798,7 @@ function FileBody({
   // one call of `markedLineIndex`, and re-marked after the background swap —
   // the swap replaces every line element, and a mark that survived only until
   // the colours arrived would be a door that closes itself.
-  const bodyRef = React.useRef<HTMLDivElement | null>(null);
+  const bodyRef = React.useRef<HTMLElement | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the file and the swap are not read inside the effect, but they are what the effect reads the DOM *after* — the rows only exist once this file's text (or its tokenised replacement) has rendered, and two search hits at the same line in different files carry the same `line`. Dropping them would leave the second hit scrolled to wherever the first one left the box, and dropping `tokens` would lose the mark at the moment the swap rebuilds the rows.
   React.useEffect(() => {
     const index = markedLineIndex(line);
@@ -619,6 +815,38 @@ function FileBody({
       found.removeAttribute("data-testid");
     };
   }, [line, file.path, file.text, tokens]);
+
+  // **⌘F, over the text.** The hook owns the chord boundary (`findKeys.ts`'s
+  // header) and the match set; what it is handed is `file.text` and never the
+  // rendered spans, so the count is the same number before and after the
+  // background tokenise lands. `enabled` is unconditional here because this
+  // component only exists when a file is open — the empty state and the refusals
+  // are earlier branches of `FileViewer`, and on those the chord stays upstream's.
+  const find = useFindInFile({
+    enabled: true,
+    paneRef,
+    text: file.text,
+    viewerRef: bodyRef,
+  });
+
+  // **Walking scrolls the viewer**, which is the half that makes Enter a walk
+  // rather than a counter. Read off the DOM rather than computed as a line
+  // number, for the reason the marked-line effect above already records: both
+  // render paths produce their own elements, and the current match is whichever
+  // element carries the mark — so this is right on the plain path, on the
+  // highlighted path, and across the swap between them.
+  //
+  // `nearest` and not `center`: he is walking matches a few lines apart, and a
+  // viewer that re-centred on every Enter would move the file under him even
+  // when the next match was already on screen. The landing from outside the pane
+  // centres, because that is an arrival rather than a step.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `find.matches` and `tokens` are not read in the effect — they are what the effect reads the DOM *after*. A keystroke that changes the match set, and the swap that rebuilds every line element, both move the mark this scrolls to.
+  React.useEffect(() => {
+    if (!find.open || find.current < 0) return;
+    bodyRef.current
+      ?.querySelector('[data-testid="files-find-current"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [find.open, find.current, find.matches, tokens]);
 
   const parts = labelParts(file.path);
   return (
@@ -657,26 +885,56 @@ function FileBody({
           {plan.why}
         </p>
       )}
-      <div className="min-h-0 flex-1 overflow-auto p-2" ref={bodyRef}>
-        {plan.render === "highlighted" ? (
-          // `data-highlighted` says which of the two renderings is up, so a
-          // spec can assert the swap happened instead of inferring it from
-          // colour counts alone.
-          <pre
-            className={VIEWER_BODY_CLASS}
-            data-highlighted={tokens === null ? "false" : "true"}
-            data-testid="files-viewer-code"
-          >
-            <ViewerLines text={file.text} tokens={tokens} />
-          </pre>
-        ) : (
-          <pre className={VIEWER_BODY_CLASS} data-testid="files-viewer-plain">
-            {/* `data-line` on every line and nothing about `line` here: which
-                one is marked is the effect's single answer, so the two
-                renderers cannot disagree about what "line 12" means. */}
-            <ViewerLines text={file.text} tokens={null} />
-          </pre>
-        )}
+      {/* `relative` so the find bar floats over the file rather than over the
+          whole pane, and `overflow-hidden` so it is the inner box that scrolls —
+          a bar inside the scrolling box would slide off the top on the first
+          PageDown. */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {/* **A focusable scroll region**, which it had to become for two reasons
+            that arrived together: Escape out of the find bar has somewhere to put
+            focus, and the file he is reading answers ↑↓/PageDown without a click
+            first. The focus ring is upstream's inset one, so nothing moves. */}
+        {/* A `<section>` rather than a div with `role="region"` — the element
+            carries the role, which is what `useSemanticElements` is for. */}
+        <section
+          aria-label="the open file"
+          className="h-full overflow-auto p-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          data-testid="files-viewer-body"
+          ref={bodyRef}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region that cannot be reached by keyboard is a WCAG 2.1.1 failure, and `tabindex="0"` on the scroll container is the technique for it — there is no interactive element here to hang it on, because the viewer is deliberately not an editor. It is also where Escape puts focus when the find bar closes, and a bar that closed onto nothing would leave this pane keyboard-dead.
+          tabIndex={0}
+        >
+          {plan.render === "highlighted" ? (
+            // `data-highlighted` says which of the two renderings is up, so a
+            // spec can assert the swap happened instead of inferring it from
+            // colour counts alone.
+            <pre
+              className={VIEWER_BODY_CLASS}
+              data-highlighted={tokens === null ? "false" : "true"}
+              data-testid="files-viewer-code"
+            >
+              <ViewerLines
+                current={find.current}
+                lines={find.lines}
+                text={file.text}
+                tokens={tokens}
+              />
+            </pre>
+          ) : (
+            <pre className={VIEWER_BODY_CLASS} data-testid="files-viewer-plain">
+              {/* `data-line` on every line and nothing about `line` here: which
+                  one is marked is the effect's single answer, so the two
+                  renderers cannot disagree about what "line 12" means. */}
+              <ViewerLines
+                current={find.current}
+                lines={find.lines}
+                text={file.text}
+                tokens={null}
+              />
+            </pre>
+          )}
+        </section>
+        {find.open ? <FindBar find={find} /> : null}
       </div>
     </div>
   );
