@@ -51,6 +51,40 @@
 // inside does read an inherited font is a day nobody has to find
 // (lib/typeScale.test.mjs). The chrome around it — the tab strip, the scratch
 // header, the notice below — is not exempt.
+//
+// **Its colours are the app's, and they are asked for rather than written
+// down.** xterm's stock palette is `#ffffff` on `#000000`
+// (@xterm/xterm 5.5.0 browser/services/ThemeService.ts, `DEFAULT_FOREGROUND` /
+// `DEFAULT_CURSOR`), which is white text on a black rectangle — legible on the
+// dark themes this was built against, and on a light one a black hole in the
+// pane with invisible text in it (Catppuccin Latte's `--background` is 94.9%
+// lightness). So the background, foreground, cursor and selection are read off
+// the app's own tokens, through a probe element wearing the same Tailwind
+// classes the rest of the app uses. Read rather than duplicated: a copy of the
+// palette here is a copy that goes stale the first time a theme is added, and
+// what the terminal must match is what the app actually paints. Only these
+// five; the 16 ANSI colours stay xterm's, because those are the shell's own
+// vocabulary and an app that recoloured them would be lying about what a
+// program printed.
+//
+// **The background is named, not left transparent.** Asking for `transparent`
+// reads like "let the pane show through" and is not what happens: xterm parses
+// a theme colour with `css.toColor`, whose last resort is a 1×1 canvas that
+// throws on anything not fully opaque, so `transparent` is swallowed and the
+// slot falls back to `#000000` — which `Viewport._handleThemeChange` then
+// writes onto `.xterm-viewport`, an element stretched over the whole terminal.
+// Measured: `background: "transparent"` produced a computed `rgb(0, 0, 0)`
+// there. Handing over the pane's own surface paints the same pixels the pane
+// would have, and every colour xterm composites *over* the background —
+// the selection below, above all — then lands on the right ground.
+//
+// **The type inside is still xterm's, deliberately.** No `fontFamily` is set
+// even though the stock stack (`courier-new, courier, monospace`) is not what
+// anyone would choose: `paneModel.ts`'s `CELL_PX` is a *measurement* of that
+// stack at xterm's default 15px, and the 80-column floor is built on it. A
+// nicer font is a different cell advance and therefore a floor that no longer
+// guarantees the columns it claims. Same for the horizontal padding below,
+// which `TERMINAL_CHROME_PX` counts.
 
 import "@xterm/xterm/css/xterm.css";
 
@@ -74,6 +108,17 @@ import {
   type SessionPhase,
   type TerminalGeometry,
 } from "@/features/runs/lib/terminalFit";
+import {
+  SELECTION_ALPHA,
+  type TerminalPalette,
+  samePalette,
+  translucent,
+  usableColor,
+} from "@/features/runs/lib/terminalPalette";
+import {
+  linesBehind,
+  scrollbackNotice,
+} from "@/features/runs/lib/terminalScrollback";
 import { wheelOwnerProps } from "@/shared/lib/wheelOwner";
 
 interface TerminalProps {
@@ -98,9 +143,70 @@ interface TerminalProps {
   ephemeral?: boolean;
 }
 
-const XTERM_THEME = {
-  background: "transparent",
-} as const;
+/** One colour, as the app resolves it — the probe is dressed in a Tailwind
+ * class and asked what that came out as.
+ *
+ * Through a real element rather than by reading the CSS custom property: the
+ * tokens are bare HSL triples in one place and whole colours in another
+ * (`shared/styles/globals/theme.css`), and a caller that wrapped every reading
+ * in `hsl(…)` would produce an invalid colour for the second kind and never
+ * hear about it. An element wearing `text-foreground` is the same question the
+ * rest of the app asks, answered by the same engine.
+ *
+ * A fully transparent answer is `null`, not a colour — the rule, and the reason
+ * for it, are `lib/terminalPalette.ts`'s `usableColor`. All this adds is the
+ * element to ask. */
+function probeColor(
+  probe: HTMLElement,
+  className: string,
+  property: "backgroundColor" | "color",
+): string | null {
+  probe.className = className;
+  return usableColor(window.getComputedStyle(probe)[property]);
+}
+
+/** The palette handed to xterm: the app's own surface, foreground, accent
+ * cursor and accent selection.
+ *
+ * The surface answers twice. Once as `background`, for the reason in the header
+ * above; and once as `cursorAccent`, which is the colour the character *under*
+ * a block cursor is drawn in — so it has to be the surface or the cell the
+ * cursor sits on goes blank.
+ *
+ * **The selection is thinned here, not by xterm.** It cannot be probed as
+ * `bg-primary/30`: Tailwind compiles a slash opacity to
+ * `color-mix(in oklab, …)`, which Chromium computes to an `oklab(…)` value that
+ * xterm's parser cannot read at all — it threw on every reading, `parseColor`
+ * swallowed it, and the selection was silently xterm's stock grey the entire
+ * time (`terminal-chrome.spec.ts` is what caught it, by asking what the
+ * terminal was actually painted with rather than whether the component had
+ * computed something). Nor can it be handed over opaque and left to xterm's own
+ * 30%: that thinning runs *after* the colour the DOM renderer paints has
+ * already been composited, and compositing an opaque colour returns it
+ * unchanged — so the accent reached the screen at full strength, a solid block
+ * with the app's foreground drawn on top of it. Measured on the light theme the
+ * e2e build boots in, where `--primary` and `--foreground` are the same colour:
+ * selected text was invisible. So the alpha is applied to the probed accent
+ * here, in the one spelling xterm reads back (`lib/terminalPalette.ts`), and
+ * xterm composites it over the surface it was just given. */
+function terminalTheme(probe: HTMLElement): TerminalPalette {
+  const surface = probeColor(probe, "bg-background", "backgroundColor");
+  const accent = probeColor(probe, "bg-primary", "backgroundColor");
+  const theme: TerminalPalette = {
+    background: surface ?? undefined,
+    cursor: probeColor(probe, "text-primary", "color") ?? undefined,
+    cursorAccent: surface ?? undefined,
+    foreground: probeColor(probe, "text-foreground", "color") ?? undefined,
+    // A reading this cannot thin is still a real colour, and a selection drawn
+    // too strongly is a better failure than no selection colour at all.
+    selectionBackground:
+      accent === null
+        ? undefined
+        : (translucent(accent, SELECTION_ALPHA) ?? accent),
+  };
+  probe.className = "";
+  return theme;
+}
 
 /** How many frames to keep re-asking for a measurement before giving up.
  * xterm re-measures its cell box from its own IntersectionObserver once a
@@ -123,6 +229,14 @@ export function Terminal({
 }: TerminalProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const termRef = React.useRef<XTerm | null>(null);
+  /** The element the app's colours are read off. Outside the xterm host on
+   * purpose — that element belongs to xterm, and this one exists to be
+   * restyled several times a second while a theme is being picked. */
+  const probeRef = React.useRef<HTMLSpanElement | null>(null);
+  /** How far back through xterm's own scrollback the view is sitting. Always
+   * 0 under tmux, which owns the history itself
+   * (`lib/terminalScrollback.ts`). */
+  const [behind, setBehind] = React.useState(0);
   /** Re-runs the live attachment's measure step. Held in a ref because the
    * attachment owns it: it closes over that attachment's xterm, phase, and
    * frame handle, and is null between attachments. */
@@ -140,7 +254,28 @@ export function Terminal({
     const container: HTMLDivElement = mounted;
     const shellCwd: string = cwd;
 
-    const term = new XTerm({ cursorBlink: true, theme: XTERM_THEME });
+    const probe = probeRef.current;
+    /** The palette this xterm is currently wearing, so a re-reading that says
+     * the same thing can be dropped rather than re-applied. */
+    let applied: TerminalPalette | null =
+      probe === null ? null : terminalTheme(probe);
+
+    /** How many times a palette has actually been handed to xterm, written to
+     * the DOM so that "the theme was re-applied" is a thing a test can watch.
+     *
+     * Applying a palette is otherwise invisible when it changes nothing, which
+     * is exactly the case the gate below exists for: a Cmd +/- keystroke
+     * reaches the observer, re-reads the same colours, and must go no further.
+     * Without a counter the only observable difference between the gate working
+     * and the gate being absent is a repaint nobody can assert on. */
+    let generation = 0;
+    function markPalette() {
+      generation += 1;
+      container.dataset.paletteGeneration = String(generation);
+    }
+    if (applied !== null) markPalette();
+
+    const term = new XTerm({ cursorBlink: true, theme: applied ?? undefined });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(container);
@@ -250,8 +385,85 @@ export function Terminal({
       void ptyWrite(sessionId, data);
     });
 
+    /** Where the view is in xterm's own scrollback, read off the buffer rather
+     * than taken from whatever fired.
+     *
+     * Called on new output too, where the viewport tracks the base and the
+     * distance stays 0 — so a terminal at the bottom under a build's worth of
+     * output computes a number per event and sets no state at all. */
+    function readScrollback() {
+      if (detached) return;
+      const buffer = term.buffer.active;
+      setBehind(linesBehind(buffer.baseY, buffer.viewportY));
+    }
+
+    // **Two sources, because xterm only announces one of the two ways this
+    // changes.** `onScroll` covers what the buffer does — output arriving,
+    // `scrollToBottom()`, an alt-screen switch. It does *not* cover the owner
+    // scrolling: @xterm/xterm 5.5.0's `browser/Viewport.ts` turns a scroll of
+    // its own element into `_onRequestScrollLines.fire({ suppressScrollEvent:
+    // true })`, and `BufferService.scrollLines` honours that flag by not
+    // firing `onScroll` at all. So a wheel over a terminal whose history is
+    // its own — the scratch shell, and every terminal on a machine with no
+    // tmux — moved the view and told nobody.
+    //
+    // Hence the DOM event as well, taken in the capture phase on this
+    // container: a `scroll` event does not bubble, but capture still reaches
+    // every ancestor of its target, which is how one listener here covers an
+    // element xterm creates, owns and may replace.
+    //
+    // **Capture also means this runs before xterm's own listener**, which sits
+    // on the viewport element itself and is what actually moves the buffer. So
+    // the reading has to be deferred past it — and a microtask is not far
+    // enough. The event loop performs a microtask checkpoint whenever the
+    // JavaScript stack empties, which it does between two listeners for one
+    // event, so a `queueMicrotask` here runs *before* xterm's handler and reads
+    // the position the view has just left. Measured: after scrolling a 400-line
+    // buffer to the top, the rendered first row was `line-1` and the microtask
+    // still read a distance of 0. A frame is past the whole dispatch, and is
+    // coalesced so a flick that fires a dozen scroll events costs one read.
+    const scrollDisposable = term.onScroll(() => readScrollback());
+    let scrollFrame: number | null = null;
+    const onDomScroll = () => {
+      if (scrollFrame !== null) return;
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = null;
+        readScrollback();
+      });
+    };
+    container.addEventListener("scroll", onDomScroll, { capture: true });
+
     const resizeObserver = new ResizeObserver(() => remeasure());
     resizeObserver.observe(container);
+
+    // The app's colours are a live reading, not a snapshot: the theme is
+    // switched by rewriting the root element's class and its inline custom
+    // properties (`shared/theme/ThemeProvider.tsx`), and a terminal that kept
+    // the palette it was born with would be the one surface still wearing the
+    // old theme. Attribute-filtered, so this hears the two writes that mean a
+    // theme changed.
+    //
+    // Not *only* those two, though — which is why the reading is compared
+    // before it is used. Cmd +/- zooms by writing an inline `font-size` on the
+    // same element (`app/useWebviewZoomShortcuts.ts`), so every zoom keystroke
+    // arrives here as well, and the terminals for every worktree are mounted at
+    // once. xterm 5.5.0 does not diff `options.theme`: assigning it rebuilds
+    // the palette, fires `onChangeColors`, and makes the DOM renderer re-inject
+    // its stylesheet and refresh every row. A palette that has not changed is
+    // dropped here instead (`lib/terminalPalette.ts`).
+    const themeObserver =
+      probe === null
+        ? null
+        : new MutationObserver(() => {
+            const next = terminalTheme(probe);
+            if (applied !== null && samePalette(applied, next)) return;
+            applied = next;
+            term.options.theme = next;
+            markPalette();
+          });
+    themeObserver?.observe(document.documentElement, {
+      attributeFilter: ["class", "style"],
+    });
 
     return () => {
       detached = true;
@@ -262,9 +474,17 @@ export function Terminal({
       }
       unlisten?.();
       dataDisposable.dispose();
+      scrollDisposable.dispose();
+      container.removeEventListener("scroll", onDomScroll, { capture: true });
+      if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
       resizeObserver.disconnect();
+      themeObserver?.disconnect();
       term.dispose();
       termRef.current = null;
+      // A reattachment replays the session's screen and lands at the bottom of
+      // it, so the distance this view had scrolled back belongs to the xterm
+      // that is going, not to the one that replaces it.
+      setBehind(0);
     };
     // `ephemeral` is here because it decides how the session is spawned, and a
     // session's lifetime is fixed at spawn. It never changes for a given
@@ -287,21 +507,71 @@ export function Terminal({
     termRef.current?.focus();
   }, [active, focusToken]);
 
+  const notice = scrollbackNotice(behind);
+
   return (
+    // `relative` so the scrollback control below can be positioned against
+    // this box. It costs the layout nothing, and being *out of flow* is the
+    // point: a control that took a row would change the container's height,
+    // which under tmux is the same thing as resizing the owner's live session.
     <div
-      className={`min-h-0 min-w-0 flex-1 ${active ? "flex" : "hidden"}`}
+      className={`relative min-h-0 min-w-0 flex-1 ${active ? "flex" : "hidden"}`}
       data-testid={`terminal-${sessionId}`}
     >
+      {/* The element `terminalTheme` dresses to read the app's colours. Hidden
+       * by its parent rather than by its own class, because its own class is
+       * the thing being rewritten. */}
+      <span aria-hidden="true" className="hidden">
+        <span ref={probeRef} />
+      </span>
       {cwd === null ? (
         <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
           waiting for this worktree's checkout…
         </p>
       ) : (
-        <div
-          className="flex-1 overflow-hidden px-2 py-1"
-          ref={containerRef}
-          {...wheelOwnerProps}
-        />
+        <>
+          {/* `px-2 py-1`, and neither half is a taste decision to revisit.
+           * The horizontal is load-bearing by arrangement: `paneModel.ts`'s
+           * `TERMINAL_CHROME_PX` counts it when deriving the 80-column floor.
+           * The vertical looks free and is not — rows are derived from the
+           * measured height of this box, so taking 4px more off each edge
+           * crosses a row boundary at about half of all pane heights, and a row
+           * fewer is a `ptyResize`. Under tmux that is a SIGWINCH to the
+           * owner's live session and a re-wrap of scrollback he has had since
+           * before the app was restarted — the exact failure the header above
+           * describes. Padding here is not free; it is measured in the owner's
+           * shells. */}
+          <div
+            className="flex-1 overflow-hidden px-2 py-1"
+            ref={containerRef}
+            {...wheelOwnerProps}
+          />
+          {notice === null ? null : (
+            <button
+              aria-label={notice.detail}
+              className="absolute bottom-3 right-4 z-10 rounded-full border border-border/60 bg-popover px-2 py-1 text-2xs text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground"
+              data-lines-behind={notice.behind}
+              data-testid={`terminal-jump-to-bottom-${sessionId}`}
+              onClick={() => termRef.current?.scrollToBottom()}
+              // Moving the view must not take the keyboard with it. xterm holds
+              // focus on a helper textarea of its own, and a mousedown anywhere
+              // else moves focus off it — so the owner who clicked this would
+              // have had to click back into the terminal before his next
+              // keystroke reached the shell. Refused at mousedown rather than
+              // repaired at click: not stealing focus is a smaller act than
+              // taking it and handing it back, and it leaves focus where it was
+              // for an owner who was not typing into this terminal anyway.
+              // Every other path that moves a terminal's view is explicit about
+              // this too — `WorkSurface.tsx`'s ⌘`, ⌘T and ⌥⌘←/→ each bump
+              // `focusToken` for the same reason.
+              onMouseDown={(event) => event.preventDefault()}
+              title={notice.detail}
+              type="button"
+            >
+              {notice.label}
+            </button>
+          )}
+        </>
       )}
     </div>
   );

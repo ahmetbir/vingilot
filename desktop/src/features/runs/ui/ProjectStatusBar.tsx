@@ -60,6 +60,18 @@ interface ProjectStatusBarProps {
   onReleaseStop: () => void;
 }
 
+/** The persistence claims, as one readable unit.
+ *
+ * Both are long sentences, and they sit in a `·`-separated run beside the
+ * reachability reading — where a sentence with a colon and two dashes in it
+ * dissolves into the punctuation around it and stops being read as a claim
+ * about anything in particular. A quiet plate is enough to make it one object.
+ *
+ * Horizontal padding only, deliberately. Vertical padding here would grow the
+ * bar itself, and this bar's height is the one thing about it every screen
+ * underneath is laid out against. */
+const PERSISTENCE_CLASS = "rounded bg-muted/60 px-1.5";
+
 export function ProjectStatusBar({
   controlPlane,
   onEngageStop,
@@ -115,6 +127,8 @@ export function ProjectStatusBar({
         {scratchOpen ? (
           <>
             <span
+              className={PERSISTENCE_CLASS}
+              data-backing="scratch"
               data-testid="scratch-persistence"
               title={SCRATCH_PERSISTENCE.detail}
             >
@@ -125,7 +139,12 @@ export function ProjectStatusBar({
         ) : null}
         {persistence !== null ? (
           <>
-            <span data-testid="terminal-persistence" title={persistence.detail}>
+            <span
+              className={PERSISTENCE_CLASS}
+              data-backing={terminalBacking}
+              data-testid="terminal-persistence"
+              title={persistence.detail}
+            >
               {persistence.label}
             </span>
             <span aria-hidden="true">·</span>
