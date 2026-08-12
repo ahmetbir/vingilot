@@ -42,28 +42,28 @@ use super::{answers_yes, commit, describe, ensure_repo, run, run_capped, Worktre
 
 /// Files rendered before the list is cut. 400 is far past the point a human
 /// reads file-by-field, and far below the point the DOM struggles.
-const MAX_FILES: usize = 400;
+pub(super) const MAX_FILES: usize = 400;
 
 /// Untracked files rendered. Lower than `MAX_FILES` because each one costs a
 /// `git diff --no-index` of its own, and an untracked tree that big (a build
 /// output directory nobody has gitignored yet) is a thing to notice rather
 /// than to page through.
-const MAX_UNTRACKED: usize = 100;
+pub(super) const MAX_UNTRACKED: usize = 100;
 
 /// Patch lines kept per file. One regenerated lockfile is tens of thousands.
-const MAX_PATCH_LINES: usize = 2_000;
+pub(super) const MAX_PATCH_LINES: usize = 2_000;
 
 /// Patch bytes kept per file, for the file that is 40 lines and 8 MB — a
 /// minified bundle is one line per file, so a line cap alone does not bound
 /// anything.
-const MAX_PATCH_BYTES: usize = 256 * 1024;
+pub(super) const MAX_PATCH_BYTES: usize = 256 * 1024;
 
 /// Patch bytes *read* per file. One past the cap on purpose: a read that
 /// stopped here has produced more than `MAX_PATCH_BYTES`, which is exactly the
 /// condition `truncate_patch` cuts on — so a read cut short at the pipe and a
 /// patch cut short in memory are reported as the same thing, by the same code,
 /// and there is no second truncation flag to keep in step with the first.
-const READ_PATCH_BYTES: usize = MAX_PATCH_BYTES + 1;
+pub(super) const READ_PATCH_BYTES: usize = MAX_PATCH_BYTES + 1;
 
 /// What happened to a file, in the vocabulary `git diff --name-status` uses,
 /// plus the one status git has no letter for because it is not in the diff at
@@ -196,7 +196,7 @@ pub(super) fn parse_numstat_z(text: &str) -> Vec<NumStat> {
     records
 }
 
-fn change_from_letter(status: &str) -> FileChange {
+pub(super) fn change_from_letter(status: &str) -> FileChange {
     match status.chars().next() {
         Some('A') => FileChange::Added,
         Some('M') => FileChange::Modified,
@@ -211,7 +211,7 @@ fn change_from_letter(status: &str) -> FileChange {
 /// Parse `git diff --name-status -z` into (path, change) pairs. Rename and
 /// copy records carry two paths; the second is the one the file is at now,
 /// which is the one every other list here is keyed by.
-fn parse_name_status_z(text: &str) -> Vec<(String, FileChange)> {
+pub(super) fn parse_name_status_z(text: &str) -> Vec<(String, FileChange)> {
     let fields = nul_fields(text);
     let mut records = Vec::new();
     let mut index = 0;
@@ -235,7 +235,7 @@ fn parse_name_status_z(text: &str) -> Vec<(String, FileChange)> {
 /// The byte cut lands on a char boundary and then backs up to the last
 /// newline, so a truncated patch never ends mid-line — a half line of diff
 /// reads as content rather than as an edge.
-fn truncate_patch(patch: String) -> (String, bool) {
+pub(super) fn truncate_patch(patch: String) -> (String, bool) {
     let line_cut = patch
         .char_indices()
         .filter(|(_, c)| *c == '\n')
