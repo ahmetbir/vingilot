@@ -415,6 +415,7 @@ function HistoryBody({ cwd }: { cwd: string }) {
             }
           >
             <SourceControl
+              cwd={cwd}
               onOpen={open}
               selected={selected}
               state={status}

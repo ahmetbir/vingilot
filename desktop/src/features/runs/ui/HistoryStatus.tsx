@@ -23,14 +23,19 @@ import {
   labelParts,
 } from "@/features/runs/lib/worktreeDiff";
 import { explainWorktreeError } from "@/features/runs/lib/worktreePlan";
+import { OpenInEditor } from "@/features/runs/ui/OpenInEditor";
 import { PaneSection } from "@/features/runs/ui/PaneSection";
 
 export function SourceControl({
+  cwd,
   onOpen,
   onReread,
   selected,
   state,
 }: {
+  /** The checkout these paths are relative to — the escape hatch's other half
+   * of a target (`FileTarget.worktree`). */
+  cwd: string;
   onOpen: (row: HistoryRow) => void;
   onReread: () => void;
   selected: string | null;
@@ -98,6 +103,7 @@ export function SourceControl({
                 const key = `status:${section.id}:${entry.path}`;
                 return (
                   <FileRow
+                    cwd={cwd}
                     entry={entry}
                     isSelected={key === selected}
                     key={key}
@@ -132,11 +138,13 @@ export function SourceControl({
 }
 
 function FileRow({
+  cwd,
   entry,
   isSelected,
   onOpen,
   rowKey,
 }: {
+  cwd: string;
   entry: StatusEntry;
   isSelected: boolean;
   onOpen: () => void;
@@ -151,31 +159,47 @@ function FileRow({
     entry.oldPath === null ? entry.path : `${entry.oldPath} → ${entry.path}`;
   const parts = labelParts(label);
   return (
-    <button
-      aria-selected={isSelected}
-      className={`flex w-full items-baseline gap-2 px-2 py-0.5 text-left text-2xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
-        isSelected
-          ? "bg-muted text-foreground"
-          : "text-muted-foreground hover:bg-muted/60"
-      }`}
-      data-row={rowKey}
-      data-testid={`history-file-${rowKey}`}
-      onClick={onOpen}
-      role="option"
-      type="button"
-    >
-      <span
-        className={`w-3 shrink-0 font-mono ${changeMarkClass(entry.change)}`}
-        title={`git status ${entry.code}`}
+    // A flex row around the row button, so the escape hatch is a SIBLING of it:
+    // a button may not contain a button, and a control inside the row would
+    // also make Enter on a walked row mean two things. `group` is what fades it
+    // in on hover, exactly as `WorktreeRow`'s × does.
+    <div className="group flex items-baseline pr-1">
+      <button
+        aria-selected={isSelected}
+        className={`flex min-w-0 flex-1 items-baseline gap-2 px-2 py-0.5 text-left text-2xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
+          isSelected
+            ? "bg-muted text-foreground"
+            : "text-muted-foreground hover:bg-muted/60"
+        }`}
+        data-row={rowKey}
+        data-testid={`history-file-${rowKey}`}
+        onClick={onOpen}
+        role="option"
+        type="button"
       >
-        {changeMark(entry.change)}
-      </span>
-      <span className="flex min-w-0 flex-1 items-baseline" title={label}>
-        <span className="min-w-0 shrink truncate text-muted-foreground">
-          {parts.lead}
+        <span
+          className={`w-3 shrink-0 font-mono ${changeMarkClass(entry.change)}`}
+          title={`git status ${entry.code}`}
+        >
+          {changeMark(entry.change)}
         </span>
-        <span className="shrink-0 text-foreground">{parts.name}</span>
-      </span>
-    </button>
+        <span className="flex min-w-0 flex-1 items-baseline" title={label}>
+          <span className="min-w-0 shrink truncate text-muted-foreground">
+            {parts.lead}
+          </span>
+          <span className="shrink-0 text-foreground">{parts.name}</span>
+        </span>
+      </button>
+      {/* `entry.path` and never `label`: a rename's label is "old → new", which
+          is a sentence and not a path. What the editor is handed is where the
+          file is now. No line — a changed file has no one interesting line. */}
+      <OpenInEditor
+        line={null}
+        path={entry.path}
+        reveal
+        testid={`history-open-in-editor-${rowKey}`}
+        worktree={cwd}
+      />
+    </div>
   );
 }

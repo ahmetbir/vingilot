@@ -134,10 +134,35 @@ fn default_shell() -> String {
 /// reads its absence as ASCII, so box drawing and every non-English character
 /// arrive as `?`. But a locale is the owner's to choose, so this only fills in
 /// an answer when there is none.
-fn terminal_env(lang: Option<&std::ffi::OsStr>) -> Vec<(&'static str, &'static str)> {
-    let mut env = vec![("TERM", "xterm-256color")];
+///
+/// **`PATH` is the third, and it is the door back in**
+/// (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md, Task 1). The app owns a
+/// `bin` directory holding one shim — `vingilot`, which shows a file in the
+/// workspace — and prepending it here is what makes *our* terminals the ones
+/// that have the command without anybody installing anything. It is prepended
+/// rather than appended so the app's own shim wins a name collision it should
+/// never have; and it is `None`-safe, because an absent `PATH` turning into
+/// `"<bin>:"` would put an empty entry on it, which POSIX reads as the current
+/// directory (`vingilot_shim::prepend_path` is where that is argued and tested).
+///
+/// `shim_bin` is a parameter rather than a call so this stays a pure function
+/// of what it is told — including the case where the install failed and there
+/// is no directory to add, which must leave `PATH` exactly as it was rather
+/// than set to a copy of itself.
+fn terminal_env(
+    lang: Option<&std::ffi::OsStr>,
+    path: Option<&std::ffi::OsStr>,
+    shim_bin: Option<&str>,
+) -> Vec<(&'static str, String)> {
+    let mut env = vec![("TERM", "xterm-256color".to_owned())];
     if lang.is_none_or(|value| value.is_empty()) {
-        env.push(("LANG", "en_US.UTF-8"));
+        env.push(("LANG", "en_US.UTF-8".to_owned()));
+    }
+    if let Some(bin) = shim_bin {
+        env.push((
+            "PATH",
+            crate::vingilot_shim::prepend_path(bin, path.and_then(|value| value.to_str())),
+        ));
     }
     env
 }
@@ -246,7 +271,13 @@ fn open<R: Runtime>(
     // care"). Our session is not nested inside the launching one and must not
     // be told it is.
     cmd.env_remove("TMUX");
-    for (key, value) in terminal_env(std::env::var_os("LANG").as_deref()) {
+    for (key, value) in terminal_env(
+        std::env::var_os("LANG").as_deref(),
+        std::env::var_os("PATH").as_deref(),
+        // Installed on first use and remembered — the shim's own `OnceLock`, so
+        // this is one `stat` per app run rather than a write per terminal.
+        crate::vingilot_shim::installed_bin_dir(),
+    ) {
         cmd.env(key, value);
     }
 
@@ -449,23 +480,27 @@ mod terminal_env_tests {
     use super::terminal_env;
     use std::ffi::OsStr;
 
+    /// One variable's value, or `None` when the env does not set it.
+    fn value(env: &[(&'static str, String)], key: &str) -> Option<String> {
+        env.iter()
+            .find(|(name, _)| *name == key)
+            .map(|(_, value)| value.clone())
+    }
+
     #[test]
     fn the_shell_is_always_told_what_it_is_talking_to() {
         // Not "when the launcher forgot": the child talks to xterm.js whatever
         // started this app, and a `TERM` inherited from a shell is an answer
         // about a different terminal.
         for lang in [None, Some(OsStr::new("tr_TR.UTF-8"))] {
-            let env = terminal_env(lang);
-            assert_eq!(
-                env.iter().find(|(key, _)| *key == "TERM").map(|(_, v)| *v),
-                Some("xterm-256color"),
-            );
+            let env = terminal_env(lang, None, None);
+            assert_eq!(value(&env, "TERM").as_deref(), Some("xterm-256color"));
         }
     }
 
     #[test]
     fn a_locale_the_owner_chose_is_left_alone() {
-        let env = terminal_env(Some(OsStr::new("tr_TR.UTF-8")));
+        let env = terminal_env(Some(OsStr::new("tr_TR.UTF-8")), None, None);
         assert!(env.iter().all(|(key, _)| *key != "LANG"));
     }
 
@@ -475,11 +510,34 @@ mod terminal_env_tests {
         // and every non-English character arrive as `?`. An empty value is the
         // same absence wearing a different shape.
         for absent in [None, Some(OsStr::new(""))] {
-            let env = terminal_env(absent);
-            assert_eq!(
-                env.iter().find(|(key, _)| *key == "LANG").map(|(_, v)| *v),
-                Some("en_US.UTF-8"),
-            );
+            let env = terminal_env(absent, None, None);
+            assert_eq!(value(&env, "LANG").as_deref(), Some("en_US.UTF-8"));
         }
+    }
+
+    #[test]
+    fn our_terminals_get_the_apps_own_bin_directory_first() {
+        // The door back in: `vingilot <file>` works in a terminal this app
+        // opened, with nothing installed. First, so the app's shim wins a name
+        // collision it should never have.
+        let env = terminal_env(
+            None,
+            Some(OsStr::new("/usr/bin:/bin")),
+            Some("/h/.vingilot/bin"),
+        );
+        assert_eq!(
+            value(&env, "PATH").as_deref(),
+            Some("/h/.vingilot/bin:/usr/bin:/bin")
+        );
+    }
+
+    #[test]
+    fn a_shim_that_could_not_be_installed_leaves_path_alone_entirely() {
+        // **Not "sets PATH to a copy of itself".** Setting it would freeze the
+        // launcher's PATH onto a shell that is about to re-derive its own, for
+        // no gain at all — and the terminal must still open, because the shim
+        // is a convenience and the shell is the product.
+        let env = terminal_env(None, Some(OsStr::new("/usr/bin:/bin")), None);
+        assert!(value(&env, "PATH").is_none());
     }
 }

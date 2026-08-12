@@ -79,6 +79,7 @@ import {
   UNREAD,
 } from "@/features/runs/lib/diffRefresh";
 import type { Worktree } from "@/features/runs/lib/projects";
+import { OpenInEditor } from "@/features/runs/ui/OpenInEditor";
 import { PatchView } from "@/features/runs/ui/PatchView";
 import { gitWorktreeDiff } from "@/features/runs/lib/worktreeClient";
 import {
@@ -498,6 +499,7 @@ export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
             <FileList
               cursor={cursor}
               cursorRow={cursorRow}
+              cwd={cwd}
               files={files}
               onPick={(index) => {
                 setCursor(index);
@@ -610,6 +612,7 @@ export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
                 <FileList
                   cursor={cursor}
                   cursorRow={cursorRow}
+                  cwd={cwd}
                   files={files}
                   onPick={(index) => {
                     setCursor(index);
@@ -697,12 +700,18 @@ function FileList({
   cursorRow,
   files,
   onPick,
+  cwd,
   open,
   over = false,
   style,
 }: {
   cursor: number;
   cursorRow: React.RefObject<HTMLButtonElement | null>;
+  /** The checkout these paths are relative to, or `null` before it resolves.
+   * `null` is "no answer" and draws no escape hatch — a button that opened a
+   * path against a worktree nobody has named yet is the wrong-checkout landing
+   * `filesTarget.shouldLand` refuses for the same reason. */
+  cwd: string | null;
   files: WorktreeDiff["files"];
   onPick: (index: number) => void;
   open: number;
@@ -721,9 +730,18 @@ function FileList({
       style={style}
     >
       {files.map((file, index) => (
-        <li key={`${file.change}:${file.path}`}>
+        // `group` so the escape hatch beside it fades in with the row, the way
+        // `WorktreeRow`'s × does. A flex row rather than an overlay: the row is
+        // a button and a button may not contain one, and an absolutely
+        // positioned control would need a background of its own to stay
+        // legible over the numstat — which the vocabulary's "no gradients"
+        // rule leaves no honest way to draw.
+        <li
+          className="group flex items-baseline pr-1"
+          key={`${file.change}:${file.path}`}
+        >
           <button
-            className={`flex w-full items-baseline gap-2 px-3 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
+            className={`flex min-w-0 flex-1 items-baseline gap-2 px-3 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
               index === open
                 ? "bg-muted text-foreground"
                 : index === cursor
@@ -756,6 +774,18 @@ function FileList({
               )}
             </span>
           </button>
+          {cwd === null ? null : (
+            // **The source-control row's escape hatch.** No line: a changed
+            // file has no one interesting line, and `null` is the word for that
+            // (`FileTarget.line`) — the patch beside it is where the lines are.
+            <OpenInEditor
+              line={null}
+              path={file.path}
+              reveal
+              testid={`worktree-diff-open-in-editor-${index}`}
+              worktree={cwd}
+            />
+          )}
         </li>
       ))}
     </ul>

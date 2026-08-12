@@ -35,6 +35,7 @@ import {
 } from "@/features/runs/lib/searchModel";
 import { useSearchChord } from "@/features/runs/lib/useSearchChord";
 import { labelParts } from "@/features/runs/lib/worktreeDiff";
+import { OpenInEditor } from "@/features/runs/ui/OpenInEditor";
 import { PaneEmpty } from "@/features/runs/ui/PaneEmpty";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
@@ -241,6 +242,7 @@ function SearchBody({
             </p>
           )}
           <Results
+            cwd={cwd}
             groups={reading.groups}
             onOpen={open}
             pattern={state.status === "answered" ? state.answer.pattern : ""}
@@ -276,12 +278,18 @@ function SearchBody({
 }
 
 function Results({
+  cwd,
   groups,
   onOpen,
   pattern,
   regex,
   selected,
 }: {
+  /** The checkout every hit's path is relative to — the escape hatch's other
+   * half of a target, and the reason this is threaded down rather than derived:
+   * a result set survives no worktree switch (`SearchBody` re-runs), so the
+   * `cwd` a row was drawn under is the one its path belongs to. */
+  cwd: string;
   groups: { path: string; hits: SearchHit[] }[];
   onOpen: (hit: SearchHit) => void;
   pattern: string;
@@ -360,47 +368,63 @@ function Results({
               const key = hitKey(hit);
               const measured = measure(hit);
               return (
-                <button
-                  aria-selected={key === selected}
-                  className={`flex w-full items-baseline gap-2 px-2 py-0.5 text-left font-mono text-2xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
-                    key === selected
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:bg-muted/60"
-                  }`}
-                  data-hit={key}
-                  data-testid={`search-hit-${key}`}
-                  id={`search-hit-${key}`}
-                  key={key}
-                  onClick={() => onOpen(hit)}
-                  role="option"
-                  tabIndex={-1}
-                  type="button"
-                >
-                  <span className="w-10 shrink-0 text-right tabular-nums opacity-70">
-                    {hit.line}
-                  </span>
-                  <span className="truncate">
-                    {/* The clip is the backend's, and it is said rather than
+                // **A wrapper, because a button may not contain a button.** The
+                // hit row stays exactly what it was — one full-width control
+                // that lands in the viewer — and the escape hatch sits beside
+                // it, revealed on hover the way `WorktreeRow`'s × is. Putting
+                // it inside the row would be invalid HTML and would also make
+                // Enter on a walked row ambiguous.
+                <div className="group flex items-baseline" key={key}>
+                  <button
+                    aria-selected={key === selected}
+                    className={`flex w-full items-baseline gap-2 px-2 py-0.5 text-left font-mono text-2xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
+                      key === selected
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:bg-muted/60"
+                    }`}
+                    data-hit={key}
+                    data-testid={`search-hit-${key}`}
+                    id={`search-hit-${key}`}
+                    onClick={() => onOpen(hit)}
+                    role="option"
+                    tabIndex={-1}
+                    type="button"
+                  >
+                    <span className="w-10 shrink-0 text-right tabular-nums opacity-70">
+                      {hit.line}
+                    </span>
+                    <span className="truncate">
+                      {/* The clip is the backend's, and it is said rather than
                         left to look like the file: a minified bundle's line is
                         three megabytes and what is shown is a window on the
                         match. */}
-                    {hit.clipped ? <span aria-hidden="true">…</span> : null}
-                    {measured.before}
-                    {measured.match === "" ? null : (
-                      // The one hue every editor uses for a find match — the
-                      // amber wash `badge.tsx`'s warning variant already
-                      // speaks — on top of the weight the emphasis already
-                      // had. Colour carrying information, not decoration.
-                      <mark
-                        className="rounded-sm bg-amber-500/25 font-semibold text-foreground"
-                        data-testid="search-hit-match"
-                      >
-                        {measured.match}
-                      </mark>
-                    )}
-                    {measured.after}
-                  </span>
-                </button>
+                      {hit.clipped ? <span aria-hidden="true">…</span> : null}
+                      {measured.before}
+                      {measured.match === "" ? null : (
+                        // The one hue every editor uses for a find match — the
+                        // amber wash `badge.tsx`'s warning variant already
+                        // speaks — on top of the weight the emphasis already
+                        // had. Colour carrying information, not decoration.
+                        <mark
+                          className="rounded-sm bg-amber-500/25 font-semibold text-foreground"
+                          data-testid="search-hit-match"
+                        >
+                          {measured.match}
+                        </mark>
+                      )}
+                      {measured.after}
+                    </span>
+                  </button>
+                  {/* file:line, straight out of the hit — which is the whole
+                    point of the rung and the thing `open -a` cannot carry. */}
+                  <OpenInEditor
+                    line={hit.line}
+                    path={hit.path}
+                    reveal
+                    testid={`search-open-in-editor-${key}`}
+                    worktree={cwd}
+                  />
+                </div>
               );
             })}
           </div>

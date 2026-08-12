@@ -41,12 +41,14 @@ mod vingilot_agent;
 // platform and needs the mark inside it. The menu-bar half carries its own gate
 // (see the module docs).
 mod vingilot_brand;
+mod vingilot_editor;
 mod vingilot_files;
 mod vingilot_projects;
 mod vingilot_pty;
 mod vingilot_repo;
 mod vingilot_scratch;
 mod vingilot_search;
+mod vingilot_shim;
 mod vingilot_window;
 mod vingilot_worktree;
 #[cfg(target_os = "linux")]
@@ -680,6 +682,8 @@ pub fn run() {
             open_project_merge_recovery_terminal,
             vingilot_agent::agent_probe,
             vingilot_agent::agent_run,
+            vingilot_editor::editor_open,
+            vingilot_editor::editor_probe,
             vingilot_files::read::file_read,
             vingilot_files::tree::worktree_tree,
             vingilot_projects::projects_load,
@@ -693,6 +697,8 @@ pub fn run() {
             vingilot_scratch::scratch_read,
             vingilot_scratch::scratch_write,
             vingilot_search::worktree_search,
+            vingilot_shim::shim_install_link,
+            vingilot_shim::shim_status,
             vingilot_window::window_set_dismissible,
             vingilot_worktree::worktree_list,
             vingilot_worktree::worktree_add,

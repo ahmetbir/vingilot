@@ -366,6 +366,33 @@ pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
             activate_main_window(app);
             let _ = app.emit("deep-link-message", payload);
         }
+        Some("open") => {
+            // `buzz://open?arg=<path[:line]>&cwd=<dir>` — the `vingilot` shell
+            // shim's one message (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md,
+            // Task 1). The seam is this arm and nothing else: the parameters,
+            // the resolution and the payload all live in `vingilot_shim`, which
+            // is fork-owned and where their tests are (ADR-001: host, don't
+            // rewrite).
+            //
+            // Both outcomes reach the frontend, and that is the decision here.
+            // `open` returns to the shim the instant the URL is handed over, so
+            // a refusal printed on this side is a refusal nobody sees; the
+            // window is raised either way and the app says what happened.
+            let arg = non_empty_param(&url, "arg");
+            let cwd = non_empty_param(&url, "cwd");
+            let payload = match (arg, cwd) {
+                (Ok(arg), Ok(cwd)) => crate::vingilot_shim::open_request(&arg, &cwd),
+                _ => {
+                    eprintln!("buzz-desktop: open deep link missing arg or cwd: {url_str}");
+                    return;
+                }
+            };
+            activate_main_window(app);
+            let _ = match payload {
+                Ok(request) => app.emit("vingilot-open", request),
+                Err(sentence) => app.emit("vingilot-open-refused", sentence),
+            };
+        }
         Some("nostr-bind") => match parse_nostr_bind_deep_link(&url) {
             Ok(payload) => {
                 activate_main_window(app);
