@@ -601,6 +601,14 @@ export function commitPatchNote(answer: CommitPatch): string | null {
   return null;
 }
 
+/** What a status file's patch is read against. HEAD, and `statusPatch` below
+ * says at length what that therefore is and why it is not a fourth backend
+ * command. In the model rather than the pane because the pane's read
+ * (`gitWorktreeDiff(cwd, STATUS_BASE)`) and the patch header's scope sentence
+ * ("against HEAD…") both name it, and two copies of the base is how the
+ * sentence drifts from the read. */
+export const STATUS_BASE = "HEAD";
+
 /** One status file's patch, taken out of a worktree diff read against HEAD.
  *
  * **Why this is where a source-control file's patch comes from, and what it

@@ -165,6 +165,40 @@ export function changeLabel(change: DiffChange): string {
   return change === "type-changed" ? "type changed" : change;
 }
 
+/** The letter's colour, everywhere a letter appears — the hues every developer
+ * already knows from their editor's gutter, and the app's own where the app has
+ * one (vingilot/docs/plans/2026-08-12-polish-the-right-side.md, vocabulary).
+ *
+ * A/U and D speak the theme's own diff tokens (`--status-added` /
+ * `--status-deleted`, set per-theme by `ThemeProvider`) so the letter and the
+ * patch body it opens agree on what green and red are. M is the theme's
+ * modified hue. R/C are blue — rename is neither an add nor a delete and both
+ * of those hues would be a claim. T and `?` stay muted: a type change and a
+ * state git itself prints as `?` are not readings the owner acts on from a
+ * letter.
+ *
+ * One function rather than a class map per pane, because the Diff pane's list,
+ * the History pane's status rows and any future letter must mean the same
+ * thing by the same colour — a second copy is how A goes emerald in one pane
+ * and teal in another. */
+export function changeMarkClass(change: DiffChange): string {
+  switch (change) {
+    case "added":
+    case "untracked":
+      return "text-status-added";
+    case "modified":
+      return "text-status-modified";
+    case "deleted":
+      return "text-status-deleted";
+    case "renamed":
+    case "copied":
+      return "text-blue-600 dark:text-blue-400";
+    case "type-changed":
+    case "other":
+      return "text-muted-foreground";
+  }
+}
+
 /** The path as the list shows it: a rename says where it came from, because
  * "moved.txt +0 −0" on its own is a change nobody can account for. */
 export function fileLabel(file: DiffFile): string {

@@ -116,7 +116,7 @@ export function TerminalTabStrip({
                 aria-selected={active}
                 // Tabular figures so a strip that reaches double digits does
                 // not re-space itself as the ordinals grow.
-                className={`py-1 font-mono tabular-nums ${
+                className={`py-1 font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
                   active ? "font-semibold" : "font-normal"
                 }`}
                 data-testid={`terminal-tab-${n}`}
@@ -129,7 +129,7 @@ export function TerminalTabStrip({
               </button>
               <button
                 aria-label={`close terminal ${n}`}
-                className="rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                className="rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100"
                 data-testid={`terminal-tab-close-${n}`}
                 onClick={() => onClose(n)}
                 title={`Close terminal ${n} (⇧⌘W)`}
@@ -143,7 +143,7 @@ export function TerminalTabStrip({
       </div>
       <button
         aria-label="new terminal tab"
-        className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+        className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         data-testid="terminal-tab-new"
         onClick={onNew}
         title="New terminal tab (⌘T)"

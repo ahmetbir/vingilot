@@ -3,7 +3,6 @@ import { test } from "node:test";
 
 import {
   HIGHLIGHT_BYTE_CEILING,
-  HIGHLIGHT_LINE_CEILING,
   languageOf,
   markedLineIndex,
   viewerPlan,
@@ -53,8 +52,8 @@ test("an unknown type is plain, which is an answer and not a gap", () => {
   assert.equal(languageOf(".env"), "plain");
 });
 
-test("a small known file is highlighted, and says nothing about it", () => {
-  const plan = viewerPlan("src/main.rs", 40, 900);
+test("a known file under the budget is highlighted, and says nothing about it", () => {
+  const plan = viewerPlan("src/main.rs", 900);
   assert.equal(plan.render, "highlighted");
   assert.equal(plan.language, "rust");
   // A reason is what is shown when something is NOT happening. A viewer that
@@ -62,41 +61,39 @@ test("a small known file is highlighted, and says nothing about it", () => {
   assert.equal(plan.why, null);
 });
 
-test("a file over the line ceiling renders plain AND says why, with both numbers", () => {
-  // The honest half of reusing upstream's highlighter: past its ceiling it
-  // falls back silently, and a 400-line file rendering unhighlighted with
-  // nothing saying why reads as broken highlighting.
-  const plan = viewerPlan("src/main.rs", 1204, 40_000);
-  assert.equal(plan.render, "plain");
-  assert.equal(plan.language, "rust");
-  assert.match(plan.why, /1,204 lines/);
-  assert.match(plan.why, new RegExp(String(HIGHLIGHT_LINE_CEILING)));
+test("a long file is highlighted too — the chat-message line ceiling is gone", () => {
+  // Task 0 (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md): the
+  // 150-line ceiling was `CodeBlock.tsx`'s chat constant, and the viewer no
+  // longer pays it — the tokenise runs in the background instead. A 5,000-line
+  // file under the byte budget is a highlighted file.
+  const plan = viewerPlan("src/main.rs", 100_000);
+  assert.equal(plan.render, "highlighted");
+  assert.equal(plan.why, null);
 });
 
-test("the line ceiling is inclusive", () => {
-  assert.equal(
-    viewerPlan("a.ts", HIGHLIGHT_LINE_CEILING, 100).render,
-    "highlighted",
-  );
-  assert.equal(
-    viewerPlan("a.ts", HIGHLIGHT_LINE_CEILING + 1, 100).render,
-    "plain",
-  );
-});
-
-test("a minified bundle is caught by the byte ceiling, which the line count cannot see", () => {
-  // One line, eight megabytes. A line ceiling alone bounds nothing.
-  const plan = viewerPlan("dist/bundle.js", 1, HIGHLIGHT_BYTE_CEILING + 1);
+test("a minified bundle is caught by the byte budget, with both numbers said", () => {
+  // One line, eight megabytes. TextMate grammars are superlinear on line
+  // length and one line cannot be sliced, so the bound is bytes — and it is a
+  // sentence on screen, not a silent fallback.
+  const plan = viewerPlan("dist/bundle.js", HIGHLIGHT_BYTE_CEILING + 1);
   assert.equal(plan.render, "plain");
   assert.match(plan.why, /KiB/);
+  assert.match(plan.why, new RegExp(String(HIGHLIGHT_BYTE_CEILING / 1024)));
 });
 
-test("an unknown type says it is unknown rather than blaming a ceiling", () => {
-  // Three reasons for plain text, and they are three different things he
-  // might do next. A single sentence covering all of them says nothing.
-  const unknown = viewerPlan("data.parquet", 3, 30);
-  const tooLong = viewerPlan("a.rs", 5000, 30);
-  const tooBig = viewerPlan("a.rs", 1, HIGHLIGHT_BYTE_CEILING + 1);
-  assert.equal(new Set([unknown.why, tooLong.why, tooBig.why]).size, 3);
+test("the byte budget is inclusive", () => {
+  assert.equal(
+    viewerPlan("a.ts", HIGHLIGHT_BYTE_CEILING).render,
+    "highlighted",
+  );
+  assert.equal(viewerPlan("a.ts", HIGHLIGHT_BYTE_CEILING + 1).render, "plain");
+});
+
+test("an unknown type says it is unknown rather than blaming the budget", () => {
+  // Two reasons for plain text, and they are two different things he might do
+  // next. A single sentence covering both would say nothing.
+  const unknown = viewerPlan("data.parquet", 30);
+  const tooBig = viewerPlan("a.rs", HIGHLIGHT_BYTE_CEILING + 1);
+  assert.notEqual(unknown.why, tooBig.why);
   assert.match(unknown.why, /no syntax this pane knows/);
 });

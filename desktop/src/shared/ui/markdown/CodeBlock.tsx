@@ -45,6 +45,108 @@ function ensureHighlighter(): Promise<void> {
   return shikiInitPromise;
 }
 
+/** Load one language and one theme into the singleton, through the same caches
+ * and the same language budget the markdown path uses. `false` when the pair
+ * cannot serve — an unknown grammar, a theme that failed, or a highlighter this
+ * build cannot construct — which the caller must read as "render plain", the
+ * same fallback the component below takes. */
+async function ensureAssets(language: string, theme: string): Promise<boolean> {
+  try {
+    await ensureHighlighter();
+  } catch {
+    return false;
+  }
+  if (!shikiHighlighter) return false;
+  if (!loadedLangs.has(language)) {
+    if (loadedLangs.size >= MAX_LOADED_LANGUAGES) return false;
+    try {
+      await shikiHighlighter.loadLanguage(language as BundledLanguage);
+      loadedLangs.add(language);
+    } catch {
+      return false;
+    }
+  }
+  if (!loadedThemes.has(theme)) {
+    try {
+      await shikiHighlighter.loadTheme(theme as BundledTheme);
+      loadedThemes.add(theme);
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** How many lines one background tokenise slice takes. Measured before it was
+ * picked (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md, Task 0), on
+ * a dense 5,000-line TypeScript fixture with this repo's own shiki 4.1.0:
+ * whole-file `codeToTokens` is ~880 ms in ONE main-thread block — the hitch the
+ * viewer must never cause; per-slice at 100 lines it is ≤17 ms to tokenise plus
+ * ≤17 ms to carry the grammar state, ~1.6 s total spread across the event loop.
+ * 200-line slices were ~33 ms each, over a frame; 50-line slices bought nothing
+ * further. */
+const TOKENIZE_CHUNK_LINES = 100;
+
+/** Tokenise a whole file for the Files viewer, off the render path
+ * (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md, Task 0: async
+ * background highlighting — the viewer renders plain text instantly and swaps
+ * these tokens in when they arrive).
+ *
+ * **The one Shiki, sliced — not a second highlighter.** Same singleton, same
+ * grammar cache, same language budget as the markdown path above; what differs
+ * is *when* it is asked. The work is cut into `TOKENIZE_CHUNK_LINES`-line
+ * slices with the TextMate grammar state carried across the cut
+ * (`getLastGrammarState`), so a template literal or block comment spanning a
+ * slice boundary tokenises as if the file were done whole. Between slices it
+ * yields with `setTimeout(0)` rather than `requestIdleCallback`: the pane sits
+ * beside a live terminal, whose stream of frames can starve idle callbacks for
+ * seconds, and the slices are already small enough not to need idling
+ * (measurement above).
+ *
+ * Not cached in `tokenCache`: these are whole files, and a hundred-entry cache
+ * keyed by full text exists for chat messages — one 512 KiB file would evict
+ * half of it for a reread the backend already bounds.
+ *
+ * `null` when the grammar or theme cannot serve — the caller keeps its plain
+ * rendering, which is the same fallback the sync path takes. `cancelled` is
+ * read between slices so a file closed mid-tokenise stops costing anything. */
+export async function tokenizeChunked(
+  code: string,
+  language: string,
+  theme: string,
+  cancelled: () => boolean,
+): Promise<ThemedToken[][] | null> {
+  const ready = await ensureAssets(language, theme);
+  if (!ready || !shikiHighlighter || cancelled()) return null;
+  const highlighter = shikiHighlighter;
+  const lines = code.split("\n");
+  const out: ThemedToken[][] = [];
+  let state: ReturnType<typeof highlighter.getLastGrammarState> | undefined;
+  for (let at = 0; at < lines.length; at += TOKENIZE_CHUNK_LINES) {
+    if (at > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    if (cancelled()) return null;
+    const part = lines.slice(at, at + TOKENIZE_CHUNK_LINES).join("\n");
+    try {
+      const result = highlighter.codeToTokens(part, {
+        grammarState: state,
+        lang: language as BundledLanguage,
+        theme: theme as BundledTheme,
+      });
+      state = highlighter.getLastGrammarState(part, {
+        grammarState: state,
+        lang: language as BundledLanguage,
+        theme: theme as BundledTheme,
+      });
+      out.push(...result.tokens);
+    } catch {
+      return null;
+    }
+  }
+  return out;
+}
+
 export function extractLanguage(className?: string): string {
   if (typeof className !== "string") return "";
   const match = className.match(/language-(\S+)/);

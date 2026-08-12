@@ -34,6 +34,8 @@ import {
   stepHit,
 } from "@/features/runs/lib/searchModel";
 import { useSearchChord } from "@/features/runs/lib/useSearchChord";
+import { labelParts } from "@/features/runs/lib/worktreeDiff";
+import { PaneEmpty } from "@/features/runs/ui/PaneEmpty";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
 /** How long the field waits before asking git.
@@ -210,7 +212,7 @@ function SearchBody({
         />
         <button
           aria-pressed={regex}
-          className={`shrink-0 rounded border px-1.5 py-0.5 text-2xs ${
+          className={`shrink-0 rounded border px-1.5 py-0.5 text-2xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
             regex
               ? "border-foreground/40 bg-muted text-foreground"
               : "border-border/60 text-muted-foreground hover:text-foreground"
@@ -246,9 +248,20 @@ function SearchBody({
             selected={selected}
           />
         </>
+      ) : reading.show === "idle" ? (
+        // Nothing asked yet is the pane's one designed moment (`PaneEmpty`) —
+        // the sentence is the model's own (`IDLE_NOTE`), unchanged. The other
+        // three readings below stay plain: `searching` is a wait, `refused`
+        // and `empty` are answers to be read.
+        <PaneEmpty
+          glyph="⌕"
+          hint="⇧⌘F from anywhere · ↓ walks the results"
+          sentence={reading.note}
+          testid="search-idle"
+        />
       ) : (
-        // One element for the other four readings, with the testid saying which
-        // one it is — the distinction that matters is `searching` against
+        // One element for the other three readings, with the testid saying
+        // which one it is — the distinction that matters is `searching` against
         // `empty`, and it is `searchModel.ts` that makes it: "no matches" is
         // only ever reachable from an answer git actually gave.
         <p
@@ -318,62 +331,81 @@ function Results({
       // field, which is where he is typing.
       tabIndex={-1}
     >
-      {groups.map((group) => (
-        <div key={group.path}>
-          <p
-            className="sticky top-0 truncate bg-background px-2 py-0.5 text-2xs text-muted-foreground"
-            data-testid={`search-file-${group.path}`}
-          >
-            {group.path}
-            <span className="ml-1 tabular-nums">
-              · {humanCount(group.hits.length)}
-            </span>
-          </p>
-          {group.hits.map((hit) => {
-            const key = hitKey(hit);
-            const parts = measure(hit);
-            return (
-              <button
-                aria-selected={key === selected}
-                className={`flex w-full items-baseline gap-2 px-2 py-0.5 text-left font-mono text-2xs ${
-                  key === selected
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/60"
-                }`}
-                data-hit={key}
-                data-testid={`search-hit-${key}`}
-                id={`search-hit-${key}`}
-                key={key}
-                onClick={() => onOpen(hit)}
-                role="option"
-                tabIndex={-1}
-                type="button"
-              >
-                <span className="w-10 shrink-0 text-right tabular-nums opacity-70">
-                  {hit.line}
+      {groups.map((group) => {
+        // The shared truncation rule, on the group header too: the directory
+        // dims and gives way, the basename stays bright — a hundred hits under
+        // `src/features/runs/` are told apart by exactly the half a tail
+        // truncation eats.
+        const parts = labelParts(group.path);
+        return (
+          <div key={group.path}>
+            <p
+              className="sticky top-0 flex items-baseline bg-background px-2 py-0.5 text-2xs"
+              data-testid={`search-file-${group.path}`}
+              title={group.path}
+            >
+              {parts.lead === "" ? null : (
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {parts.lead}
                 </span>
-                <span className="truncate">
-                  {/* The clip is the backend's, and it is said rather than
-                      left to look like the file: a minified bundle's line is
-                      three megabytes and what is shown is a window on the
-                      match. */}
-                  {hit.clipped ? <span aria-hidden="true">…</span> : null}
-                  {parts.before}
-                  {parts.match === "" ? null : (
-                    <mark
-                      className="bg-transparent font-semibold text-foreground"
-                      data-testid="search-hit-match"
-                    >
-                      {parts.match}
-                    </mark>
-                  )}
-                  {parts.after}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ))}
+              )}
+              <span className="max-w-full shrink-0 truncate text-foreground">
+                {parts.name}
+              </span>
+              <span className="ml-1 shrink-0 tabular-nums text-muted-foreground">
+                · {humanCount(group.hits.length)}
+              </span>
+            </p>
+            {group.hits.map((hit) => {
+              const key = hitKey(hit);
+              const measured = measure(hit);
+              return (
+                <button
+                  aria-selected={key === selected}
+                  className={`flex w-full items-baseline gap-2 px-2 py-0.5 text-left font-mono text-2xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
+                    key === selected
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted/60"
+                  }`}
+                  data-hit={key}
+                  data-testid={`search-hit-${key}`}
+                  id={`search-hit-${key}`}
+                  key={key}
+                  onClick={() => onOpen(hit)}
+                  role="option"
+                  tabIndex={-1}
+                  type="button"
+                >
+                  <span className="w-10 shrink-0 text-right tabular-nums opacity-70">
+                    {hit.line}
+                  </span>
+                  <span className="truncate">
+                    {/* The clip is the backend's, and it is said rather than
+                        left to look like the file: a minified bundle's line is
+                        three megabytes and what is shown is a window on the
+                        match. */}
+                    {hit.clipped ? <span aria-hidden="true">…</span> : null}
+                    {measured.before}
+                    {measured.match === "" ? null : (
+                      // The one hue every editor uses for a find match — the
+                      // amber wash `badge.tsx`'s warning variant already
+                      // speaks — on top of the weight the emphasis already
+                      // had. Colour carrying information, not decoration.
+                      <mark
+                        className="rounded-sm bg-amber-500/25 font-semibold text-foreground"
+                        data-testid="search-hit-match"
+                      >
+                        {measured.match}
+                      </mark>
+                    )}
+                    {measured.after}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }

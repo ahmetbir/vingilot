@@ -65,12 +65,21 @@ interface ProjectStatusBarProps {
  * Both are long sentences, and they sit in a `·`-separated run beside the
  * reachability reading — where a sentence with a colon and two dashes in it
  * dissolves into the punctuation around it and stops being read as a claim
- * about anything in particular. A quiet plate is enough to make it one object.
+ * about anything in particular. A plate is enough to make it one object.
+ *
+ * **The plate's colour is the claim's weight.** tmux — terminals that survive
+ * the app — is the quiet muted plate: nothing to warn about. A backing whose
+ * terminals die with the app, and the scratch shell that keeps nothing, wear
+ * `badge.tsx`'s warning treatment instead: amber is the app's "state you could
+ * lose" hue (the AttentionDot's dirty square, the Diff pane's omission line),
+ * and a warning-shaped fact in a quiet plate is a warning nobody reads.
  *
  * Horizontal padding only, deliberately. Vertical padding here would grow the
  * bar itself, and this bar's height is the one thing about it every screen
  * underneath is laid out against. */
-const PERSISTENCE_CLASS = "rounded bg-muted/60 px-1.5";
+const QUIET_PLATE = "rounded bg-muted/60 px-1.5";
+const WARNING_PLATE =
+  "rounded bg-amber-500/15 px-1.5 text-amber-600 dark:text-amber-400";
 
 export function ProjectStatusBar({
   controlPlane,
@@ -127,7 +136,7 @@ export function ProjectStatusBar({
         {scratchOpen ? (
           <>
             <span
-              className={PERSISTENCE_CLASS}
+              className={WARNING_PLATE}
               data-backing="scratch"
               data-testid="scratch-persistence"
               title={SCRATCH_PERSISTENCE.detail}
@@ -140,7 +149,9 @@ export function ProjectStatusBar({
         {persistence !== null ? (
           <>
             <span
-              className={PERSISTENCE_CLASS}
+              className={
+                terminalBacking === "tmux" ? QUIET_PLATE : WARNING_PLATE
+              }
               data-backing={terminalBacking}
               data-testid="terminal-persistence"
               title={persistence.detail}

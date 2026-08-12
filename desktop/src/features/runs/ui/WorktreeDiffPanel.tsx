@@ -79,6 +79,7 @@ import { gitWorktreeDiff } from "@/features/runs/lib/worktreeClient";
 import {
   changeLabel,
   changeMark,
+  changeMarkClass,
   defaultDiffBase,
   diffSummary,
   fileLabel,
@@ -88,12 +89,6 @@ import {
   type WorktreeDiff,
 } from "@/features/runs/lib/worktreeDiff";
 import { explainWorktreeError } from "@/features/runs/lib/worktreePlan";
-
-const CHANGE_CLASS: Record<string, string> = {
-  A: "text-emerald-600 dark:text-emerald-400",
-  D: "text-destructive",
-  U: "text-amber-600 dark:text-amber-400",
-};
 
 /** How often the pane *wonders* whether it is due, which is not how often it
  * reads — `shouldRead` answers that against a gap derived from the last read's
@@ -647,7 +642,13 @@ function PathLabel({
           {lead}
         </span>
       )}
-      <span className="max-w-full shrink-0 truncate" data-path-name="true">
+      {/* Bright whatever the row's rest state is: the basename is the half
+          that identifies the file, and it is now the rule everywhere a path
+          is drawn (polish plan, vocabulary — truncation). */}
+      <span
+        className="max-w-full shrink-0 truncate text-foreground"
+        data-path-name="true"
+      >
         {name}
       </span>
     </span>
@@ -693,7 +694,7 @@ function FileList({
       {files.map((file, index) => (
         <li key={`${file.change}:${file.path}`}>
           <button
-            className={`flex w-full items-baseline gap-2 px-3 py-1 text-left transition-colors ${
+            className={`flex w-full items-baseline gap-2 px-3 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
               index === open
                 ? "bg-muted text-foreground"
                 : index === cursor
@@ -706,14 +707,24 @@ function FileList({
             type="button"
           >
             <span
-              className={`shrink-0 font-mono text-2xs ${CHANGE_CLASS[changeMark(file.change)] ?? "text-muted-foreground"}`}
+              className={`shrink-0 font-mono text-2xs ${changeMarkClass(file.change)}`}
               title={changeLabel(file.change)}
             >
               {changeMark(file.change)}
             </span>
             <PathLabel className="flex-1 text-sm" label={fileLabel(file)} />
-            <span className="shrink-0 font-mono text-2xs text-muted-foreground/80">
-              {file.binary ? "bin" : `+${file.additions} −${file.deletions}`}
+            {/* The numstat speaks the theme's own diff hues, as upstream's
+                activity rows already do — the same green and red the patch it
+                opens will use. */}
+            <span className="shrink-0 font-mono text-2xs">
+              {file.binary ? (
+                <span className="text-muted-foreground/80">bin</span>
+              ) : (
+                <>
+                  <span className="text-status-added">+{file.additions}</span>{" "}
+                  <span className="text-status-deleted">−{file.deletions}</span>
+                </>
+              )}
             </span>
           </button>
         </li>

@@ -24,8 +24,10 @@
 // saves, a conflict with the agent writing the same file two panes over.
 
 import * as React from "react";
+import type { ThemedToken } from "shiki";
 
 import { diffListPlacement } from "@/features/runs/lib/diffLayout";
+import { type FileKind, fileKind } from "@/features/runs/lib/fileKinds";
 import {
   type FilesError,
   type DirState,
@@ -58,9 +60,13 @@ import {
   takeFile,
 } from "@/features/runs/lib/filesTarget";
 import { markedLineIndex, viewerPlan } from "@/features/runs/lib/fileViewer";
+import { labelParts } from "@/features/runs/lib/worktreeDiff";
+import { PaneEmpty } from "@/features/runs/ui/PaneEmpty";
 import type { PaneProps } from "@/features/runs/ui/paneRegistry";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
-import { SyntaxHighlightedCode } from "@/shared/ui/markdown/CodeBlock";
+import { useTheme } from "@/shared/theme/ThemeProvider";
+import { resolveShikiThemeName } from "@/shared/theme/theme-loader";
+import { tokenizeChunked } from "@/shared/ui/markdown/CodeBlock";
 
 /** What the viewer is showing, or why it is not. Four states and not three:
  * `reading` is kept apart from `empty` because a file being read and no file
@@ -298,7 +304,7 @@ function FilesBody({ cwd }: { cwd: string }) {
           {placement.where === "over" ? (
             <button
               aria-expanded={drawerOpen}
-              className="flex shrink-0 items-center gap-1.5 border-b border-border/60 px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              className="flex shrink-0 items-center gap-1.5 border-b border-border/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
               data-testid="files-tree-toggle"
               onClick={() => setDrawerOpen((open) => !open)}
               type="button"
@@ -345,6 +351,19 @@ function FilesBody({ cwd }: { cwd: string }) {
   );
 }
 
+/** The file-kind dots, drawn the way the sidebar's unread dot and the
+ * AttentionDot are drawn: a 1.5-unit `rounded-full`, tinted — never an icon
+ * set. Colour is information here (which kind of thing this row is) and gray
+ * is still the ground: `doc` and `other` stay neutral because this pane makes
+ * no claim about them worth a hue. */
+const KIND_DOT: Record<FileKind, string> = {
+  code: "bg-sky-500",
+  config: "bg-amber-500",
+  doc: "bg-muted-foreground/40",
+  image: "bg-violet-500",
+  other: "bg-muted-foreground/40",
+};
+
 function FileTree({
   onKeyDown,
   onOpen,
@@ -387,7 +406,7 @@ function FileTree({
           <button
             aria-expanded={row.kind === "directory" ? row.expanded : undefined}
             aria-selected={row.path === selected}
-            className={`flex w-full items-center gap-1 px-2 py-0.5 text-left text-xs ${
+            className={`flex w-full items-center gap-1 px-2 py-0.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
               row.path === selected
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-muted/60"
@@ -403,9 +422,22 @@ function FileTree({
             tabIndex={-1}
             type="button"
           >
-            <span aria-hidden="true" className="w-3 shrink-0 text-center">
-              {row.kind === "directory" ? (row.expanded ? "▾" : "▸") : "·"}
-            </span>
+            {row.kind === "directory" ? (
+              <span aria-hidden="true" className="w-3 shrink-0 text-center">
+                {row.expanded ? "▾" : "▸"}
+              </span>
+            ) : (
+              // The kind cue: a tinted dot, not an icon set — `KIND_DOT`.
+              <span
+                aria-hidden="true"
+                className="flex w-3 shrink-0 items-center justify-center"
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${KIND_DOT[fileKind(row.name)]}`}
+                  data-kind={fileKind(row.name)}
+                />
+              </span>
+            )}
             <span className="truncate">{row.name}</span>
             {row.size === null ? null : (
               <span className="ml-auto shrink-0 pl-2 text-2xs tabular-nums">
@@ -421,13 +453,19 @@ function FileTree({
 
 function FileViewer({ state }: { state: ViewState }) {
   if (state.status === "empty") {
+    // The pane's one designed moment (`PaneEmpty`). The old single sentence
+    // ("Pick a file on the left. Arrow keys move, Enter opens.") split into
+    // the sentence and the keyboard hint — same words, same claims, arranged
+    // as the empty-state shape every pane now shares. Not pinned by any spec;
+    // stated here because rewording a state sentence is a decision, not a
+    // side effect.
     return (
-      <p
-        className="p-3 text-xs text-muted-foreground"
-        data-testid="files-viewer-empty"
-      >
-        Pick a file on the left. Arrow keys move, Enter opens.
-      </p>
+      <PaneEmpty
+        glyph="⌸"
+        hint="arrow keys move · Enter opens"
+        sentence="Pick a file on the left."
+        testid="files-viewer-empty"
+      />
     );
   }
   if (state.status === "reading") {
@@ -457,6 +495,59 @@ function FileViewer({ state }: { state: ViewState }) {
   return <FileBody file={state.file} line={state.line} />;
 }
 
+/** One rendered line of the viewer, either path. Empty lines render one space
+ * — a block-level span with no content collapses to zero height, which is a
+ * file whose blank lines have vanished (`PatchView` keeps the same rule). */
+function ViewerLines({
+  text,
+  tokens,
+}: {
+  text: string;
+  tokens: ThemedToken[][] | null;
+}) {
+  if (tokens !== null) {
+    return tokens.map((lineTokens, index) => (
+      <span
+        // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+        key={index}
+        className="block"
+        data-line=""
+      >
+        {lineTokens.length === 0
+          ? " "
+          : lineTokens.map((token, at) => (
+              <span
+                // biome-ignore lint/suspicious/noArrayIndexKey: tokens are positional and never reordered
+                key={at}
+                style={token.color ? { color: token.color } : undefined}
+              >
+                {token.content}
+              </span>
+            ))}
+      </span>
+    ));
+  }
+  return text.split("\n").map((lineText, index) => (
+    <span
+      // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+      key={index}
+      className="block"
+      data-line=""
+    >
+      {lineText === "" ? " " : lineText}
+    </span>
+  ));
+}
+
+/** Both render paths share one class list, so the background swap changes the
+ * colours and nothing else: same font, same size, same `code-block-lines` line
+ * numbers, no geometry to jump. `text-xs` rather than the chat block's
+ * `text-sm` — the viewer's body sits beside `PatchView`'s patches and the
+ * pane's own rows, and the file body is the one thing on the right side that
+ * was speaking chat's size. */
+const VIEWER_BODY_CLASS =
+  "code-block-lines w-max min-w-full whitespace-pre font-mono text-xs text-foreground";
+
 function FileBody({
   file,
   line,
@@ -464,27 +555,55 @@ function FileBody({
   file: FileTextValue;
   line: number | null;
 }) {
-  const plan = viewerPlan(file.path, file.lines, file.bytes);
+  const plan = viewerPlan(file.path, file.bytes);
+
+  // **Task 0: the tokens arrive in the background, the text never waits.**
+  // The file renders as plain `data-line` spans immediately — the pane must
+  // never wait on a tokeniser — and `tokenizeChunked` (the same Shiki, the
+  // same caches, sliced; measurements at its definition) delivers the token
+  // lines when they are ready. The answer is kept WITH the text it is an
+  // answer about: a swap that outlived its file would colour the next file
+  // with this one's tokens.
+  const [swap, setSwap] = React.useState<{
+    text: string;
+    tokens: ThemedToken[][];
+  } | null>(null);
+  const { themeName } = useTheme();
+  const shikiTheme = resolveShikiThemeName(themeName);
+  React.useEffect(() => {
+    if (plan.render !== "highlighted") return;
+    let cancelled = false;
+    void tokenizeChunked(
+      file.text,
+      plan.language,
+      shikiTheme,
+      () => cancelled,
+    ).then((tokens) => {
+      if (cancelled || tokens === null) return;
+      setSwap({ text: file.text, tokens });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [file.text, plan.language, plan.render, shikiTheme]);
+  const tokens =
+    plan.render === "highlighted" && swap !== null && swap.text === file.text
+      ? swap.tokens
+      : null;
 
   // **What makes `line` a landing rather than a label.** Both render paths draw
-  // one element per line — upstream's `SyntaxHighlightedCode` emits
-  // `<span data-line>` per line, and the plain fallback below does the same —
-  // so the asked-for line is found by index, marked and scrolled to, whichever
-  // path rendered it. A search result that named a line and then dropped him at
-  // the top of a 2,000-line file would be a door onto the wrong side of the
-  // room.
+  // one element per line — `ViewerLines` emits a `<span data-line>` per line on
+  // each — so the asked-for line is found by index, marked and scrolled to,
+  // whichever path rendered it. A search result that named a line and then
+  // dropped him at the top of a 2,000-line file would be a door onto the wrong
+  // side of the room.
   //
-  // **Marked here rather than in the JSX, and it is the highlighted path that
-  // decides that.** Upstream's component owns its own line elements and takes
-  // no "mark this one" prop, so the highlight has to be put on the node the
-  // query found. Doing the same for the plain path is what keeps the index
-  // arithmetic to one call of `markedLineIndex` instead of one per renderer.
-  // Both attributes are ones React never writes on these elements — the plain
-  // spans carry a constant `className` and no `data-testid`, and upstream's
-  // carry `className={diffClass}` (undefined here) — so a re-render does not
-  // fight this, and the cleanup takes both back off.
+  // **Marked in the DOM rather than in the JSX** so the index arithmetic stays
+  // one call of `markedLineIndex`, and re-marked after the background swap —
+  // the swap replaces every line element, and a mark that survived only until
+  // the colours arrived would be a door that closes itself.
   const bodyRef = React.useRef<HTMLDivElement | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the file is not read inside the effect, but it is what the effect reads the DOM *after* — the rows only exist once this file's text has rendered, and two search hits at the same line in different files carry the same `line`. Dropping them would leave the second hit scrolled to wherever the first one left the box.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the file and the swap are not read inside the effect, but they are what the effect reads the DOM *after* — the rows only exist once this file's text (or its tokenised replacement) has rendered, and two search hits at the same line in different files carry the same `line`. Dropping them would leave the second hit scrolled to wherever the first one left the box, and dropping `tokens` would lose the mark at the moment the swap rebuilds the rows.
   React.useEffect(() => {
     const index = markedLineIndex(line);
     if (index === null) return;
@@ -499,25 +618,38 @@ function FileBody({
       found.classList.remove("bg-muted");
       found.removeAttribute("data-testid");
     };
-  }, [line, file.path, file.text]);
+  }, [line, file.path, file.text, tokens]);
 
+  const parts = labelParts(file.path);
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="files-viewer">
       <div className="flex shrink-0 items-baseline gap-2 border-b border-border/60 px-2 py-1">
+        {/* The shared truncation rule: the directory dims and gives way, the
+            basename stays bright — the same `labelParts` arrangement the Diff
+            pane's header keeps, because this line is the only place the open
+            file is named at this width. */}
         <span
-          className="truncate text-xs text-foreground"
+          className="flex min-w-0 items-baseline text-xs"
           data-testid="files-viewer-path"
+          title={file.path}
         >
-          {file.path}
+          {parts.lead === "" ? null : (
+            <span className="min-w-0 truncate text-muted-foreground">
+              {parts.lead}
+            </span>
+          )}
+          <span className="max-w-full shrink-0 truncate text-foreground">
+            {parts.name}
+          </span>
         </span>
         <span className="ml-auto shrink-0 text-2xs tabular-nums text-muted-foreground">
           {humanCount(file.lines)} lines · {humanSize(file.bytes)}
         </span>
       </div>
       {plan.why === null ? null : (
-        // The honest half of reusing upstream's highlighter: over its ceiling
-        // it falls back to plain text *silently*, and a fallback he cannot see
-        // is a bug report. See `fileViewer.ts`'s header for the numbers.
+        // The honest half of the one remaining ceiling: a file the viewer will
+        // not highlight says why, in words, with the numbers. A fallback he
+        // cannot see is a bug report. See `fileViewer.ts`'s header.
         <p
           className="shrink-0 border-b border-border/60 px-2 py-1 text-2xs text-muted-foreground"
           data-testid="files-viewer-plain-note"
@@ -527,27 +659,22 @@ function FileBody({
       )}
       <div className="min-h-0 flex-1 overflow-auto p-2" ref={bodyRef}>
         {plan.render === "highlighted" ? (
-          <pre className="w-max min-w-full" data-testid="files-viewer-code">
-            <SyntaxHighlightedCode code={file.text} language={plan.language} />
+          // `data-highlighted` says which of the two renderings is up, so a
+          // spec can assert the swap happened instead of inferring it from
+          // colour counts alone.
+          <pre
+            className={VIEWER_BODY_CLASS}
+            data-highlighted={tokens === null ? "false" : "true"}
+            data-testid="files-viewer-code"
+          >
+            <ViewerLines text={file.text} tokens={tokens} />
           </pre>
         ) : (
-          <pre
-            className="w-max min-w-full whitespace-pre font-mono text-xs text-foreground"
-            data-testid="files-viewer-plain"
-          >
+          <pre className={VIEWER_BODY_CLASS} data-testid="files-viewer-plain">
             {/* `data-line` on every line and nothing about `line` here: which
                 one is marked is the effect's single answer, so the two
                 renderers cannot disagree about what "line 12" means. */}
-            {file.text.split("\n").map((text, index) => (
-              <span
-                // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
-                key={index}
-                className="block"
-                data-line=""
-              >
-                {text}
-              </span>
-            ))}
+            <ViewerLines text={file.text} tokens={null} />
           </pre>
         )}
       </div>

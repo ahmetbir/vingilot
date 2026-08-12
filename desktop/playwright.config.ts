@@ -158,6 +158,7 @@ export default defineConfig({
         "**/workspace-files.spec.ts",
         "**/workspace-search.spec.ts",
         "**/workspace-history.spec.ts",
+        "**/polish-shots.spec.ts",
         "**/vingilot-boot-mark.spec.ts",
       ],
       use: {

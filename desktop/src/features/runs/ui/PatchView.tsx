@@ -22,10 +22,15 @@
 import { diffView } from "@/features/runs/lib/runModel";
 import type { DiffLineKind } from "@/features/runs/lib/runModel";
 
+// The add/del hues are the theme's own diff tokens (`--status-added` /
+// `--status-deleted`, set per-theme by `ThemeProvider`) — the same green and
+// red upstream's `DiffViewer` speaks in chat, so a patch means the same thing
+// by the same colour on every surface of the app
+// (vingilot/docs/plans/2026-08-12-polish-the-right-side.md, vocabulary).
 const DIFF_LINE_CLASS: Record<DiffLineKind, string> = {
-  add: "text-emerald-600 dark:text-emerald-400",
+  add: "text-status-added",
   ctx: "text-foreground",
-  del: "text-destructive",
+  del: "text-status-deleted",
   hunk: "font-bold text-muted-foreground",
   meta: "text-muted-foreground",
 };

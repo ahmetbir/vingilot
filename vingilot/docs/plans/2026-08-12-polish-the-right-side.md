@@ -88,3 +88,62 @@ the edits start, stop and write it.
 **Most likely to be got wrong quietly:** breaking the pane specs' sentences. The empty states and
 refusal sentences are pinned by tests on purpose; polish rewrites their *dress*, not their words
 — any wording change is a stated decision with the test updated in the same breath.
+
+---
+
+## The vocabulary (extracted 2026-08-12, before any edit)
+
+Read for this section: `TeamThreadPane.tsx`, upstream's `shared/ui/sidebar.tsx`
+(`SidebarMenuButton`), `TimelineMessageList.tsx` (message row), `DiffViewer.tsx` and
+`badge.tsx` (where upstream puts color), `AttentionDot.tsx`, `WorktreeRow.tsx`,
+`ProjectStatusBar.tsx`, `PaneFrame.tsx`, then every fork pane named by this plan.
+
+**Type ramp.** Four steps, no more: `text-sm` for sentences a pane says to the owner (the
+Team pane's verdicts and preflight paragraphs); `text-xs` for row labels and controls;
+`text-2xs` for meta — counts, sizes, hashes, footers, chips; `text-3xs font-semibold
+uppercase tracking-[0.14em] text-muted-foreground` is the one section-header voice (History,
+Deck, RunDetail, WorkspaceNav and the palette already speak it).
+
+**Rows.** A row is a full-width `text-left` button. Selected = `bg-muted text-foreground`.
+Cursor-not-open (Diff pane only) = `bg-muted/40 text-foreground`. Rest =
+`text-muted-foreground hover:bg-muted/60`, with `transition-colors` and nothing else moving.
+Keyboard focus is visible everywhere as upstream draws it: `focus-visible:ring-1
+focus-visible:ring-ring` (`button.tsx`'s own treatment), inset so no geometry changes.
+Hover-revealed controls fade via `opacity-0 group-hover:opacity-100 focus-visible:opacity-100`
+(WorktreeRow's ×, the tab strip's ×).
+
+**Truncation.** The directory dims, the basename stays bright — `labelParts` + the
+`PathLabel` arrangement: lead `min-w-0 truncate text-muted-foreground`, name `shrink-0
+text-foreground`. History half-did this (opacity-70 lead); it is now the rule for status-file
+rows, the Diff list, the patch header and Search's file group headers. Commit rows already
+obey it in spirit: bright subject, muted meta line.
+
+**Color, and what each hue is allowed to mean.** Gray is the ground. The app's existing
+semantic hues, extended and not invented over:
+- attention: rose-500 = needs-you, emerald-500 = working, amber-500 = dirty (AttentionDot);
+- diff bodies: `text-status-added` / `text-status-deleted` (upstream `DiffViewer`'s theme
+  tokens, set per-theme by `ThemeProvider`) — `PatchView` aligns to these;
+- git status letters, everywhere a letter appears: A/U `text-status-added`, M
+  `text-status-modified`, D `text-status-deleted`, R/C `text-blue-600 dark:text-blue-400`
+  (the letters every developer already knows; T/? stay muted);
+- search match emphasis: an amber wash (`bg-amber-500/25`) — the one hue every editor uses
+  for a find match, already in the app as `badge.tsx`'s warning variant;
+- file-kind cues in the tree: a tinted 1.5px dot per kind (code sky, config amber, image
+  violet, doc/other neutral) drawn exactly like the sidebar's unread dot and the
+  AttentionDot — a dot, not an icon set;
+- warnings about state (a persistence chip for terminals that die with the app): `badge.tsx`'s
+  warning treatment, `bg-amber-500/15 text-amber-600 dark:text-amber-400`.
+
+**Headers and dividers.** `border-border/60` is the only divider. The pane's outer header is
+`PaneFrame`'s and stays untouched. Inside a pane, a section header is one shape: 3xs-uppercase
+title left, `text-2xs` meta/count right, optional control, `px-2 py-1` — one component
+(`PaneSection`), not five imitations.
+
+**Empty states.** One designed moment, one shape: the pane's registry glyph (dimmed, large),
+the model's own sentence (words unchanged unless stated — they are contracts), one keyboard
+hint below in `text-2xs`. Centered in the pane. Waits ("reading…", "searching…") and refusals
+are not moments and keep their plain left-aligned form.
+
+**Restraint.** No gradients, no new fonts, no shadows beyond upstream's `shadow-lg`/`shadow-xl`
+drawer precedent, no motion beyond `transition-colors`/`transition-opacity` already present.
+Stock rem tokens and the two meta tokens only.

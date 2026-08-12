@@ -19,16 +19,18 @@
 // - The tree **walks under the arrow keys and opens under Enter**. The key map
 //   is pure and tested; what is not is whether the handler is bound to an
 //   element that has focus. A map nothing calls passes every unit test.
-// - The viewer **really renders highlighted tokens**. `SyntaxHighlightedCode`
-//   loads its grammar and its theme asynchronously and falls back to plain
-//   `<span>`s on any failure, silently — so "the component is on screen" is not
-//   evidence that it highlighted anything. The reading is that the tokens
-//   carry inline colours, which only Shiki produces.
+// - The viewer **really renders highlighted tokens**. The background tokenise
+//   (muscle-memory Task 0: plain text instantly, spans swapped in) loads its
+//   grammar and theme asynchronously and keeps the plain rendering on any
+//   failure, silently — so "the component is on screen" is not evidence that
+//   it highlighted anything. The reading is that the tokens carry inline
+//   colours, which only Shiki produces — and that a long file gets them too,
+//   because the 150-line chat ceiling died with the synchronous path.
 // - **Each refusal reaches the screen as its own sentence.** This is Task 3's
 //   last checkbox and the reason this file exists at all: a sentence that is
 //   correct in a model and never rendered is the failure this island has
-//   already had. Too large (with its size), binary, and the plain-text notice
-//   on a long file are each read here.
+//   already had. Too large (with its size), binary, an unknown grammar, and
+//   the tokenise budget are each read here.
 // - **The outside route lands on a LINE**, not just on a file. That is the half
 //   Task 2's search results depend on and the half that has no other proof: a
 //   landing whose `line` is ignored is indistinguishable from `openFile(path,
@@ -91,18 +93,35 @@ const WORKTREE = {
   role: "task",
 };
 
-/** A small TypeScript file, under both highlight ceilings, with tokens Shiki
+/** A small TypeScript file, under the tokenise budget, with tokens Shiki
  * unambiguously colours. */
 const SMALL_TS = `export function greet(name: string): string {
   return \`hello \${name}\`;
 }
 `;
 
-/** Over `HIGHLIGHT_LINE_CEILING` (150) and nothing else — so the only reason
- * it can be plain is the line ceiling, and the sentence has to say so. */
+/** 400 lines — over the OLD 150-line chat ceiling, which is the point: with
+ * the background tokenise (muscle-memory Task 0) this file is a highlighted
+ * file, and the ceiling sentence that used to sit over it is gone. */
 const LONG_TS = Array.from(
   { length: 400 },
   (_, index) => `const line${index} = ${index};`,
+).join("\n");
+
+/** No grammar the viewer knows — the plain path's one honest remaining case a
+ * tree click can reach, and the file the Diff-route marked-line test walks the
+ * OTHER renderer with. 400 lines so the marked one is far below the fold. */
+const LOG_TEXT = Array.from(
+  { length: 400 },
+  (_, index) => `event ${index}: worker heartbeat accepted`,
+).join("\n");
+
+/** Over the 128 KiB tokenise budget (`HIGHLIGHT_BYTE_CEILING`) and a known
+ * grammar — so the only reason it can be plain is the budget, and the
+ * sentence has to say so with the numbers. */
+const BIG_TS = Array.from(
+  { length: 3_000 },
+  (_, index) => `export const wide${index} = "${"x".repeat(40)}";`,
 ).join("\n");
 
 /** The tree, as one directory level per key — exactly the shape
@@ -116,17 +135,24 @@ const TREE: Record<
     { kind: "file", name: "README.md", size: 128 },
   ],
   src: [
+    // `greet.ts` stays the FIRST file: the arrow-key test steps into "the
+    // first child" and asserts it lands there, and the mock answers in this
+    // order — `worktree_tree`'s order is the tree's order.
     { kind: "file", name: "greet.ts", size: SMALL_TS.length },
     { kind: "file", name: "huge.log", size: 1_048_576 },
     { kind: "file", name: "logo.png", size: 4096 },
     { kind: "file", name: "long.ts", size: LONG_TS.length },
+    { kind: "file", name: "trace.log", size: LOG_TEXT.length },
+    { kind: "file", name: "wide.ts", size: BIG_TS.length },
   ],
 };
 
 const FILES: Record<string, string> = {
   "README.md": "# vingilot\n",
+  "src/wide.ts": BIG_TS,
   "src/greet.ts": SMALL_TS,
   "src/long.ts": LONG_TS,
+  "src/trace.log": LOG_TEXT,
 };
 
 /** The one changed file the Diff pane opens on, and therefore the file the
@@ -146,12 +172,14 @@ const DIFF_FILE_PATH = "src/greet.ts";
 const GREET_HUNK_LINE = 2;
 const LONG_HUNK_LINE = 200;
 
-/** The second changed file, and it exists for one reason: it is over the
- * highlight ceiling, so it takes the viewer's OTHER render path. The marked
- * line has to be found in both — the highlighted path gets its `data-line`
- * spans from upstream's `CodeBlock.tsx` and the plain fallback emits its own,
- * and a mark that worked in one of them is a mark that works half the time. */
-const DIFF_LONG_PATH = "src/long.ts";
+/** The second changed file, and it exists for one reason: no grammar the
+ * viewer knows, so it takes the viewer's OTHER render path. The marked line
+ * has to be found in both — the tokenised body and the plain fallback each
+ * emit their own `data-line` spans, and a mark that worked in one of them is
+ * a mark that works half the time. (This used to be the 400-line TS file,
+ * when past-the-ceiling was what reached the plain path; with the ceiling
+ * gone, an unknown grammar is the honest way there.) */
+const DIFF_LONG_PATH = "src/trace.log";
 
 /** What `worktree_diff` answers, in the shape `worktreeDiff.ts` reads. Two
  * files, one hunk each — the pane's contents are not what is under test here,
@@ -189,9 +217,9 @@ const DIFF = {
         `--- a/${DIFF_LONG_PATH}`,
         `+++ b/${DIFF_LONG_PATH}`,
         `@@ -${LONG_HUNK_LINE},2 +${LONG_HUNK_LINE},3 @@`,
-        " const line199 = 199;",
-        "+const added = 0;",
-        " const line200 = 200;",
+        " event 199: worker heartbeat accepted",
+        "+event 199a: injected",
+        " event 200: worker heartbeat accepted",
       ].join("\n"),
       path: DIFF_LONG_PATH,
       truncated: false,
@@ -484,10 +512,18 @@ test("an opened file is really highlighted, by the Shiki this app already ships"
   await closeTree(page);
 
   await expect(page.getByTestId("files-viewer-code")).toBeVisible();
-  // No plain-text notice: this file is under both ceilings and its language is
-  // known, so nothing is being explained away.
+  // No plain-text notice: this file is under the tokenise budget and its
+  // language is known, so nothing is being explained away.
   await expect(page.getByTestId("files-viewer-plain-note")).toHaveCount(0);
 
+  // The background swap lands and says so (muscle-memory Task 0): the body
+  // starts as instant plain text and `data-highlighted` flips when the tokens
+  // arrive.
+  await expect(page.getByTestId("files-viewer-code")).toHaveAttribute(
+    "data-highlighted",
+    "true",
+    { timeout: 15_000 },
+  );
   const coloured = page.locator(
     '[data-testid="files-viewer-code"] span[style*="color"]',
   );
@@ -541,22 +577,32 @@ test("each refusal reaches the screen as its own sentence", async ({
   expect(binary).toContain("looks binary");
   expect(binary).not.toEqual(tooLarge);
 
-  // 3. Not a refusal but the third bound Task 3 asks to be honest about: a
-  // file past the highlight ceiling renders as plain text AND says why, with
-  // both numbers. Upstream's highlighter falls back here silently; a fallback
-  // he cannot see is a bug report.
+  // 3. An unknown grammar — the plain path's honest first case (Task 0: a file
+  // the viewer CHOSE not to highlight no longer exists, so what remains says
+  // what it is).
   await openTree(page);
-  await openFromTree(page, "src/long.ts");
+  await openFromTree(page, "src/trace.log");
   await expect(page.getByTestId("files-viewer-plain")).toBeVisible();
   const plainNote = page.getByTestId("files-viewer-plain-note");
   await expect(plainNote).toBeVisible();
-  const said = (await plainNote.textContent()) ?? "";
-  expect(said).toContain("400 lines");
-  expect(said).toContain("150 lines");
+  const unknownSaid = (await plainNote.textContent()) ?? "";
+  expect(unknownSaid).toContain("no syntax this pane knows");
   // The highlighted path is genuinely not taken.
   await expect(page.getByTestId("files-viewer-code")).toHaveCount(0);
 
-  // And a fourth, which is the tree's own: a directory git refuses is a
+  // 4. The tokenise budget — the one ceiling that remains, with both numbers
+  // said. A known grammar over 128 KiB renders plain and the sentence names
+  // the budget it hit.
+  await openTree(page);
+  await openFromTree(page, "src/wide.ts");
+  await expect(page.getByTestId("files-viewer-plain")).toBeVisible();
+  await expect(plainNote).toBeVisible();
+  const budgetSaid = (await plainNote.textContent()) ?? "";
+  expect(budgetSaid).toContain("128 KiB");
+  expect(budgetSaid).not.toEqual(unknownSaid);
+  await expect(page.getByTestId("files-viewer-code")).toHaveCount(0);
+
+  // And one more, the tree's own: a directory git refuses is a
   // sentence in place, never an empty directory. `worktree_tree` answers
   // not-found for any directory the fixture does not carry, so expanding one
   // that is only in the tree by name is a real refusal from the real client.
@@ -565,6 +611,43 @@ test("each refusal reaches the screen as its own sentence", async ({
   // footer instead: the pane states the two differences from `ls` rather than
   // letting him discover them.)
   await expect(page.getByTestId("files-footer")).toContainText("ignored files");
+});
+
+test("a long file renders its text instantly and is coloured in the background", async ({
+  page,
+}) => {
+  // Muscle-memory Task 0's own claim, on the file the old chat ceiling used to
+  // refuse: 400 lines of TypeScript render as plain text immediately — the
+  // pane never waits on a tokeniser — and the same body is swapped to Shiki's
+  // tokens when the background tokenise lands. No ceiling sentence, because
+  // there is no ceiling being applied.
+  await openFilesWorkspace(page);
+  await openFilesPane(page);
+  await page.getByTestId("files-row-src").click();
+  await openFromTree(page, "src/long.ts");
+
+  const code = page.getByTestId("files-viewer-code");
+  await expect(code).toBeVisible();
+  // The text is on screen without waiting for any colour to exist — this
+  // assertion runs while the grammar is still loading on any real machine,
+  // and the render it reads is the instant plain one.
+  await expect(code).toContainText("const line399");
+  await expect(page.getByTestId("files-viewer-plain-note")).toHaveCount(0);
+
+  // Then the swap lands: the body says so, and the tokens carry the inline
+  // colours only Shiki produces.
+  await expect(code).toHaveAttribute("data-highlighted", "true", {
+    timeout: 15_000,
+  });
+  const coloured = page.locator(
+    '[data-testid="files-viewer-code"] span[style*="color"]',
+  );
+  await expect
+    .poll(async () => coloured.count(), { timeout: 15_000 })
+    .toBeGreaterThan(3);
+  // Still every line, after the swap — a tokeniser that dropped the tail of
+  // the file would pass every assertion above.
+  await expect(code).toContainText("const line399");
 });
 
 test("the viewer opens from outside the pane — a patch's file, shown whole", async ({
@@ -623,32 +706,33 @@ test("the landing carries its line into the plain renderer too", async ({
   page,
 }) => {
   // The same route, through the viewer's OTHER render path. The two paths
-  // produce their line elements from different code — upstream's `CodeBlock`
-  // emits `<span data-line>` per tokenised line, the plain fallback emits its
-  // own — and a mark proved on one of them is a mark that works for files
-  // under 150 lines and silently not for the ones he is most likely to need a
-  // line number in.
+  // produce their line elements from different branches of `ViewerLines` —
+  // the tokenised body and the plain fallback each emit their own
+  // `<span data-line>` — and a mark proved on one of them is a mark that
+  // works for highlighted files and silently not for the plain ones.
   await openFilesWorkspace(page);
   await expect(page.getByTestId("pane-diff")).toBeVisible();
 
-  // Move the Diff pane onto the long file. At this width its list is a drawer,
+  // Move the Diff pane onto the log file. At this width its list is a drawer,
   // the same way the Files tree is.
   await page.getByTestId("worktree-diff-list-toggle").click();
   await page.getByTestId("worktree-diff-file-1").click();
-  await expect(page.getByTestId("worktree-diff-open")).toContainText("long.ts");
+  await expect(page.getByTestId("worktree-diff-open")).toContainText(
+    "trace.log",
+  );
 
   await page.getByTestId("worktree-diff-show-file").click();
 
   await expect(page.getByTestId("files-viewer-path")).toHaveText(
     DIFF_LONG_PATH,
   );
-  // Genuinely the plain path: 400 lines is past the highlight ceiling, so this
-  // is not the previous test again under another name.
+  // Genuinely the plain path: no grammar the viewer knows, so this is not the
+  // previous test again under another name.
   await expect(page.getByTestId("files-viewer-plain")).toBeVisible();
   await expect(page.getByTestId("files-viewer-code")).toHaveCount(0);
 
   await expect(page.getByTestId("files-viewer-marked-line")).toHaveText(
-    lineOf(LONG_TS, LONG_HUNK_LINE),
+    lineOf(LOG_TEXT, LONG_HUNK_LINE),
   );
   // **And on screen — which is the assertion that separates the landing from
   // the label.** `toHaveText` does not require the element to be in view, so
