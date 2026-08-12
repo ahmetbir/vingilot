@@ -41,9 +41,11 @@ mod vingilot_agent;
 // platform and needs the mark inside it. The menu-bar half carries its own gate
 // (see the module docs).
 mod vingilot_brand;
+mod vingilot_files;
 mod vingilot_projects;
 mod vingilot_pty;
 mod vingilot_repo;
+mod vingilot_search;
 mod vingilot_window;
 mod vingilot_worktree;
 #[cfg(target_os = "linux")]
@@ -677,6 +679,8 @@ pub fn run() {
             open_project_merge_recovery_terminal,
             vingilot_agent::agent_probe,
             vingilot_agent::agent_run,
+            vingilot_files::read::file_read,
+            vingilot_files::tree::worktree_tree,
             vingilot_projects::projects_load,
             vingilot_projects::projects_save,
             vingilot_pty::pty_open,
@@ -685,12 +689,16 @@ pub fn run() {
             vingilot_pty::pty_close,
             vingilot_pty::pty_backing,
             vingilot_repo::repo_probe,
+            vingilot_search::worktree_search,
             vingilot_window::window_set_dismissible,
             vingilot_worktree::worktree_list,
             vingilot_worktree::worktree_add,
             vingilot_worktree::brief::worktree_add_with_brief,
             vingilot_worktree::worktree_remove,
             vingilot_worktree::diff::worktree_diff,
+            vingilot_worktree::log::worktree_log,
+            vingilot_worktree::commit_patch::commit_diff,
+            vingilot_worktree::status::worktree_status,
             vingilot_worktree::stat::worktree_stats,
             vingilot_worktree::prune::worktree_prune_preview,
             vingilot_worktree::prune::worktree_prune,
@@ -946,30 +954,10 @@ pub fn run() {
             event: WindowEvent::CloseRequested { api, .. },
             ..
         } => {
-            // ⌘W and the red button both land here, and neither may hide the
-            // window — see vingilot_window's header for what that cost once.
-            // The rule itself is that module's, and pure.
-            let dismissible = app_handle
-                .state::<vingilot_window::WindowLayers>()
-                .dismissible();
-            match vingilot_window::resolve_close_request(&label, dismissible) {
-                vingilot_window::CloseRequest::Dismiss => {
-                    api.prevent_close();
-                    if let Err(error) = app_handle.emit(vingilot_window::CLOSE_REQUESTED_EVENT, ())
-                    {
-                        eprintln!("buzz-desktop: failed to forward close request: {error}");
-                    }
-                }
-                vingilot_window::CloseRequest::Minimize => {
-                    api.prevent_close();
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        if let Err(error) = window.minimize() {
-                            eprintln!("buzz-desktop: failed to minimize main window: {error}");
-                        }
-                    }
-                }
-                vingilot_window::CloseRequest::Close => {}
-            }
+            // ⌘W and the red button both land here. The arm has to be in this
+            // closure — `RunEvent` is delivered nowhere else — but everything
+            // it does is the fork's, so all of it lives in `vingilot_window`.
+            vingilot_window::apply_close_request(app_handle, &label, &api);
         }
         RunEvent::ExitRequested { code, .. } => {
             if is_restart_request(code) {

@@ -33,10 +33,13 @@
 //! app should have.
 
 pub mod brief;
+pub mod commit_patch;
 pub mod diff;
+pub mod log;
 mod porcelain;
 pub mod prune;
 pub mod stat;
+pub mod status;
 #[cfg(test)]
 pub(crate) mod testrepo;
 
@@ -120,7 +123,14 @@ pub enum WorktreeError {
 }
 
 /// The git this app will use, probed once and cached for its lifetime.
-fn git() -> Option<&'static str> {
+///
+/// `pub(crate)` for `vingilot_files`, which asks git what belongs to a checkout
+/// (`ls-files --exclude-standard`) and must ask the *same* git the diff pane and
+/// the worktree administration above it use. A second probe would be a second
+/// answer to "where is git on this machine" — and on a machine where PATH's git
+/// and `/usr/bin/git` differ, a tree listing and a diff of the same worktree
+/// could disagree about what is ignored.
+pub(crate) fn git() -> Option<&'static str> {
     static GIT: OnceLock<Option<String>> = OnceLock::new();
     GIT.get_or_init(|| {
         CANDIDATES

@@ -74,8 +74,7 @@ import {
   UNREAD,
 } from "@/features/runs/lib/diffRefresh";
 import type { Worktree } from "@/features/runs/lib/projects";
-import { diffView } from "@/features/runs/lib/runModel";
-import type { DiffLineKind } from "@/features/runs/lib/runModel";
+import { PatchView } from "@/features/runs/ui/PatchView";
 import { gitWorktreeDiff } from "@/features/runs/lib/worktreeClient";
 import {
   changeLabel,
@@ -84,18 +83,11 @@ import {
   diffSummary,
   fileLabel,
   fileNote,
+  firstHunkLine,
   labelParts,
   type WorktreeDiff,
 } from "@/features/runs/lib/worktreeDiff";
 import { explainWorktreeError } from "@/features/runs/lib/worktreePlan";
-
-const DIFF_LINE_CLASS: Record<DiffLineKind, string> = {
-  add: "text-emerald-600 dark:text-emerald-400",
-  ctx: "text-foreground",
-  del: "text-destructive",
-  hunk: "font-bold text-muted-foreground",
-  meta: "text-muted-foreground",
-};
 
 const CHANGE_CLASS: Record<string, string> = {
   A: "text-emerald-600 dark:text-emerald-400",
@@ -135,6 +127,25 @@ interface Props {
    * resolved one — git cannot be asked about a place this app cannot name. */
   cwd: string | null;
   worktree: Worktree;
+  /** Show the whole of the file whose patch is open, in the Files pane.
+   *
+   * **The first caller of the viewer's outside route**
+   * (vingilot/docs/plans/2026-08-12-files-pane-design.md, §6), and it is here
+   * because a patch is a reading of a few lines and the question it most often
+   * raises is about the rest of them — what the function this hunk is inside
+   * actually does. Until now the answer to that was VS Code, which is the
+   * sentence the whole plan is named after.
+   *
+   * `line` is where the open patch starts in the file as it is now, or `null`
+   * when the patch names no line. It is passed because the question is about
+   * the lines *around* the hunk: landing at line 1 of a 2,000-line file answers
+   * a different one, and it is the half of the route Task 2's search results
+   * depend on — a hit that named a line and then opened the top of the file
+   * would be a door onto the wrong side of the room.
+   *
+   * Optional, so a Diff pane rendered anywhere without a host to ask keeps
+   * working and simply does not offer it. */
+  onShowFile?: (path: string, line: number | null) => void;
 }
 
 /** What has focus right now, in the terms `diffKeys.ts` decides on. The
@@ -150,7 +161,7 @@ function focused(): FocusedElement | null {
   };
 }
 
-export function WorktreeDiffPanel({ cwd, worktree }: Props) {
+export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
   const suggested = defaultDiffBase(worktree);
   const [draft, setDraft] = React.useState(suggested);
   // One read, named. The nonce is what makes pressing Read with the same ref
@@ -372,7 +383,6 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
   const summary = diff === null ? null : diffSummary(diff);
   const note =
     shown === null || diff === null ? null : fileNote(shown, diff.limits);
-  const patch = shown === null ? null : diffView(shown.patch);
 
   return (
     <div
@@ -517,6 +527,28 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
                 // most: at 243px it read "desktop/src/feat…".
                 testid="worktree-diff-open"
               />
+              {/* The door out of the patch and into the file. `shrink-0` and a
+                  glyph rather than a label because this header is 243px wide on
+                  his laptop and `PathLabel` beside it is the thing that must
+                  keep its room — the same constraint the hint below is dropped
+                  for at that width. A deleted file has nothing left to show, so
+                  it is not offered one. */}
+              {onShowFile === undefined ||
+              shown === null ||
+              shown.change === "deleted" ? null : (
+                <button
+                  aria-label={`show the whole of ${shown.path}`}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  data-testid="worktree-diff-show-file"
+                  onClick={() =>
+                    onShowFile(shown.path, firstHunkLine(shown.patch))
+                  }
+                  title="Show the whole file"
+                  type="button"
+                >
+                  ⌸
+                </button>
+              )}
               {placement.where === "beside" ? (
                 <span className="shrink-0 text-2xs text-muted-foreground">
                   j / k move · enter opens
@@ -540,33 +572,16 @@ export function WorktreeDiffPanel({ cwd, worktree }: Props) {
               {/* Named because the width of *this* box is the defect: it is
                   what "the diff does not fit" was measured on (32px of client
                   against 704px of content), and a spec cannot ask about it
-                  through the pane, which fits fine. */}
-              <div
-                className="min-h-0 flex-1 overflow-auto px-4 py-2"
-                // Which of the two renderings is up, so a spec can say the mode
-                // out loud instead of inferring it from a scroll width that
-                // could also be zero because the fixture's lines are short.
-                data-testid="worktree-diff-patch"
-                data-wrapped={wraps ? "true" : "false"}
-              >
-                <div
-                  className={`flex flex-col font-mono text-xs ${wraps ? "w-full" : "w-max min-w-full"}`}
-                >
-                  {(patch?.lines ?? []).map((line, i) => (
-                    <span
-                      // Wrapped, the hanging indent is what keeps a diff
-                      // readable: the second visual line of a `+` line starts
-                      // under the code and not under the marker column, so a
-                      // continuation is never mistaken for a context line.
-                      className={`${wraps ? "-indent-4 whitespace-pre-wrap break-words pl-4" : "whitespace-pre"} ${DIFF_LINE_CLASS[line.kind]}`}
-                      // biome-ignore lint/suspicious/noArrayIndexKey: patch lines are positional content, never reordered
-                      key={i}
-                    >
-                      {line.text === "" ? " " : line.text}
-                    </span>
-                  ))}
-                </div>
-              </div>
+                  through the pane, which fits fine.
+
+                  The drawing moved to `PatchView` so the History pane renders a
+                  commit's patch with this renderer rather than a second copy of
+                  it (Task 4); what it draws did not change. */}
+              <PatchView
+                patch={shown === null ? "" : shown.patch}
+                testid="worktree-diff-patch"
+                wraps={wraps}
+              />
               {placement.where === "over" && listOpen ? (
                 <FileList
                   cursor={cursor}

@@ -54,6 +54,9 @@ export const PANE_IDS = [
   "notes",
   "plan",
   "team",
+  "files",
+  "search",
+  "history",
 ] as const;
 
 export type PaneId = (typeof PANE_IDS)[number];
@@ -70,8 +73,33 @@ export type PaneId = (typeof PANE_IDS)[number];
  * branch in the owner's repository, and both belong to `RunsScreen`, which is
  * also where the palette's door into the same dialog arrives. Two doors, one
  * dialog — the rule that already holds for New worktree, Prune and Remove
- * project. */
-export type PaneAct = { type: "plan-to-worktree" };
+ * project.
+ *
+ * `show-file` is the second variant, and it is the one the note above predicted
+ * would need what `plan-to-worktree` did not: **an argument**. It is the route
+ * into the Files pane's viewer from outside it
+ * (vingilot/docs/plans/2026-08-12-files-pane-design.md, §6) — Task 2's search
+ * results end in this call, and building it now is what keeps that task from
+ * inventing a second landing. `RunsScreen` handles it by filing the target
+ * (`filesTarget.ts`) and then choosing the pane, which is the same two moves the
+ * palette's `ask` command already makes for the Agent pane: an answer behind a
+ * surface he cannot see is a toast with extra steps.
+ *
+ * The argument does not ride on `PaneProps`. Widening the props for one pane's
+ * case would make every pane pay for it, and a non-pane caller — a deep link, a
+ * notification — could not use it at all. */
+export type PaneAct =
+  | { type: "plan-to-worktree" }
+  | {
+      type: "show-file";
+      /** The checkout's own directory. A path without it is ambiguous: two
+       * worktrees of one project both have `src/main.rs`. */
+      worktree: string;
+      /** Worktree-relative. */
+      path: string;
+      /** 1-based, or `null` for the top of the file. */
+      line: number | null;
+    };
 
 /** The pane on the left, which the owner does not choose.
  *
@@ -224,6 +252,74 @@ export function diffAvailability(ctx: PaneContext): PaneAvailability {
   return {
     reason:
       "this worktree has no directory this app can name, so there is nothing for git to read here.",
+    status: "unavailable",
+  };
+}
+
+/** A tree and a viewer need a checkout, and nothing else — no run, no harness,
+ * no project document. The same rule as Diff, and deliberately the same three
+ * branches rather than a shared helper: what differs between them is the
+ * sentence, and a helper taking the sentence as an argument would be one
+ * indirection for one string.
+ *
+ * `cwdPending` is a `pending` here for the reason the header gives: for the
+ * first frames after launch a worktree with a perfectly good checkout cannot
+ * name it, and telling him then that there are no files would be reading an
+ * empty answer as a negative one. */
+export function filesAvailability(ctx: PaneContext): PaneAvailability {
+  if (ctx.cwd !== null) return AVAILABLE;
+  if (ctx.cwdPending) {
+    return { note: "waiting for this worktree's checkout…", status: "pending" };
+  }
+  return {
+    reason:
+      "this worktree has no directory this app can name, so there are no files here to list or to open.",
+    status: "unavailable",
+  };
+}
+
+/** `git grep` needs a checkout, and nothing else — no run, no harness, no
+ * project document, and in particular no index this app maintains. The same
+ * three branches as Diff and Files, and deliberately not a shared helper: what
+ * differs between them is the sentence, and a helper taking the sentence as an
+ * argument would be one indirection for one string.
+ *
+ * `cwdPending` is a `pending` here for the reason the header gives: for the
+ * first frames after launch a worktree with a perfectly good checkout cannot
+ * name it, and telling him then that there is nothing to search would be
+ * reading an empty answer as a negative one — which is the same rule the pane
+ * itself applies to "no matches". */
+export function searchAvailability(ctx: PaneContext): PaneAvailability {
+  if (ctx.cwd !== null) return AVAILABLE;
+  if (ctx.cwdPending) {
+    return { note: "waiting for this worktree's checkout…", status: "pending" };
+  }
+  return {
+    reason:
+      "this worktree has no directory this app can name, so there is no checkout here for git to search.",
+    status: "unavailable",
+  };
+}
+
+/** `git log` and `git status` need a checkout, and nothing else — no run, no
+ * harness, no coordinator. The same three branches as Diff, Files and Search,
+ * and deliberately not a shared helper: what differs between them is the
+ * sentence, and a helper taking the sentence as an argument would be one
+ * indirection for one string.
+ *
+ * `cwdPending` is a `pending` here for the reason the header gives: for the
+ * first frames after launch a worktree with a perfectly good checkout cannot
+ * name it, and telling him then that there is no history would be reading an
+ * empty answer as a negative one — the same rule the pane itself applies to
+ * "no commits yet". */
+export function historyAvailability(ctx: PaneContext): PaneAvailability {
+  if (ctx.cwd !== null) return AVAILABLE;
+  if (ctx.cwdPending) {
+    return { note: "waiting for this worktree's checkout…", status: "pending" };
+  }
+  return {
+    reason:
+      "this worktree has no directory this app can name, so there is no repository here to read a history or a status from.",
     status: "unavailable",
   };
 }

@@ -12,6 +12,7 @@ import {
   DIVIDER_PX,
   effectiveSolo,
   evidenceAvailability,
+  filesAvailability,
   LEFT_PANE,
   MAX_RATIO,
   MIN_LEFT_PX,
@@ -29,6 +30,7 @@ import {
   resetRatio,
   rightChoices,
   runsAvailability,
+  searchAvailability,
   terminalAvailability,
   toggleSolo,
   withRatio,
@@ -422,12 +424,34 @@ test("a pane with no backing says so instead of rendering empty", () => {
   const evidence = evidenceAvailability(ctx());
   assert.equal(evidence.status, "unavailable");
   assert.match(evidence.reason, /no run owns this worktree/);
+  // Files reads a checkout and nothing else, so it refuses on the same fact
+  // Diff does — and it says what a *file* pane cannot do, not what git cannot,
+  // because the two panes send him to two different places next.
+  const files = filesAvailability(ctx({ cwd: null }));
+  assert.equal(files.status, "unavailable");
+  assert.match(files.reason, /no files here to list or to open/);
+  // And Search refuses on the same fact again, in its own words: what is
+  // missing is the checkout git would have searched, which is a different next
+  // action from "there are no files to open".
+  const search = searchAvailability(ctx({ cwd: null }));
+  assert.equal(search.status, "unavailable");
+  assert.match(search.reason, /no checkout here for git to search/);
 });
 
 test("an answer that has not arrived is pending, never a refusal", () => {
   const pending = ctx({ cwd: null, cwdPending: true });
   assert.equal(diffAvailability(pending).status, "pending");
   assert.equal(agentAvailability(pending).status, "pending");
+  // For the first frames after launch a worktree with a perfectly good
+  // checkout cannot name it. Telling him then that there are no files is
+  // reading an empty answer as a negative one.
+  assert.equal(filesAvailability(pending).status, "pending");
+  // **The house rule, applied at the pane frame instead of at the results
+  // list.** Search says "no matches" only after git answered; the same pane may
+  // not say "there is nothing here to search" on the strength of a checkout
+  // whose name has not arrived yet. Collapsing this branch into `unavailable`
+  // is exactly the empty-read-as-a-negative-answer this island keeps paying for.
+  assert.equal(searchAvailability(pending).status, "pending");
 });
 
 test("a pane with its backing present is available", () => {
@@ -439,6 +463,8 @@ test("a pane with its backing present is available", () => {
   );
   assert.equal(runsAvailability().status, "available");
   assert.equal(terminalAvailability().status, "available");
+  assert.equal(filesAvailability(ctx()).status, "available");
+  assert.equal(searchAvailability(ctx()).status, "available");
 });
 
 test("the terminal is available even with nothing resolved — it says so itself", () => {

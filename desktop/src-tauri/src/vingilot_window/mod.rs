@@ -144,6 +144,54 @@ pub fn resolve_close_request(label: &str, dismissible: bool) -> CloseRequest {
     CloseRequest::Minimize
 }
 
+/// Carry out what [`resolve_close_request`] decided.
+///
+/// **Why this is here and not in the `app.run` closure it is called from.**
+/// `RunEvent` is delivered to the single closure `lib.rs` owns, so the *arm*
+/// has to be there — but everything inside it is the fork's, and it was
+/// twenty-eight lines of it sitting in upstream's file. That file is the one
+/// Tauri gives an app to hold its command table and its run loop, it is one
+/// line under this repository's 1000-line ceiling, and every fork command
+/// costs it a line: the next island to need one had nowhere to put it.
+///
+/// So the arm stays and its body moves, which is the island rule applied to
+/// the last place it had not been. `lib.rs`'s seam entry already said this
+/// code was "fork-owned and pure, in vingilot_window"; now all of it is.
+///
+/// The decision itself stays in `resolve_close_request`, which is pure and
+/// tested. What is here is only the doing: prevent the close, and either tell
+/// the webview or minimize. Generic over the runtime so it takes a mock app as
+/// readily as the real one.
+#[cfg(target_os = "macos")]
+pub fn apply_close_request<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    api: &tauri::CloseRequestApi,
+) {
+    use tauri::{Emitter, Manager};
+
+    // ⌘W and the red button both land here, and neither may hide the window —
+    // see this module's header for what that cost once.
+    let dismissible = app.state::<WindowLayers>().dismissible();
+    match resolve_close_request(label, dismissible) {
+        CloseRequest::Dismiss => {
+            api.prevent_close();
+            if let Err(error) = app.emit(CLOSE_REQUESTED_EVENT, ()) {
+                eprintln!("buzz-desktop: failed to forward close request: {error}");
+            }
+        }
+        CloseRequest::Minimize => {
+            api.prevent_close();
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                if let Err(error) = window.minimize() {
+                    eprintln!("buzz-desktop: failed to minimize main window: {error}");
+                }
+            }
+        }
+        CloseRequest::Close => {}
+    }
+}
+
 /// Tells the backend whether a close request would have something to dismiss.
 ///
 /// Called by the workspace on every change of what is stacked over it, and

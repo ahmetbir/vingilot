@@ -92,6 +92,7 @@ import {
   rightChoices,
 } from "@/features/runs/lib/paneModel";
 import { ask } from "@/features/runs/lib/askRunner";
+import { requestFile } from "@/features/runs/lib/filesTarget";
 import type { PaletteCommand } from "@/features/runs/lib/paletteModel";
 import type {
   PaletteChoice,
@@ -103,6 +104,8 @@ import { useCloseRequest } from "@/features/runs/lib/useCloseRequest";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
+import { useSearchChord } from "@/features/runs/lib/useSearchChord";
+import { useShowPane } from "@/features/runs/lib/useShowPane";
 import { useProjectDocuments } from "@/features/runs/lib/useDocument";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
@@ -561,6 +564,13 @@ export function RunsScreen() {
   // same reason the tab layout is: that component unmounts on the way to the
   // landing view and would forget the arrangement on the way out.
   const panes = usePanes(selectedWorktreeId);
+  // Bringing a pane to him, as opposed to him arranging his own surface — three
+  // callers and one gesture (`lib/useShowPane.ts`).
+  const showPane = useShowPane({
+    choose: panes.choose,
+    solo: panes.state.solo,
+    toggleSolo: panes.toggleSolo,
+  });
   // The open project's notes and plan, opened here rather than in the panes
   // that edit them. The Plan pane's button and the dialog it opens are then
   // reading one value instead of two: the pane's own state and, a debounce
@@ -618,6 +628,10 @@ export function RunsScreen() {
     const entry = paneEntry(id);
     return {
       availability: entry.availability(paneContext),
+      // The registry's own column, carried down rather than written here: the
+      // palette row is the door for somebody who does not know the chord, and
+      // a second list of chords in this file is a list that goes stale.
+      chord: entry.chord,
       id: entry.id,
       title: entry.title,
     };
@@ -709,11 +723,8 @@ export function RunsScreen() {
           // The palette refuses an ask with no directory (`askMode.ts`), so
           // this is the same fact read twice rather than a second rule.
           if (selectedWorktreeCwd === null) return;
-          // Put the answer where it can be read as it arrives. A solo'd
-          // terminal is hiding the pane the answer lands in, and an answer
-          // behind a surface the owner cannot see is a toast with extra steps.
-          panes.choose("agent");
-          if (panes.state.solo === "left") panes.toggleSolo("left");
+          // Where the answer lands, brought forward (`lib/useShowPane.ts`).
+          showPane("agent");
           void ask(selectedWorktreeCwd, command.question);
           return;
       }
@@ -725,7 +736,6 @@ export function RunsScreen() {
       openPrune,
       scratch.open,
       panes.choose,
-      panes.state.solo,
       panes.toggleSolo,
       projectActions.addProject,
       runTabCommand,
@@ -734,18 +744,39 @@ export function RunsScreen() {
       selectLanding,
       selectRepo,
       sheet.show,
+      showPane,
     ],
   );
 
-  // What a pane asks the workspace for. One act today, and it lands on the
-  // same state the palette's command does — the pane is a second door, not a
-  // second implementation.
+  // What a pane asks the workspace for. Each act lands on the same state the
+  // palette's command does — a pane is a second door, not a second
+  // implementation.
   const runPaneAct = React.useCallback(
     (act: PaneAct) => {
-      if (act.type === "plan-to-worktree") openPlanWorktree(true);
+      if (act.type === "plan-to-worktree") {
+        openPlanWorktree(true);
+        return;
+      }
+      // "Show me file X at line N in worktree W"
+      // (vingilot/docs/plans/2026-08-12-files-pane-design.md, §6), and the
+      // Search pane's results are the second caller of it.
+      //
+      // The target is filed BEFORE the pane is brought forward, on purpose: the
+      // pane reads whatever is pending on mount, so the order is what makes a
+      // request from a pane that is not yet on screen work at all.
+      requestFile({
+        line: act.line,
+        path: act.path,
+        worktree: act.worktree,
+      });
+      showPane("files");
     },
-    [openPlanWorktree],
+    [openPlanWorktree, showPane],
   );
+
+  // ⇧⌘F. Choosing a pane already chosen is a no-op, which is what the Search
+  // pane's own listener on this chord is for — it re-focuses the field.
+  useSearchChord(React.useCallback(() => showPane("search"), [showPane]));
 
   // Standing in the worktree the plan just opened. The binding id is derived
   // from git's own path (`localBindingId`), so it is the id the row will carry
@@ -858,6 +889,7 @@ export function RunsScreen() {
           stats={signals.stats}
           storeNotice={projectActions.storeNotice}
           worktreeMarks={signals.byWorktree}
+          worktreeOverlaps={signals.overlaps}
           worktreeRoot={worktreeRoot}
           worktrees={repoWorktrees}
         />

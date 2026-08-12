@@ -43,6 +43,8 @@ import {
   agentAvailability,
   diffAvailability,
   evidenceAvailability,
+  filesAvailability,
+  historyAvailability,
   notesAvailability,
   type PaneAct,
   type PaneAvailability,
@@ -53,6 +55,7 @@ import {
   type PaneProbe,
   planAvailability,
   runsAvailability,
+  searchAvailability,
   terminalAvailability,
 } from "@/features/runs/lib/paneModel";
 import type { ControlPlaneKind } from "@/features/runs/lib/reachability";
@@ -61,9 +64,12 @@ import { teamAvailability } from "@/features/runs/lib/teamThread";
 import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import { AgentPanel } from "@/features/runs/ui/AgentPanel";
 import { EvidencePane } from "@/features/runs/ui/EvidencePane";
+import { FilesPane } from "@/features/runs/ui/FilesPane";
+import { HistoryPane } from "@/features/runs/ui/HistoryPane";
 import { NotesPane } from "@/features/runs/ui/NotesPane";
 import { PlanPane } from "@/features/runs/ui/PlanPane";
 import { RunsPane } from "@/features/runs/ui/RunsPane";
+import { SearchPane } from "@/features/runs/ui/SearchPane";
 import { TeamThreadPane } from "@/features/runs/ui/TeamThreadPane";
 import { WorktreeDiffPanel } from "@/features/runs/ui/WorktreeDiffPanel";
 
@@ -142,6 +148,18 @@ export interface PaneEntry {
   /** The question this pane needs the world to answer before `availability`
    * can decide (`PaneProbe`). Omitted by a pane whose answer is in the facts. */
   probe?: PaneProbe;
+  /** The chord that puts this pane on screen, when one does, written the way
+   * `cheatsheet.ts`'s `chordOf` writes it.
+   *
+   * **A column rather than a second table**, because the alternative is a list
+   * of pane-to-chord pairs somewhere else that goes stale the day a chord
+   * moves. It is read by the palette so a row can print the key beside the
+   * name — the row is the door for someone who does not know the chord, and it
+   * is also where he learns it. Omitted by the panes that have none, which is
+   * every one of them except this: they are chosen through ⌘K or the picker
+   * and a chord each would be seven more claims on the keyboard for no reason
+   * anybody asked for. */
+  chord?: string;
 }
 
 /** A pane whose content is one worktree's: switching worktree means taking the
@@ -164,9 +182,26 @@ function ofProject(facts: PaneFacts): string {
   return facts.projectPath ?? "none";
 }
 
-function DiffPane({ cwd, worktree }: PaneProps) {
+function DiffPane({ cwd, onPaneAct, worktree }: PaneProps) {
   if (worktree === null) return null;
-  return <WorktreeDiffPanel cwd={cwd} worktree={worktree} />;
+  return (
+    <WorktreeDiffPanel
+      cwd={cwd}
+      // The `show this file in Diff` this file's header predicted, arriving in
+      // the other direction: from a patch to the whole file. It goes through
+      // `onPaneAct` rather than through `onChoosePane` because it carries an
+      // argument, which is exactly what the note above `onPaneAct` said the
+      // second act would need. A pane with no directory has no file to name,
+      // so it offers nothing.
+      onShowFile={
+        cwd === null
+          ? undefined
+          : (path, line) =>
+              onPaneAct({ line, path, type: "show-file", worktree: cwd })
+      }
+      worktree={worktree}
+    />
+  );
 }
 
 function AgentPane({ cwd }: PaneProps) {
@@ -235,6 +270,34 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     identity: ofWorktree,
     title: "Evidence",
   },
+  files: {
+    availability: filesAvailability,
+    component: FilesPane,
+    icon: "⌸",
+    id: "files",
+    // A reading of one worktree, and the plainest case of it in this table:
+    // every path in the tree is relative to *this* checkout, and carrying a
+    // tree or an open file across a switch would show him another worktree's
+    // `src/main.rs` under this one's name.
+    identity: ofWorktree,
+    // No probe. Its one question — is there a checkout — is in the facts, and
+    // an answer asked once per key would go stale the moment git ran.
+    title: "Files",
+  },
+  history: {
+    availability: historyAvailability,
+    component: HistoryPane,
+    icon: "⟲",
+    id: "history",
+    // A reading of one worktree, and one of the strictest cases in this table:
+    // a linked worktree has its own HEAD, so its history is its branch's rather
+    // than the repository's, and carrying a commit list or a status across a
+    // switch would show him another branch's commits under this one's name.
+    identity: ofWorktree,
+    // No probe. Its one question — is there a checkout — is in the facts, and
+    // an answer asked once per key would go stale the moment git ran.
+    title: "History",
+  },
   notes: {
     availability: notesAvailability,
     component: NotesPaneEntry,
@@ -264,6 +327,27 @@ const ENTRIES: Record<PaneId, PaneEntry> = {
     id: "runs",
     identity: ofWorkspace,
     title: "Runs",
+  },
+  search: {
+    availability: searchAvailability,
+    // ⇧⌘F, and it is the only pane in this table with a chord of its own —
+    // because it is the only one the owner left the app for
+    // (vingilot/docs/plans/2026-08-11-what-sent-him-to-vscode.md, Task 2). The
+    // claimant check is in `lib/searchKeys.ts`.
+    chord: "⇧⌘F",
+    component: SearchPane,
+    icon: "⌕",
+    id: "search",
+    // A reading of one worktree, like Files and for the same reason: every path
+    // in an answer is relative to *this* checkout, and carrying results across
+    // a switch would offer him another worktree's file under this one's name.
+    // **This is the only thing that guarantees it** — `workspace-search.spec.ts`
+    // presses on it by giving two worktrees the Search pane and switching
+    // between them, and turning this into `ofWorkspace` turns that spec red.
+    identity: ofWorktree,
+    // No probe. Its one question — is there a checkout — is in the facts, and
+    // an answer asked once per key would go stale the moment git ran.
+    title: "Search",
   },
   team: {
     availability: teamAvailability,
