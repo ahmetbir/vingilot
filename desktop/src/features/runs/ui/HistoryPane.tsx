@@ -45,7 +45,11 @@ import * as React from "react";
 import {
   diffListPlacement,
   patchWrapsAt,
+  SPLIT_MIN_PX,
+  splitFitsAt,
 } from "@/features/runs/lib/diffLayout";
+import { effectiveDiffMode } from "@/features/runs/lib/diffMode";
+import { useDiffMode } from "@/features/runs/lib/useDiffMode";
 import {
   activatesOnEnter,
   type FocusedElement,
@@ -372,7 +376,15 @@ function HistoryBody({ cwd }: { cwd: string }) {
     row?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
-  const placement = diffListPlacement(paneWidth);
+  // The app's one diff-layout flag, read here exactly as the Diff pane reads
+  // it — same store, same width precondition, same yielding list. Two panes,
+  // one answer: a commit's patch and a worktree's are the same reading and must
+  // not be laid out two different ways because they are drawn by two panes.
+  const mode = effectiveDiffMode(useDiffMode(), splitFitsAt(paneWidth));
+  const placement = diffListPlacement(
+    paneWidth,
+    mode === "split" ? SPLIT_MIN_PX : undefined,
+  );
   const layout = historyLayout(placement, patch.status !== "none");
   const wraps = patchWrapsAt(paneWidth);
 
@@ -427,6 +439,8 @@ function HistoryBody({ cwd }: { cwd: string }) {
                   }
                 : undefined
             }
+            mode={mode}
+            paneWidth={paneWidth}
             state={patch}
             wraps={wraps}
           />

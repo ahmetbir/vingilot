@@ -71,6 +71,7 @@ import { expect, test } from "@playwright/test";
 // never a raise; the halves also change for different reasons, which is the
 // better half of the argument. See `workspace-history.fixtures.ts`.
 import {
+  COMMIT_PATCH,
   COMMITS,
   controlNames,
   EXTERNAL_DISPLAY,
@@ -79,6 +80,7 @@ import {
   MUTATING,
   openHistoryPane,
   openHistoryWorkspace,
+  SIXTEEN_INCH,
   SLOW_COMMIT_MS,
 } from "./workspace-history.fixtures";
 
@@ -620,4 +622,74 @@ test("a repository with no commits says so, once git has said so", async ({
   await expect(empty).toBeVisible();
   await expect(empty).toContainText("no commits yet");
   await expect(page.getByTestId("history-log-reading")).toHaveCount(0);
+});
+
+test("the split toggle is this pane's too, on the same flag and the same floor", async ({
+  page,
+}) => {
+  // **The claim is that Task 2 added a layout and not a second renderer**
+  // (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md, Task 2, and the
+  // self-review that names "a second diff renderer" as the way it goes wrong).
+  // The Diff pane's own reading of split lives in `workspace-diff-fits.spec.ts`;
+  // what this adds is that the SAME control and the SAME precondition arrived on
+  // this surface without being written twice — a commit's patch is the same
+  // reading as a worktree's, and a forked toggle would be the first place the two
+  // drifted.
+  //
+  // Read at two widths, because the toggle's behaviour is a function of one.
+  await openHistoryWorkspace(page, SIXTEEN_INCH);
+  await openHistoryPane(page);
+  await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
+  await expect(page.getByTestId("history-patch-src/read.rs")).toBeVisible();
+
+  // At his own width the pane is ~435px, under the 695px two columns need, so
+  // the control is on screen, unavailable, and says why — in `diffLayout.ts`'s
+  // words, which the unit tests pin and this one only proves reached the header.
+  const toggle = page.getByTestId("history-split");
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toBeDisabled();
+  await expect(page.getByTestId("history-split-why")).toContainText(
+    "split needs 695px of pane",
+  );
+  await expect(page.getByTestId("history-patch-src/read.rs")).toHaveAttribute(
+    "data-mode",
+    "unified",
+  );
+
+  // On the external display the same pane can seat two columns, and the same
+  // control turns them on.
+  await openHistoryWorkspace(page, EXTERNAL_DISPLAY);
+  await openHistoryPane(page);
+  await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
+  const wide = page.getByTestId("history-split");
+  await expect(wide).toBeEnabled();
+  await expect(page.getByTestId("history-split-why")).toHaveCount(0);
+  await wide.click();
+
+  const box = page.getByTestId("history-patch-src/read.rs");
+  await expect(box).toHaveAttribute("data-mode", "split");
+  // The fixture's block is one deletion against two additions, so the gap is on
+  // the LEFT here — the mirror of the Diff pane's fixture, and the reading that
+  // says the alignment is the model's rather than a property of one patch.
+  const rows = await box.locator("[data-split-row]").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      cells: Array.from(node.querySelectorAll("span"), (cell) =>
+        (cell.textContent ?? "").trim(),
+      ),
+      kind: node.getAttribute("data-split-row"),
+    })),
+  );
+  expect(rows.map((row) => row.kind)).toEqual([
+    "span",
+    "context",
+    "change",
+    "change",
+  ]);
+  // gutter, code, gutter, code — the deletion beside the first addition, then
+  // the second addition beside nothing at all.
+  expect(rows[2].cells).toEqual(["2", "was here", "2", "is here now"]);
+  expect(rows[3].cells).toEqual(["", "", "3", "and this too"]);
+  // And the patch it was built from is the fixture's, so nothing above is a
+  // reading of some other commit's answer.
+  expect(COMMIT_PATCH).toContain("+and this too");
 });

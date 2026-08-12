@@ -98,10 +98,39 @@ const MIN_LEFT_PX = 752;
 /** `PATCH_MIN_PX` in `lib/diffLayout.ts`, written out for the same reason. */
 const PATCH_MIN_PX = 467;
 
+/** `SPLIT_MIN_PX` in `lib/diffLayout.ts` — two columns of 38 with their gutters,
+ * their trailing padding, the divider and the scroller's `px-4`. Written out
+ * rather than imported for the same reason as the two above: this spec must fail
+ * if the precondition moves, not silently re-derive it. */
+const SPLIT_MIN_PX = 695;
+
+/** `SPLIT_MIN_COLUMNS × PATCH_CELL_PX`, the width one split column owes its
+ * code — the half of `SPLIT_MIN_PX` that is actually source rather than chrome,
+ * and therefore the number worth measuring on the drawn columns. */
+const SPLIT_COLUMN_CODE_PX = 274;
+
 /** Long enough that a patch line is a real source line rather than a token —
  * the content the 32px scroller had 704px of. */
 const PATCH_LINE =
   "+export function clampRatioAt(ratio: number, surfaceWidth: number): number {";
+
+/** Three deletions against that one addition, so the fixture's hunk is
+ * **uneven** — which is the case a two-column rendering gets wrong by pairing
+ * per hunk instead of per change block: the addition ends up below all three
+ * deletions and the two sides slide apart. Reading the pairing needs a patch
+ * where the right answer and the wrong one look different, and a one-for-one
+ * change is not one. */
+const DELETED_LINES = [
+  "-function clampRatio(ratio: number): number {",
+  "-  const floor = MIN_LEFT_PX / surfaceWidth;",
+  "-  return Math.max(floor, ratio);",
+];
+
+/** The context line under the change, kept from the first version of this
+ * fixture: its three leading spaces are one marker column plus two of indent. */
+const CONTEXT_LINE = "   const wanted = clampRatio(ratio);";
+
+const PATCH = `@@ -1,4 +1,3 @@\n${DELETED_LINES.join("\n")}\n${PATCH_LINE}\n${CONTEXT_LINE}\n`;
 
 const PATHS = [
   "desktop/src/features/runs/lib/paneModel.ts",
@@ -140,7 +169,7 @@ async function mockCoordinator(page: Page) {
  * this happens to run in. */
 async function stubBackend(page: Page) {
   await page.evaluate(
-    ({ line, paths }) => {
+    ({ patch: body, paths }) => {
       const internals = (
         window as unknown as {
           __TAURI_INTERNALS__: {
@@ -165,9 +194,9 @@ async function stubBackend(page: Page) {
               additions: 1,
               binary: false,
               change: "modified",
-              deletions: 0,
+              deletions: 3,
               oldPath: null,
-              patch: `@@ -1,2 +1,2 @@\n${line}\n   const wanted = clampRatio(ratio);\n`,
+              patch: body,
               path,
               truncated: false,
             })),
@@ -184,7 +213,7 @@ async function stubBackend(page: Page) {
         return passThrough(cmd, args, opts);
       };
     },
-    { line: PATCH_LINE, paths: PATHS },
+    { patch: PATCH, paths: PATHS },
   );
 }
 
@@ -415,5 +444,232 @@ test("given the whole surface, the list comes back beside the patch", async ({
   await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
     "data-wrapped",
     "false",
+  );
+});
+
+// ── VS Code-style split diff ─────────────────────────────────────────────────
+//
+// (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md, Task 2.)
+//
+// The arithmetic is proved without a browser in
+// `src/features/runs/lib/diffLayout.test.mjs` (the 695px precondition, the
+// refusal's words, and that growing the pane never takes split away) and the row
+// alignment in `src/features/runs/lib/splitDiff.test.mjs` (uneven blocks pair
+// per block, and the leftover side is a gap). What needs a browser is everything
+// those two cannot see: that the toggle is really in the header at his width and
+// really unavailable there **with its sentence on screen**, that the two columns
+// laid out by a CSS grid are two halves of the box rather than one column and a
+// clipped one, that the row alignment survives being drawn (a `contents`
+// wrapper and four grid children is exactly the kind of thing that pairs
+// correctly in the model and renders staggered), and that the remembered flag is
+// remembered — declined in a pane too narrow for it and honoured again in a pane
+// that is not, without being chosen twice.
+
+/** Everything about the split rendering that has to be read off the laid-out
+ * boxes rather than out of the model: the rows in order, the resolved colour of
+ * each side's code, and the geometry of the two columns. */
+async function splitReading(page: Page) {
+  return page.evaluate(() => {
+    const patch = document.querySelector('[data-testid="worktree-diff-patch"]');
+    if (patch === null) return null;
+    const rows = Array.from(
+      patch.querySelectorAll("[data-split-row]"),
+      (row) => {
+        const cells = Array.from(row.querySelectorAll("span"));
+        const cell = (at: number) => cells[at] ?? null;
+        const read = (at: number) => {
+          const element = cell(at);
+          return element === null
+            ? null
+            : {
+                color: getComputedStyle(element).color,
+                // Content against visible width, on the very element the text
+                // is in: this is what says "nothing is clipped" rather than
+                // "an element exists".
+                overflow: element.scrollWidth - element.clientWidth,
+                text: element.textContent ?? "",
+                width: Math.round(element.getBoundingClientRect().width),
+              };
+        };
+        return {
+          // gutter, code, gutter, code — or one spanning cell.
+          after: read(3),
+          afterNo: cell(2)?.textContent ?? null,
+          before: read(1),
+          beforeNo: cell(0)?.textContent ?? null,
+          kind: row.getAttribute("data-split-row"),
+          span: cells.length === 1 ? read(0) : null,
+        };
+      },
+    );
+    return { columns: patch.clientWidth, rows };
+  });
+}
+
+test("at his width the split toggle is on screen, unavailable, and says why", async ({
+  page,
+}) => {
+  await openDiffPane(page, SIXTEEN_INCH);
+
+  // Not hidden. Task 2: "Below it, the toggle says why it is disabled rather
+  // than disappearing" — a control that vanishes at some widths teaches the
+  // owner nothing he can act on.
+  const toggle = page.getByTestId("worktree-diff-split");
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toBeDisabled();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+  // And the sentence is on screen, in words, naming both numbers — checked
+  // against the pane's *measured* width rather than against a literal 435, so
+  // this reads as a self-checking sum instead of a magic number that goes stale
+  // the next time the surface moves.
+  const pane = await page.evaluate(() =>
+    Math.round(
+      document
+        .querySelector('[data-testid="pane-diff"]')
+        ?.getBoundingClientRect().width ?? 0,
+    ),
+  );
+  expect(pane).toBeLessThan(SPLIT_MIN_PX);
+  await expect(page.getByTestId("worktree-diff-split-why")).toHaveText(
+    `split needs ${SPLIT_MIN_PX}px of pane; this one has ${pane}px.`,
+  );
+
+  // The patch beside it is the one column that fits, and the toggle being
+  // unavailable is the pane refusing rather than the pane forgetting: nothing on
+  // screen claims two columns.
+  await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
+    "data-mode",
+    "unified",
+  );
+  // Not a single two-column row is drawn: the refusal is a refusal, not a
+  // narrow split with the toggle mislabelled.
+  await expect(
+    page.locator('[data-testid="worktree-diff-patch"] [data-split-row]'),
+  ).toHaveCount(0);
+});
+
+test("given the whole surface, split draws two aligned columns and neither is clipped", async ({
+  page,
+}) => {
+  await openDiffPane(page, SIXTEEN_INCH);
+  await page.keyboard.press(RIGHT_SOLO);
+
+  const toggle = page.getByTestId("worktree-diff-split");
+  await expect(toggle).toBeEnabled();
+  // The refusal is gone with the reason for it — a sentence that outlived its
+  // cause would be worse than none.
+  await expect(page.getByTestId("worktree-diff-split-why")).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
+    "data-mode",
+    "split",
+  );
+
+  const reading = await splitReading(page);
+  expect(reading).not.toBeNull();
+  const { columns, rows } = reading as NonNullable<typeof reading>;
+
+  // The hunk header belongs to neither file and spans; the three deletions
+  // against one addition are three change rows; the context line is one row.
+  expect(rows.map((row) => row.kind)).toEqual([
+    "span",
+    "change",
+    "change",
+    "change",
+    "context",
+  ]);
+
+  // **The alignment, read off the page.** The addition is on the SAME row as the
+  // first deletion — not below all three, which is what a per-hunk pairing draws
+  // and what would make every row after it a comparison of two unrelated lines.
+  expect(rows[1].before?.text).toBe(DELETED_LINES[0].slice(1));
+  expect(rows[1].after?.text).toBe(PATCH_LINE.slice(1));
+  expect(rows[1].beforeNo).toBe("1");
+  expect(rows[1].afterNo).toBe("1");
+
+  // And the two rows the addition ran out for are gaps on the right: numbered on
+  // the left, numbered nowhere on the right.
+  expect(rows[2].before?.text).toBe(DELETED_LINES[1].slice(1));
+  expect(rows[2].afterNo).toBe("");
+  expect(rows[3].before?.text).toBe(DELETED_LINES[2].slice(1));
+  expect(rows[3].afterNo).toBe("");
+
+  // The context line is in both columns and numbered in both, past the block:
+  // three lines gone from the old file, one arrived in the new.
+  expect(rows[4].before?.text).toBe(CONTEXT_LINE.slice(1));
+  expect(rows[4].after?.text).toBe(CONTEXT_LINE.slice(1));
+  expect(rows[4].beforeNo).toBe("4");
+  expect(rows[4].afterNo).toBe("2");
+
+  // **Colour is information, and it is the theme's own diff tokens.** Read as
+  // resolved colours rather than as class names: a class assertion says which
+  // paint was written, not which one the browser arrived at. Three distinct
+  // colours — deleted, added, context — is the claim.
+  const deleted = rows[2].before?.color;
+  const added = rows[1].after?.color;
+  const context = rows[4].before?.color;
+  expect(new Set([deleted, added, context]).size).toBe(3);
+  // And the deleted side of a change row is the same red as the deleted side of
+  // any other, which is what makes it a token rather than a per-row decision.
+  expect(rows[3].before?.color).toBe(deleted);
+
+  // **Two halves, and nothing cut off.** The columns are the same width to
+  // within a pixel, each has the code width the precondition promised, and no
+  // cell has content wider than it can show — which is the whole reason the
+  // layout is a grid and not two clipped boxes.
+  const code = rows[4];
+  expect(
+    Math.abs((code.before?.width ?? 0) - (code.after?.width ?? 0)),
+  ).toBeLessThanOrEqual(1);
+  expect(code.before?.width ?? 0).toBeGreaterThanOrEqual(SPLIT_COLUMN_CODE_PX);
+  expect(columns).toBeGreaterThanOrEqual(SPLIT_MIN_PX - 32);
+  const clipped = rows.flatMap((row) =>
+    [row.before, row.after, row.span].filter(
+      (cell) => cell !== null && cell.overflow > 1,
+    ),
+  );
+  expect(clipped).toEqual([]);
+
+  // Back again, on the same control. One renderer, two layouts.
+  await toggle.click();
+  await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
+    "data-mode",
+    "unified",
+  );
+});
+
+test("the choice is remembered — declined in a pane too narrow for it, honoured again when it is not", async ({
+  page,
+}) => {
+  await openDiffPane(page, SIXTEEN_INCH);
+  await page.keyboard.press(RIGHT_SOLO);
+  await page.getByTestId("worktree-diff-split").click();
+  await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
+    "data-mode",
+    "split",
+  );
+
+  // Back to the split surface: 435px cannot hold two columns, so the pane draws
+  // one and says why. This is the pane DECLINING the choice.
+  await page.keyboard.press(RIGHT_SOLO);
+  await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
+    "data-mode",
+    "unified",
+  );
+  await expect(page.getByTestId("worktree-diff-split-why")).toBeVisible();
+
+  // And back out: split returns without being chosen a second time. If the
+  // narrow pane had *cleared* the flag, this would come back unified — the app
+  // would have un-chosen it while he watched.
+  await page.keyboard.press(RIGHT_SOLO);
+  await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
+    "data-mode",
+    "split",
+  );
+  await expect(page.getByTestId("worktree-diff-split")).toHaveAttribute(
+    "aria-pressed",
+    "true",
   );
 });

@@ -90,6 +90,84 @@ export const PATCH_MIN_PX = Math.ceil(
   PATCH_MIN_COLUMNS * PATCH_CELL_PX + PATCH_CHROME_PX,
 );
 
+/** The narrowest a *split* column is still worth reading, in columns
+ * (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md, Task 2: "width is a
+ * precondition, not a hope").
+ *
+ * **`PATCH_MIN_COLUMNS` is not the number to double, and why is the whole
+ * derivation.** Sixty columns is a floor against *horizontal scrolling* — read
+ * its own paragraph: "under sixty columns every line of ordinary source ends in
+ * a horizontal scroll, and a pane the owner has to scroll sideways to read one
+ * line of is a pane he opens VS Code instead of." A split column does not
+ * scroll sideways. It wraps, and the CSS grid it is drawn in keeps the two
+ * sides aligned row for row whatever height a cell ends up taking
+ * (`ui/PatchView.tsx`, split layout) — so wrapping in split costs none of the
+ * grid that wrapping in unified costs. The 60 answers a question split does not
+ * ask.
+ *
+ * What a split column *does* have to be wide enough for is the comparison: the
+ * eye reads the head of both cells and sees where the two lines part.
+ *
+ * **Measured on this fork's own source rather than judged.** 28,634 non-blank
+ * lines of `desktop/src/features/runs/**` (2026-08-12) have a median length of
+ * **38 columns** — p75 73, p90 78, which is biome's 80-column print width — and
+ * a median leading indent of 2, p75 4. At thirty-eight columns a side, half the
+ * lines of a diff of this codebase need no wrap at all and the other half wrap
+ * once with their indent intact. Below it the columns start spending most of
+ * themselves on indentation, which is the same characters on both sides and
+ * therefore the one part of a line that carries no comparison at all. */
+const SPLIT_MIN_COLUMNS = 38;
+
+/** The line-number gutter one split column spends, in CSS pixels.
+ *
+ * `w-12` — the stock 3rem token, 48px at 1× — which seats the five digits and a
+ * space that a gutter of `font-mono text-xs` needs (6 × `PATCH_CELL_PX` =
+ * 43.35px) with room. Five digits because the backend's 512 KiB read cap
+ * arrives a long way before a six-digit line number does.
+ *
+ * Unified pays no gutter: it has no second side to number against, and the
+ * marker column it pays instead is inside the line's own text. That is why this
+ * constant appears here and not above. Stated in px like every other number in
+ * this file, at the 1× root font size the measurements were taken at; the
+ * drawing uses the rem token, so a ⌘+ zoom scales the gutter with the text it
+ * is numbering rather than freezing it. */
+const SPLIT_GUTTER_PX = 48;
+
+/** The `border-l` between the two columns. One pixel, counted for the same
+ * reason `PATCH_CHROME_PX` is: a floor made only of cells is short by its
+ * chrome. */
+const SPLIT_DIVIDER_PX = 1;
+
+/** What one split column spends on keeping its code off the next gutter:
+ * `pr-2`, 8px at 1×.
+ *
+ * Only the trailing padding is counted. The cell's `pl-4` is cancelled by the
+ * hanging indent's `-indent-4` for the *first* visual line of a line, and the
+ * first visual line is the one this floor is about — a continuation is
+ * deliberately indented under the code it continues. */
+const SPLIT_CELL_PAD_PX = 8;
+
+/** How wide the patch box has to be before two columns are offered at all.
+ *
+ * **695px**, and the whole of it is above: two columns of `SPLIT_MIN_COLUMNS`
+ * with their gutters and their trailing padding, the divider between them, and
+ * the scroller's own `px-4`. Unlike `PATCH_MIN_PX` this is not an accommodation
+ * the patch falls back from — it is a *precondition*. Below it split is not
+ * drawn narrow, it is not offered, and the toggle says so (`splitRefusal`).
+ *
+ * What that means on the machine the plan was written about, at 1728×1117:
+ * the Diff pane in the side slot is 435px, so split is refused there — and
+ * ⇧⌥⌘B, which hands the right pane the whole 1195px work surface (1159 of it
+ * once the left rail takes its 36), leaves the patch 871px and split is
+ * offered, at 50 columns a side. That is exactly the sentence Task 2 opens
+ * with: room at full-screen diff view, not always in a side pane. */
+export const SPLIT_MIN_PX = Math.ceil(
+  2 *
+    (SPLIT_MIN_COLUMNS * PATCH_CELL_PX + SPLIT_GUTTER_PX + SPLIT_CELL_PAD_PX) +
+    SPLIT_DIVIDER_PX +
+    PATCH_CHROME_PX,
+);
+
 /** Where the changed-file list goes.
  *
  * - `beside`: the list holds `listPx` of the pane and the patch has the rest.
@@ -106,15 +184,25 @@ export type DiffListPlacement =
  * `beside` at the preferred width, which is what the pane rendered before it
  * had ever been measured. Inventing a narrow layout from a width nobody has
  * read is the mistake `paneModel.ts` names twice, and a pane that flashed its
- * drawer open on every mount would be this file making it a third time. */
-export function diffListPlacement(paneWidth: number): DiffListPlacement {
+ * drawer open on every mount would be this file making it a third time.
+ *
+ * `patchFloorPx` is how much the patch must be left, and it is a parameter
+ * because a *split* patch needs more than a unified one (`SPLIT_MIN_PX`). The
+ * decision this file states does not change by being handed a bigger floor —
+ * "the list never takes width the patch needs" is the whole of it, and a split
+ * patch needs more. Defaulting to `PATCH_MIN_PX` keeps every existing caller
+ * and every existing number exactly as it was. */
+export function diffListPlacement(
+  paneWidth: number,
+  patchFloorPx: number = PATCH_MIN_PX,
+): DiffListPlacement {
   if (!Number.isFinite(paneWidth) || paneWidth <= 0) {
     return { listPx: LIST_PREFERRED_PX, where: "beside" };
   }
-  if (paneWidth - LIST_PREFERRED_PX >= PATCH_MIN_PX) {
+  if (paneWidth - LIST_PREFERRED_PX >= patchFloorPx) {
     return { listPx: LIST_PREFERRED_PX, where: "beside" };
   }
-  const yielded = paneWidth - PATCH_MIN_PX;
+  const yielded = paneWidth - patchFloorPx;
   if (yielded >= LIST_MIN_PX) return { listPx: yielded, where: "beside" };
   return { where: "over" };
 }
@@ -125,10 +213,13 @@ export function diffListPlacement(paneWidth: number): DiffListPlacement {
 export const LIST_LEAVES_BELOW_PX = PATCH_MIN_PX + LIST_MIN_PX;
 
 /** What the patch itself is laid out in, once the list has taken what it takes.
- * `beside` is never below `PATCH_MIN_PX` — that is what the placement above
+ * `beside` is never below `patchFloorPx` — that is what the placement above
  * guarantees — so this only says something new in the `over` case. */
-function patchWidthPx(paneWidth: number): number {
-  const placement = diffListPlacement(paneWidth);
+function patchWidthPx(
+  paneWidth: number,
+  patchFloorPx: number = PATCH_MIN_PX,
+): number {
+  const placement = diffListPlacement(paneWidth, patchFloorPx);
   return placement.where === "over" ? paneWidth : paneWidth - placement.listPx;
 }
 
@@ -166,3 +257,48 @@ export function patchWrapsAt(paneWidth: number): boolean {
   if (!Number.isFinite(paneWidth) || paneWidth <= 0) return false;
   return patchWidthPx(paneWidth) < PATCH_MIN_PX;
 }
+
+/** Is this pane wide enough to be *offered* two columns?
+ *
+ * Asked of the pane and answered through the same placement the pane will
+ * actually lay out, with the split floor — so the answer is the truth about
+ * what the patch will get, not about what the pane is. That matters because it
+ * is what makes the answer **monotonic**: with the split floor in the
+ * arithmetic, `splitFitsAt(w)` is exactly `w >= SPLIT_MIN_PX` for every width
+ * (checked over 1…3000px in the tests). Had this asked the *unified* placement
+ * instead, growing the pane could have taken split away — at 641px the list is
+ * a drawer and the patch has 641, at 642px the list stands up and the patch
+ * drops to 466 — and a control that appears, disappears and reappears as a
+ * divider is dragged is worse than one that is never there.
+ *
+ * Unmeasured (`0`, NaN) is `false`, which is the opposite of `patchWrapsAt`'s
+ * answer and right for the opposite reason: wrapping is the accommodation and
+ * must not be applied to a width nobody read, while split is the luxury and
+ * must not be *claimed* from one. The default is unified either way, so a pane
+ * mid-layout offers nothing and the first real measurement decides. */
+export function splitFitsAt(paneWidth: number): boolean {
+  if (!Number.isFinite(paneWidth) || paneWidth <= 0) return false;
+  return patchWidthPx(paneWidth, SPLIT_MIN_PX) >= SPLIT_MIN_PX;
+}
+
+/** Why split is not on offer here, in words, or `null` when it is.
+ *
+ * Task 2: "below it, the toggle says why it is disabled rather than
+ * disappearing." A control that vanishes at some widths teaches the owner
+ * nothing except that the app is inconsistent; one that is visibly unavailable
+ * and states its own precondition teaches him the precondition. So the sentence
+ * is short enough to sit on one line of the patch header at the 435px this pane
+ * has on his laptop, and `splitRefusalDetail` carries the arithmetic for the
+ * `title` of anyone who wants it. */
+export function splitRefusal(paneWidth: number): string | null {
+  if (splitFitsAt(paneWidth)) return null;
+  if (!Number.isFinite(paneWidth) || paneWidth <= 0) {
+    return `split needs ${SPLIT_MIN_PX}px of pane; this one has not been measured yet.`;
+  }
+  return `split needs ${SPLIT_MIN_PX}px of pane; this one has ${Math.round(paneWidth)}px.`;
+}
+
+/** The same refusal with its derivation, for a hover. Kept beside the sentence
+ * rather than written into the component, so the number and the reason for the
+ * number cannot drift apart. */
+export const SPLIT_REFUSAL_DETAIL = `two readable columns are ${SPLIT_MIN_COLUMNS} columns a side plus their line-number gutters, which is ${SPLIT_MIN_PX}px of patch — widen the pane or give it the whole surface with ⇧⌥⌘B.`;

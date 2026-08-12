@@ -7,6 +7,7 @@
 // a commit's answer are all `lib/historyModel.ts`'s and `lib/worktreeDiff.ts`'s
 // decisions, exactly as they were before the split.
 
+import type { DiffMode } from "@/features/runs/lib/diffMode";
 import {
   type CommitPatch,
   commitPatchNote,
@@ -15,6 +16,7 @@ import {
   STATUS_BASE,
 } from "@/features/runs/lib/historyModel";
 import { fileNote, labelParts } from "@/features/runs/lib/worktreeDiff";
+import { DiffModeToggle } from "@/features/runs/ui/DiffModeToggle";
 import { PaneEmpty } from "@/features/runs/ui/PaneEmpty";
 import { PatchView } from "@/features/runs/ui/PatchView";
 
@@ -26,19 +28,31 @@ export type PatchState =
   | { status: "refused"; note: string };
 
 export function Patch({
+  mode,
   onBack,
+  paneWidth,
   state,
   wraps,
 }: {
+  /** One column or two, resolved by the pane against its own width. */
+  mode: DiffMode;
   /** Given only when the patch has the pane to itself, which is the layout
    * where the list is not on screen to go back to by clicking. */
   onBack?: () => void;
+  /** The pane's measured width, for the toggle's own precondition — the same
+   * number the pane resolved `mode` from, passed rather than re-derived so the
+   * control and the layout cannot disagree about which side of the floor they
+   * are on. */
+  paneWidth: number;
   state: PatchState;
   wraps: boolean;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="history-patch">
-      <div className="flex shrink-0 items-baseline gap-2 border-b border-border/60 px-2 py-1">
+      {/* `flex-wrap` for the split toggle's refusal sentence, which takes
+          `basis-full` and drops under the row at the width where it is needed;
+          nothing else in this header wraps. */}
+      <div className="flex shrink-0 flex-wrap items-baseline gap-2 border-b border-border/60 px-2 py-1">
         {onBack === undefined ? null : (
           <button
             className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-2xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
@@ -50,8 +64,9 @@ export function Patch({
           </button>
         )}
         <PatchTitle state={state} />
+        <DiffModeToggle paneWidth={paneWidth} testid="history-split" />
       </div>
-      <Body state={state} wraps={wraps} />
+      <Body mode={mode} state={state} wraps={wraps} />
     </div>
   );
 }
@@ -105,7 +120,15 @@ function title(state: PatchState): string {
   }
 }
 
-function Body({ state, wraps }: { state: PatchState; wraps: boolean }) {
+function Body({
+  mode,
+  state,
+  wraps,
+}: {
+  mode: DiffMode;
+  state: PatchState;
+  wraps: boolean;
+}) {
   switch (state.status) {
     case "none":
       return (
@@ -147,6 +170,7 @@ function Body({ state, wraps }: { state: PatchState; wraps: boolean }) {
             against {STATUS_BASE} — staged and unstaged changes together.
           </p>
           <NotedPatch
+            mode={mode}
             note={state.file.note}
             noteTestid="history-file-note"
             patch={state.file.patch}
@@ -156,7 +180,7 @@ function Body({ state, wraps }: { state: PatchState; wraps: boolean }) {
         </>
       );
     case "commit":
-      return <CommitBody answer={state.answer} wraps={wraps} />;
+      return <CommitBody answer={state.answer} mode={mode} wraps={wraps} />;
   }
 }
 
@@ -178,12 +202,14 @@ function Body({ state, wraps }: { state: PatchState; wraps: boolean }) {
  * `note` is `fileNote`'s, always — this component does not decide what a file is
  * not showing, it decides where that sentence goes. */
 function NotedPatch({
+  mode,
   note,
   noteTestid,
   patch,
   testid,
   wraps,
 }: {
+  mode: DiffMode;
   note: string | null;
   noteTestid: string;
   patch: string;
@@ -201,7 +227,7 @@ function NotedPatch({
         </p>
       )}
       {patch === "" ? null : (
-        <PatchView patch={patch} testid={testid} wraps={wraps} />
+        <PatchView mode={mode} patch={patch} testid={testid} wraps={wraps} />
       )}
     </>
   );
@@ -209,9 +235,11 @@ function NotedPatch({
 
 function CommitBody({
   answer,
+  mode,
   wraps,
 }: {
   answer: CommitPatch;
+  mode: DiffMode;
   wraps: boolean;
 }) {
   const note = commitPatchNote(answer);
@@ -272,6 +300,7 @@ function CommitBody({
                 </span>
               </p>
               <NotedPatch
+                mode={mode}
                 note={fileNote(file, answer.diff.limits)}
                 noteTestid={`history-file-note-${file.path}`}
                 patch={file.patch}

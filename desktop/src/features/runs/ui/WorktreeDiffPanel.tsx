@@ -62,7 +62,12 @@ import {
   diffListPlacement,
   LIST_PREFERRED_PX,
   patchWrapsAt,
+  SPLIT_MIN_PX,
+  splitFitsAt,
 } from "@/features/runs/lib/diffLayout";
+import { effectiveDiffMode } from "@/features/runs/lib/diffMode";
+import { useDiffMode } from "@/features/runs/lib/useDiffMode";
+import { DiffModeToggle } from "@/features/runs/ui/DiffModeToggle";
 import {
   began,
   ended,
@@ -198,7 +203,18 @@ export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
     observer.observe(pane);
     return () => observer.disconnect();
   }, []);
-  const placement = diffListPlacement(paneWidth);
+  // One column or two, and the width is the precondition rather than a hope
+  // (`diffLayout.ts`'s `SPLIT_MIN_PX`). The choice is the app's one flag, not
+  // this pane's state and not this file's — the History pane reads the same one.
+  const choice = useDiffMode();
+  const mode = effectiveDiffMode(choice, splitFitsAt(paneWidth));
+  // **A split patch needs more, so the list yields more.** That is not a new
+  // decision, it is the one `diffLayout.ts` already states — "the list never
+  // takes width the patch needs" — handed the floor the patch actually has.
+  const placement = diffListPlacement(
+    paneWidth,
+    mode === "split" ? SPLIT_MIN_PX : undefined,
+  );
   const wraps = patchWrapsAt(paneWidth);
 
   // The schedule lives in a ref, not in state: every read would otherwise
@@ -493,7 +509,12 @@ export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
           ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex shrink-0 items-baseline gap-2 border-b border-border/60 px-4 py-1.5">
+            {/* `flex-wrap` for the one line that may not fit beside the path:
+                the split toggle's refusal sentence, which takes `basis-full`
+                and drops under the row at the width where it is needed. Nothing
+                else in this header ever wraps — the path is `flex-1` and the two
+                controls are `shrink-0`. */}
+            <div className="flex shrink-0 flex-wrap items-baseline gap-2 border-b border-border/60 px-4 py-1.5">
               {placement.where === "over" ? (
                 // The drawer's only door, and the only place the file count is
                 // said at all in this layout — a list that is not on screen
@@ -549,6 +570,13 @@ export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
                   j / k move · enter opens
                 </span>
               ) : null}
+              {/* Last, so the sentence it may bring with it is the last thing
+                  in the header and lands on a line of its own rather than
+                  pushing the keyboard hint down there with it. */}
+              <DiffModeToggle
+                paneWidth={paneWidth}
+                testid="worktree-diff-split"
+              />
             </div>
             {/* `relative` so the drawer covers the patch and *not* the header
                 above it: the button that opens the list is in that header, and
@@ -573,6 +601,7 @@ export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
                   commit's patch with this renderer rather than a second copy of
                   it (Task 4); what it draws did not change. */}
               <PatchView
+                mode={mode}
                 patch={shown === null ? "" : shown.patch}
                 testid="worktree-diff-patch"
                 wraps={wraps}
