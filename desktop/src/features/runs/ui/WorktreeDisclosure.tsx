@@ -51,6 +51,7 @@ import {
 import type { Repo, Worktree } from "@/features/runs/lib/projects";
 import type { WorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import type { WorktreeStats } from "@/features/runs/lib/useWorktreeStats";
+import type { WorktreeOverlap } from "@/features/runs/lib/worktreeOverlap";
 import {
   prunableWorktrees,
   worktreeColumnView,
@@ -74,6 +75,12 @@ interface WorktreeDisclosureProps {
    * `Record` for the project rollups — two shapes from one derivation, and
    * conflating them makes every dot silently blank. */
   worktreeMarks: ReadonlyMap<string, AttentionMark>;
+  /** Which worktrees share changed files with another worktree of this
+   * project, by binding id (`lib/worktreeOverlap.ts` via `useWorktreeSignals`).
+   * A worktree with no entry shares nothing — or nothing has answered about it
+   * yet, which draws the same nothing. Separate from `worktreeMarks` because
+   * it is a separate signal: informational, not "needs you". */
+  worktreeOverlaps: ReadonlyMap<string, WorktreeOverlap>;
   selectedWorktreeId: string | null;
   onSelectWorktree: (bindingId: string) => void;
   /** Resolved worktree root; `null` before the desktop shell has answered,
@@ -112,6 +119,7 @@ export function WorktreeDisclosure({
   selectedWorktreeId,
   stats,
   worktreeMarks,
+  worktreeOverlaps,
   worktreeRoot,
   worktrees,
 }: WorktreeDisclosureProps) {
@@ -158,6 +166,7 @@ export function WorktreeDisclosure({
               mark={worktreeMarks.get(row.worktree.binding_id) ?? NO_MARK}
               onRemove={onRemoveWorktree}
               onSelect={onSelectWorktree}
+              overlap={worktreeOverlaps.get(row.worktree.binding_id) ?? null}
               pending={actions.pending}
               repo={repo}
               row={row}

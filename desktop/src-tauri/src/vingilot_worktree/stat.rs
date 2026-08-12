@@ -34,6 +34,19 @@
 //! **A path git cannot read is `unreadable`, never clean.** One worktree on an
 //! unmounted volume must not fail the batch, and must not come back as
 //! `+0 −0` either — that is a claim that there is nothing there.
+//!
+//! **The changed paths ride along, and they cost nothing to add.** The
+//! cross-worktree overlap mark needs to know *which* files each worktree
+//! changed, not how many (`features/runs/lib/worktreeOverlap.ts`). Both reads
+//! below already print those paths and both parsers already build them —
+//! `parse_numstat_z` returns a record per file and `nul_fields` returns a field
+//! per file; this module used to call `.len()` on each and drop the strings on
+//! the floor. Returning them adds **no git work at all**: no extra subprocess,
+//! no extra flag, no second pass. The only new cost is the IPC payload, which
+//! `MAX_STAT_PATHS` bounds. That is why the overlap signal is built on this
+//! command and not on `diff()`: `diff()` would answer the same question by
+//! spawning a `git diff` per changed file per worktree, which is the cost this
+//! module's header opens by refusing.
 
 use serde::Serialize;
 
@@ -44,6 +57,16 @@ use super::{answers_yes, commit, describe, ensure_repo, run, WorktreeError};
 /// the column shows it as unknown, which is the honest rendering of a number
 /// this app declined to spend four hundred subprocesses on.
 const MAX_PATHS: usize = 64;
+
+/// Changed paths carried back per worktree.
+///
+/// The paths themselves are free — see this module's header. What this bounds
+/// is the payload crossing the IPC boundary every 5 s: a worktree mid-rebase
+/// with fifty thousand changed files would otherwise serialise fifty thousand
+/// strings on every tick, for a mark that is informational. Past the cap,
+/// `paths_truncated` says so, and a reader is holding a subset it must not
+/// mistake for the whole list.
+const MAX_STAT_PATHS: usize = 2_000;
 
 /// One worktree's uncommitted state, as the column renders it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -63,6 +86,25 @@ pub struct WorktreeStat {
     pub untracked: usize,
     /// Anything uncommitted at all. The one field the ordering reads.
     pub dirty: bool,
+    /// Which files those are — tracked changes first, then untracked, each
+    /// exactly as git printed it: repo-relative, and never quoted or
+    /// C-escaped, because both reads pass `-z`.
+    ///
+    /// A rename is listed under the name the file has **now**. That is the
+    /// name another worktree would collide on, and the overlap this feeds is
+    /// about collisions.
+    ///
+    /// Capped at `MAX_STAT_PATHS`, so `paths.len()` is **not** a count of
+    /// anything: `changed_files` and `untracked` are the true counts and stay
+    /// true past the cap. A caller wanting a number must read those.
+    pub paths: Vec<String>,
+    /// git named more changed files than `paths` carries.
+    ///
+    /// What it costs a reader: an existential claim off a truncated list is
+    /// still sound — two worktrees that both list `src/app.ts` really do both
+    /// change it — but a universal one is not. "These are all the files the
+    /// two share" is exactly the sentence this flag forbids.
+    pub paths_truncated: bool,
     /// git could not answer for this path. Every count above is then zero
     /// because there is nothing to report, **not** because the tree is clean —
     /// a caller that renders `dirty: false` here as "clean" is making a claim
@@ -77,20 +119,40 @@ fn unreadable(path: &str) -> WorktreeStat {
         deletions: 0,
         dirty: false,
         path: path.to_string(),
+        // Empty because nothing was read, which is not the same as a worktree
+        // that changed no files — `unreadable` is the field that separates
+        // them, here exactly as it does for the counts.
+        paths: Vec::new(),
+        paths_truncated: false,
         untracked: 0,
         unreadable: true,
     }
 }
 
-/// Uncommitted tracked changes: `(additions, deletions, changed files)`.
+/// What `git diff --numstat` said, kept together: two line counts, the number
+/// of files, and the files themselves. The count is carried separately from
+/// the list because the list is capped and the count never is.
+struct Tracked {
+    additions: usize,
+    deletions: usize,
+    changed_files: usize,
+    paths: Vec<String>,
+}
+
+/// Uncommitted tracked changes: two line counts, a file count, and the files.
 ///
 /// A repository whose first commit has not happened yet has no `HEAD` to diff
 /// against, and `git diff HEAD` there is a refusal rather than an empty diff.
-/// Everything in such a worktree is untracked, which the caller counts
-/// separately, so the answer is three zeros and not an error.
-fn tracked(path: &str) -> Result<(usize, usize, usize), WorktreeError> {
+/// Everything in such a worktree is untracked, which the caller reads
+/// separately, so the answer is an empty `Tracked` and not an error.
+fn tracked(path: &str) -> Result<Tracked, WorktreeError> {
     if !answers_yes(path, &["rev-parse", "--verify", "--quiet", &commit("HEAD")])? {
-        return Ok((0, 0, 0));
+        return Ok(Tracked {
+            additions: 0,
+            changed_files: 0,
+            deletions: 0,
+            paths: Vec::new(),
+        });
     }
     let args = ["diff", "--numstat", "-z", "--find-renames", "HEAD", "--"];
     let ran = run(path, &args)?;
@@ -101,17 +163,19 @@ fn tracked(path: &str) -> Result<(usize, usize, usize), WorktreeError> {
         });
     }
     let records = parse_numstat_z(&ran.stdout);
-    Ok((
-        records.iter().filter_map(|record| record.additions).sum(),
-        records.iter().filter_map(|record| record.deletions).sum(),
-        records.len(),
-    ))
+    Ok(Tracked {
+        additions: records.iter().filter_map(|record| record.additions).sum(),
+        changed_files: records.len(),
+        deletions: records.iter().filter_map(|record| record.deletions).sum(),
+        // `record.path` and not `old_path`: a rename's collision is on the
+        // name the file goes by now.
+        paths: records.into_iter().map(|record| record.path).collect(),
+    })
 }
 
-/// How many files git has never seen. `--exclude-standard` so a build
-/// directory nobody has committed a `.gitignore` rule for is the only kind
-/// that counts.
-fn untracked_count(path: &str) -> Result<usize, WorktreeError> {
+/// The files git has never seen. `--exclude-standard` so a build directory
+/// nobody has committed a `.gitignore` rule for is the only kind that counts.
+fn untracked_paths(path: &str) -> Result<Vec<String>, WorktreeError> {
     let args = ["ls-files", "--others", "--exclude-standard", "-z"];
     let ran = run(path, &args)?;
     if !ran.ok {
@@ -120,22 +184,37 @@ fn untracked_count(path: &str) -> Result<usize, WorktreeError> {
             stderr: ran.stderr,
         });
     }
-    Ok(nul_fields(&ran.stdout).len())
+    Ok(nul_fields(&ran.stdout)
+        .into_iter()
+        .map(str::to_string)
+        .collect())
 }
 
 pub(crate) fn stat(path: &str) -> Result<WorktreeStat, WorktreeError> {
     ensure_repo(path)?;
-    let (additions, deletions, changed_files) = tracked(path)?;
-    let untracked = untracked_count(path)?;
+    let tracked = tracked(path)?;
+    let untracked = untracked_paths(path)?;
+
+    // Tracked first, then untracked, and the cap falls where it falls. The
+    // order matters only in that it is fixed: a caller comparing two worktrees
+    // needs the truncation to be a property of the repository's size, not of
+    // which read happened to run first.
+    let mut paths = tracked.paths;
+    paths.extend(untracked.iter().cloned());
+    let paths_truncated = paths.len() > MAX_STAT_PATHS;
+    paths.truncate(MAX_STAT_PATHS);
+
     Ok(WorktreeStat {
-        additions,
-        changed_files,
-        deletions,
+        additions: tracked.additions,
+        changed_files: tracked.changed_files,
+        deletions: tracked.deletions,
         // Files, not lines: a mode change and an empty new file are both
         // uncommitted work that counts zero on either side.
-        dirty: changed_files > 0 || untracked > 0,
+        dirty: tracked.changed_files > 0 || !untracked.is_empty(),
         path: path.to_string(),
-        untracked,
+        paths,
+        paths_truncated,
+        untracked: untracked.len(),
         unreadable: false,
     })
 }
@@ -305,6 +384,84 @@ mod tests {
         assert!(answers[2].unreadable);
         // Unreadable is not clean: nothing here may be read as "no changes".
         assert!(!answers[2].dirty);
+    }
+
+    #[test]
+    fn the_changed_files_are_named_not_just_counted() {
+        // The whole basis of the cross-worktree overlap mark: two worktrees
+        // can only be said to share a file if each says which files it has.
+        let repo = Repo::new();
+        repo.write("README.md", "one\ntwo\nthree\n");
+        repo.write("scratch.txt", "new\n");
+        let answer = read(&repo.path());
+        assert!(!answer.paths_truncated);
+        let mut paths = answer.paths.clone();
+        paths.sort();
+        assert_eq!(paths, vec!["README.md", "scratch.txt"]);
+        // Tracked and untracked both land in the list, and the counts they
+        // came from still separate them.
+        assert_eq!(answer.changed_files, 1);
+        assert_eq!(answer.untracked, 1);
+    }
+
+    #[test]
+    fn a_renamed_file_is_named_by_where_it_is_now() {
+        // The collision another worktree could have is with the new name.
+        let repo = Repo::new();
+        repo.write("old-name.txt", "content\n");
+        repo.git(&["add", "old-name.txt"]);
+        repo.git(&["commit", "-m", "add a file to rename"]);
+        repo.git(&["mv", "old-name.txt", "new-name.txt"]);
+
+        let answer = read(&repo.path());
+        assert!(answer.dirty);
+        assert!(
+            answer.paths.contains(&"new-name.txt".to_string()),
+            "expected the current name, got {:?}",
+            answer.paths
+        );
+    }
+
+    #[test]
+    fn an_unreadable_worktree_names_no_files_at_all() {
+        // Empty because nothing was read — never because nothing changed.
+        // `unreadable` is the only thing separating the two, exactly as it is
+        // for the counts.
+        let plain = temp_dir();
+        let stranger = plain.path().to_string_lossy().into_owned();
+        let answers = stats(&[stranger]);
+        assert!(answers[0].unreadable);
+        assert!(answers[0].paths.is_empty());
+        assert!(!answers[0].paths_truncated);
+    }
+
+    #[test]
+    fn a_path_list_past_the_cap_is_cut_and_says_so() {
+        // The counts are the numbers; the list is a sample past the cap, and
+        // `paths_truncated` is what stops a reader calling it the whole set.
+        let repo = Repo::new();
+        let extra = 5;
+        for index in 0..MAX_STAT_PATHS + extra {
+            repo.write(&format!("file-{index}.txt"), "x\n");
+        }
+        let answer = read(&repo.path());
+        assert!(answer.paths_truncated);
+        assert_eq!(answer.paths.len(), MAX_STAT_PATHS);
+        // The count is not capped, which is what makes `paths.len()` unusable
+        // as one.
+        assert_eq!(answer.untracked, MAX_STAT_PATHS + extra);
+    }
+
+    #[test]
+    fn a_clean_worktree_names_no_files_and_is_not_truncated() {
+        // The other side of the honesty rule above: this empty list is an
+        // answer ("nothing changed here"), and the caller tells it from the
+        // unreadable one by `unreadable`, not by the list being empty.
+        let repo = Repo::new();
+        let answer = read(&repo.path());
+        assert!(!answer.unreadable);
+        assert!(answer.paths.is_empty());
+        assert!(!answer.paths_truncated);
     }
 
     #[test]

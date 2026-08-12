@@ -64,6 +64,8 @@ import {
   type WorktreeTarget,
 } from "@/features/runs/lib/useWorktreeStats";
 import { orderWorktrees } from "@/features/runs/lib/worktreeAttention";
+import type { WorktreeOverlap } from "@/features/runs/lib/worktreeOverlap";
+import { overlapsByRepo } from "@/features/runs/lib/worktreeOverlapScope";
 import { usableStat } from "@/features/runs/lib/worktreeStat";
 
 export interface WorktreeSignals {
@@ -85,6 +87,19 @@ export interface WorktreeSignals {
    * is the same derivation the two dots above are: a third surface computing
    * its own would be a third opinion about one worktree. */
   triage: TriageModel;
+  /** Which worktrees have changed a file another worktree of the same project
+   * has also changed, by binding id — scoped per project by
+   * `lib/worktreeOverlapScope.ts`, intersected by `lib/worktreeOverlap.ts`.
+   * Absent for a worktree that overlaps nothing — and for one nothing has
+   * answered about.
+   *
+   * **Free of extra fetching, and deliberately not an attention state.** It is
+   * derived from the `paths` the 5s stat poll above already carries, so it
+   * costs no round trip of its own; and it reaches neither `byRepo` nor
+   * `triage`, because an overlap is a fact about a *pair* of trees that nobody
+   * is blocked on. `worktreeOverlap.ts`'s header argues that boundary in
+   * full. */
+  overlaps: ReadonlyMap<string, WorktreeOverlap>;
 }
 
 export function useWorktreeSignals(
@@ -159,10 +174,32 @@ export function useWorktreeSignals(
     [dots.byWorktree, grouped, repos, runs, stats],
   );
 
+  // Per project — the rule, and the reading of each stat under it, live in
+  // `worktreeOverlapScope.ts` rather than in this closure, so that a test can
+  // hand the boundary two repositories and watch it hold. This hook only
+  // decides *when* to recompute.
+  //
+  // **`stats` earns its place in the array even though dropping it changes
+  // nothing today.** `grouped` is rebuilt on every 2s coordinator tick —
+  // `usePolling` hands `RunsScreen` a freshly parsed worktree array each time
+  // and its grouping memo is keyed on that identity — so a memo keyed on
+  // `[grouped, repos]` alone would still recompute inside 2s and still show
+  // the right number. It would be right by a neighbour's accident: the moment
+  // that array is stabilised (the content-equality cache the codebase already
+  // recommends for exactly this churn), a resolved overlap would stay drawn
+  // forever. `workspace-overlap.spec.ts` stops the coordinator on purpose and
+  // then changes git's answer, which is the one arrangement where the
+  // difference is visible — that test is what holds this line.
+  const overlaps = React.useMemo(
+    () => overlapsByRepo({ grouped, repos, stats }),
+    [grouped, repos, stats],
+  );
+
   return {
     byRepo: dots.byRepo,
     byWorktree: dots.byWorktree,
     ordered,
+    overlaps,
     stats,
     triage,
   };

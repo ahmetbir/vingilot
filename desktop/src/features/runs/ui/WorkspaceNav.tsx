@@ -87,6 +87,7 @@ import type { Repo, Worktree } from "@/features/runs/lib/projects";
 import { removeProjectConfirm } from "@/features/runs/lib/repoChoice";
 import type { WorktreeActions } from "@/features/runs/lib/useWorktreeActions";
 import type { WorktreeStats } from "@/features/runs/lib/useWorktreeStats";
+import type { WorktreeOverlap } from "@/features/runs/lib/worktreeOverlap";
 import {
   type RemovableWorktree,
   removeWorktreeConfirm,
@@ -166,6 +167,12 @@ interface WorkspaceNavProps {
   storeNotice: string | null;
   /** The attention mark per binding id — a `Map`. See the header. */
   worktreeMarks: ReadonlyMap<string, AttentionMark>;
+  /** The cross-worktree overlap per binding id — a second, independent signal
+   * that is passed straight through to the disclosure. It is not rolled up
+   * onto the rail's project marks: a rollup answers "which project needs me",
+   * and an overlap is not a thing that needs him
+   * (`lib/worktreeOverlap.ts`). */
+  worktreeOverlaps: ReadonlyMap<string, WorktreeOverlap>;
   worktreeRoot: string | null;
   /** The open project's worktrees, ordered by `orderWorktrees`. */
   worktrees: Worktree[];
@@ -291,6 +298,7 @@ export function WorkspaceNav({
   stats,
   storeNotice,
   worktreeMarks,
+  worktreeOverlaps,
   worktreeRoot,
   worktrees,
 }: WorkspaceNavProps) {
@@ -444,6 +452,7 @@ export function WorkspaceNav({
                         selectedWorktreeId={selectedWorktreeId}
                         stats={stats}
                         worktreeMarks={worktreeMarks}
+                        worktreeOverlaps={worktreeOverlaps}
                         worktreeRoot={worktreeRoot}
                         worktrees={worktrees}
                       />

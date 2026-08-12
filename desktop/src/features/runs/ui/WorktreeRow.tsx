@@ -12,6 +12,13 @@
 // - The row's `title` repeats the attention mark's sentence in words. The dot
 //   is `aria-hidden` (`ui/AttentionDot.tsx`), so this is the only accessible
 //   rendering of what it says.
+// - The overlap mark (`ui/OverlapMark.tsx`) is a *second, separate* signal, not
+//   a fifth attention state: it says another worktree of this project has
+//   changed some of the same files, which is informational and is nobody's
+//   task. It therefore has its own glyph, sits after the label rather than in
+//   the dot's box, and appends its sentence to the row's `title` instead of
+//   replacing the mark's.
+//
 // - The × is *absent*, not disabled, whenever `removableWorktree` cannot
 //   produce a target — the project's own checkout, a worktree a Run owns, and
 //   every row while the worktree root has not been resolved. Both are
@@ -26,11 +33,13 @@ import {
   type WorktreeRow as WorktreeRowModel,
   rowDetail,
 } from "@/features/runs/lib/worktreeAttention";
+import type { WorktreeOverlap } from "@/features/runs/lib/worktreeOverlap";
 import {
   type RemovableWorktree,
   removableWorktree,
 } from "@/features/runs/lib/worktreePlan";
 import { AttentionDot } from "@/features/runs/ui/AttentionDot";
+import { OverlapMark } from "@/features/runs/ui/OverlapMark";
 
 interface WorktreeRowProps {
   /** The row as `worktreeColumnView` built it. `row.index` is the place in the
@@ -38,6 +47,11 @@ interface WorktreeRowProps {
    * worktree whether the fold is open or shut. */
   row: WorktreeRowModel;
   mark: AttentionMark;
+  /** What this worktree shares with the project's other worktrees, or `null`
+   * when it shares nothing — and also when nothing has answered about it, or
+   * about the only worktree it could have collided with. Two real answers or
+   * no mark (`lib/worktreeOverlap.ts`). */
+  overlap: WorktreeOverlap | null;
   /** The project that owns this worktree, for `removableWorktree`. */
   repo: Repo;
   /** `null` before the shell has answered; nothing is removable until it has. */
@@ -55,6 +69,7 @@ export function WorktreeRow({
   mark,
   onRemove,
   onSelect,
+  overlap,
   pending,
   repo,
   row,
@@ -67,6 +82,19 @@ export function WorktreeRow({
   const removable = removableWorktree(repo, wt, worktreeRoot);
   const detail = rowDetail(row);
 
+  // Two independent statements, joined rather than merged: the attention
+  // sentence is about this worktree's state and the overlap sentence is about
+  // its relationship to another. Neither may swallow the other, and the dot is
+  // `aria-hidden`, so this string is the only accessible rendering of both.
+  const title = [
+    mark.sentence === ""
+      ? summary.label
+      : `${summary.label} — ${mark.sentence}`,
+    overlap === null ? "" : overlap.sentence,
+  ]
+    .filter((part) => part !== "")
+    .join(" · ");
+
   return (
     <li className="group flex items-start gap-0.5">
       <button
@@ -77,11 +105,7 @@ export function WorktreeRow({
         }`}
         data-testid={`worktree-row-${wt.binding_id}`}
         onClick={() => onSelect(wt.binding_id)}
-        title={
-          mark.sentence === ""
-            ? summary.label
-            : `${summary.label} — ${mark.sentence}`
-        }
+        title={title}
         type="button"
       >
         <AttentionDot className="mt-1" mark={mark} />
@@ -90,6 +114,7 @@ export function WorktreeRow({
             <span className="min-w-0 flex-1 truncate text-sm">
               {summary.label}
             </span>
+            {overlap === null ? null : <OverlapMark overlap={overlap} />}
             {shortcutDigit !== null ? (
               <span className="shrink-0 text-2xs text-muted-foreground/60">
                 ⌘{shortcutDigit}

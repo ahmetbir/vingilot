@@ -25,6 +25,24 @@ export interface WorktreeStat {
   /** Files git has never seen, `.gitignore` respected. */
   untracked: number;
   dirty: boolean;
+  /** Which files changed — tracked then untracked, repo-relative, capped by
+   * the backend at `MAX_STAT_PATHS` (vingilot_worktree/stat.rs).
+   *
+   * **`null` and `[]` are different answers, and this is the one field where
+   * that distinction is easy to lose.** `[]` is git saying "nothing changed
+   * here"; `null` is this build being handed a record with no `paths` at all —
+   * a backend older than the field, or a shape it cannot read — and it must
+   * never be read as an empty set, because an empty set silently *agrees* with
+   * every other worktree that it shares no files. That is the same
+   * `unreadable`-is-not-clean rule this module opens with, applied one level
+   * down: `worktreeOverlap.ts` draws nothing from a `null`.
+   *
+   * Not a count of anything: past the cap this is a subset while
+   * `changedFiles`/`untracked` stay true. */
+  paths: string[] | null;
+  /** git named more changed files than `paths` carries. An overlap read off a
+   * truncated list may under-report and may never claim to be complete. */
+  pathsTruncated: boolean;
   /** git had no answer for this path. Every count above is then meaningless
    * rather than zero. */
   unreadable: boolean;
@@ -43,6 +61,21 @@ function isStat(value: unknown): value is WorktreeStat {
   return typeof v.path === "string" && typeof v.dirty === "boolean";
 }
 
+/** The changed-file list, or `null` when the record carries none.
+ *
+ * `null` rather than `[]` for a missing or unreadable field, for the reason
+ * `WorktreeStat.paths` documents: an empty list is a claim ("this worktree
+ * changed nothing"), and a record that never made that claim must not be read
+ * as having made it. Individual entries are still filtered — one unusable path
+ * must not cost the caller the other forty, the same rule `readWorktreeDiff`
+ * keeps for file records. */
+function readPaths(v: Record<string, unknown>): string[] | null {
+  if (!Array.isArray(v.paths)) return null;
+  return v.paths.filter(
+    (path): path is string => typeof path === "string" && path !== "",
+  );
+}
+
 /** Tolerant read of a batch of stats — the same boundary discipline
  * `readGitWorktrees` keeps. A record without a path or a `dirty` flag says
  * nothing usable about a worktree and is dropped; the counts on a record that
@@ -58,6 +91,8 @@ export function readWorktreeStats(value: unknown): WorktreeStat[] {
       deletions: num(v, "deletions"),
       dirty: v.dirty === true,
       path: raw.path,
+      paths: readPaths(v),
+      pathsTruncated: v.pathsTruncated === true,
       unreadable: v.unreadable === true,
       untracked: num(v, "untracked"),
     };
