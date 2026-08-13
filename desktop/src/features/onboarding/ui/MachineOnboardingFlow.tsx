@@ -258,12 +258,12 @@ export function MachineOnboardingFlow({
     page === "key-import" &&
     (!identityLost || keyImportStage === "backup-password")
       ? { disabled: isKeyImporting, onClick: backFromKeyImport }
-      : page === "backup" && backupSubview !== "created"
-        ? {
-            label: "Return to onboarding",
-            onClick: returnToCreatedKey,
-            testId: "backup-return-to-onboarding",
-          }
+      : isSecuritySubview
+        ? // The dark security world carries its own top-pinned "Return to
+          // onboarding" button (below); the footer must not render a second one
+          // under the same test id. Upstream's footer-docked return was left
+          // beside the fork's by the merge and is dropped here.
+          undefined
         : page === "backup"
           ? {
               onClick: () => {
@@ -310,11 +310,7 @@ export function MachineOnboardingFlow({
           <Button
             className={`${ONBOARDING_SECONDARY_CTA_CLASS} gap-2 px-5`}
             data-testid="backup-return-to-onboarding"
-            onClick={() => {
-              setBackupDirection("backward");
-              setReturningFromSecurity(true);
-              setBackupSubview("created");
-            }}
+            onClick={returnToCreatedKey}
             type="button"
             variant="ghost"
           >

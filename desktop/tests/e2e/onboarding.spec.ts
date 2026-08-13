@@ -2035,8 +2035,12 @@ test("connected first-community profile keeps Back bottom-left and balances the 
       fontSize: styles.fontSize,
     };
   });
+  // The fork's white-on-white sweep restyled this Input to bg-background/40
+  // (CommunityOnboardingFlow.tsx; vingilot Task #17), so the glass fill is 0.4,
+  // not upstream's 0.95. The olive border/shadow below were already updated to
+  // the fork's glass; this assertion was the one the sweep missed.
   expect(nameKeyStyles.backgroundColor).toMatch(
-    /^(rgba\(255, 255, 255, 0\.95\)|oklab\(.+ \/ 0\.95\))$/,
+    /^(rgba\(255, 255, 255, 0\.4\)|oklab\(.+ \/ 0\.4\))$/,
   );
   expect(nameKeyStyles.borderColor).toBe("rgba(113, 113, 6, 0.28)");
   expect(nameKeyStyles.boxShadow).toContain(

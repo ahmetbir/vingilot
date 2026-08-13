@@ -473,11 +473,12 @@ async function threadChannelName(page: Page): Promise<string> {
         };
       }
     ).__TAURI_INTERNALS__;
-    const channels = (await internals.invoke("get_channels")) as {
-      id: string;
-      name: string;
-    }[];
-    return channels.find((channel) => channel.id === channelId)?.name ?? null;
+    const result = (await internals.invoke("get_channels")) as {
+      channels: { id: string; name: string }[] | null;
+    };
+    return (
+      result.channels?.find((channel) => channel.id === channelId)?.name ?? null
+    );
   });
   if (name === null) throw new Error("no thread channel was opened");
   return name;

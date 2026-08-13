@@ -40,25 +40,15 @@ async function ensureTimelineScrollable(
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight + 160);
 }
 
-async function focusSidebarSearchWithShortcut(
-  page: import("@playwright/test").Page,
-) {
+async function openSidebarSearch(page: import("@playwright/test").Page) {
+  // ⌘K is the command palette in this fork (paletteKeys.ts; the same
+  // unification the composer-link-shortcut seam documents), so search is opened
+  // through its own surface: the sidebar's "Search everything" button, which the
+  // ShellPalette header calls out as always one click away on every route.
   const openSearchButton = page.getByTestId("open-search");
 
   await expect(openSearchButton).toBeVisible();
-  await page.evaluate(() => {
-    const isMac = /mac|iphone|ipad|ipod/i.test(navigator.platform);
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        bubbles: true,
-        cancelable: true,
-        code: "KeyK",
-        ctrlKey: !isMac,
-        key: "k",
-        metaKey: isMac,
-      }),
-    );
-  });
+  await openSearchButton.click();
   await expect(page.getByTestId("search-results")).toBeVisible();
   await expect(page.getByTestId("search-dialog-input")).toBeFocused();
 }
@@ -323,12 +313,10 @@ test("inbox feed renders resolved author labels", async ({ page }) => {
   await expect(page.getByTestId("home-inbox-list")).not.toContainText("You");
 });
 
-test("opens sidebar search with the shortcut and loads the exact result", async ({
-  page,
-}) => {
+test("opens sidebar search and loads the exact result", async ({ page }) => {
   await page.goto("/");
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   await page.getByTestId("search-dialog-input").fill("shipped");
   await expect(page.getByTestId("search-results")).toContainText(
@@ -349,7 +337,7 @@ test("opens sidebar search with the shortcut and loads the exact result", async 
 test("opens channel matches from search", async ({ page }) => {
   await page.goto("/");
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   await page.getByTestId("search-dialog-input").fill("engineering");
   const results = page.getByTestId("search-results");
@@ -389,7 +377,7 @@ test("global search offers an optional current-channel scope", async ({
     /#\/channels\/9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50$/,
   );
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   const scopeControl = page.getByTestId("search-current-channel-control");
   const input = page.getByTestId("search-dialog-input");
@@ -482,7 +470,7 @@ test("global search offers a conversation-specific scope in direct messages", as
     new RegExp(`#\\/channels\\/${directMessageId}$`),
   );
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   const scopeControl = page.getByTestId("search-current-channel-control");
   await expect
@@ -579,7 +567,7 @@ test("global search omits channel scoping when no channel is active", async ({
   await page.goto("/");
   await expectHomeView(page);
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   await expect(page.getByTestId("search-current-channel-control")).toHaveCount(
     0,
@@ -591,7 +579,7 @@ test("global one-character search does not query the relay", async ({
   page,
 }) => {
   await page.goto("/");
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   await page.getByTestId("search-dialog-input").fill("x");
   await page.waitForTimeout(400);
@@ -612,7 +600,7 @@ test("global search tolerates small channel and people typos", async ({
   page,
 }) => {
   await page.goto("/");
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   const input = page.getByTestId("search-dialog-input");
   const results = page.getByTestId("search-results");
@@ -633,7 +621,7 @@ test("global search exposes a larger scrollable result window", async ({
     page.locator('[data-message-id^="mock-deep-history-"]').first(),
   ).toBeVisible();
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
   await page.getByTestId("search-dialog-input").fill("deep history message");
 
   const resultRows = page.locator(
@@ -669,7 +657,7 @@ test("global search exposes a larger scrollable result window", async ({
 test("closes sidebar search with Escape", async ({ page }) => {
   await page.goto("/");
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
   await page.getByTestId("search-dialog-input").fill("shipped");
 
   await page.keyboard.press("Escape");
@@ -678,7 +666,7 @@ test("closes sidebar search with Escape", async ({ page }) => {
   await expect(page.getByTestId("open-search")).toBeFocused();
 });
 
-test("search shortcut opens search without disturbing the collapsed sidebar", async ({
+test("the palette shortcut opens without disturbing the collapsed sidebar", async ({
   page,
 }) => {
   await page.goto("/");
@@ -708,8 +696,9 @@ test("search shortcut opens search without disturbing the collapsed sidebar", as
     );
   });
 
-  // Search opens in its portal dialog; the sidebar must not react.
-  await expect(page.getByTestId("search-dialog-input")).toBeFocused();
+  // ⌘K is the command palette in this fork (paletteKeys.ts); it opens in its
+  // own portal and the collapsed sidebar must not react.
+  await expect(page.getByTestId("palette")).toBeVisible();
   await expect(sidebarRoot).toHaveAttribute("data-state", "collapsed");
 });
 
@@ -718,7 +707,7 @@ test("search results use your resolved profile label instead of You", async ({
 }) => {
   await page.goto("/");
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   await page.getByTestId("search-dialog-input").fill("welcome");
   const results = page.getByTestId("search-results");
@@ -733,7 +722,7 @@ test("opens accessible unjoined channels from search in read-only mode", async (
 }) => {
   await page.goto("/");
 
-  await focusSidebarSearchWithShortcut(page);
+  await openSidebarSearch(page);
 
   await page.getByTestId("search-dialog-input").fill("critique");
   const results = page.getByTestId("search-results");

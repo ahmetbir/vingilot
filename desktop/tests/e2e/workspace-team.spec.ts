@@ -380,12 +380,10 @@ async function threadChannel(page: Page) {
         };
       }
     ).__TAURI_INTERNALS__;
-    const channels = (await internals.invoke("get_channels")) as {
-      id: string;
-      name: string;
-      description: string;
-    }[];
-    return channels.find((channel) => channel.id === channelId) ?? null;
+    const result = (await internals.invoke("get_channels")) as {
+      channels: { id: string; name: string; description: string }[] | null;
+    };
+    return result.channels?.find((channel) => channel.id === channelId) ?? null;
   });
 }
 
