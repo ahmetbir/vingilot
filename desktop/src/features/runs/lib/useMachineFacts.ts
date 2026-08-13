@@ -22,11 +22,10 @@
 // screen holds. That screen is at the file-size ceiling, and this is the block
 // that comes out without cutting anything in half.
 
-import { homeDir } from "@tauri-apps/api/path";
 import * as React from "react";
 
-import { DEFAULT_WORKTREE_ROOT_SUFFIX } from "@/features/runs/lib/projects";
 import { ptyBacking, type PtyBacking } from "@/features/runs/lib/ptyClient";
+import { useWorktreeRoot } from "@/features/runs/lib/useWorktreeRoot";
 
 export interface MachineFacts {
   /** The directory task worktrees are checked out under, or `null` when this
@@ -43,27 +42,10 @@ export interface MachineFacts {
 }
 
 export function useMachineFacts(): MachineFacts {
-  const [worktreeRoot, setWorktreeRoot] = React.useState<string | null>(null);
-  const [rootSettled, setRootSettled] = React.useState(false);
-  React.useEffect(() => {
-    let cancelled = false;
-    homeDir()
-      .then((home) => {
-        if (cancelled) return;
-        const base = home.endsWith("/") ? home.slice(0, -1) : home;
-        setWorktreeRoot(`${base}/${DEFAULT_WORKTREE_ROOT_SUFFIX}`);
-      })
-      .catch(() => {
-        // Non-Tauri context (e.g. a plain browser preview) — worktreeRoot stays
-        // null, terminals stay in their waiting state.
-      })
-      .finally(() => {
-        if (!cancelled) setRootSettled(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // The home-directory half moved out when the bottom bar needed it too
+  // (`lib/useWorktreeRoot.ts`), which also made it one lookup per app run
+  // rather than one per mount — what this module's header always wanted.
+  const { rootSettled, worktreeRoot } = useWorktreeRoot();
 
   const [terminalBacking, setTerminalBacking] =
     React.useState<PtyBacking | null>(null);

@@ -40,6 +40,15 @@
 //   A closed project's rows can therefore now say "dirty" and "quiet", which
 //   is what makes the dashboard a board rather than a list of the one project
 //   already on screen.
+//
+//   Terminal liveness is the third signal and the cheapest of them
+//   (vingilot/docs/plans/2026-08-12-hooks-and-the-dots.md, Task 3): one
+//   `hook_liveness` call every 2s that reads an in-memory store — no
+//   subprocess, no filesystem — for every worktree at once, through the shared
+//   poller in `useLiveAgents.ts` so the bottom bar reads the same object in the
+//   same tick. It is joined onto the rows here by binding id and, for a
+//   project's own checkout whose id no path can produce, by directory
+//   (`agentFor`).
 
 import * as React from "react";
 
@@ -48,6 +57,7 @@ import {
   attentionMark,
   rollupMark,
 } from "@/features/runs/lib/attentionSignal";
+import { agentFor } from "@/features/runs/lib/liveAgents";
 import type {
   GroupedWorktrees,
   Repo,
@@ -58,6 +68,7 @@ import type { RunSummary } from "@/features/runs/lib/runModel";
 import type { TriageModel } from "@/features/runs/lib/triage";
 import { triageModel } from "@/features/runs/lib/triage";
 import { useAskPending } from "@/features/runs/lib/useAskPending";
+import { useLiveAgents } from "@/features/runs/lib/useLiveAgents";
 import {
   useWorktreeStats,
   type WorktreeStats,
@@ -136,6 +147,8 @@ export function useWorktreeSignals(
   // question and would rebuild every mark on the screen for a fact no dot reads.
   const askCwd = pending?.cwd ?? null;
 
+  const agents = useLiveAgents();
+
   const dots = React.useMemo(() => {
     const byWorktree = new Map<string, AttentionMark>();
     const byRepo: Record<string, AttentionMark> = {};
@@ -150,6 +163,7 @@ export function useWorktreeSignals(
             ? null
             : worktreeCwd(repo, worktree, worktreeRoot);
         const mark = attentionMark({
+          agent: agentFor(agents, worktree.binding_id, cwd),
           askInFlight: cwd !== null && cwd === askCwd,
           runStatus: worktree.owner_run_status,
           stat: usableStat(stats[worktree.binding_id]),
@@ -160,7 +174,7 @@ export function useWorktreeSignals(
       byRepo[repo.id] = rollupMark(marks);
     }
     return { byRepo, byWorktree };
-  }, [repos, grouped, stats, worktreeRoot, askCwd]);
+  }, [repos, grouped, stats, worktreeRoot, askCwd, agents]);
 
   // One ordering, shared: the column renders it and the ⌘1…9 map is built from
   // it, so the digit beside a row is the digit that selects it.

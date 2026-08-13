@@ -42,9 +42,28 @@ function stat(overrides = {}) {
   };
 }
 
-/** No signal at all: no run, no git answer, no turn in flight. */
+/** No signal at all: no run, no git answer, no turn in flight, no live agent
+ * in the terminal. */
 function silence(overrides = {}) {
-  return { askInFlight: false, runStatus: null, stat: null, ...overrides };
+  return {
+    agent: null,
+    askInFlight: false,
+    runStatus: null,
+    stat: null,
+    ...overrides,
+  };
+}
+
+/** One live agent, as `hook_liveness` reports it. */
+function agent(overrides = {}) {
+  return {
+    path: null,
+    sentence: "working",
+    sessions: 1,
+    state: "working",
+    tool: null,
+    ...overrides,
+  };
 }
 
 /** What "no dot" is, whole — asserted as a shape rather than a state so a mark
@@ -138,7 +157,12 @@ test("every run status produces a mark, and never an unexplained dot", () => {
   for (const status of EVERY_STATUS) {
     for (const s of [null, stat(), stat({ dirty: true })]) {
       for (const askInFlight of [false, true]) {
-        const mark = attentionMark({ askInFlight, runStatus: status, stat: s });
+        const mark = attentionMark({
+          agent: null,
+          askInFlight,
+          runStatus: status,
+          stat: s,
+        });
         // The tooltip and the dot are produced together or not at all: a state
         // with no sentence is a dot that cannot say where it came from.
         assert.equal(
@@ -149,6 +173,139 @@ test("every run status produces a mark, and never an unexplained dot", () => {
       }
     }
   }
+});
+
+test("an agent stopped at a permission prompt needs him, in its own words", () => {
+  // The sentence names its source — "an agent in this worktree's terminal" —
+  // because the whole argument for a dot is that it can be believed without
+  // being checked, and this one is the first that is not about a run or a
+  // tree. The tool comes from the record beside the sentence, never from
+  // splitting the harness's own string.
+  const mark = attentionMark(
+    silence({
+      agent: agent({
+        sentence: "waiting for approval: Bash",
+        state: "asking",
+        tool: "Bash",
+      }),
+      stat: stat(),
+    }),
+  );
+  assert.equal(mark.state, "needs-you");
+  assert.equal(
+    mark.sentence,
+    "needs you — an agent in this worktree's terminal is waiting for approval: Bash",
+  );
+  assert.equal(mark.ended, null);
+});
+
+test("an agent mid-turn is working, and names the tool it is running", () => {
+  const mark = attentionMark(
+    silence({ agent: agent({ sentence: "working — Edit", tool: "Edit" }) }),
+  );
+  assert.equal(mark.state, "working");
+  assert.equal(
+    mark.sentence,
+    "working — an agent in this worktree's terminal is working: Edit",
+  );
+  // And with no tool running, no colon and no invented noun.
+  assert.equal(
+    attentionMark(silence({ agent: agent() })).sentence,
+    "working — an agent in this worktree's terminal is working",
+  );
+});
+
+test("several agents in one worktree are counted and lose the tool", () => {
+  // The rollup the backend already does, kept true in the dot's grammar: one
+  // session's `Bash` reported over two is a claim about the other that nothing
+  // made.
+  const mark = attentionMark(
+    silence({
+      agent: agent({
+        sentence: "2 sessions working",
+        sessions: 2,
+        tool: "Bash",
+      }),
+    }),
+  );
+  assert.equal(
+    mark.sentence,
+    "working — 2 agents in this worktree's terminals are working",
+  );
+});
+
+test("an agent sitting at its prompt draws nothing at all", () => {
+  // `waiting` is a live session that needs nothing and is doing nothing. It
+  // must not outrank the row's real answer, and it must not invent one where
+  // git has none.
+  assert.equal(
+    attentionMark(
+      silence({ agent: agent({ sentence: "waiting", state: "waiting" }) }),
+    ).state,
+    null,
+  );
+  assert.equal(
+    attentionMark(
+      silence({
+        agent: agent({ sentence: "waiting", state: "waiting" }),
+        stat: stat(),
+      }),
+    ).state,
+    "quiet",
+  );
+});
+
+test("no live agent is silence, and silence changes no other state", () => {
+  // The negative rule, at this signal: a worktree with no session reads
+  // exactly as it did before this signal existed — for every combination of
+  // the other three.
+  for (const runStatus of [null, "running", "paused", "failed"]) {
+    for (const s of [null, stat(), stat({ dirty: true })]) {
+      for (const askInFlight of [false, true]) {
+        const without = attentionMark({
+          agent: null,
+          askInFlight,
+          runStatus,
+          stat: s,
+        });
+        assert.deepEqual(
+          attentionMark({
+            agent: agent({ sentence: "waiting", state: "waiting" }),
+            askInFlight,
+            runStatus,
+            stat: s,
+          }),
+          without,
+          `${runStatus}/${s === null ? "no-stat" : s.dirty}/${askInFlight}`,
+        );
+      }
+    }
+  }
+});
+
+test("the run and the tree still outrank what the terminal says", () => {
+  // The precedence the plan fixed: the claims this app has been making for
+  // weeks keep their meaning, and terminal liveness fills the silence under
+  // them. An `asking` agent is the strongest thing this signal can say, so it
+  // is what each of these is asserted against.
+  const asking = agent({ sentence: "waiting for approval", state: "asking" });
+  for (const [runStatus, expected] of [
+    ["running", "working"],
+    ["paused", "needs-you"],
+  ]) {
+    const mark = attentionMark(silence({ agent: asking, runStatus }));
+    assert.equal(mark.state, expected, runStatus);
+    assert.match(mark.sentence, /coordinator/, runStatus);
+  }
+  const dirty = attentionMark(
+    silence({ agent: asking, stat: stat({ dirty: true }) }),
+  );
+  assert.equal(dirty.state, "dirty");
+  assert.match(dirty.sentence, /git's own count/);
+
+  const ask = attentionMark(silence({ agent: asking, askInFlight: true }));
+  assert.equal(ask.state, "working");
+  assert.match(ask.sentence, /this app has an agent turn/);
 });
 
 test("precedence: needs-you, then working, then dirty, then quiet", () => {
@@ -167,17 +324,30 @@ test("precedence: needs-you, then working, then dirty, then quiet", () => {
 test("a run outranks the git state of the same worktree", () => {
   const dirty = stat({ dirty: true });
   assert.equal(
-    attentionMark({ askInFlight: false, runStatus: "blocked", stat: dirty })
-      .state,
+    attentionMark({
+      agent: null,
+      askInFlight: false,
+      runStatus: "blocked",
+      stat: dirty,
+    }).state,
     "needs-you",
   );
   assert.equal(
-    attentionMark({ askInFlight: false, runStatus: "running", stat: dirty })
-      .state,
+    attentionMark({
+      agent: null,
+      askInFlight: false,
+      runStatus: "running",
+      stat: dirty,
+    }).state,
     "working",
   );
   assert.equal(
-    attentionMark({ askInFlight: true, runStatus: null, stat: dirty }).state,
+    attentionMark({
+      agent: null,
+      askInFlight: true,
+      runStatus: null,
+      stat: dirty,
+    }).state,
     "working",
   );
 });

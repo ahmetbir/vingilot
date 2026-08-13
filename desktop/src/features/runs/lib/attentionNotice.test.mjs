@@ -43,6 +43,41 @@ test("a worktree that turns needs-you is announced, in the mark's own words", ()
   ]);
 });
 
+test("an agent that stops for approval reaches him through this same path", () => {
+  // The hook plan's third surface, and the whole of what it needed from this
+  // module: nothing. A `claude` in a worktree's terminal going working→asking
+  // makes `attentionMark` go working→needs-you, which is a transition this
+  // function already fires on — with the dot's own sentence, so the
+  // notification and the tooltip cannot come to describe it differently.
+  //
+  // Asserted here rather than only in a spec because a later "simplification"
+  // that narrowed this to marks whose sentence mentions the coordinator would
+  // pass every other test in this file and silently drop the one interruption
+  // the owner is actually blocked on.
+  const notices = needsYouNotices(
+    marks({
+      one: mark(
+        "working",
+        "working — an agent in this worktree's terminal is working: Bash",
+      ),
+    }),
+    marks({
+      one: mark(
+        "needs-you",
+        "needs you — an agent in this worktree's terminal is waiting for approval: Bash",
+      ),
+    }),
+    where,
+  );
+  assert.deepEqual(notices, [
+    {
+      body: "needs you — an agent in this worktree's terminal is waiting for approval: Bash",
+      title: "buzz · one",
+      worktreeId: "one",
+    },
+  ]);
+});
+
 test("a worktree that was already waiting is not news", () => {
   const notices = needsYouNotices(
     marks({ one: mark("needs-you") }),

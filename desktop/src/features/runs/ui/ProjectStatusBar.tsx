@@ -1,7 +1,19 @@
 // The persistent bottom bar naming where the owner is: project · worktree ·
-// live state · diff · wall clock · terminal persistence · reachability.
-// Answers "what is happening right now" without opening anything — the whole
-// point of this plan.
+// live state · diff · wall clock · live agent · terminal persistence ·
+// reachability. Answers "what is happening right now" without opening anything
+// — the whole point of this plan.
+//
+// **The live-agent segment is the one thing on this bar that fetches**
+// (vingilot/docs/plans/2026-08-12-hooks-and-the-dots.md, Task 3). Every other
+// reading arrives as a prop from `RunsScreen`, and this one deliberately does
+// not: it subscribes to the same shared poller the attention dots read
+// (`lib/useLiveAgents.ts`), so the bar and the dot for one worktree are two
+// renderings of one object rather than two readings that can disagree. Passing
+// it down instead would put the same object through a screen that is one line
+// under the repository's file-size ratchet and has no other reason to hold it.
+//
+// It says nothing when there is no session, which is the honest shape: absence
+// of hooks is "no answer", never "the terminal is idle" (`state.rs`'s decay).
 //
 // The persistence reading is app-wide, not per project, which is why it sits
 // with reachability on the right rather than in the project group: tmux is
@@ -18,8 +30,11 @@
 // be seen and always be released, rather than staying engaged behind a screen
 // that does not draw it.
 
+import { agentFor, agentSegment } from "@/features/runs/lib/liveAgents";
 import type { Repo, Worktree } from "@/features/runs/lib/projects";
-import { worktreeSummary } from "@/features/runs/lib/projects";
+import { worktreeCwd, worktreeSummary } from "@/features/runs/lib/projects";
+import { useLiveAgents } from "@/features/runs/lib/useLiveAgents";
+import { useWorktreeRoot } from "@/features/runs/lib/useWorktreeRoot";
 import type { PtyBacking } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import { wallClock } from "@/features/runs/lib/runModel";
@@ -95,6 +110,20 @@ export function ProjectStatusBar({
   const summary = worktree ? worktreeSummary(worktree) : null;
   const wc = run ? wallClock(run, new Date()) : null;
   const persistence = persistenceCopy(terminalBacking);
+  const agents = useLiveAgents();
+  // The bar names the worktree it is standing in, so it asks about that one —
+  // by binding id, and by directory for the rows whose id the backend cannot
+  // derive from a path (`liveAgents.ts`'s header). The directory is the same
+  // derivation every other surface uses, from the same one-per-app-run lookup
+  // `useMachineFacts` reads.
+  const { worktreeRoot } = useWorktreeRoot();
+  const cwd =
+    repo === null || worktree === null || worktreeRoot === null
+      ? null
+      : worktreeCwd(repo, worktree, worktreeRoot);
+  const agent = agentSegment(
+    worktree === null ? null : agentFor(agents, worktree.binding_id, cwd),
+  );
 
   return (
     <footer
@@ -133,6 +162,20 @@ export function ProjectStatusBar({
         )}
       </span>
       <span className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
+        {/* The quiet plate, not the warning one: a working agent is not a
+         * state he could lose, and amber is spoken for by the two persistence
+         * claims beside it. Absent entirely when no session has spoken, which
+         * is what keeps this bar's height and its right-hand run unchanged on
+         * every screen that has no agent in it (`workspace-one-column`'s
+         * geometry). */}
+        {agent !== null ? (
+          <>
+            <span className={QUIET_PLATE} data-testid="live-agent">
+              {agent}
+            </span>
+            <span aria-hidden="true">·</span>
+          </>
+        ) : null}
         {scratchOpen ? (
           <>
             <span

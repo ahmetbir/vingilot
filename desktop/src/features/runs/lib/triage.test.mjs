@@ -60,6 +60,7 @@ function model({ worktrees, stats = {}, runs = [], repos = [REPOS[0]] }) {
     marks.set(
       wt.binding_id,
       attentionMark({
+        agent: null,
         askInFlight: false,
         runStatus: wt.owner_run_status,
         stat: raw === undefined || raw.unreadable ? null : raw,
