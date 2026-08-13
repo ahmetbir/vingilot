@@ -132,6 +132,26 @@ export function markedLineIndex(line: number | null): number | null {
   return line - 1;
 }
 
+/** Whether this file may be read as rendered prose rather than as its source.
+ *
+ * The one gate the Source⇄Preview toggle applies, and it is the language rather
+ * than the render decision on purpose: a markdown file over the tokenise budget
+ * falls to `render: "plain"` (`viewerPlan` above), but it is still markdown and
+ * the reader may still want it as prose — the byte ceiling bounds Shiki's
+ * superlinear tokeniser, not react-markdown, which is the app's chat pipeline
+ * and parses the same text every message already does. So the toggle is offered
+ * whenever the language is markdown, highlighted or not, and is absent for every
+ * other kind of file — a `.rs` has no prose form and a control that did nothing
+ * would be a door onto the same room.
+ *
+ * `languageOf` maps both `.md` and `.mdx` to markdown grammars; only `.md` is
+ * offered a preview, because the chat pipeline renders CommonMark+GFM and an
+ * `.mdx` file's JSX component syntax is not that — rendering it as markdown would
+ * silently drop the half of the file that is the point of the extension. */
+export function previewableAsMarkdown(path: string): boolean {
+  return languageOf(path) === "markdown" && path.toLowerCase().endsWith(".md");
+}
+
 /** How to render this file, with the sentence for the case where it is not
  * highlighted.
  *

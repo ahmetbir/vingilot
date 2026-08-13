@@ -170,6 +170,7 @@ export default defineConfig({
         "**/workspace-palette-over-thread.spec.ts",
         "**/workspace-team-scope.spec.ts",
         "**/workspace-files.spec.ts",
+        "**/markdown-preview.spec.ts",
         "**/workspace-open-in-editor.spec.ts",
         "**/workspace-search.spec.ts",
         "**/workspace-history.spec.ts",

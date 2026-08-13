@@ -5,6 +5,7 @@ import {
   HIGHLIGHT_BYTE_CEILING,
   languageOf,
   markedLineIndex,
+  previewableAsMarkdown,
   viewerPlan,
 } from "./fileViewer.ts";
 
@@ -96,4 +97,32 @@ test("an unknown type says it is unknown rather than blaming the budget", () => 
   const tooBig = viewerPlan("a.rs", HIGHLIGHT_BYTE_CEILING + 1);
   assert.notEqual(unknown.why, tooBig.why);
   assert.match(unknown.why, /no syntax this pane knows/);
+});
+
+test("only a markdown file offers a prose preview", () => {
+  // The Source⇄Preview toggle's one gate: language markdown AND a `.md`
+  // extension. A `.rs` has no prose form, so the toggle is not offered.
+  assert.equal(previewableAsMarkdown("docs/README.md"), true);
+  assert.equal(previewableAsMarkdown("NOTES.MD"), true);
+  assert.equal(previewableAsMarkdown("src/main.rs"), false);
+  assert.equal(previewableAsMarkdown("a/b/c.json"), false);
+  assert.equal(previewableAsMarkdown("plain.txt"), false);
+});
+
+test("mdx is markdown-highlighted but not markdown-previewable", () => {
+  // `languageOf` maps `.mdx` to an mdx grammar, so it colours; but the chat
+  // pipeline renders CommonMark+GFM, not MDX's JSX components — rendering an
+  // `.mdx` as markdown would silently drop the half that is the point of it.
+  assert.equal(languageOf("guide.mdx"), "mdx");
+  assert.equal(previewableAsMarkdown("guide.mdx"), false);
+});
+
+test("a markdown file over the tokenise budget still previews", () => {
+  // The byte ceiling bounds Shiki, not react-markdown: `viewerPlan` falls to
+  // plain source for a huge `.md`, but the file is still previewable prose.
+  assert.equal(
+    viewerPlan("BIG.md", HIGHLIGHT_BYTE_CEILING + 1).render,
+    "plain",
+  );
+  assert.equal(previewableAsMarkdown("BIG.md"), true);
 });

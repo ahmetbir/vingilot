@@ -1,0 +1,38 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: markdown preview in the Files viewer
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: the owner asked for "markdown preview". The whole
+# feature lives inside the fork-owned Runs island — a Source⇄Preview toggle in
+# the Files viewer header (features/runs/ui/FileViewer.tsx), a new
+# MarkdownPreviewToggle.tsx beside it, and a pure gate in
+# features/runs/lib/fileViewer.ts — all under desktop/src/features/runs/**, which
+# seams.yaml already declares as the island. The renderer is REUSED, not rebuilt:
+# the preview body draws with the chat pipeline's Markdown component
+# (shared/ui/markdown.tsx) exactly as features/projects' ReadmePanel already
+# does, `interactive={false}`, so mentions/channel-links/link-previews go inert
+# and no external <a> navigates the webview. No shared file is edited; that is an
+# import, not a touch. State is per-pane React state in the viewer, so there is
+# no module-level cache and nothing to register with resetCommunityState().
+#
+# The only touches OUTSIDE vingilot/ that are not already covered by the island
+# declaration are the two below: a new e2e spec, and its one-line registration
+# in the upstream playwright config's testMatch. playwright.config.ts is already
+# declared by another seam (it is the shared test entry every fork spec is
+# registered in); the spec file is new and is declared here.
+#
+# No schema_version here: the root file carries it for the whole registry.
+# ------------------------------------------------------------------------------
+
+seams:
+  - path: "desktop/tests/e2e/markdown-preview.spec.ts"
+    reason: "The browser proof of the Files viewer's markdown preview: opening a .md renders source by default (the data-line spans, the highlighted body), the toolbar toggle appears only for a .md and swaps the body to a real rendered <h1>/<ul> drawn by the app's own chat Markdown, an external link stays inert text (interactive={false}, no navigating anchor), and toggling back restores the source. Lives at the upstream-owned desktop/tests/e2e/ path for the same reason every other fork spec does: that is where playwright.config.ts's testDir points, and a spec cannot be moved under vingilot/ without moving the whole test runner. The pure gate (which files offer a preview) is proved without a browser in features/runs/lib/fileViewer.test.mjs, inside the island."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the Files viewer ships a markdown preview inside Buzz desktop; it shrinks to nothing only if upstream grows a test root under vingilot/."
+    status: "permanent"
+    added: "2026-08-13"

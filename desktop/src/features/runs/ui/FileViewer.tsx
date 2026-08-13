@@ -31,7 +31,11 @@ import {
   humanCount,
   humanSize,
 } from "@/features/runs/lib/filesModel";
-import { markedLineIndex, viewerPlan } from "@/features/runs/lib/fileViewer";
+import {
+  markedLineIndex,
+  previewableAsMarkdown,
+  viewerPlan,
+} from "@/features/runs/lib/fileViewer";
 import {
   type FindLine,
   type FindMatch,
@@ -41,10 +45,12 @@ import {
 import { useFindInFile } from "@/features/runs/lib/useFindInFile";
 import { labelParts } from "@/features/runs/lib/worktreeDiff";
 import { FindBar } from "@/features/runs/ui/FindBar";
+import { MarkdownPreviewToggle } from "@/features/runs/ui/MarkdownPreviewToggle";
 import { OpenInEditor } from "@/features/runs/ui/OpenInEditor";
 import { PaneEmpty } from "@/features/runs/ui/PaneEmpty";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { resolveShikiThemeName } from "@/shared/theme/theme-loader";
+import { Markdown } from "@/shared/ui/markdown";
 import { tokenizeChunked } from "@/shared/ui/markdown/CodeBlock";
 
 /** What the viewer is showing, or why it is not. Four states and not three:
@@ -72,6 +78,15 @@ export function FileViewer({
   paneRef: React.RefObject<HTMLElement | null>;
   state: ViewState;
 }) {
+  // **The Source⇄Preview choice, held here and nowhere else.** Per-pane, not a
+  // module singleton (`MarkdownPreviewToggle`'s header argues the difference from
+  // `useDiffMode`): this `FileViewer` is one Files pane's viewer, so its state is
+  // that pane's, it survives the file changing under it and the pane losing
+  // focus (the pane stays mounted), and it resets when a community switch
+  // remounts the subtree — no store to leak, nothing for `resetCommunityState`.
+  // Above the `status` branches so the hook is unconditional; the choice
+  // outlives an empty→read transition (`FileBody` remounts, this does not).
+  const [preview, setPreview] = React.useState(false);
   if (state.status === "empty") {
     // The pane's one designed moment (`PaneEmpty`). The old single sentence
     // ("Pick a file on the left. Arrow keys move, Enter opens.") split into
@@ -113,7 +128,14 @@ export function FileViewer({
   }
 
   return (
-    <FileBody cwd={cwd} file={state.file} line={state.line} paneRef={paneRef} />
+    <FileBody
+      cwd={cwd}
+      file={state.file}
+      line={state.line}
+      onTogglePreview={() => setPreview((on) => !on)}
+      paneRef={paneRef}
+      preview={preview}
+    />
   );
 }
 
@@ -292,14 +314,24 @@ function FileBody({
   cwd,
   file,
   line,
+  onTogglePreview,
   paneRef,
+  preview,
 }: {
   cwd: string;
   file: FileTextValue;
   line: number | null;
+  onTogglePreview: () => void;
   paneRef: React.RefObject<HTMLElement | null>;
+  preview: boolean;
 }) {
   const plan = viewerPlan(file.path, file.bytes);
+  // Only a `.md` is offered — and only actually shown as prose — as rendered
+  // markdown (`previewableAsMarkdown`). `showPreview` folds the pane's choice
+  // with what this file can do: a preview that survived onto a `.rs` the reader
+  // then opened would draw one span of source as if it were prose.
+  const canPreview = previewableAsMarkdown(file.path);
+  const showPreview = preview && canPreview;
 
   // **Task 0: the tokens arrive in the background, the text never waits.**
   // The file renders as plain `data-line` spans immediately — the pane must
@@ -370,8 +402,13 @@ function FileBody({
   // background tokenise lands. `enabled` is unconditional here because this
   // component only exists when a file is open — the empty state and the refusals
   // are earlier branches of `FileViewer`, and on those the chord stays upstream's.
+  // ⌘F paints its amber over the file's source spans (`ViewerLines`), and the
+  // preview renders none — it is prose, not one element per line. So find is a
+  // source-view tool: disabled while previewing rather than left to count
+  // matches it cannot show, which would light the find bar over a file with
+  // nothing highlighted in it. Toggling back to source re-enables it.
   const find = useFindInFile({
-    enabled: true,
+    enabled: !showPreview,
     paneRef,
     text: file.text,
     viewerRef: bodyRef,
@@ -421,6 +458,21 @@ function FileBody({
         <span className="ml-auto shrink-0 text-2xs tabular-nums text-muted-foreground">
           {humanCount(file.lines)} lines · {humanSize(file.bytes)}
         </span>
+        {/* **Source⇄Preview, only for a `.md`.** Absent for every other file
+            rather than disabled — a `.rs` has no prose form, so a control that
+            explained its own uselessness would be the noise the plain-note is
+            careful not to add. A toolbar toggle only: no keyboard chord ships,
+            because ⇧⌘V is the one free corner and claiming it owes the full
+            five-claimant re-audit + the AppKit ⌥-synthesis check the island's
+            key maps carry (`scratchMarkdownKeys.ts`), and the header button
+            alone satisfies "markdown preview" honestly. */}
+        {canPreview ? (
+          <MarkdownPreviewToggle
+            onToggle={onTogglePreview}
+            preview={preview}
+            testid="files-preview-toggle"
+          />
+        ) : null}
         {/* **The escape hatch, where the file is named.** Not hover-revealed
             here: this is a header rather than a row, the file it acts on is the
             one the whole pane is showing, and a control that appeared only
@@ -435,10 +487,13 @@ function FileBody({
           worktree={cwd}
         />
       </div>
-      {plan.why === null ? null : (
+      {plan.why === null || showPreview ? null : (
         // The honest half of the one remaining ceiling: a file the viewer will
         // not highlight says why, in words, with the numbers. A fallback he
-        // cannot see is a bug report. See `fileViewer.ts`'s header.
+        // cannot see is a bug report. See `fileViewer.ts`'s header. Silent while
+        // previewing: the sentence explains the *source* rendering, and a
+        // markdown file past the tokenise budget is still rendered as prose —
+        // the budget bounds Shiki, not the chat pipeline.
         <p
           className="shrink-0 border-b border-border/60 px-2 py-1 text-2xs text-muted-foreground"
           data-testid="files-viewer-plain-note"
@@ -451,51 +506,83 @@ function FileBody({
           a bar inside the scrolling box would slide off the top on the first
           PageDown. */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {/* **A focusable scroll region**, which it had to become for two reasons
-            that arrived together: Escape out of the find bar has somewhere to put
-            focus, and the file he is reading answers ↑↓/PageDown without a click
-            first. The focus ring is upstream's inset one, so nothing moves. */}
-        {/* A `<section>` rather than a div with `role="region"` — the element
-            carries the role, which is what `useSemanticElements` is for. */}
-        <section
-          aria-label="the open file"
-          className="h-full overflow-auto p-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-          data-testid="files-viewer-body"
-          ref={bodyRef}
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region that cannot be reached by keyboard is a WCAG 2.1.1 failure, and `tabindex="0"` on the scroll container is the technique for it — there is no interactive element here to hang it on, because the viewer is deliberately not an editor. It is also where Escape puts focus when the find bar closes, and a bar that closed onto nothing would leave this pane keyboard-dead.
-          tabIndex={0}
-        >
-          {plan.render === "highlighted" ? (
-            // `data-highlighted` says which of the two renderings is up, so a
-            // spec can assert the swap happened instead of inferring it from
-            // colour counts alone.
-            <pre
-              className={VIEWER_BODY_CLASS}
-              data-highlighted={tokens === null ? "false" : "true"}
-              data-testid="files-viewer-code"
+        {showPreview ? (
+          // **The prose half, drawn by the app's own chat pipeline** — the same
+          // `Markdown` the README panel renders a repo's readme with
+          // (`ProjectReadmePanel`), `interactive={false}` so its mention,
+          // channel-link and link-preview machinery goes inert: an external link
+          // renders as plain text rather than an `<a>` that would navigate the
+          // webview, and nothing here reaches the relay. No new parser and no new
+          // cache — it rides `renderCachedMarkdown`/`clearMarkdownNodeCache`,
+          // which is already wired into `resetCommunityState()`.
+          //
+          // **Content is `file.text`, the buffer itself.** The Files viewer is
+          // read-only (there is no editor here to reconcile against), so the
+          // preview is the current buffer by construction — live, not a snapshot
+          // taken at toggle time.
+          <div
+            className="h-full overflow-auto p-3"
+            data-testid="files-viewer-preview"
+          >
+            <Markdown
+              className="text-sm"
+              content={file.text}
+              interactive={false}
+            />
+          </div>
+        ) : (
+          <>
+            {/* **A focusable scroll region**, which it had to become for two
+                reasons that arrived together: Escape out of the find bar has
+                somewhere to put focus, and the file he is reading answers
+                ↑↓/PageDown without a click first. The focus ring is upstream's
+                inset one, so nothing moves. */}
+            {/* A `<section>` rather than a div with `role="region"` — the element
+                carries the role, which is what `useSemanticElements` is for. */}
+            <section
+              aria-label="the open file"
+              className="h-full overflow-auto p-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              data-testid="files-viewer-body"
+              ref={bodyRef}
+              // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region that cannot be reached by keyboard is a WCAG 2.1.1 failure, and `tabindex="0"` on the scroll container is the technique for it — there is no interactive element here to hang it on, because the viewer is deliberately not an editor. It is also where Escape puts focus when the find bar closes, and a bar that closed onto nothing would leave this pane keyboard-dead.
+              tabIndex={0}
             >
-              <ViewerLines
-                current={find.current}
-                lines={find.lines}
-                text={file.text}
-                tokens={tokens}
-              />
-            </pre>
-          ) : (
-            <pre className={VIEWER_BODY_CLASS} data-testid="files-viewer-plain">
-              {/* `data-line` on every line and nothing about `line` here: which
+              {plan.render === "highlighted" ? (
+                // `data-highlighted` says which of the two renderings is up, so a
+                // spec can assert the swap happened instead of inferring it from
+                // colour counts alone.
+                <pre
+                  className={VIEWER_BODY_CLASS}
+                  data-highlighted={tokens === null ? "false" : "true"}
+                  data-testid="files-viewer-code"
+                >
+                  <ViewerLines
+                    current={find.current}
+                    lines={find.lines}
+                    text={file.text}
+                    tokens={tokens}
+                  />
+                </pre>
+              ) : (
+                <pre
+                  className={VIEWER_BODY_CLASS}
+                  data-testid="files-viewer-plain"
+                >
+                  {/* `data-line` on every line and nothing about `line` here: which
                   one is marked is the effect's single answer, so the two
                   renderers cannot disagree about what "line 12" means. */}
-              <ViewerLines
-                current={find.current}
-                lines={find.lines}
-                text={file.text}
-                tokens={null}
-              />
-            </pre>
-          )}
-        </section>
-        {find.open ? <FindBar find={find} /> : null}
+                  <ViewerLines
+                    current={find.current}
+                    lines={find.lines}
+                    text={file.text}
+                    tokens={null}
+                  />
+                </pre>
+              )}
+            </section>
+            {find.open ? <FindBar find={find} /> : null}
+          </>
+        )}
       </div>
     </div>
   );
