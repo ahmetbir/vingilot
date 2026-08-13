@@ -40,6 +40,15 @@ type DefaultConfigStepProps = {
   readyRuntimeIds: readonly string[];
 };
 
+/**
+ * Dark glass for the config selects. These were `bg-white`, which was honest
+ * on the bee-yellow field but turned invisible when the sea shell flipped
+ * `--foreground` to near-white: white text on a white pill. Same glass idiom
+ * as the community option cards.
+ */
+const ONBOARDING_CONFIG_SELECT_CLASS =
+  "h-12 rounded-2xl border-foreground/20 bg-background/40 px-4 py-2 text-sm text-foreground shadow-none backdrop-blur-sm hover:bg-background/55";
+
 function formatHarnessLabel(runtime: AcpRuntimeCatalogEntry | undefined) {
   if (!runtime) return "Select a harness";
   // "Buzz Agent", not "Buzz": this names the bundled agent runtime sitting in a
@@ -226,7 +235,7 @@ function AgentDefaultsSection({
               Default harness
             </label>
             <AgentDropdownSelect
-              className="h-12 rounded-2xl border-foreground/15 bg-white px-4 py-2 text-sm shadow-none hover:bg-white/95"
+              className={ONBOARDING_CONFIG_SELECT_CLASS}
               id="global-agent-default-harness"
               onValueChange={handleHarnessChange}
               options={harnessOptions}
@@ -255,7 +264,7 @@ function AgentDefaultsSection({
             onValidityChange={setConfigIsValid}
             placeholderClassName="text-foreground/70"
             runtimeFileConfig={runtimeFileConfig}
-            selectClassName="h-12 rounded-2xl border-foreground/15 bg-white px-4 py-2 text-sm shadow-none hover:bg-white/95"
+            selectClassName={ONBOARDING_CONFIG_SELECT_CLASS}
             disclosure="onboarding-essential"
             unstyled
             useCustomSelect

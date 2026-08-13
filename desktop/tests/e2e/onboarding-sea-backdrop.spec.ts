@@ -69,6 +69,24 @@ test("welcome screen plays the sea with its poster declared", async ({
 });
 
 /**
+ * The owner's verdict on v0.2.3 was that only the community screen moved —
+ * the identity landing and the config step were stills. The backdrop now
+ * mounts on the machine-onboarding shell too, and this pins it there.
+ */
+test("machine onboarding landing plays the sea as well", async ({ page }) => {
+  await installMockBridge(page, undefined, {
+    skipCommunitySeed: true,
+    skipOnboardingSeed: true,
+  });
+  await page.goto("/");
+
+  await expect(page.getByTestId("machine-onboarding-gate")).toBeVisible();
+  const video = page.getByTestId("onboarding-sea-video");
+  await expect(video).toBeAttached();
+  await expect(video).toHaveAttribute("poster", POSTER_ATTR);
+});
+
+/**
  * Reduced motion is emulated with `page.emulateMedia`, deliberately, and not
  * with `test.use({ reducedMotion: "reduce" })`.
  *

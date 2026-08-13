@@ -66,6 +66,12 @@ else
 fi
 
 cd desktop
+# When CI=true, tauri-bundler passes --skip-jenkins to bundle_dmg.sh, which
+# silently drops the whole Finder styling pass — background artwork, window
+# size, icon positions — and ships a bare grey window (v0.2.3 did exactly
+# that). This is the bundler's own documented escape hatch; GitHub's macOS
+# runners have a real GUI session, so the AppleScript pass works there.
+export TAURI_BUNDLER_DMG_IGNORE_CI=true
 pnpm tauri build --target "$TARGET" --bundles dmg
 
 dmg=$(ls -t "src-tauri/target/${TARGET}/release/bundle/dmg/"*.dmg | head -1)

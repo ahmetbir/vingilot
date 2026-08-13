@@ -31,6 +31,7 @@ import {
   OnboardingChrome,
 } from "./OnboardingChrome";
 import { OnboardingFooterProvider } from "./OnboardingFooter";
+import { OnboardingSeaBackdrop } from "./OnboardingSeaBackdrop";
 import { OnboardingSlideTransition } from "./OnboardingSlideTransition";
 import { SetupStep } from "./SetupStep";
 
@@ -175,6 +176,10 @@ export function MachineOnboardingFlow({
       data-testid="machine-onboarding-gate"
     >
       <StartupWindowDragRegion />
+      {/* The sea moves behind every machine-onboarding page except the
+          security subview, which is its own dark world with its own
+          background and must not have water shifting under it. */}
+      {isSecuritySubview ? null : <OnboardingSeaBackdrop />}
       {/* Upstream's LandingBees drew the corner mark plus a field of
           thirty-eight flapping bees over this screen. Both are upstream's
           product, and neither survives the rebrand: the identity now lives in
@@ -205,7 +210,7 @@ export function MachineOnboardingFlow({
       ) : null}
       <OnboardingFooterProvider>
         <div
-          className={`relative flex w-full max-w-[1040px] flex-col items-center text-center ${
+          className={`relative z-10 flex w-full max-w-[1040px] flex-col items-center text-center ${
             page === "identity" ? "my-auto" : "buzz-onboarding-step-frame"
           }`}
         >

@@ -27,9 +27,12 @@ export const ONBOARDING_SECURITY_PRIMARY_CTA_CLASS = `${ONBOARDING_CTA_SHAPE} bg
  */
 export const ONBOARDING_LANDING_CTA_CLASS = `${ONBOARDING_CTA_SHAPE} text-[var(--buzz-welcome-chartreuse)]`;
 
-/** Shared quiet pill for secondary actions throughout onboarding. */
+/** Shared quiet pill for secondary actions throughout onboarding. The wash is
+ * /15 rather than the /10 it wore on the yellow field: on the dark sea a 10%
+ * white wash all but vanished, and the landing screen's "Use an existing key"
+ * needs an edge to be found by. */
 export const ONBOARDING_SECONDARY_CTA_CLASS =
-  "h-9 rounded-full bg-foreground/10 px-6 text-foreground hover:bg-foreground/15 hover:text-foreground";
+  "h-9 rounded-full bg-foreground/15 px-6 text-foreground hover:bg-foreground/25 hover:text-foreground";
 
 /**
  * Icon-control styling for onboarding surfaces that sit on the textured card:

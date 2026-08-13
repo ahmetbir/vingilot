@@ -19,7 +19,6 @@ import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { pubkeyToNpub } from "@/shared/lib/nostrUtils";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { Button } from "@/shared/ui/button";
-import { Card } from "@/shared/ui/card";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
 type WelcomeSetupPage = "welcome" | "existing" | "join" | "member" | "owned";
@@ -31,8 +30,15 @@ type WelcomeSetupProps = {
   onBack: () => void;
 };
 
+/**
+ * Dark glass over the moving sea. These were `Card variant="textured"` — the
+ * white powder-edge nine-slice baked for upstream's bee-yellow field — but at
+ * 88px tall the solid center collapses and only the feathered fade is left,
+ * which reads as a blob of white noise on dark water. The glass idiom is the
+ * one this file already uses for the npub box below.
+ */
 const COMMUNITY_OPTION_CARD_CLASS =
-  "w-full max-w-[320px] items-center px-6 py-4 text-center text-sm font-normal leading-6 text-foreground [--buzz-card-textured-min-height:88px] transition-[filter] duration-150 ease-out hover:brightness-[0.98] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-foreground/35";
+  "w-full max-w-[320px] rounded-2xl border border-foreground/15 bg-background/40 px-6 py-5 text-center text-sm font-normal leading-6 text-foreground backdrop-blur-sm transition-colors duration-150 ease-out hover:bg-background/60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-foreground/35";
 
 export function WelcomeSetup({
   initialPage = "welcome",
@@ -125,46 +131,31 @@ export function WelcomeSetup({
                   one you already have.
                 </p>
               </div>
-              <div className="flex w-full flex-1 translate-y-16 flex-col items-center justify-center gap-20 py-8">
-                <Card
-                  asChild
+              <div className="flex w-full flex-1 flex-col items-center justify-center gap-5 py-8">
+                <button
                   className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
+                  data-testid="community-choice-join"
+                  onClick={() => showPage("join")}
+                  type="button"
                 >
-                  <button
-                    data-testid="community-choice-join"
-                    onClick={() => showPage("join")}
-                    type="button"
-                  >
-                    Join a community
-                  </button>
-                </Card>
-                <Card
-                  asChild
+                  Join a community
+                </button>
+                <button
                   className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
+                  data-testid="community-choice-create"
+                  onClick={() => setIsHostedSignInOpen(true)}
+                  type="button"
                 >
-                  <button
-                    data-testid="community-choice-create"
-                    onClick={() => setIsHostedSignInOpen(true)}
-                    type="button"
-                  >
-                    Create a community
-                  </button>
-                </Card>
-                <Card
-                  asChild
+                  Create a community
+                </button>
+                <button
                   className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
+                  data-testid="community-choice-existing"
+                  onClick={() => showPage("existing")}
+                  type="button"
                 >
-                  <button
-                    data-testid="community-choice-existing"
-                    onClick={() => showPage("existing")}
-                    type="button"
-                  >
-                    I already have a community
-                  </button>
-                </Card>
+                  I already have a community
+                </button>
               </div>
               <OnboardingFooter>
                 <Button
@@ -193,33 +184,23 @@ export function WelcomeSetup({
                   Tell us your role so we can find the fastest way back in.
                 </p>
               </div>
-              <div className="flex w-full flex-1 translate-y-16 flex-col items-center justify-center gap-20 py-8">
-                <Card
-                  asChild
+              <div className="flex w-full flex-1 flex-col items-center justify-center gap-5 py-8">
+                <button
                   className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
+                  data-testid="existing-choice-owner"
+                  onClick={() => setIsHostedSignInOpen(true)}
+                  type="button"
                 >
-                  <button
-                    data-testid="existing-choice-owner"
-                    onClick={() => setIsHostedSignInOpen(true)}
-                    type="button"
-                  >
-                    I own the community
-                  </button>
-                </Card>
-                <Card
-                  asChild
+                  I own the community
+                </button>
+                <button
                   className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
+                  data-testid="existing-choice-member"
+                  onClick={() => showPage("member")}
+                  type="button"
                 >
-                  <button
-                    data-testid="existing-choice-member"
-                    onClick={() => showPage("member")}
-                    type="button"
-                  >
-                    I’m a member or admin
-                  </button>
-                </Card>
+                  I’m a member or admin
+                </button>
               </div>
               <OnboardingFooter>
                 <Button

@@ -19,6 +19,7 @@ import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { AvatarStep } from "./AvatarStep";
 import { OnboardingChrome } from "./OnboardingChrome";
 import { OnboardingFooterProvider } from "./OnboardingFooter";
+import { OnboardingSeaBackdrop } from "./OnboardingSeaBackdrop";
 import { MembershipDenied } from "./MembershipDenied";
 import { NostrKeyImportForm } from "./NostrKeyImportForm";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -457,10 +458,11 @@ export function OnboardingFlow({
         data-system-color-scheme={systemColorScheme}
       >
         <StartupWindowDragRegion />
+        <OnboardingSeaBackdrop />
         <OnboardingChrome current={currentStep} total={totalOnboardingSteps} />
         <OnboardingFooterProvider>
           <div
-            className={`relative flex w-full flex-col items-center text-center ${
+            className={`relative z-10 flex w-full flex-col items-center text-center ${
               currentPage === "avatar" ? "max-w-[1080px]" : "max-w-[500px]"
             }`}
           >
