@@ -39,6 +39,7 @@ import {
   OnboardingChrome,
 } from "./OnboardingChrome";
 import { OnboardingFooter, OnboardingFooterProvider } from "./OnboardingFooter";
+import { OnboardingSeaBackdrop } from "./OnboardingSeaBackdrop";
 
 function isRelayMembershipDeniedError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -467,13 +468,14 @@ export function CommunityOnboardingFlow({
       }
     >
       <StartupWindowDragRegion />
+      <OnboardingSeaBackdrop />
       {isProfileStage || isTeamStage ? (
         <OnboardingChrome current={isTeamStage ? 7 : 6} />
       ) : null}
       <OnboardingFooterProvider>
         <div
           className={cn(
-            "relative w-full text-center",
+            "relative z-10 w-full text-center",
             isProfileStage
               ? "buzz-onboarding-step-frame flex max-w-[500px] flex-col items-center"
               : isTeamStage

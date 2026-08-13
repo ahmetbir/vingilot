@@ -167,6 +167,7 @@ export default defineConfig({
         "**/workspace-places.spec.ts",
         "**/polish-shots.spec.ts",
         "**/vingilot-boot-mark.spec.ts",
+        "**/onboarding-sea-backdrop.spec.ts",
       ],
       use: {
         ...devices["Desktop Chrome"],

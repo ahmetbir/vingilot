@@ -1,0 +1,74 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the sea backdrop
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: every entry here authorises ONE class of change —
+# replacing upstream's bee-yellow ("chartreuse", #d7d72e) onboarding field with
+# the fork's dusk seascape, and making the copy on those screens legible
+# against it. Explicitly NOT covered, and untouched by this sweep: the
+# semantic amber/yellow warning chips in settings (they mean "warning", not
+# "Buzz"), the app-wide ambient gradient tokens in theme.css, the cold-boot
+# grainient (it is built from --chart-*/--primary theme tokens and is not
+# yellow), and the olive/pale-yellow avatar-dialog palette, which sits on a
+# white dialog rather than on the onboarding field.
+#
+# Why the video is a public/ asset rather than a Vite module import (which is
+# how vingilot-brand ships the mark sprite sheet): a 15 MB media file has no
+# business in the module graph. In public/ it is copied verbatim, is never
+# parsed or hashed by the bundler, adds nothing to any JS chunk, and is fetched
+# by the browser with HTTP range requests the way a video wants to be fetched.
+
+seams:
+  - path: "desktop/public/onboarding/sea-backdrop-loop.mp4"
+    reason: "The dusk seascape loop that replaces the bee-yellow field on the big onboarding screens. This is brand/source/sea/backdrop-dusk-loop-opt.mp4, the re-encoded loop -- 1.4 MB at 783 kbps rather than the 15 MB master, same 1920x1080/24fps/361 frames and the same first frame as the poster. h264 High/yuv420p, the profile VideoToolbox decodes in hardware on every Mac the app ships to, so the moving backdrop costs GPU time rather than main-thread time. Lives in public/ so only its path string reaches a JS chunk and the bytes are copied verbatim."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships its own identity. Removable only if upstream grows a themeable onboarding backdrop slot the fork can fill without replacing the asset."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/public/onboarding/sea-backdrop-poster.jpg"
+    reason: "The still sea. It is the loop's own frame 0 (verified against the decoded frame at PSNR 33.8 dB / SSIM 0.957), which is what lets it serve both static roles at once: the video's poster, so the clip starts without a cut, and the whole backdrop under prefers-reduced-motion, where no video element is created at all. Shipped instead of brand/source/sea/backdrop-dusk.jpg, which is a different and much darker composition (mean luma 22.8 vs this frame's 62.4) and would have made the reduced-motion path a visibly different product needing its own scrim."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships its own identity. Removable only if upstream grows a themeable onboarding backdrop slot the fork can fill without replacing the asset."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/onboarding/ui/OnboardingSeaBackdrop.tsx"
+    reason: "New, fork-owned: the element that plays the sea loop. It exists as a component rather than as CSS because the performance requirements are behavioural, not stylistic — the video element must be created only on the screens that want it (unmounting is what stops the decode), and must not be created at all under prefers-reduced-motion, which a stylesheet cannot express."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships its own identity."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/shared/styles/globals/components.css"
+    reason: "The bee-yellow itself lives here: --buzz-welcome-chartreuse (#d7d72e) and the two rules that paint it across every onboarding shell. This swaps that field for the still sea, flips the shell's foreground palette from near-black to near-white (the sea is dark where the chartreuse was bright, so the existing dark copy would have been unreadable on it), and repoints the surviving small chartreuse controls at a navy drawn from the sea. Scoped to the .buzz-startup-shell compound so the white onboarding dialogs that also carry .buzz-onboarding-neutral-theme keep their dark-on-white palette."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships its own identity. Removable only if upstream extracts the onboarding field into a token set the fork can override without editing this file."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/communities/ui/WelcomeSetup.tsx"
+    reason: "The join-or-create screen — the largest of the onboarding surfaces and the one the owner screenshotted. Mounts OnboardingSeaBackdrop so the sea moves here; carries no other change."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships its own identity."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/onboarding/ui/CommunityOnboardingFlow.tsx"
+    reason: "The other big onboarding surface, and the other half of the pair the sea has to cover: this flow owns the claiming, connecting, profile, team-intro, finalizing and entering stages, all of which render the same .buzz-startup-shell whose field components.css just repainted. Mounts OnboardingSeaBackdrop unconditionally, so the sea moves on every one of those stages rather than only the two that carry the step chrome, and raises the body wrapper to z-10 so the copy sits above the video rather than behind it. Touched here specifically because the mount is behavioural -- the component must exist in this tree for the decode to start and stop with the screen -- and no edit to components.css can put an element on the page. NOTE this path is deliberately declared twice in the registry: the entry in brand-sweep.yaml covers an unrelated axis (the product-name copy and the Take me to Vingilot button) and says nothing about a backdrop, so this axis needs its own reason rather than borrowing that one. The gate only checks that a path is covered, never why, so the second entry buys documentation rather than permission."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships its own identity."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/e2e/onboarding-sea-backdrop.spec.ts"
+    reason: "New, fork-owned: the spec that holds the two behaviours the backdrop exists to guarantee — that the welcome screen carries a video with its poster set, and that under emulated prefers-reduced-motion no video element is created and the still image backs the screen instead. Separate from upstream's onboarding.spec.ts so the fork's assertions are not interleaved with upstream's."
+    owner: "vingilot/brand"
+    removable_when: "Never, while the fork ships its own identity."
+    status: "permanent"
+    added: "2026-08-13"

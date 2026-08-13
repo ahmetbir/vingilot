@@ -5,6 +5,7 @@ import { HostedCommunityOnboarding } from "@/features/communities/ui/HostedCommu
 import { useCommunityOnboarding } from "@/features/onboarding/communityOnboarding";
 import { InviteRedeemForm } from "@/features/onboarding/ui/InviteRedeemForm";
 import { OnboardingChrome } from "@/features/onboarding/ui/OnboardingChrome";
+import { OnboardingSeaBackdrop } from "@/features/onboarding/ui/OnboardingSeaBackdrop";
 import {
   OnboardingFooter,
   OnboardingFooterProvider,
@@ -103,9 +104,10 @@ export function WelcomeSetup({
       data-system-color-scheme={systemColorScheme}
     >
       <StartupWindowDragRegion />
+      <OnboardingSeaBackdrop />
       <OnboardingChrome current={5} />
       <OnboardingFooterProvider>
-        <div className="relative flex min-h-0 w-full max-w-[920px] flex-1 flex-col items-center text-center">
+        <div className="relative z-10 flex min-h-0 w-full max-w-[920px] flex-1 flex-col items-center text-center">
           {page === "welcome" ? (
             <OnboardingSlideTransition
               className="flex h-full min-h-0 w-full flex-col items-center text-center"

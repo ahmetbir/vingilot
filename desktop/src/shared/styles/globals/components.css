@@ -175,42 +175,138 @@
     min-height: 0;
   }
 
+  /*
+   * The sea, in place of the bee-yellow field.
+   *
+   * This is the still frame, and it is deliberately the whole story for most
+   * screens: only the two big ones (WelcomeSetup, CommunityOnboardingFlow)
+   * mount OnboardingSeaBackdrop on top of it and set it moving. Because the
+   * still IS the loop's own frame 0, the video starts from the picture already
+   * painted here rather than cutting to a different one, and a screen that
+   * never gets a video -- or a user who has asked for reduced motion, where no
+   * video element is created at all -- sees the same sea, held.
+   *
+   * `background-attachment` is left at its initial `scroll`: these shells
+   * scroll their content, and `fixed` would make the sea slide under it.
+   *
+   * The dot grid that used to texture this field is gone with the field. It
+   * existed to give a flat colour some tooth; a photograph has its own, and
+   * 8%-black dots are invisible on water this dark.
+   */
   .buzz-onboarding-neutral-theme.buzz-startup-shell {
-    /* Dot grid over the chartreuse→light-blue gradient (dots layer first so
-       they sit on top). The welcome page overrides this with dots over a flat
-       chartreuse fill below. */
+    background-color: var(--buzz-onboarding-shell-bottom);
+    /*
+     * The scrim rides in the same background stack as the picture rather than
+     * as an extra element: one declaration, no absolutely-positioned layer to
+     * order against the screens' content, and it covers every shell rather than
+     * only the two that mount a video. Screens that do mount one paint it over
+     * this, with its own matching scrim, so nothing is darkened twice.
+     */
     background-image:
-      radial-gradient(circle, rgb(0 0 0 / 0.08) 1px, transparent 1px),
-      linear-gradient(
-        to bottom,
-        var(--buzz-welcome-chartreuse),
-        var(--buzz-onboarding-shell-bottom)
-      );
-    background-size:
-      24px 24px,
-      auto;
+      linear-gradient(var(--buzz-sea-scrim), var(--buzz-sea-scrim)),
+      var(--buzz-sea-still);
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-size: cover;
   }
 
-  .buzz-onboarding-neutral-theme.buzz-startup-shell.buzz-onboarding-welcome {
-    background-color: var(--buzz-welcome-chartreuse);
-    /* Landing is a flat chartreuse field, so the docked-footer scrim must match
-       it (not the gradient's light-blue bottom) to stay invisible. */
-    --buzz-onboarding-shell-bottom: var(--buzz-welcome-chartreuse);
-    /* Subtle dot grid: 2px dots spaced on a 24px lattice. */
-    background-image: radial-gradient(
-      circle,
-      rgb(0 0 0 / 0.08) 1px,
-      transparent 1px
-    );
-    background-size: 24px 24px;
+  /*
+   * The sea is dark where the chartreuse was bright, so the copy that sits
+   * directly on it has to invert. Measured off the shipped frame, in the column
+   * the copy occupies: median luma 70/255, p95 82, p99 134 (the sun glint).
+   * Against near-white text that is 10.4:1 at the median and 5.4:1 at the 99th
+   * percentile once OnboardingSeaBackdrop's scrim is applied -- past WCAG AA
+   * with the worst pixel on the screen, not just the average one.
+   *
+   * The shape of this block is deliberately the same as
+   * .buzz-onboarding-security-theme below: that subview is the existing proof
+   * that these screens can be a dark world, and matching it keeps one idiom
+   * rather than inventing a second. `--primary` stays dark for the same reason
+   * it is dark there -- the CTA is a dark pill with a light label, and the sea
+   * at ~24% luma is light enough to keep that pill legible.
+   *
+   * Scoped to the compound selector, never to `.buzz-onboarding-neutral-theme`
+   * alone: the white onboarding dialogs carry that class on their own root and
+   * must keep their dark-on-white palette.
+   */
+  .buzz-onboarding-neutral-theme.buzz-startup-shell {
+    color-scheme: dark;
+    /* The sea's own mean colour (#3b434b), so `bg-background` is an honest
+       fallback if the picture ever fails to load. */
+    --background: 197 12% 26%;
+    --foreground: 0 0% 98%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 82%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 96%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 96%;
+    --border: 0 0% 26%;
+    --input: 0 0% 26%;
+    --ring: 0 0% 88%;
+  }
+
+  /*
+   * The textured cards are light plates (card-texture.png averages 163/255),
+   * so everything inside one is back in a light world and its palette has to
+   * come back with it. Without this, the shell's near-white copy above would
+   * land white-on-white on every onboarding card -- the setup steps, the
+   * community choices, the runtime tiles and their chartreuse readiness dot,
+   * whose check mark reads dark again because of this rule.
+   *
+   * `-dark` textured cards are excluded: those already are a dark plate and
+   * want the shell's palette.
+   */
+  .buzz-onboarding-neutral-theme.buzz-startup-shell
+  .buzz-card-textured:not(.buzz-card-textured-dark) {
+    color-scheme: light;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 9%;
   }
 
   .buzz-onboarding-neutral-theme {
-    /* Landing "chartreuse" — the welcome background; reused for the CTA label. */
-    --buzz-welcome-chartreuse: #d7d72e;
-    /* Bottom stop of the onboarding shell gradient; also the docked-footer
-       scrim color so content scrolling under the CTA fades into the page. */
-    --buzz-onboarding-shell-bottom: #d7e7f6;
+    /*
+     * The still sea. Served from public/ rather than imported as a module: it
+     * is a photograph the stylesheet needs a URL for, and public/ keeps it out
+     * of the bundler's graph entirely.
+     */
+    --buzz-sea-still: url("/onboarding/sea-backdrop-poster.jpg");
+    /*
+     * Darkening overlay for the sea, used both by the shell's own background
+     * stack and by OnboardingSeaBackdrop over the video, so the still and the
+     * moving version darken identically. 0.40 is measured, not chosen by eye:
+     * in the column the copy occupies it puts the 99th-percentile pixel (the
+     * sun glint) at 5.4:1 against near-white text and the median at 10.4:1.
+     * Without it the glint falls to 3.6:1, under WCAG AA.
+     */
+    --buzz-sea-scrim: rgb(0 0 0 / 0.4);
+    /*
+     * Was the landing "chartreuse" (#d7d72e) -- the bee-yellow. The name is
+     * upstream's and is kept on purpose: this token is read from four upstream
+     * files, and renaming it would mean editing all four (and declaring each as
+     * a seam) to change nothing about how it behaves. The value is now a pale
+     * sea foam, which is what the token's two jobs both need on the sea -- a
+     * light label on the dark landing CTA pill, and a light wash where it is
+     * used at /30-/35 over the water or as the solid readiness dot (whose check
+     * mark stays dark, because that dot sits on a light textured card).
+     */
+    --buzz-welcome-chartreuse: #cfe0e3;
+    /*
+     * Bottom stop of the onboarding shell; also the docked-footer scrim colour
+     * so content scrolling under the CTA fades into the page. Sampled from the
+     * sea's own bottom quarter (#253033) so the scrim disappears into the water
+     * instead of banding against it.
+     */
+    --buzz-onboarding-shell-bottom: #253033;
     /* Label color for the primary onboarding CTA (light blue on the dark pill). */
     --buzz-onboarding-cta-label: #d7e6f0;
     /* Olive ink for the backup step's private key and its "never share" caption,
