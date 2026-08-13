@@ -145,6 +145,27 @@ fn default_shell() -> String {
 /// `"<bin>:"` would put an empty entry on it, which POSIX reads as the current
 /// directory (`vingilot_shim::prepend_path` is where that is argued and tested).
 ///
+/// **`VINGILOT_HOOK_ENDPOINT` and `VINGILOT_CLAUDE_SETTINGS` are the fourth,
+/// and they are ring 1 of the hook injection**
+/// (vingilot/docs/plans/2026-08-12-hooks-and-the-dots.md, Task 2). The `claude`
+/// wrapper the PATH above carries reads both: the first is the loopback URL
+/// this session's hooks post to (`vingilot_hooks::endpoint_url`, token and
+/// binding scope included), the second is where to write the settings JSON
+/// built from it. **The environment, and not an argument**, because process
+/// arguments are world-readable on this machine and that URL carries the app
+/// run's token — the trust boundary `vingilot_hooks`'s header states.
+///
+/// **Both names come from `vingilot_shim::scripts`**, where the script that
+/// reads them lives, rather than being spelled again here — the two sides of a
+/// variable are joined by nothing but the string, and the shipped shell text is
+/// held to the same constant by a test in that file.
+///
+/// They travel together or not at all: a settings path without an endpoint
+/// tells the wrapper to write a file with nothing in it, and an endpoint
+/// without a path tells it to write nowhere. Both are absent when the endpoint
+/// did not come up, and the terminal opens exactly as it did before this
+/// feature.
+///
 /// `shim_bin` is a parameter rather than a call so this stays a pure function
 /// of what it is told — including the case where the install failed and there
 /// is no directory to add, which must leave `PATH` exactly as it was rather
@@ -153,6 +174,7 @@ fn terminal_env(
     lang: Option<&std::ffi::OsStr>,
     path: Option<&std::ffi::OsStr>,
     shim_bin: Option<&str>,
+    hooks: Option<&AgentHooks>,
 ) -> Vec<(&'static str, String)> {
     let mut env = vec![("TERM", "xterm-256color".to_owned())];
     if lang.is_none_or(|value| value.is_empty()) {
@@ -164,7 +186,48 @@ fn terminal_env(
             crate::vingilot_shim::prepend_path(bin, path.and_then(|value| value.to_str())),
         ));
     }
+    if let Some(hooks) = hooks {
+        // The names are the wrapper's, not this file's: one definition beside
+        // the script that reads them (`vingilot_shim::scripts`), because a
+        // rename here alone is invisible to every test on either side.
+        env.push((
+            crate::vingilot_shim::HOOK_ENDPOINT_VAR,
+            hooks.endpoint.clone(),
+        ));
+        env.push((
+            crate::vingilot_shim::CLAUDE_SETTINGS_VAR,
+            hooks.settings.clone(),
+        ));
+    }
     env
+}
+
+/// What an agent launched in this terminal is told: where to post, and where to
+/// keep the settings that say so.
+struct AgentHooks {
+    endpoint: String,
+    settings: String,
+}
+
+/// The pair for one pty session, or `None` when any half of it is missing.
+///
+/// **The scope is the session id up to its `#`.** A session id is
+/// `<worktree binding id>#<tab ordinal>` (this file's header), so the binding id
+/// is already in it and no second channel is needed to carry one; a scratch
+/// shell's id has no `#` and is not a binding id, which `endpoint_url` answers
+/// for by using the unscoped route rather than by refusing. `None` here is
+/// silent on purpose — no endpoint means the dots say about this terminal
+/// exactly what they said yesterday, which is nothing.
+fn agent_hooks(session: &str) -> Option<AgentHooks> {
+    let scope = session.split('#').next().unwrap_or_default();
+    let endpoint = crate::vingilot_hooks::endpoint_url(scope)?;
+    let home = dirs::home_dir()?;
+    Some(AgentHooks {
+        endpoint,
+        settings: crate::vingilot_shim::claude_settings_path(&home, scope)
+            .to_string_lossy()
+            .into_owned(),
+    })
 }
 
 /// Open a PTY session rooted at `cwd`, running the owner's shell. Idempotent:
@@ -277,6 +340,7 @@ fn open<R: Runtime>(
         // Installed on first use and remembered — the shim's own `OnceLock`, so
         // this is one `stat` per app run rather than a write per terminal.
         crate::vingilot_shim::installed_bin_dir(),
+        agent_hooks(&session).as_ref(),
     ) {
         cmd.env(key, value);
     }
@@ -493,14 +557,14 @@ mod terminal_env_tests {
         // started this app, and a `TERM` inherited from a shell is an answer
         // about a different terminal.
         for lang in [None, Some(OsStr::new("tr_TR.UTF-8"))] {
-            let env = terminal_env(lang, None, None);
+            let env = terminal_env(lang, None, None, None);
             assert_eq!(value(&env, "TERM").as_deref(), Some("xterm-256color"));
         }
     }
 
     #[test]
     fn a_locale_the_owner_chose_is_left_alone() {
-        let env = terminal_env(Some(OsStr::new("tr_TR.UTF-8")), None, None);
+        let env = terminal_env(Some(OsStr::new("tr_TR.UTF-8")), None, None, None);
         assert!(env.iter().all(|(key, _)| *key != "LANG"));
     }
 
@@ -510,7 +574,7 @@ mod terminal_env_tests {
         // and every non-English character arrive as `?`. An empty value is the
         // same absence wearing a different shape.
         for absent in [None, Some(OsStr::new(""))] {
-            let env = terminal_env(absent, None, None);
+            let env = terminal_env(absent, None, None, None);
             assert_eq!(value(&env, "LANG").as_deref(), Some("en_US.UTF-8"));
         }
     }
@@ -524,6 +588,7 @@ mod terminal_env_tests {
             None,
             Some(OsStr::new("/usr/bin:/bin")),
             Some("/h/.vingilot/bin"),
+            None,
         );
         assert_eq!(
             value(&env, "PATH").as_deref(),
@@ -532,12 +597,46 @@ mod terminal_env_tests {
     }
 
     #[test]
+    fn a_terminal_with_hooks_carries_the_two_names_the_wrapper_reads() {
+        // The branch that puts the endpoint into a real terminal, which every
+        // other test in this module passes `None` for — so until this existed,
+        // renaming either variable here broke ring 1 completely and moved no
+        // test at all. The keys are asserted against the wrapper's own
+        // constants, which its shipped bytes are held to in `scripts.rs`.
+        let hooks = super::AgentHooks {
+            endpoint: "http://127.0.0.1:51234/hook/local:2f772f61?t=deadbeef".to_owned(),
+            settings: "/h/.vingilot/run/claude-local:2f772f61.json".to_owned(),
+        };
+        let env = terminal_env(None, None, None, Some(&hooks));
+        assert_eq!(
+            value(&env, crate::vingilot_shim::HOOK_ENDPOINT_VAR).as_deref(),
+            Some(hooks.endpoint.as_str())
+        );
+        assert_eq!(
+            value(&env, crate::vingilot_shim::CLAUDE_SETTINGS_VAR).as_deref(),
+            Some(hooks.settings.as_str())
+        );
+
+        // And the other half of "they travel together or not at all": a
+        // terminal the endpoint never came up for is told neither, so the
+        // wrapper takes its passthrough branch rather than writing a settings
+        // file with nothing in it.
+        let bare = terminal_env(None, None, None, None);
+        for name in [
+            crate::vingilot_shim::HOOK_ENDPOINT_VAR,
+            crate::vingilot_shim::CLAUDE_SETTINGS_VAR,
+        ] {
+            assert!(value(&bare, name).is_none(), "{name} with no hooks");
+        }
+    }
+
+    #[test]
     fn a_shim_that_could_not_be_installed_leaves_path_alone_entirely() {
         // **Not "sets PATH to a copy of itself".** Setting it would freeze the
         // launcher's PATH onto a shell that is about to re-derive its own, for
         // no gain at all — and the terminal must still open, because the shim
         // is a convenience and the shell is the product.
-        let env = terminal_env(None, Some(OsStr::new("/usr/bin:/bin")), None);
+        let env = terminal_env(None, Some(OsStr::new("/usr/bin:/bin")), None, None);
         assert!(value(&env, "PATH").is_none());
     }
 }

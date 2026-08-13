@@ -67,6 +67,15 @@ use std::sync::OnceLock;
 
 use serde::Serialize;
 
+mod scripts;
+
+use scripts::{SHIMS, SHIM_MODE, SHIM_NAME};
+
+/// The two variables the `claude` wrapper reads, re-exported because the pty
+/// spawn is what sets them: one definition, and `vingilot_pty::terminal_env`
+/// names the same constant the shipped script's own test asserts.
+pub(crate) use scripts::{CLAUDE_SETTINGS_VAR, HOOK_ENDPOINT_VAR};
+
 /// The state directory `vingilot_projects` and `vingilot_scratch` already own.
 const STATE_DIR: &str = ".vingilot";
 
@@ -74,58 +83,17 @@ const STATE_DIR: &str = ".vingilot";
 /// shim (VelaTerm has three) needs no new decision about where shims go.
 const BIN_DIR: &str = "bin";
 
-/// The command's name.
+/// Where the `claude` wrapper keeps the settings file it writes: a **run**
+/// directory beside `bin`, under the app's own state dir.
 ///
-/// **Not `vin`.** VelaTerm's note is right that a shim must not shadow a real
-/// command, and `vin` is three letters away from `vim` in a way that will cost
-/// somebody a confusing minute at 2am. `vingilot` is unambiguous, it is what
-/// the owner would guess, and it is what the palette row says it installs.
-const SHIM_NAME: &str = "vingilot";
+/// Its own directory rather than `bin`, because everything in `bin` is on the
+/// PATH of every shell this app opens and a JSON file there is one `chmod`
+/// accident away from being a command.
+const RUN_DIR: &str = "run";
 
 /// Where `/usr/local/bin` is. Named rather than inlined because it appears in a
 /// sentence the owner is asked to run.
 const LINK_DIR: &str = "/usr/local/bin";
-
-/// The shim itself.
-///
-/// **Five working lines, and the fifth is the only one that does anything** —
-/// VelaTerm's `#!/bin/sh` one-liner with the encoding it needs to be correct.
-///
-/// **Every byte is percent-encoded, through `od`.** A path is bytes, not
-/// characters: a hand-written `case` loop over `${s#?}` gets the codepoint in
-/// bash and the first byte in dash, so a Turkish filename encodes differently
-/// depending on which `/bin/sh` this is. `od -An -tx1 -v` is a byte dump, and
-/// over-encoding an unreserved byte is legal in a query value — so `%73%72%63`
-/// is `src` to every URL parser and the ampersand, the space and the `#` that
-/// would otherwise end the query are simply never characters.
-///
-/// **`VINGILOT_OPEN` is a test seam, said out loud.** The recorder test runs
-/// this exact script with that variable pointing at a script that writes its
-/// argv to a file — which is the only way to exercise the shim without opening
-/// a window on the owner's machine. Its default is the absolute
-/// `/usr/bin/open`, so the shim does not depend on the PATH it is found on.
-pub(crate) const SHIM_SCRIPT: &str = r#"#!/bin/sh
-# vingilot — show a file, or this directory, in the running Vingilot workspace.
-#
-#   vingilot                    this directory
-#   vingilot .                  the same
-#   vingilot src/main.rs        that file, in the Files viewer
-#   vingilot src/main.rs:412    that file, at line 412
-#
-# Installed by Vingilot into ~/.vingilot/bin, which the app's own terminals get
-# on their PATH. Nothing outside that directory is written unless you ask for
-# it: the app's palette has "Install vingilot command…" for /usr/local/bin.
-#
-# Every byte of the argument is percent-encoded through od(1): a path is bytes,
-# and a per-character encoder disagrees with itself across shells.
-set -u
-enc() { printf '%s' "$1" | od -An -tx1 -v | tr -d ' \n' | sed 's/../%&/g'; }
-exec "${VINGILOT_OPEN:-/usr/bin/open}" "buzz://open?arg=$(enc "${1:-.}")&cwd=$(enc "$PWD")"
-"#;
-
-/// `rwxr-xr-x`. Executable, and writable by nobody but the owner — this file is
-/// on the PATH of every shell the app opens.
-const SHIM_MODE: u32 = 0o755;
 
 pub(crate) fn bin_dir(home: &Path) -> PathBuf {
     home.join(STATE_DIR).join(BIN_DIR)
@@ -135,34 +103,68 @@ pub(crate) fn shim_path(home: &Path) -> PathBuf {
     bin_dir(home).join(SHIM_NAME)
 }
 
-/// Write the shim, and make it executable. Idempotent.
+/// Where the `claude` wrapper writes the settings for one terminal's scope.
 ///
-/// **Rewritten whenever the bytes differ**, so an upgrade that changes the
-/// script reaches a machine that installed the old one — and *not* rewritten
-/// when they match, so the common path is one read rather than a write into a
-/// directory the owner may have open in a terminal. The mode is set on every
-/// call regardless: a file that lost its executable bit (a restore from a
-/// backup, a `cp` from another machine) is the failure that looks like the
-/// feature was never there.
+/// **One file per binding id, not per invocation.** Claude Code snapshots its
+/// settings at startup, so two terminals in *different* worktrees racing on one
+/// shared filename would hand one of them the other's scope; and a per-process
+/// name (`$$`) would leave a file behind for every `claude` ever run. Keyed on
+/// the scope, the set is bounded by the worktrees the owner has open and two
+/// tabs of the same worktree write identical bytes.
+///
+/// The name is built from the id rather than being it: a binding id contains a
+/// `:`, and this path is handed to a shell. Everything that is not
+/// `[A-Za-z0-9]` becomes `-`, which cannot leave the directory, cannot start an
+/// option, and cannot be read as anything by any shell.
+pub(crate) fn claude_settings_path(home: &Path, scope: &str) -> PathBuf {
+    let safe: String = scope
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    home.join(STATE_DIR)
+        .join(RUN_DIR)
+        .join(format!("claude-{safe}.json"))
+}
+
+/// Write every shim, and make them executable. Idempotent. Answers the
+/// `vingilot` shim's path, which is the one the ⌘K row links.
+///
+/// **Rewritten whenever the bytes differ**, so an upgrade that changes a script
+/// reaches a machine that installed the old one — and *not* rewritten when they
+/// match, so the common path is one read rather than a write into a directory
+/// the owner may have open in a terminal. The mode is set on every call
+/// regardless: a file that lost its executable bit (a restore from a backup, a
+/// `cp` from another machine) is the failure that looks like the feature was
+/// never there.
+///
+/// **All or nothing, in the order of [`SHIMS`].** A partial install is the
+/// state nothing downstream is written for: [`installed_bin_dir`] caches one
+/// answer for the app run, so a `claude` that failed to land would be missing
+/// from every terminal until a restart with no sentence anywhere saying so. The
+/// first failure is returned and the directory is left as it was.
 pub(crate) fn install_into(home: &Path) -> Result<PathBuf, String> {
     let dir = bin_dir(home);
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("could not create {}: {error}", dir.display()))?;
-    let path = shim_path(home);
+    for (name, script) in SHIMS {
+        write_shim(&dir.join(name), script)?;
+    }
+    Ok(shim_path(home))
+}
 
-    let current = std::fs::read(&path).ok();
-    if current.as_deref() != Some(SHIM_SCRIPT.as_bytes()) {
+fn write_shim(path: &Path, script: &str) -> Result<(), String> {
+    let current = std::fs::read(path).ok();
+    if current.as_deref() != Some(script.as_bytes()) {
         // Truncating write to a fixed path we own: unlike the scratch buffer
         // there is nothing here to lose, because the only thing that ever
         // writes this file is this constant.
-        let mut file = std::fs::File::create(&path)
+        let mut file = std::fs::File::create(path)
             .map_err(|error| format!("could not write {}: {error}", path.display()))?;
-        file.write_all(SHIM_SCRIPT.as_bytes())
+        file.write_all(script.as_bytes())
             .map_err(|error| format!("could not write {}: {error}", path.display()))?;
     }
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(SHIM_MODE))
-        .map_err(|error| format!("could not make {} executable: {error}", path.display()))?;
-    Ok(path)
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(SHIM_MODE))
+        .map_err(|error| format!("could not make {} executable: {error}", path.display()))
 }
 
 /// The PATH our terminals get.
@@ -491,9 +493,18 @@ pub async fn shim_install_link() -> Result<LinkOutcome, String> {
 #[path = "recorder_tests.rs"]
 mod recorder_tests;
 
+/// The `claude` wrapper's shipped bytes, run against a fake `claude` that
+/// records its argv and its environment. Its own file for the same reason
+/// `recorder_tests.rs` is — see its header.
+#[cfg(test)]
+#[path = "claude_recorder_tests.rs"]
+mod claude_recorder_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use super::scripts::{CLAUDE_SHIM_SCRIPT, SHIM_SCRIPT};
 
     use std::fs;
 
@@ -540,6 +551,62 @@ mod tests {
             fs::read_to_string(&path).expect("the shim is readable"),
             SHIM_SCRIPT
         );
+    }
+
+    #[test]
+    fn the_claude_wrapper_lands_beside_the_vingilot_shim_and_is_executable_too() {
+        // Both, from one install: the PATH prepend that carries `vingilot` is
+        // the same one that carries `claude`, so a build that installed only
+        // the first would leave ring 1 silently absent.
+        let home = tempdir();
+        install_into(home.path()).expect("install lands");
+        let claude = bin_dir(home.path()).join("claude");
+        assert_eq!(
+            fs::read_to_string(&claude).expect("the wrapper is readable"),
+            CLAUDE_SHIM_SCRIPT
+        );
+        assert_eq!(
+            fs::metadata(&claude).expect("stat").permissions().mode() & 0o777,
+            SHIM_MODE
+        );
+    }
+
+    #[test]
+    fn a_settings_path_is_one_per_scope_and_carries_nothing_a_shell_could_read() {
+        let home = Path::new("/home/x");
+        assert_eq!(
+            claude_settings_path(home, "local:2f772f61"),
+            Path::new("/home/x/.vingilot/run/claude-local-2f772f61.json")
+        );
+        // Two worktrees get two files — the whole reason the scope is in the
+        // name — and the same worktree twice gets one.
+        assert_ne!(
+            claude_settings_path(home, "local:aa"),
+            claude_settings_path(home, "local:bb")
+        );
+        assert_eq!(
+            claude_settings_path(home, "local:aa"),
+            claude_settings_path(home, "local:aa")
+        );
+        // And nothing that could climb out of the directory or be read as an
+        // option, whatever arrives as a scope.
+        for scope in ["../../etc/passwd", "-rf", "a b;rm", "ö"] {
+            let path = claude_settings_path(home, scope);
+            assert_eq!(
+                path.parent(),
+                Some(Path::new("/home/x/.vingilot/run")),
+                "{scope} escaped the run directory"
+            );
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            assert!(
+                name.strip_prefix("claude-")
+                    .and_then(|rest| rest.strip_suffix(".json"))
+                    .is_some_and(|body| body
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-')),
+                "{scope} produced {name}"
+            );
+        }
     }
 
     #[test]
