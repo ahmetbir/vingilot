@@ -26,6 +26,13 @@ type PersonaDeleteDialogProps = {
  * cascade-deleted, each one's identity is also archived on the relay
  * (NIP-IA), and that durable side effect must be disclosed before the
  * destructive confirm — matching the direct agent-delete dialog.
+ *
+ * **A built-in is removed, not deleted, and the copy has to say so.** Deleting
+ * a crew member takes its agents with it, but the persona itself stays in the
+ * catalog and the crew offer can mint it again — so the sentence promises
+ * exactly that, and the offer's own subtractive rule then makes good on it.
+ * Calling that "delete" would over-claim a permanence the catalog does not
+ * have.
  */
 export function personaDeleteDescription(
   persona: AgentPersona | null,
@@ -33,6 +40,20 @@ export function personaDeleteDescription(
 ): string {
   if (!persona) {
     return "Delete this agent.";
+  }
+  if (persona.isBuiltIn) {
+    const returns =
+      "The persona stays in the catalog; the crew offer can mint it again.";
+    if (instanceCount === 0) {
+      return `Remove ${persona.displayName} from My Agents. ${returns}`;
+    }
+    const agents =
+      instanceCount === 1 ? "its 1 agent" : `its ${instanceCount} agents`;
+    const archival =
+      instanceCount === 1
+        ? "Its identity is archived on the relay, so it no longer appears in member lists or mention suggestions."
+        : "Their identities are archived on the relay, so they no longer appear in member lists or mention suggestions.";
+    return `Remove ${persona.displayName} and ${agents}? ${archival} ${returns}`;
   }
   if (instanceCount === 0) {
     return `Delete ${persona.displayName}.`;
@@ -55,7 +76,9 @@ export function PersonaDeleteDialog({
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete agent?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {persona?.isBuiltIn ? "Remove agent?" : "Delete agent?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             {personaDeleteDescription(persona, instanceCount)}
           </AlertDialogDescription>
@@ -76,7 +99,7 @@ export function PersonaDeleteDialog({
               type="button"
               variant="destructive"
             >
-              Delete
+              {persona?.isBuiltIn ? "Remove" : "Delete"}
             </Button>
           </AlertDialogAction>
         </AlertDialogFooter>

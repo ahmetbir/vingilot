@@ -262,9 +262,6 @@ export function AgentsView() {
               onDuplicatePersona={personas.openDuplicate}
               onEditPersona={personas.openEdit}
               onSharePersona={personas.openShare}
-              onDeactivatePersona={(persona) => {
-                void personas.handleSetActive(persona, false, "library");
-              }}
               onDeletePersona={personas.openDelete}
               onImportSnapshotFile={(fileBytes, fileName) => {
                 void personas.handleImportSnapshotFile(fileBytes, fileName);
@@ -402,7 +399,40 @@ export function AgentsView() {
             ).length
           }
           onConfirm={(persona) => {
-            void personas.handleDelete(persona);
+            void (async () => {
+              // **Built-ins only.** A custom persona's delete already cascades
+              // its instances in the backend (`delete_persona`), which is what
+              // the dialog has always disclosed — doing it again from here
+              // would be a second answer to the same question. A built-in has
+              // no such cascade: `validate_persona_activation_change` simply
+              // refuses to deactivate it while an agent references it, so the
+              // references have to go first, and this is the only place that
+              // knows which agents they are.
+              if (persona.isBuiltIn) {
+                const linked = (agents.managedAgents ?? []).filter(
+                  (agent) => agent.personaId === persona.id,
+                );
+                for (const agent of linked) {
+                  // Stop before delete for the same reason the agent card
+                  // does: deleting a running agent leaves an orphaned harness
+                  // holding its relay pair. Sequential because both handlers
+                  // report failures into one banner, and a burst of parallel
+                  // errors would leave only the last one readable.
+                  if (isManagedAgentActive(agent)) {
+                    await agents.handleStop(agent.pubkey);
+                  }
+                  await agents.handleDelete(agent.pubkey);
+                }
+                // Now nothing references it, so this succeeds — and the crew
+                // offer starts asking about the member again by its own
+                // subtractive rule.
+                await personas.handleSetActive(persona, false, "library");
+                personas.setPersonaToDelete(null);
+                return;
+              }
+
+              await personas.handleDelete(persona);
+            })();
           }}
           onOpenChange={(open) => {
             if (!open) {

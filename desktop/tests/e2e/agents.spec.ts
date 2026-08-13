@@ -2404,6 +2404,13 @@ test("built-in removal failures show up from My Agents", async ({ page }) => {
   await page.getByLabel("Open actions for Honey").click();
   await page.getByRole("menuitem", { name: "Delete" }).click();
 
+  // Delete on a built-in now opens the same confirm dialog a custom persona
+  // gets, so the refusal arrives after the confirm rather than instead of it.
+  // The team reference is still a refusal: the cascade behind this button
+  // clears *managed agents*, and a team that names the persona is a different
+  // dependency the owner has to unpick himself.
+  await page.getByRole("button", { name: "Remove" }).click();
+
   await expect(
     page
       .locator("[data-sonner-toast]")

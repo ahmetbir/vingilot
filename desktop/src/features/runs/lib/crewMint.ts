@@ -209,6 +209,14 @@ export interface CrewMintResult {
   /** The refusal, or `null` when the agent was created. */
   error: string | null;
   offRelay: boolean;
+  /** Why the agent did not start, or `null` when it did.
+   *
+   * **A start failure is not a mint failure.** The key is generated, the
+   * record is on disk and the nest is written before anything is spawned —
+   * that is what minting *is*, and it stays true when the harness refuses.
+   * So this rides beside a successful mint rather than turning it into an
+   * `error`, and the sentence reports it as its own clause. */
+  startError: string | null;
 }
 
 /** What the dialog says once the button has run. One sentence, and every clause
@@ -233,11 +241,26 @@ export function mintSentence(results: readonly CrewMintResult[]): string {
   const offRelay = made.some((result) => result.offRelay)
     ? " No relay answered, so their profiles are not published yet; they will join the thread when there is one."
     : "";
+  // **Per-member, and beside the mint rather than instead of it.** A crew
+  // member whose harness refused still exists — the Agents grid will show it
+  // with a play button, which is the true state and the one the Captain can
+  // act on. Naming the member and the reason is what tells him which card to
+  // press and why, instead of five cards that silently never started.
+  const stalled = made.filter((result) => result.startError !== null);
+  const notStarted =
+    stalled.length === 0
+      ? ""
+      : ` ${stalled
+          .map(
+            (result) =>
+              `${result.name} — minted, but did not start: ${result.startError ?? ""}`,
+          )
+          .join("; ")}.`;
   const short =
     failed.length === 0
       ? ""
       : ` ${failed.length} could not be minted: ${failed.map((result) => `${result.name} — ${result.error ?? ""}`).join("; ")}.`;
-  return `${head}${offRelay}${short}`;
+  return `${head}${offRelay}${notStarted}${short}`;
 }
 
 /** The runtime a crew member should be minted on, as a *preference* handed to

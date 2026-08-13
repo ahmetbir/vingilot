@@ -1,0 +1,94 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: making the crew usable
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: the four defects found live on the owner's machine
+# after vingilot/seams/the-crew.yaml's feature shipped, which together made the
+# crew unusable rather than merely imperfect —
+#
+#   A. the offer's mint created five agents and started none of them, so the
+#      Agents grid drew a play button on a crew he had just been told was
+#      aboard (fixed in features/runs/, already fork-declared);
+#   B. built-in definition rows persisted before the emblems existed served a
+#      null avatar forever, so crew cards drew placeholder bursts (fixed in
+#      managed_agents/personas.rs, already declared by the-crew.yaml);
+#   C. the avatar backfill for records minted before the art existed;
+#   D. Delete on a built-in routed to persona DEACTIVATION, which the backend
+#      refuses while a managed agent references the persona — so removing a
+#      crew member answered "… is still assigned to a managed agent."
+#
+# Only the paths not already declared by the-crew.yaml appear below. The two
+# biggest surfaces of the fix — desktop/src/features/runs/** and
+# managed_agents/personas.rs — are declared there and by the fork's own runs
+# island, and are deliberately not restated here.
+#
+# What is NOT covered: any change to how an agent is spawned, keyed, or
+# published. A start is issued through upstream's own start command, a delete
+# through upstream's own delete command, and the avatar overlay is a read-time
+# projection that writes nothing. These entries add no mechanism; they route
+# existing gestures at the calls upstream already has.
+#
+# No schema_version here: the root file carries it for the whole registry.
+# ------------------------------------------------------------------------------
+
+seams:
+  - path: "desktop/src-tauri/src/managed_agents/restore.rs"
+    reason: "The launch-time backfill that gives crew records minted before the emblems existed their avatar (fill_missing_crew_avatars, folded into backfill_persona_snapshots' own load/save cycle). A record's avatar_url is written once at mint and every downstream reader reads the record — the Agents grid, the DM list, the kind:0 profile the runtime publishes on start — so a v0.2.0 install's crew is placeholder art everywhere until the record itself is repaired. It rides in this function rather than as a second boot call for two reasons: lib.rs is at 999 of the 1000-line ratchet and has no line to spend on another call, and one store lock ought to cover one file's worth of backfills. Only an EMPTY avatar is filled, so hand-set art is never overwritten."
+    owner: "vingilot/the-crew"
+    removable_when: "Every install that predates the crew emblems has launched once, or the record stops caching the persona's art and readers resolve it from the persona at read time (the direction personas.rs's overlay already takes)."
+    status: "temporary"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/managed_agents/restore_tests.rs"
+    reason: "The guard on the backfill above: it fills an absent avatar and an empty-string one, never overwrites art somebody set, never touches a bee or an unlinked agent, and reports no change when there is nothing to fill — the last of which is what keeps managed-agents.json from being rewritten on every launch. A sibling test file attached by #[cfg(test)] #[path], which is upstream's own layout for this module (storage_tests.rs, teams_tests.rs)."
+    owner: "vingilot/the-crew"
+    removable_when: "The restore.rs seam above is removable."
+    status: "temporary"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/agents/ui/PersonaActionsMenu.tsx"
+    reason: "The card menu's Delete branch. It sent built-ins to onDeactivate and customs to onDelete, and validate_persona_activation_change refuses to deactivate a built-in while a managed agent references it — so Delete on a crew card produced 'Bosun is still assigned to a managed agent. Remove or reassign those agents first.' about agents the card had never shown as a dependency. Both kinds now open the same confirm dialog, which is the branch's whole content; the now-unused onDeactivate prop is removed rather than left dangling. There is no fork-owned seam here: this menu is the only Delete affordance on a persona card."
+    owner: "vingilot/the-crew"
+    removable_when: "Upstream makes built-in removal cascade its instances itself, at which point the menu has one branch again and the dialog below is upstream's."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/agents/ui/PersonaDeleteDialog.tsx"
+    reason: "The confirm copy, which now has to describe a gesture it never described before: removing a BUILT-IN takes its agents but leaves the persona in the catalog, so the crew offer can mint it again. Calling that 'delete' would over-claim a permanence the catalog does not have, so the built-in branch says Remove, names the agent count, and keeps the NIP-IA relay-archival disclosure the custom branch has always carried — the instances really are deleted and really are archived. The custom-persona copy is untouched."
+    owner: "vingilot/the-crew"
+    removable_when: "With the PersonaActionsMenu seam above."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/agents/ui/PersonaDeleteDialog.test.mjs"
+    reason: "The guard on the copy above. Upstream's existing cases pin the cascade-archival disclosure for custom personas and are left exactly as they were; the added cases pin the built-in branch — the catalog promise, the singular/plural agent count, the no-instance wording, and that the built-in branch did not widen to customs. Same directory as the component, by upstream's own colocation."
+    owner: "vingilot/the-crew"
+    removable_when: "With the PersonaDeleteDialog seam above."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/agents/ui/AgentsView.tsx"
+    reason: "The one place that knows which managed agents a persona has, so the one place the cascade can run: on confirm, a built-in's linked agents are stopped if running and deleted (reusing useManagedAgentActions' own handleStop/handleDelete, not a second delete path), and only then is the persona deactivated — which now succeeds, because nothing references it. Custom personas keep their single call, since delete_persona already cascades their instances in the backend. Also drops the onDeactivatePersona wiring the menu no longer takes."
+    owner: "vingilot/the-crew"
+    removable_when: "With the PersonaActionsMenu seam above."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/agents/ui/UnifiedAgentsSection.tsx"
+    reason: "Prop plumbing only: it passed onDeactivatePersona down to PersonaActionsMenu, which no longer takes it. Removed rather than left as a prop nothing reads — a dead parameter through a section component is the kind of thing that later gets rewired to something. No behavioral change lives in this file."
+    owner: "vingilot/the-crew"
+    removable_when: "With the PersonaActionsMenu seam above."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/e2e/agents.spec.ts"
+    reason: "One existing test updated, not a new one: 'built-in removal failures show up from My Agents' clicked Delete on a team-referenced built-in and expected the refusal toast immediately. Delete on a built-in now opens the confirm dialog first, so the test clicks through it and expects the same toast afterwards — the team reference is still a refusal, because the cascade behind this button clears managed agents and a team that names the persona is a different dependency. Upstream's assertion is preserved; only the gesture leading to it gained the step the fix added."
+    owner: "vingilot/the-crew"
+    removable_when: "With the PersonaActionsMenu seam above."
+    status: "permanent"
+    added: "2026-08-13"

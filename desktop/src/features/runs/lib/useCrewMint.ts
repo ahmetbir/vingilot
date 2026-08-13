@@ -32,25 +32,37 @@
 // Every one of them is `respondTo: "owner-only"`, because the Captain is who
 // they are for.
 //
-// **Nothing is spawned here**, and that is `welcomeGuide.ts`'s decision for
-// these same personas rather than a new one: minting is the offer, and a row of
-// adapter processes starting the instant he says yes is a commitment to his
-// machine the dialog never asked about. What starts a crew member is what
-// already started one — opening a team thread (`useTeamThread.openThread`
-// deploys the team's personas into the channel) or the start button in My
-// Agents.
+// **Saying yes hires them, and hiring means they are at work.** This hook used
+// to stop at the record, on the theory that a row of adapter processes is a
+// commitment to his machine the dialog never asked about. Measured on the
+// owner's machine, that theory cost the feature: all five crew instances came
+// out with `last_started_at: null` and no harness log, so the Agents grid drew
+// a play button on every member of a crew he had just been told was "aboard".
+// The dialog does ask — the offer *is* the ask — and the welcome bootstrap has
+// always started the same personas. So each created agent is started here,
+// through `startManagedAgentWithRules` + `useStartManagedAgentMutation`: the
+// same path the grid's play button runs, not a second one.
+//
+// **A refusal to start is reported, not raised.** Minting is `Keys::generate`,
+// the record, and the nest — all of which succeeded by the time a harness can
+// refuse. So a start failure rides beside a successful mint as
+// `CrewMintResult.startError` and becomes its own clause in `mintSentence`
+// ("minted, but did not start: …"), leaving him an agent he can start by hand
+// rather than a mint rolled back over a runtime that was not installed.
 
 import * as React from "react";
 
 import {
   useCreateManagedAgentMutation,
   useManagedAgentsQuery,
+  useStartManagedAgentMutation,
 } from "@/features/agents/hooks";
 import {
   availableRuntimesForStart,
   buildInstanceInputForDefinition,
   resolveStartRuntimeForDefinition,
 } from "@/features/agents/lib/instanceInputForDefinition";
+import { startManagedAgentWithRules } from "@/features/agents/lib/managedAgentControlActions";
 import { useAvailableAcpRuntimes } from "@/features/agents/hooks";
 import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
 import { listPersonas, setPersonaActive } from "@/shared/api/tauriPersonas";
@@ -117,6 +129,11 @@ export function useCrewMint(): CrewMint {
   const runtimesQuery = useAvailableAcpRuntimes();
   const { globalConfig } = useGlobalAgentConfig();
   const createAgent = useCreateManagedAgentMutation();
+  // The mutation, not `useManagedAgentActions` — that hook owns the grid's
+  // error banner and pending-spinner state, and a dialog that borrowed it
+  // would write its failures into another surface's UI. The mutation is the
+  // half the play button actually starts an agent with.
+  const startAgent = useStartManagedAgentMutation();
 
   // Read once, on the way in. A subscription would be a second answer to a
   // question that only this hook's own `decline` can change.
@@ -163,6 +180,7 @@ export function useCrewMint(): CrewMint {
 
   const preferredRuntime = globalConfig.preferred_runtime;
   const createOne = createAgent.mutateAsync;
+  const startOne = startAgent.mutateAsync;
 
   const mint = React.useCallback(() => {
     if (minting) return;
@@ -198,6 +216,7 @@ export function useCrewMint(): CrewMint {
               error: error instanceof Error ? error.message : String(error),
               name: request.name,
               offRelay: false,
+              startError: null,
             })),
           ),
         );
@@ -233,25 +252,49 @@ export function useCrewMint(): CrewMint {
               await buildInstanceInputForDefinition(persona, runtime),
             ),
           );
+          // **Minting hires; hiring means the crew is at work.** The offer's
+          // mint used to stop at the record, so all five arrived with
+          // `last_started_at: null` and a play button on every card — a crew
+          // the Captain believed he had just hired, standing still. The
+          // welcome bootstrap already started its members; this is the same
+          // promise kept on the other path.
+          //
+          // Through the grid's own start path, so there is one answer to
+          // "what does starting an agent do" rather than a second one that
+          // drifts.
+          let startError: string | null = null;
+          try {
+            await startManagedAgentWithRules({
+              agent: created.agent,
+              startManagedAgent: startOne,
+            });
+          } catch (error) {
+            // Not a mint failure. The key exists, the record exists, the nest
+            // is written — the agent is hired and can be started by hand from
+            // My Agents. Saying so is more use than pretending the mint died.
+            startError = error instanceof Error ? error.message : String(error);
+          }
           results.push({
             error: null,
             name: request.name,
             // The agent exists; only its profile did not reach a relay. See
             // this file's header on why that is not a failure.
             offRelay: created.profileSyncError !== null,
+            startError,
           });
         } catch (error) {
           results.push({
             error: error instanceof Error ? error.message : String(error),
             name: request.name,
             offRelay: false,
+            startError: null,
           });
         }
       }
       setSentence(mintSentence(results));
       setMinting(false);
     })();
-  }, [createOne, minting, preferredRuntime, rows, runtimesQuery]);
+  }, [createOne, minting, preferredRuntime, rows, runtimesQuery, startOne]);
 
   return {
     decline,

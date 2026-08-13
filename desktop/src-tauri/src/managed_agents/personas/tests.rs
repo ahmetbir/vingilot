@@ -1,7 +1,8 @@
 use super::{
-    built_in_persona_records, ensure_persona_ids_are_active, ensure_persona_is_active,
-    merge_personas, migrate_retired_personas, validate_persona_activation_change,
-    validate_persona_deletion, BUILT_IN_PERSONAS, RETIRED_PERSONAS,
+    built_in_persona_avatar_url, built_in_persona_records, ensure_persona_ids_are_active,
+    ensure_persona_is_active, fold_personas_for_serving, merge_personas, migrate_retired_personas,
+    overlay_built_in_avatars, validate_persona_activation_change, validate_persona_deletion,
+    BUILT_IN_PERSONAS, RETIRED_PERSONAS,
 };
 use crate::managed_agents::discovery::{default_agent_command, effective_agent_command};
 use crate::managed_agents::AgentDefinition;
@@ -475,4 +476,154 @@ fn fizz_builtin_resolves_to_buzz_agent() {
         "buzz-agent",
         "Fizz must resolve to buzz-agent specifically"
     );
+}
+
+// ── Built-in art comes from the binary, not from when a row was written ───────
+
+/// A stored definition row the way a v0.2.0 install left it: flagged built-in,
+/// no art, because the art did not exist when the row was written.
+fn stored_builtin(id: &str, display_name: &str, avatar_url: Option<&str>) -> AgentDefinition {
+    AgentDefinition {
+        is_builtin: true,
+        avatar_url: avatar_url.map(|url| url.to_string()),
+        ..custom_persona(id, display_name)
+    }
+}
+
+#[test]
+fn overlay_fills_an_empty_crew_avatar_from_the_binary() {
+    // The defect exactly: rows persisted before the emblems shipped.
+    let mut records = vec![
+        stored_builtin("builtin:mate", "Mate", None),
+        stored_builtin("builtin:bosun", "Bosun", Some("")),
+    ];
+
+    overlay_built_in_avatars(&mut records);
+
+    for record in &records {
+        let served = record
+            .avatar_url
+            .as_deref()
+            .expect("a crew row must be served with art");
+        assert_eq!(
+            served,
+            built_in_persona_avatar_url(&record.id).expect("crew art is compiled in"),
+            "{} must be served the binary's emblem",
+            record.id
+        );
+        assert!(
+            served.starts_with("data:image/png;base64,"),
+            "{} must be served the encoded PNG, not a placeholder",
+            record.id
+        );
+    }
+}
+
+#[test]
+fn overlay_never_overwrites_stored_art() {
+    // Hand-set art is a decision; the overlay is a fallback and must lose to it.
+    let mut records = vec![stored_builtin(
+        "builtin:scribe",
+        "Scribe",
+        Some("https://example.com/hand-set.png"),
+    )];
+
+    overlay_built_in_avatars(&mut records);
+
+    assert_eq!(
+        records[0].avatar_url.as_deref(),
+        Some("https://example.com/hand-set.png"),
+        "a non-empty stored avatar must survive the overlay"
+    );
+}
+
+#[test]
+fn overlay_serves_a_bee_its_own_literal_through_the_same_door() {
+    // Two lookups for built-in art would be two answers waiting to disagree.
+    // The crew's art is encoded from pack PNGs and the bees' is a pasted
+    // literal, but both must leave through `built_in_persona_avatar_url` — so
+    // an empty bee row is served the *bee's* art, not nothing (which is what a
+    // crew-only lookup would give it) and not a crew emblem.
+    let mut records = vec![stored_builtin("builtin:honey", "Honey", None)];
+
+    overlay_built_in_avatars(&mut records);
+
+    let served = records[0]
+        .avatar_url
+        .as_deref()
+        .expect("the shared accessor answers for a bee as well as for the crew");
+    assert_eq!(
+        Some(served),
+        built_in_persona_avatar_url("builtin:honey"),
+        "the overlay must resolve through the single built-in art accessor"
+    );
+    assert_ne!(
+        Some(served),
+        built_in_persona_avatar_url("builtin:mate"),
+        "a bee must not be served a crew emblem"
+    );
+}
+
+#[test]
+fn overlay_skips_rows_that_are_not_built_in() {
+    // A retired built-in is demoted to a custom record; it has no art in the
+    // binary and must not acquire one here.
+    let mut records = vec![
+        custom_persona("custom:mine", "Mine"),
+        AgentDefinition {
+            avatar_url: None,
+            ..custom_persona("builtin:mate", "Mate (a demoted row)")
+        },
+    ];
+
+    overlay_built_in_avatars(&mut records);
+
+    assert_eq!(
+        records[0].avatar_url.as_deref(),
+        Some("https://example.com/avatar.png"),
+        "a custom persona's own avatar is untouched"
+    );
+    assert_eq!(
+        records[1].avatar_url, None,
+        "a row that is not flagged built-in gets no built-in art"
+    );
+}
+
+#[test]
+fn the_overlay_is_served_but_never_stored() {
+    // The property the fold exists to hold together: a stale builtin row is
+    // SERVED with the binary's emblem, while what goes back to disk — when the
+    // merge changed anything at all — carries no overlay. Both halves through
+    // the one pipeline `load_personas` runs, so deleting the overlay call in
+    // `fold_personas_for_serving` (the mutation that once left every test
+    // green) fails here.
+    let records = vec![stored_builtin("builtin:mate", "Mate", None)];
+    let folded = fold_personas_for_serving(records, "2026-08-13T00:00:00Z");
+
+    let served_mate = folded
+        .served
+        .iter()
+        .find(|r| r.id == "builtin:mate")
+        .expect("mate is served");
+    assert!(
+        served_mate
+            .avatar_url
+            .as_deref()
+            .is_some_and(|a| a.starts_with("data:image/png;base64,")),
+        "the served row carries the binary's emblem"
+    );
+
+    if let Some(to_store) = &folded.to_store {
+        let stored_mate = to_store
+            .iter()
+            .find(|r| r.id == "builtin:mate")
+            .expect("mate is stored");
+        assert!(
+            stored_mate
+                .avatar_url
+                .as_deref()
+                .is_none_or(|a| !a.starts_with("data:image/png;base64,")),
+            "the stored row must never carry a compiled-in data URI"
+        );
+    }
 }

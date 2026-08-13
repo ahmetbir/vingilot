@@ -45,15 +45,29 @@ pub fn backfill_persona_snapshots(app: &tauri::AppHandle) -> Result<(), String> 
         .map_err(|error| error.to_string())?;
 
     let mut records = load_managed_agents(app)?;
-    let needs_backfill = records
+
+    // The crew's emblems, for records minted before the art existed
+    // (v0.2.0 installs — the Captain's own two machines). A record's
+    // `avatar_url` is written once at mint and everything downstream reads the
+    // record: the Agents grid, the DM list, and the profile the runtime
+    // publishes on start. Art belongs to the persona, not to the moment of
+    // minting; only an EMPTY avatar is filled, so hand-set art is never
+    // overwritten. In this function's own load/save cycle rather than a
+    // second boot call, because lib.rs is at its size ceiling and one lock
+    // ought to cover one file's worth of backfills anyway.
+    let mut changed = fill_missing_crew_avatars(&mut records);
+
+    let needs_snapshot_backfill = records
         .iter()
         .any(|r| r.persona_id.is_some() && r.persona_source_version.is_none());
-    if !needs_backfill {
+    if !needs_snapshot_backfill {
+        if changed {
+            save_managed_agents(app, &records)?;
+        }
         return Ok(());
     }
 
     let personas = load_personas(app)?;
-    let mut changed = false;
     for record in records.iter_mut() {
         let Some(persona_id) = record.persona_id.clone() else {
             continue;
@@ -81,6 +95,49 @@ pub fn backfill_persona_snapshots(app: &tauri::AppHandle) -> Result<(), String> 
         save_managed_agents(app, &records)?;
     }
     Ok(())
+}
+
+/// Whether `url` is one of the runtime catalog's own default avatars — the
+/// icon an instance inherits when its persona had no art at mint time. A
+/// *fallback*, not a choice: the backfill may replace it the way it replaces
+/// an empty avatar, and must never replace anything else. Lives beside its
+/// only caller rather than in `discovery.rs`, which stands over the size
+/// ratchet and may not grow.
+fn is_runtime_default_avatar(url: &str) -> bool {
+    crate::managed_agents::discovery::KNOWN_ACP_RUNTIMES
+        .iter()
+        .any(|runtime| runtime.avatar_url == url)
+}
+
+/// The decision half of [`backfill_crew_avatars`], over plain records so it is
+/// testable without an `AppHandle`. Returns whether anything was filled.
+pub(crate) fn fill_missing_crew_avatars(records: &mut [super::ManagedAgentRecord]) -> bool {
+    let mut changed = false;
+    for record in records.iter_mut() {
+        let Some(persona_id) = record.persona_id.as_deref() else {
+            continue;
+        };
+        let Some(art) = super::vingilot_crew::avatar_url(persona_id) else {
+            continue;
+        };
+        // Skips only what the Captain chose. Empty is fillable, and so is the
+        // runtime catalog's own default icon — the Claude mark every v0.2.1
+        // crew instance inherited at mint (measured live: all five records
+        // carried the vsassets URL). That icon is a fallback the mint wrote,
+        // not a choice anyone made, and honoring it would keep the emblems
+        // off both of the owner's machines forever.
+        if record
+            .avatar_url
+            .as_deref()
+            .is_some_and(|held| !held.is_empty() && !is_runtime_default_avatar(held))
+        {
+            continue;
+        }
+        record.avatar_url = Some(art.to_string());
+        record.updated_at = util::now_iso();
+        changed = true;
+    }
+    changed
 }
 
 /// Restore managed agents that were running before the app was closed.
@@ -467,6 +524,10 @@ pub async fn restore_managed_agents_on_launch(
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "restore_tests.rs"]
+mod tests;
 
 #[cfg(feature = "mesh-llm")]
 fn persist_restore_error(

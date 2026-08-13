@@ -72,7 +72,7 @@ fn common_binary_paths() -> &'static [PathBuf] {
     })
 }
 
-const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
+pub(crate) const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
     KnownAcpRuntime {
         id: "goose",
         label: "Goose",

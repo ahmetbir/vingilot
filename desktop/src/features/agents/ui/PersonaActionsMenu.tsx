@@ -23,7 +23,6 @@ export function PersonaActionsMenu({
   onDuplicate,
   onEdit,
   onShare,
-  onDeactivate,
   onDelete,
 }: {
   isActionPending: boolean;
@@ -37,7 +36,6 @@ export function PersonaActionsMenu({
     persona: AgentPersona,
     linkedAgent: ManagedAgent | undefined,
   ) => void;
-  onDeactivate: (persona: AgentPersona) => void;
   onDelete: (persona: AgentPersona) => void;
 }) {
   const disabled = isActionPending || isPending;
@@ -88,14 +86,19 @@ export function PersonaActionsMenu({
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             disabled={disabled}
-            onClick={() => {
-              if (persona.isBuiltIn) {
-                onDeactivate(persona);
-                return;
-              }
-
-              onDelete(persona);
-            }}
+            // **One gesture, for built-ins as much as for customs.** Delete on
+            // a built-in used to jump straight to persona deactivation, which
+            // `validate_persona_activation_change` refuses outright while a
+            // managed agent still references it — so removing a crew member
+            // answered with "… is still assigned to a managed agent. Remove or
+            // reassign those agents first." and left the owner to hunt down
+            // agents he had never been shown as a dependency.
+            //
+            // Both kinds now open the same confirm dialog. It is the dialog
+            // that names the cascade and `AgentsView`'s `onConfirm` that runs
+            // it, after which deactivation succeeds because nothing references
+            // the persona any more.
+            onClick={() => onDelete(persona)}
           >
             <Trash2 className="h-4 w-4" />
             Delete

@@ -409,12 +409,81 @@ pub fn load_personas(app: &AppHandle) -> Result<Vec<AgentDefinition>, String> {
         .filter_map(|record| record.to_definition_view())
         .collect();
 
-    let (records, changed) = merge_personas(records, &now);
-    if changed {
-        save_personas(app, &records)?;
+    let folded = fold_personas_for_serving(records, &now);
+    if let Some(to_store) = &folded.to_store {
+        save_personas(app, to_store)?;
     }
 
-    Ok(records)
+    Ok(folded.served)
+}
+
+/// What `load_personas` stores and what it serves, held apart on purpose.
+///
+/// `to_store` is the merge's output when it changed anything — **without** the
+/// avatar overlay, so a megabyte of compiled-in base64 is never written into
+/// the agent store on every load. `served` is what every caller sees: the same
+/// rows with `overlay_built_in_avatars` applied. One pure function rather than
+/// two calls in `load_personas`, because the first shape of this had the tests
+/// exercising the overlay *function* while nothing guarded the *call* — the
+/// mutation "delete the call site" left every test green. Now the pipeline is
+/// the unit: delete the overlay in here and the wiring tests go red.
+pub(crate) struct ServedPersonas {
+    pub(crate) to_store: Option<Vec<AgentDefinition>>,
+    pub(crate) served: Vec<AgentDefinition>,
+}
+
+pub(crate) fn fold_personas_for_serving(
+    records: Vec<AgentDefinition>,
+    now: &str,
+) -> ServedPersonas {
+    let (mut records, changed) = merge_personas(records, now);
+    let to_store = changed.then(|| records.clone());
+    overlay_built_in_avatars(&mut records);
+    ServedPersonas {
+        served: records,
+        to_store,
+    }
+}
+
+/// Serve a built-in's art from the binary when the stored row has none.
+///
+/// `merge_personas` only *pushes* built-ins that are absent, so a definition
+/// row written before the art existed (`is_builtin`, `avatar_url` null — every
+/// v0.2.0 install, the Captain's machines among them) keeps its null forever
+/// and the Agents grid draws a placeholder burst on a crew card. The art is a
+/// property of the persona and it is compiled in, so the answer is to read it
+/// from the binary every time rather than to depend on when a row happened to
+/// be written.
+///
+/// **A read overlay, not a migration.** The stored row is untouched: nothing
+/// here sets `changed`, and this runs *after* `save_personas` above, so no
+/// megabyte of base64 is written into the agent store on every load. Callers
+/// see the art; the disk keeps its null and the next release is free to change
+/// the emblem.
+///
+/// **Stored art always wins.** Only an empty or absent `avatar_url` is filled,
+/// so an emblem the owner set by hand is never overwritten.
+///
+/// Resolution goes through [`built_in_persona_avatar_url`] — the one door for
+/// built-in art — so the crew's encoded PNGs and the bees' literals stay one
+/// lookup rather than two that can disagree.
+fn overlay_built_in_avatars(records: &mut [AgentDefinition]) {
+    for record in records.iter_mut() {
+        if !record.is_builtin {
+            continue;
+        }
+        if record
+            .avatar_url
+            .as_deref()
+            .is_some_and(|held| !held.is_empty())
+        {
+            continue;
+        }
+        let Some(art) = built_in_persona_avatar_url(&record.id) else {
+            continue;
+        };
+        record.avatar_url = Some(art.to_string());
+    }
 }
 
 /// Read the raw persona records at `path` — no built-in merge, no write-back.

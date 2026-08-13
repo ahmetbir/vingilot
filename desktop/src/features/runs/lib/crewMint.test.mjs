@@ -255,8 +255,8 @@ test("crewOfferDeclined: a value from some other build is not a decline", () => 
 
 test("mintSentence: names who is aboard and says the keys are local", () => {
   const said = mintSentence([
-    { name: "Mate", error: null, offRelay: false },
-    { name: "Lookout", error: null, offRelay: false },
+    { name: "Mate", error: null, offRelay: false, startError: null },
+    { name: "Lookout", error: null, offRelay: false, startError: null },
   ]);
   assert.match(said, /Mate, Lookout are aboard/);
   assert.match(said, /keys minted on this machine/);
@@ -265,7 +265,9 @@ test("mintSentence: names who is aboard and says the keys are local", () => {
 });
 
 test("mintSentence: an unreachable relay is an honest clause, not a failure", () => {
-  const said = mintSentence([{ name: "Bosun", error: null, offRelay: true }]);
+  const said = mintSentence([
+    { name: "Bosun", error: null, offRelay: true, startError: null },
+  ]);
   assert.match(said, /Bosun is aboard/);
   assert.match(said, /No relay answered/);
   assert.match(said, /join the thread when there is one/);
@@ -274,8 +276,13 @@ test("mintSentence: an unreachable relay is an honest clause, not a failure", ()
 
 test("mintSentence: a partial failure names both halves", () => {
   const said = mintSentence([
-    { name: "Navigator", error: null, offRelay: false },
-    { name: "Scribe", error: "No available runtime found.", offRelay: false },
+    { name: "Navigator", error: null, offRelay: false, startError: null },
+    {
+      name: "Scribe",
+      error: "No available runtime found.",
+      offRelay: false,
+      startError: null,
+    },
   ]);
   assert.match(said, /Navigator is aboard/);
   assert.match(said, /1 could not be minted: Scribe — No available runtime/);
@@ -283,10 +290,101 @@ test("mintSentence: a partial failure names both halves", () => {
 
 test("mintSentence: nothing minted at all does not claim a crew", () => {
   assert.match(
-    mintSentence([{ name: "Mate", error: "keyring locked", offRelay: false }]),
+    mintSentence([
+      {
+        name: "Mate",
+        error: "keyring locked",
+        offRelay: false,
+        startError: null,
+      },
+    ]),
     /No crew could be minted\. keyring locked/,
   );
   assert.match(mintSentence([]), /Nothing was minted/);
+});
+
+// ── The start clause ─────────────────────────────────────────────────────────
+//
+// The defect this exists for: the offer's mint created five agents and started
+// none of them, so the grid showed a play button on a crew the Captain had
+// just been told was aboard. Starting is now part of minting — and a harness
+// that refuses has to be said out loud, because the agent really does exist
+// and really is stopped.
+
+test("mintSentence: a member that did not start is named, with the reason", () => {
+  const said = mintSentence([
+    { name: "Bosun", error: null, offRelay: false, startError: null },
+    {
+      name: "Lookout",
+      error: null,
+      offRelay: false,
+      startError: "No available runtime found for this agent.",
+    },
+  ]);
+  // Both are aboard — a start failure is not a mint failure.
+  assert.match(said, /Bosun, Lookout are aboard/);
+  assert.match(
+    said,
+    /Lookout — minted, but did not start: No available runtime found for this agent\./,
+  );
+  // It must never be reported as a mint that failed.
+  assert.doesNotMatch(said, /could not be minted/);
+});
+
+test("mintSentence: every stalled member is named, not just the first", () => {
+  const said = mintSentence([
+    { name: "Bosun", error: null, offRelay: false, startError: "harness gone" },
+    {
+      name: "Scribe",
+      error: null,
+      offRelay: false,
+      startError: "port in use",
+    },
+  ]);
+  assert.match(said, /Bosun — minted, but did not start: harness gone/);
+  assert.match(said, /Scribe — minted, but did not start: port in use/);
+});
+
+test("mintSentence: a crew that started says nothing about starting", () => {
+  // Silence is the success signal — an "all started" clause would be noise on
+  // the only path that is supposed to be ordinary.
+  const said = mintSentence([
+    { name: "Mate", error: null, offRelay: false, startError: null },
+  ]);
+  assert.match(said, /Mate is aboard/);
+  assert.doesNotMatch(said, /did not start/);
+});
+
+test("mintSentence: a failed mint carries no start clause of its own", () => {
+  // An agent that was never created cannot have failed to start, so the
+  // sentence must report exactly one thing about it.
+  const said = mintSentence([
+    { name: "Navigator", error: null, offRelay: false, startError: null },
+    {
+      name: "Scribe",
+      error: "keyring locked",
+      offRelay: false,
+      startError: null,
+    },
+  ]);
+  assert.match(said, /1 could not be minted: Scribe — keyring locked/);
+  assert.doesNotMatch(said, /Scribe — minted/);
+});
+
+test("mintSentence: off-relay and did-not-start are separate facts", () => {
+  // They have different causes and different remedies; one must not be read
+  // as the other.
+  const said = mintSentence([
+    {
+      name: "Mate",
+      error: null,
+      offRelay: true,
+      startError: "harness not found",
+    },
+  ]);
+  assert.match(said, /Mate is aboard/);
+  assert.match(said, /No relay answered/);
+  assert.match(said, /Mate — minted, but did not start: harness not found/);
 });
 
 test("the crew prefers a real harness over the bundled stub", () => {
