@@ -10,6 +10,13 @@ mod acp;
 // attribute says so once.
 #[cfg(unix)]
 mod broker;
+// The variable's NAME is not unix-only, even though the socket behind it is:
+// `applies_over_parent` (acp.rs) must refuse to let an exported variable
+// re-point an agent's broker on every platform, and the spawn-report code
+// above reads the same key out of `broker_env`. Windows compiles both, so the
+// constant lives outside the gated module; broker.rs re-exports it for its
+// own callers so the wire contract is still named once.
+pub const BROKER_SOCKET_ENV: &str = "BUZZ_BROKER_SOCKET";
 mod config;
 mod engram_fetch;
 mod filter;
@@ -2097,7 +2104,7 @@ async fn tokio_main() -> Result<()> {
         // shells this exists for keep only one of them.
         broker_socket: broker_env
             .iter()
-            .find(|(name, _)| name == broker::BROKER_SOCKET_ENV)
+            .find(|(name, _)| name == BROKER_SOCKET_ENV)
             .map(|(_, path)| path.clone()),
     });
 

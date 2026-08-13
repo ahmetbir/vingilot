@@ -418,7 +418,7 @@ fn build_client_capabilities() -> serde_json::Value {
 ///
 /// Operator precedence is the rule for persona and runtime keys: a value the
 /// operator exported is a deliberate choice, and the harness must not overrule
-/// it. [`crate::broker::BROKER_SOCKET_ENV`] is the one key that is not such a
+/// it. [`crate::BROKER_SOCKET_ENV`] is the one key that is not such a
 /// choice. It names a socket this harness bound moments ago, in a directory
 /// nothing outside this process can predict, so an inherited value is never a
 /// preference — it is a stale path from a previous run, a blank left by a
@@ -431,7 +431,7 @@ fn build_client_capabilities() -> serde_json::Value {
 /// secret (see `crate::broker`), so this hides nothing from the operator — it
 /// only stops an exported variable from silently re-pointing an agent.
 fn applies_over_parent(key: &str, parent_has_key: bool) -> bool {
-    key == crate::broker::BROKER_SOCKET_ENV || !parent_has_key
+    key == crate::BROKER_SOCKET_ENV || !parent_has_key
 }
 
 impl AcpClient {

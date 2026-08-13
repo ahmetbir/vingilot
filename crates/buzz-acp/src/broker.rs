@@ -82,8 +82,10 @@ use uuid::Uuid;
 /// Environment variable naming the broker socket for the spawned agent.
 ///
 /// Not a secret (see the module docs) — the socket's protection is filesystem
-/// permissions, not the obscurity of its path.
-pub const BROKER_SOCKET_ENV: &str = "BUZZ_BROKER_SOCKET";
+/// permissions, not the obscurity of its path. Defined in lib.rs rather than
+/// here because two of its readers must compile on Windows, where this whole
+/// module is configured out.
+pub use crate::BROKER_SOCKET_ENV;
 
 /// The only op the broker serves.
 pub const OP_SEND_MESSAGE: &str = "send_message";
