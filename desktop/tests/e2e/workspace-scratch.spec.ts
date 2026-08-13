@@ -223,7 +223,10 @@ test.describe("a terminal you can throw away, and get the keyboard back from", (
 
     await page.keyboard.press("ControlOrMeta+k");
     await expect(page.getByTestId("palette")).toBeVisible();
-    await page.getByTestId("palette-input").fill("scratch");
+    // "scratch" alone stopped being an address when the markdown buffer
+    // arrived (2026-08-12): two rows match it and Enter takes the top one,
+    // whichever the ranking puts there. The shell is asked for by name.
+    await page.getByTestId("palette-input").fill("scratch terminal");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("palette")).toBeHidden();
     await expect(page.getByTestId("scratch-terminal")).toBeVisible();

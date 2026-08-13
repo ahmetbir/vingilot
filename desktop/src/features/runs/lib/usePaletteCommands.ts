@@ -53,6 +53,11 @@ export interface PaletteHandlers {
    * pane's button and the Search pane's results already take
    * (`filesTarget.ts`), so this is a fourth caller of one landing. */
   openFile: (worktree: string, path: string, line: number | null) => void;
+  /** Put the Captain in front of one crew member with this worktree already
+   * named. The handler re-asks `crewReach.ts` for the row, so a member that
+   * has since lost its thread refuses here rather than writing a draft into a
+   * channel that is not there any more. */
+  reachCrew: (personaId: string) => void;
   removeProject: (repo: Repo) => void;
   selectRepo: (repoId: string) => void;
   selectWorktree: (bindingId: string) => void;
@@ -147,6 +152,9 @@ export function usePaletteCommands(
         return;
       case "prune-worktrees":
         on.openPrune();
+        return;
+      case "reach-crew":
+        on.reachCrew(command.personaId);
         return;
       case "toggle-sidebar":
         on.toggleSidebar();

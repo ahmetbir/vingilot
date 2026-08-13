@@ -65,6 +65,12 @@ const WITH_FILES: readonly PaletteSourceId[] = [
   "channels",
   "recent-files",
   "panes",
+  // The crew is a workspace source and only a workspace source: its rows carry
+  // *this worktree* to an agent (`crewReach.ts`), and a host with no work
+  // surface has nothing to carry. Listed unconditionally rather than gated on
+  // whether a crew exists — an empty crew is an empty row list, which is the
+  // source answering, not the host refusing to ask.
+  "crew",
   "actions",
   "worktree-files",
 ];

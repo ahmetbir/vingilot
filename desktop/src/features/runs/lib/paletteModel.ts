@@ -100,6 +100,13 @@ export type PaletteCommand =
   | { type: "toggle-sidebar" }
   | { type: "toggle-nav" }
   | { type: "toggle-solo"; side: "left" | "right" }
+  /** Put the Captain in front of one crew member with this worktree already
+   * named (vingilot/docs/plans/2026-08-12-the-crew.md, Task 3). The persona id
+   * is the whole payload because there is one row per crew member and the row
+   * *is* the errand — `crewReach.ts` holds which errand that is, and the host
+   * asks it again at Enter rather than carrying the draft through a snapshot
+   * that may be a minute old. */
+  | { type: "reach-crew"; personaId: string }
   /** Not a row: the ask mode's question, carried out the same door every other
    * command leaves by (`askMode.ts`). The host decides where it is asked — the
    * model never held a directory and is not about to start. */

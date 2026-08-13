@@ -61,6 +61,13 @@ export type PaletteSourceId =
   | "channels"
   | "recent-files"
   | "panes"
+  /** The crew this workspace has minted, one row each
+   * (vingilot/docs/plans/2026-08-12-the-crew.md, Task 3). Its own source rather
+   * than a handful of extra `actions`, for the reason `offers` exists: the rows
+   * carry the *worktree* to a crew member, so a host with no work surface has
+   * nothing to pre-address them with, and the narrowing that keeps panes off a
+   * chat route is the one that should keep these off it too. */
+  | "crew"
   | "actions"
   | "worktree-files";
 
@@ -78,9 +85,17 @@ export type PaletteSourceId =
  * door that also listed projects would be the front door with extra steps. */
 export const MODE_SOURCES: Record<PaletteMode, readonly PaletteSourceId[]> = {
   channels: ["channels"],
-  commands: ["panes", "actions"],
+  commands: ["panes", "crew", "actions"],
   files: ["worktree-files"],
-  go: ["projects", "worktrees", "channels", "recent-files", "panes", "actions"],
+  go: [
+    "projects",
+    "worktrees",
+    "channels",
+    "recent-files",
+    "panes",
+    "crew",
+    "actions",
+  ],
 };
 
 /** **The sources one mode asks, narrowed to what this host actually has.**

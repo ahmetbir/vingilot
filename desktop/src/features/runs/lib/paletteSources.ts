@@ -29,6 +29,7 @@
 // it found, which also keeps the availability rules the pane host uses and the
 // ones the palette shows the *same* rules rather than a second copy.
 
+import type { CrewReachRow } from "./crewReach.ts";
 import type { PaletteMode, PaletteSourceId } from "./paletteDoors.ts";
 import { MODE_SOURCES, sourceIdsForMode } from "./paletteDoors.ts";
 import type { PaneAvailability } from "./paneModel.ts";
@@ -122,6 +123,18 @@ export interface PaletteContext {
    * that says so. Making it required would put an array in every unit fixture
    * that has nothing to do with channels. */
   channels?: readonly PaletteChannel[];
+  /** The crew this workspace has, already turned into rows by `crewReach.ts` —
+   * one per minted member, carrying the errand, the pre-addressed draft and
+   * (for a member with nowhere to be reached) the sentence saying so.
+   *
+   * Absent on a host with no crew, and an absent crew is **no rows**. That is
+   * not this file's usual rule and it is deliberate: "availability is a
+   * sentence, not a disappearance" is about a command this app *has* which
+   * cannot run right now, and an agent that was never minted is not one — it
+   * is the same absence a project that was never added has, and that draws no
+   * row either. What still earns a sentence is a minted member whose door is
+   * shut (Lookout with no thread open), and `crewReach.ts` puts it on the row. */
+  crew?: readonly CrewReachRow[];
   /** The files he has opened, most recent first — the MRU trail's file
    * entries (`placeMru.ts`), which is a list of what he *did* rather than a
    * listing of what exists. ⌘K's file rows, and only ⌘K's. */
@@ -523,6 +536,38 @@ export const actionSource: PaletteSource = (ctx, query) => {
   return matchAll(candidates, query);
 };
 
+/** **One row per crew member this workspace has** — "Ask Mate…", "Have Lookout
+ * review this worktree", "Ask Navigator for a plan"
+ * (vingilot/docs/plans/2026-08-12-the-crew.md, Task 3).
+ *
+ * The rows arrive built (`crewReach.ts`), the way `paneChoices` does and for
+ * the same reason: what a crew member is *called* is the Captain's rename, what
+ * it is *asked* is an errand table, and where a draft can land is a channel
+ * pointer — none of which this file should hold a second opinion about. What is
+ * left here is what every source does, which is to turn them into candidates
+ * and match them.
+ *
+ * `kind: "action"` rather than a kind of their own: the palette draws one icon
+ * per kind, and these rows are verbs — "have Lookout review this" belongs
+ * beside "New worktree…" in the eye's grouping, not in a sixth column of
+ * iconography nobody asked for. */
+export const crewSource: PaletteSource = (ctx, query) => {
+  const candidates: Candidate[] = (ctx.crew ?? []).map((row) => ({
+    blocked: row.blocked,
+    chord: null,
+    command: { personaId: row.personaId, type: "reach-crew" },
+    detail: row.detail,
+    // The persona id, not the pubkey: a recent is recorded against this
+    // (`paletteStore.ts`), and a crew member deleted and minted again is the
+    // same errand under a new key, which would silently drop its place in the
+    // recents.
+    id: `crew:${row.personaId}`,
+    kind: "action",
+    label: row.label,
+  }));
+  return matchAll(candidates, query);
+};
+
 /** **Upstream's channel list, read as a source and not forked.**
  *
  * The rows are built from `useChannelsQuery`'s records — the same store
@@ -606,6 +651,7 @@ export const worktreeFileSource: PaletteSource = (ctx, query) =>
 export const SOURCES_BY_ID: Record<PaletteSourceId, PaletteSource> = {
   actions: actionSource,
   channels: channelSource,
+  crew: crewSource,
   panes: paneSource,
   projects: projectSource,
   "recent-files": recentFileSource,

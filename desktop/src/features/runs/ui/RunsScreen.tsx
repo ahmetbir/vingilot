@@ -48,8 +48,8 @@ import {
 } from "@/features/runs/lib/coordinatorClient";
 import {
   groupWorktrees,
-  type Repo,
   worktreeCwd,
+  worktreeSummary,
 } from "@/features/runs/lib/projects";
 import { ptyClose } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
@@ -86,7 +86,10 @@ import type {
 } from "@/features/runs/lib/paletteSources";
 import { useAskPending } from "@/features/runs/lib/useAskPending";
 import { useCheatsheet } from "@/features/runs/lib/useCheatsheet";
+import { useCrewMint } from "@/features/runs/lib/useCrewMint";
+import { useCrewReach } from "@/features/runs/lib/useCrewReach";
 import { useCloseRequest } from "@/features/runs/lib/useCloseRequest";
+import { useWorkspaceDialogs } from "@/features/runs/lib/useWorkspaceDialogs";
 import {
   POLL_INTERVAL_MS,
   useControlPlane,
@@ -123,6 +126,7 @@ import {
 } from "@/features/runs/lib/worktreeGit";
 import { localBindingId } from "@/features/runs/lib/projects";
 import { CommandPalette } from "@/features/runs/ui/CommandPalette";
+import { CrewMintDialog } from "@/features/runs/ui/CrewMintDialog";
 import { DeckPane } from "@/features/runs/ui/DeckPane";
 import { KeyCheatsheet } from "@/features/runs/ui/KeyCheatsheet";
 import { PlaceSwitcher } from "@/features/runs/ui/PlaceSwitcher";
@@ -511,16 +515,20 @@ export function RunsScreen() {
   // surface (`lib/closeRequest.ts`).
   const sheet = useCheatsheet();
 
-  // The three dialogs the palette is a second door to. Held here rather than
-  // in the columns that used to own them, so both doors open the *same*
-  // dialog: a "New worktree…" the palette opened and a "+ New worktree" the
-  // column opened must not be two dialogs that can be on screen at once.
-  const [creatingWorktree, setCreatingWorktree] = React.useState(false);
-  // The fourth: the plan's worktree. Held here for the reason the other three
-  // are — the Plan pane and the palette are two doors, and two dialogs that
-  // could be on screen at once is not a thing either of them asked for.
-  const [planningWorktree, setPlanningWorktree] = React.useState(false);
-  const [prunePreview, setPrunePreview] = React.useState<string[] | null>(null);
+  // The offer a workspace missing crew is made once (`lib/useCrewMint.ts`).
+  // Declared here rather than beside `crewReach` below because it is a dialog:
+  // `useWorkspaceDialogs` is what ⌘W and ⌃Tab ask about stacked surfaces, and
+  // the one surface that raises itself unasked is the one that must be in that
+  // reading.
+  const crewMint = useCrewMint();
+  // The dialogs the palette and the columns are two doors to, and the one
+  // reading of "a dialog is up" that ⌘W and ⌃Tab both ask
+  // (`lib/useWorkspaceDialogs.ts`, split out at the 1000-line ratchet).
+  const dialogs = useWorkspaceDialogs({
+    crew: crewMint,
+    dismissRefusal: worktreeActions.dismissRefusal,
+    previewPrune: worktreeActions.previewPrune,
+  });
   // The Files pane's own report of what it has open, held as it arrived. Kept
   // here because a place needs it (`lib/placeMru.ts`'s `FileReport`) and the pane
   // reports it rather than being asked: two answers to "which file is open" is
@@ -528,39 +536,6 @@ export function RunsScreen() {
   // whether a report is still a reading of the pane on screen is decided in one
   // place — `readFileReport`, not here.
   const [openedFile, setOpenedFile] = React.useState<FileReport | null>(null);
-  const [removingProject, setRemovingProject] = React.useState<Repo | null>(
-    null,
-  );
-  // Whether any of the four is up. One reading, two readers — ⌘W's stack and
-  // ⌃Tab's `blocked` — because two spellings of "a dialog is open" are two
-  // things that can come to disagree about the fifth one.
-  const anyDialogOpen =
-    creatingWorktree ||
-    planningWorktree ||
-    prunePreview !== null ||
-    removingProject !== null;
-
-  const previewPrune = worktreeActions.previewPrune;
-  const openPrune = React.useCallback(() => {
-    void (async () => {
-      const entries = await previewPrune();
-      // A preview that names nothing is not a dialog — there is nothing to
-      // approve. The refusal, if git gave one, is already on screen.
-      if (entries !== null && entries.length > 0) setPrunePreview(entries);
-    })();
-  }, [previewPrune]);
-
-  // A refusal belongs to the attempt that earned it. `refusal` is one piece of
-  // state shared by both worktree dialogs, so opening this one onto the last
-  // one's refusal would explain a failure that was not this one's.
-  const dismissRefusal = worktreeActions.dismissRefusal;
-  const openPlanWorktree = React.useCallback(
-    (open: boolean) => {
-      if (open) dismissRefusal();
-      setPlanningWorktree(open);
-    },
-    [dismissRefusal],
-  );
 
   // The panes the palette may offer, with each pane's own availability asked
   // through the registry's own rule — the same call `WorkSurface` makes for
@@ -611,11 +586,29 @@ export function RunsScreen() {
     worktrees: repoWorktrees,
   });
 
+  // The crew's ⌘K rows, which put the Captain in front of one with this
+  // worktree already named (`lib/useCrewReach.ts`). Wiring over machinery that
+  // already exists: the rows land in upstream's own composer. The mint half is
+  // declared with the dialogs above.
+  const crewReach = useCrewReach({
+    bindingId: selectedWorktreeId,
+    worktreeCwd: selectedWorktreeCwd,
+    // The nav's own label for this checkout, not `branch`: the project's
+    // primary has no branch in the coordinator's model, and a draft that said
+    // "the null worktree" would be this island inventing a second name for a
+    // row the column already names.
+    worktreeLabel:
+      selectedWorktree === null
+        ? null
+        : worktreeSummary(selectedWorktree).label,
+  });
+
   // Built after the hatch because one row is a reading of what the hatch read:
   // "Install vingilot command…" over a link that is already there would be an
   // offer to do work that is done (`paletteSources.ts`'s `shim`).
   const paletteContext: PaletteContext = {
     channels: workspacePalette.channels,
+    crew: crewReach.rows,
     navCollapsed: columns.navCollapsed,
     // The file the viewer reported, and only while that report is still a
     // reading of the pane on screen — the same `openedFile` the place switcher
@@ -657,18 +650,19 @@ export function RunsScreen() {
     },
     installShim: hatch.installShim,
     newTerminalTab: () => runTabCommand({ type: "new" }),
-    newWorktree: () => setCreatingWorktree(true),
+    newWorktree: () => dialogs.setCreatingWorktree(true),
     openChannel: (channelId) => void goChannel(channelId),
     openCheatsheet: sheet.show,
     openFile: (worktree, path, line) =>
       openFileFromPalette(worktree, path, line, () => showPane("files")),
     openInEditor: hatch.openCurrentFileInEditor,
     openLanding: selectLanding,
-    openPlanWorktree: () => openPlanWorktree(true),
-    openPrune,
+    openPlanWorktree: () => dialogs.setPlanningWorktree(true),
+    openPrune: dialogs.openPrune,
     openScratchMarkdown: notepad.show,
     openScratchTerminal: scratch.open,
-    removeProject: setRemovingProject,
+    reachCrew: crewReach.reach,
+    removeProject: dialogs.setRemovingProject,
     selectRepo,
     selectWorktree: setSelectedWorktreeId,
     selectedRepo,
@@ -683,7 +677,7 @@ export function RunsScreen() {
   // split out at the ratchet. Each act lands on the same state the palette's
   // command does: a pane is a second door, not a second implementation.
   const runPaneAct = usePaneActs({
-    openPlanWorktree: () => openPlanWorktree(true),
+    openPlanWorktree: () => dialogs.setPlanningWorktree(true),
     rememberOpenFile: workspacePalette.rememberOpenFile,
     reportFile: setOpenedFile,
     showFiles: () => showPane("files"),
@@ -735,7 +729,7 @@ export function RunsScreen() {
   // it is a terminal over the surface rather than a question, and being in a
   // shell is the state this gesture exists for.
   const switcher = usePlaceSwitcher({
-    blocked: palette.open || sheet.open || anyDialogOpen,
+    blocked: palette.open || sheet.open || dialogs.anyOpen,
     file: openedFile,
     onSelectWorktree: setSelectedWorktreeId,
     pane: panes.state.right,
@@ -749,15 +743,11 @@ export function RunsScreen() {
   // ⌘W, and the red button with it. Neither reaches this app as a keydown
   // (lib/closeRequest.ts's header), so what arrives is the close request the
   // backend refused to act on, and this screen answers it by giving up
-  // whatever is stacked over the work surface. The four dialogs go together
-  // because only one of them can be open at a time by construction — see where
-  // they are declared above.
-  const dismissDialogs = React.useCallback(() => {
-    setCreatingWorktree(false);
-    openPlanWorktree(false);
-    setPrunePreview(null);
-    setRemovingProject(null);
-  }, [openPlanWorktree]);
+  // whatever is stacked over the work surface. The dialogs go together — the
+  // four this screen opens and the crew offer that opens itself — because
+  // `useWorkspaceDialogs` holds one reading of them; a ⌘W with only the crew
+  // offer on screen must dismiss the question, not be answered by the backend
+  // closing the window.
   useCloseRequest(
     {
       cheatsheet: sheet.open,
@@ -765,7 +755,7 @@ export function RunsScreen() {
       // ending its shell and spawning a fresh one, and ⌘W must never spend a
       // tmux session to hand back an empty prompt. See `closeRequest.ts`.
       closableTab: (selectedTabs?.tabs.length ?? 0) > 1,
-      dialog: anyDialogOpen,
+      dialog: dialogs.anyOpen,
       palette: palette.open,
       scratch: scratch.session !== null,
       scratchMarkdown: notepad.open,
@@ -780,7 +770,7 @@ export function RunsScreen() {
           runTabCommand({ n: selectedTabs.active, type: "close" });
         }
       },
-      dialog: dismissDialogs,
+      dialog: dialogs.dismissAll,
       palette: palette.close,
       scratch: scratch.close,
       scratchMarkdown: notepad.close,
@@ -816,25 +806,25 @@ export function RunsScreen() {
         <WorkspaceNav
           actions={worktreeActions}
           collapsed={columns.navCollapsed}
-          confirming={removingProject}
+          confirming={dialogs.removingProject}
           coordinatorNotice={projectActions.coordinatorNotice}
-          creating={creatingWorktree}
+          creating={dialogs.creatingWorktree}
           error={projectActions.error}
           importNotice={projectActions.importNotice}
           onAddProject={projectActions.addProject}
-          onConfirmingChange={setRemovingProject}
-          onCreatingChange={setCreatingWorktree}
+          onConfirmingChange={dialogs.setRemovingProject}
+          onCreatingChange={dialogs.setCreatingWorktree}
           onDismissError={projectActions.dismissError}
           onDismissImportNotice={projectActions.dismissImportNotice}
-          onOpenPrune={openPrune}
-          onPrunePreviewChange={setPrunePreview}
+          onOpenPrune={dialogs.openPrune}
+          onPrunePreviewChange={dialogs.setPrunePreview}
           onRemoveProject={projectActions.removeProject}
           onSelectLanding={selectLanding}
           onSelectRepo={selectRepo}
           onSelectWorktree={setSelectedWorktreeId}
           onToggleCollapsed={columns.toggleNav}
           pending={projectActions.pending}
-          prunePreview={prunePreview}
+          prunePreview={dialogs.prunePreview}
           repoMarks={signals.byRepo}
           repos={repos}
           selectedRepo={selectedRepo}
@@ -915,9 +905,9 @@ export function RunsScreen() {
           {selectedRepo === null ? null : (
             <PlanWorktreeDialog
               onCreate={worktreeActions.createWithBrief}
-              onOpenChange={openPlanWorktree}
+              onOpenChange={dialogs.setPlanningWorktree}
               onOpened={openLocalWorktree}
-              open={planningWorktree}
+              open={dialogs.planningWorktree}
               pending={worktreeActions.pending}
               plan={documents.plan.text}
               refusal={worktreeActions.refusal}
@@ -963,6 +953,11 @@ export function RunsScreen() {
            * order `closeRequest.ts` already gives up. */}
           <PlaceSwitcher switcher={switcher} worktrees={repoWorktrees} />
           <CommandPalette palette={palette} />
+          {/* The one thing on this screen that opens itself. It draws only on
+           * a workspace with no crew and only until it has been answered
+           * (`lib/useCrewMint.ts`), so it is last in the tree — over the
+           * palette, because it is a question and the palette is not. */}
+          <CrewMintDialog crew={crewMint} />
         </div>
       </div>
 

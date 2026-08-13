@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   actionSource,
   channelSource,
+  crewSource,
   paletteMatches,
   paneSource,
   projectSource,
@@ -500,6 +501,60 @@ test("the two file sources are the same rows from different lists", () => {
   assert.deepEqual(worktreeFileSource(ctx({ recentFiles: [one] }), ""), []);
 });
 
+// ── The crew (vingilot/docs/plans/2026-08-12-the-crew.md, Task 3) ────────────
+
+/** One `crewReach.ts` row, as the host hands it down. */
+const LOOKOUT_ROW = {
+  berth: "thread",
+  blocked: null,
+  channelId: "channel-1",
+  detail: "an adversarial read of what is about to land here",
+  label: "Have Lookout review this worktree",
+  message: "@Lookout review what is in the-crew. ",
+  personaId: "builtin:lookout",
+  pubkey: "a".repeat(64),
+};
+
+test("crewSource: a workspace with no crew has no crew rows", () => {
+  assert.deepEqual(crewSource(ctx(), ""), []);
+  assert.deepEqual(crewSource(ctx({ crew: [] }), ""), []);
+});
+
+test("crewSource: a minted member is one row, addressed by the command", () => {
+  const [match] = crewSource(ctx({ crew: [LOOKOUT_ROW] }), "");
+  assert.equal(match.candidate.label, "Have Lookout review this worktree");
+  assert.equal(match.candidate.id, "crew:builtin:lookout");
+  assert.deepEqual(match.candidate.command, {
+    personaId: "builtin:lookout",
+    type: "reach-crew",
+  });
+  assert.equal(match.candidate.blocked, null);
+});
+
+test("crewSource: the row is findable by the verb, not only by the name", () => {
+  const rows = crewSource(ctx({ crew: [LOOKOUT_ROW] }), "review");
+  assert.equal(rows.length, 1);
+});
+
+test("crewSource: a member with nowhere to be reached is still a row, carrying why", () => {
+  const [match] = crewSource(
+    ctx({
+      crew: [{ ...LOOKOUT_ROW, blocked: "no thread yet.", channelId: null }],
+    }),
+    "",
+  );
+  assert.equal(match.candidate.blocked, "no thread yet.");
+});
+
+test("crewSource: crew rows rank in the same one ranking as everything else", () => {
+  const ranked = rankMatches(
+    paletteMatches(ctx({ crew: [LOOKOUT_ROW] }), "review"),
+    [],
+  );
+  assert.ok(ranked.length > 0);
+  assert.equal(ranked[0].candidate.id, "crew:builtin:lookout");
+});
+
 test("a mode asks its own sources, and a host narrows them", () => {
   assert.deepEqual(sourceIdsForMode("go"), [
     "projects",
@@ -507,6 +562,7 @@ test("a mode asks its own sources, and a host narrows them", () => {
     "channels",
     "recent-files",
     "panes",
+    "crew",
     "actions",
   ]);
   // What the shell can honestly answer for: no work surface, so no pane and no

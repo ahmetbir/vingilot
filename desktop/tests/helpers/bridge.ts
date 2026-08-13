@@ -533,6 +533,9 @@ type BridgeOptions = {
   relayWsUrl?: string;
   autoConnectDefaultRelay?: boolean;
   skipOnboardingSeed?: boolean;
+  /** Let the workspace ask its crew-mint offer. Off by default: see the call
+   * site in `installBridge`. */
+  offerCrew?: boolean;
   skipCommunitySeed?: boolean;
   /**
    * When true (default), seed every preview feature in preview-features.json as
@@ -692,6 +695,18 @@ async function seedOnboardingCompletionForKnownIdentities(
   );
 }
 
+/** Answer the crew offer before the workspace can ask it.
+ *
+ * The value and the key are `crewMintStore.ts`'s — restated here rather than
+ * imported because this file runs in the Playwright process and that module is
+ * app source; the constant is one string and a spec that pins the dialog
+ * (`workspace-crew.spec.ts`) is what would catch a drift. */
+async function seedCrewOfferAnswered(page: Page) {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("vingilot-crew-offer.v1", "declined");
+  });
+}
+
 async function seedDefaultCommunity(
   page: Page,
   fallbackPubkey: string,
@@ -775,6 +790,15 @@ export async function installBridge(page: Page, options: BridgeOptions) {
   }
   if (!options.skipOnboardingSeed) {
     await seedOnboardingCompletionForKnownIdentities(page, options.relayWsUrl);
+  }
+  // The crew offer is a first-run question like the two above, and it is modal:
+  // a workspace with no minted crew asks it the moment it mounts
+  // (vingilot/docs/plans/2026-08-12-the-crew.md, Task 2). So by default every
+  // spec is a workspace that has already answered it, exactly as every spec is
+  // already an identity that has finished onboarding. `offerCrew: true` is the
+  // opt-out, and workspace-crew.spec.ts is the one spec that takes it.
+  if (!options.offerCrew) {
+    await seedCrewOfferAnswered(page);
   }
   // Default to opting every preview feature in. Specs that exercise the
   // Experiments toggle UI itself pass `seedPreviewFeatures: false`.
@@ -883,6 +907,9 @@ export async function installMockBridge(
     relayWsUrl?: string;
     autoConnectDefaultRelay?: boolean;
     skipOnboardingSeed?: boolean;
+    /** Let the workspace ask its crew-mint offer. Off by default: see the call
+     * site in `installBridge`. */
+    offerCrew?: boolean;
     skipCommunitySeed?: boolean;
     seedPreviewFeatures?: boolean;
   },
@@ -893,6 +920,7 @@ export async function installMockBridge(
     relayWsUrl: options?.relayWsUrl,
     autoConnectDefaultRelay: options?.autoConnectDefaultRelay,
     skipOnboardingSeed: options?.skipOnboardingSeed,
+    offerCrew: options?.offerCrew,
     skipCommunitySeed: options?.skipCommunitySeed,
     seedPreviewFeatures: options?.seedPreviewFeatures,
   });

@@ -93,7 +93,9 @@ test("go is the front door: everything except the worktree's whole tree", () => 
 test("each narrowing asks only its own sources", () => {
   assert.deepEqual(MODE_SOURCES.files, ["worktree-files"]);
   assert.deepEqual(MODE_SOURCES.channels, ["channels"]);
-  assert.deepEqual(MODE_SOURCES.commands, ["panes", "actions"]);
+  // The crew sits between them: its rows are verbs, so ⇧⌘P must list them, and
+  // they are found by what they will do rather than by whose row they are.
+  assert.deepEqual(MODE_SOURCES.commands, ["panes", "crew", "actions"]);
 });
 
 test("the hint row never offers the mode you are standing in", () => {
