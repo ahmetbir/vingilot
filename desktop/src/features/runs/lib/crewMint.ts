@@ -239,3 +239,44 @@ export function mintSentence(results: readonly CrewMintResult[]): string {
       : ` ${failed.length} could not be minted: ${failed.map((result) => `${result.name} — ${result.error ?? ""}`).join("; ")}.`;
   return `${head}${offRelay}${short}`;
 }
+
+/** The runtime a crew member should be minted on, as a *preference* handed to
+ * `resolveStartRuntimeForDefinition` — which puts it first in line, ahead of
+ * upstream's buzz-agent-first default.
+ *
+ * **Why the crew does not take upstream's default.** Crew personas carry no
+ * runtime of their own, and for a runtime-less persona upstream prefers the
+ * bundled `buzz-agent` sidecar — a deliberately minimal ACP agent, the right
+ * default for a persona someone is trying out and exactly the wrong one for a
+ * crew whose whole promise is real work. The first Mate minted under that
+ * default answered every question with "yo", because that is what the stub
+ * does. The crew prefers a real harness:
+ *
+ *   1. the owner's own preferred runtime, when it is set, available, and not
+ *      the stub — his configuration outranks our taste;
+ *   2. `claude`, the harness this product is built around;
+ *   3. any other available runtime that is not the stub — an installed goose
+ *      or codex beats an echo;
+ *   4. `null`, which hands the decision back to upstream's default (the stub,
+ *      when it is truly all there is — a crew member that says "yo" is still
+ *      a key and a mailbox, and refusing to mint would cost the offer).
+ */
+export function crewPreferredRuntime(
+  runtimes: readonly { id: string; availability: string }[],
+  ownerPreferred: string | null | undefined,
+): string | null {
+  const available = runtimes.filter(
+    (runtime) => runtime.availability === "available",
+  );
+  const has = (id: string) => available.some((runtime) => runtime.id === id);
+  if (
+    ownerPreferred != null &&
+    ownerPreferred !== "buzz-agent" &&
+    has(ownerPreferred)
+  ) {
+    return ownerPreferred;
+  }
+  if (has("claude")) return "claude";
+  const real = available.find((runtime) => runtime.id !== "buzz-agent");
+  return real?.id ?? null;
+}

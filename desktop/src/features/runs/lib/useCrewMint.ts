@@ -67,6 +67,7 @@ import {
   mintSentence,
   withMintChecked,
   withMintName,
+  crewPreferredRuntime,
 } from "./crewMint.ts";
 import { crewOfferDeclined, declineCrewOffer } from "./crewMintStore.ts";
 import { CREW, CREW_TEAM_ID } from "./crewRoster.ts";
@@ -218,10 +219,13 @@ export function useCrewMint(): CrewMint {
           if (!persona.isActive) {
             await setPersonaActive(request.personaId, true);
           }
+          // The crew's own preference order, not upstream's stub-first
+          // default — the first Mate answered "yo" for a day because of it
+          // (`crewMint.ts`'s crewPreferredRuntime).
           const { runtime } = resolveStartRuntimeForDefinition(
             persona,
             runtimes,
-            preferredRuntime,
+            crewPreferredRuntime(runtimes, preferredRuntime),
           );
           const created = await createOne(
             crewCreateInput(

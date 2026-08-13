@@ -19,6 +19,7 @@ import {
   mintSentence,
   withMintChecked,
   withMintName,
+  crewPreferredRuntime,
 } from "./crewMint.ts";
 import { CREW, CREW_TEAM_ID, crewMember } from "./crewRoster.ts";
 import { crewOfferDeclined, declineCrewOffer } from "./crewMintStore.ts";
@@ -286,4 +287,63 @@ test("mintSentence: nothing minted at all does not claim a crew", () => {
     /No crew could be minted\. keyring locked/,
   );
   assert.match(mintSentence([]), /Nothing was minted/);
+});
+
+test("the crew prefers a real harness over the bundled stub", () => {
+  // The first Mate was minted on buzz-agent — upstream's right default for a
+  // persona someone is trying out, and exactly the wrong one for a crew whose
+  // promise is real work. It answered "yo" until this rule existed.
+  const runtimes = [
+    { availability: "available", id: "buzz-agent" },
+    { availability: "available", id: "claude" },
+  ];
+  assert.equal(crewPreferredRuntime(runtimes, null), "claude");
+  // claude by NAME, not by luck of the ordering: with another real harness
+  // listed first, rule 3's "first non-stub" would answer goose — only rule 2
+  // answers claude. This is what keeps the claude preference provable.
+  assert.equal(
+    crewPreferredRuntime(
+      [
+        { availability: "available", id: "buzz-agent" },
+        { availability: "available", id: "goose" },
+        { availability: "available", id: "claude" },
+      ],
+      null,
+    ),
+    "claude",
+  );
+  // The owner's own configuration outranks our taste…
+  assert.equal(
+    crewPreferredRuntime(
+      [...runtimes, { availability: "available", id: "goose" }],
+      "goose",
+    ),
+    "goose",
+  );
+  // …unless it names the stub, which the crew declines to inherit.
+  assert.equal(crewPreferredRuntime(runtimes, "buzz-agent"), "claude");
+});
+
+test("an unavailable harness is not preferred, and a stub-only machine falls through", () => {
+  // claude installed but not available (discovery said so) → next real one.
+  assert.equal(
+    crewPreferredRuntime(
+      [
+        { availability: "available", id: "buzz-agent" },
+        { availability: "unavailable", id: "claude" },
+        { availability: "available", id: "codex" },
+      ],
+      null,
+    ),
+    "codex",
+  );
+  // Only the stub exists: null hands the decision back to upstream's default
+  // — a crew member that says "yo" is still a key and a mailbox.
+  assert.equal(
+    crewPreferredRuntime(
+      [{ availability: "available", id: "buzz-agent" }],
+      null,
+    ),
+    null,
+  );
 });
