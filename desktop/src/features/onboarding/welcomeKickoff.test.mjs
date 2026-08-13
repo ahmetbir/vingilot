@@ -233,14 +233,14 @@ test("owner-only-access policy does not restart running local and provider teamm
     assert.equal(
       welcomeTeammateNeedsRestart(
         {
-          ...honey,
+          ...bosun,
           backend,
           status: "running",
           needsRestart: false,
           respondTo: "owner-only",
           respondToAllowlist: [],
         },
-        fizz.pubkey,
+        navigator.pubkey,
         true,
       ),
       false,
@@ -252,14 +252,14 @@ test("owner-only-access policy still restarts running teammates for runtime chan
   assert.equal(
     welcomeTeammateNeedsRestart(
       {
-        ...honey,
+        ...bosun,
         backend: { type: "local" },
         status: "running",
         needsRestart: true,
         respondTo: "owner-only",
         respondToAllowlist: [],
       },
-      fizz.pubkey,
+      navigator.pubkey,
       true,
     ),
     true,
