@@ -58,3 +58,30 @@ crossed with a spyglass — the one who is called and sees.)*
   variants of three of them) are what fills it.
 - Keep the source files; the derive-mark pipeline (`vingilot/brand/`) can emit
   the sizes if we standardise later.
+
+---
+
+# Onboarding background prompt
+
+For the welcome/setup screens (replaces upstream's flat bee-yellow). Wide format —
+generate at 2560×1600 or wider; the app letterboxes, so the horizon must survive a
+center crop. Same palette family as the crew emblems.
+
+> Wide painterly seascape at dusk, deep navy sea and sky (#101418 shadows), a lone
+> elegant sailing ship in the middle distance heading toward the horizon, seen
+> slightly from above and behind, parchment-gold light (#E8D9B0) catching the sails
+> and a narrow moonpath on the water, one deep-teal accent (#0B7285) in the wave
+> crests, thin engraved-line rhumb lines and a faint compass rose ghosted into the
+> sky like an old chart overlay, calm sea, no people, no text, no logo, muted and
+> atmospheric rather than dramatic, very dark overall so light UI text stays
+> readable on top, soft vignette toward the edges.
+
+Variant for a lighter surface (dialog headers, cards):
+
+> The same scene reduced to a minimal flat vector band: three layered wave lines in
+> parchment-gold and teal on deep navy, the ship as a small gold silhouette on the
+> horizon line, chart rhumb lines fading out toward the edges, no text, extremely
+> quiet — a texture, not an illustration.
+
+Deliver both; the dark one is the onboarding backdrop, the quiet band is for reuse
+wherever the bee-yellow strip shows today.
