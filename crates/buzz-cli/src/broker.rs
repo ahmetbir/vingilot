@@ -77,6 +77,10 @@
 //! at it.
 
 use std::path::{Path, PathBuf};
+// Gated with the timeout constants it exists for (see their comment below):
+// their only reader is the #[cfg(unix)] send path, so on Windows this import
+// is unused and upstream's -D warnings build refuses it.
+#[cfg(unix)]
 use std::time::Duration;
 
 use serde_json::{json, Value};
