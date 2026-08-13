@@ -8,9 +8,20 @@ import { installMockBridge } from "../helpers/bridge";
 //   formatting toolbar has always advertised on its link button).
 // - With a caret inside an existing composer link → open the same dialog
 //   seeded with that link.
-// - With an empty caret in the composer (no selection, no link) → fall
-//   through to the app-wide quick-search dialog.
-// - With focus outside the composer → quick search, unchanged.
+// - With an empty caret in the composer (no selection, no link) → the composer
+//   does not hold the chord (composerClaim.ts: `composerHoldsGo` is false on a
+//   bare caret), so the app-wide command palette opens.
+// - With focus outside the composer → the palette opens too.
+//
+// **The last two assertions are the inverse of the ones upstream's spec shipped
+// here, and deliberately so** (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md,
+// Task 2; the same inversion workspace-palette.spec.ts's "primary+K is this
+// palette everywhere else too" carries). Upstream's ⌘K opened its quick-search
+// dialog everywhere; the fork's ⌘K is the ShellPalette app-wide, mounted in
+// app/routes/root.tsx and capturing the chord on `window`. The composer keeps
+// ⌘K only where the link editor applies — text selected or caret inside a link
+// — so a bare caret and a focus outside the composer both open the palette, and
+// upstream's `search-dialog-input` never appears.
 
 async function openGeneral(page: Page) {
   await page.goto("/");
@@ -74,7 +85,7 @@ test("⌘K with caret inside an existing link opens the edit-link dialog", async
   await expect(page.getByTestId("search-dialog-input")).toHaveCount(0);
 });
 
-test("⌘K with an empty composer caret still opens quick search", async ({
+test("⌘K with an empty composer caret opens the command palette", async ({
   page,
 }) => {
   await installMockBridge(page);
@@ -84,11 +95,14 @@ test("⌘K with an empty composer caret still opens quick search", async ({
   await input.click();
   await page.keyboard.press("ControlOrMeta+k");
 
-  await expect(page.getByTestId("search-dialog-input")).toBeVisible();
+  // A bare caret does not hold the chord, so the app-wide palette opens and
+  // upstream's search dialog stays shut.
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await expect(page.getByTestId("search-dialog-input")).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Add link" })).toHaveCount(0);
 });
 
-test("⌘K with unselected composer text (caret only) opens quick search", async ({
+test("⌘K with unselected composer text (caret only) opens the command palette", async ({
   page,
 }) => {
   await installMockBridge(page);
@@ -99,7 +113,10 @@ test("⌘K with unselected composer text (caret only) opens quick search", async
   await input.pressSequentially("draft in progress");
   await page.keyboard.press("ControlOrMeta+k");
 
-  await expect(page.getByTestId("search-dialog-input")).toBeVisible();
+  // Text present but nothing selected is still a collapsed caret: the composer
+  // does not claim ⌘K, so the palette opens over upstream's search.
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await expect(page.getByTestId("search-dialog-input")).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Add link" })).toHaveCount(0);
 });
 
@@ -167,7 +184,7 @@ test("macOS Ctrl+A, Ctrl+E, and Ctrl+K stay within hard-break lines", async ({
   await expect(input.locator("br")).toHaveCount(1);
 });
 
-test("⌘K outside the composer opens quick search", async ({ page }) => {
+test("⌘K outside the composer opens the command palette", async ({ page }) => {
   await installMockBridge(page);
   await openGeneral(page);
 
@@ -175,5 +192,6 @@ test("⌘K outside the composer opens quick search", async ({ page }) => {
   await page.getByTestId("chat-title").click();
   await page.keyboard.press("ControlOrMeta+k");
 
-  await expect(page.getByTestId("search-dialog-input")).toBeVisible();
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await expect(page.getByTestId("search-dialog-input")).toHaveCount(0);
 });

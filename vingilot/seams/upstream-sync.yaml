@@ -64,3 +64,10 @@ seams:
     removable_when: "Upstream renames or removes its Buzz Term wheel spec so the path no longer collides, or the fork's own terminal-wheel spec is removed."
     status: "permanent"
     added: "2026-08-13"
+
+  - path: "desktop/tests/e2e/composer-link-shortcut.spec.ts"
+    reason: "Three inverted assertions, forced by the ⌘K unification meeting upstream's own ⌘K spec in the merge. Upstream's composer-link-shortcut spec encodes PRE-palette ⌘K: it asserts that a bare caret, a caret-only-with-text, and a focus outside the composer all fall through to upstream's app-wide quick-search dialog (search-dialog-input visible). The fork's ⌘K is the ShellPalette app-wide (the root.tsx seam in vingilot/seams.yaml; vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md Task 2), and the composer keeps the chord only where the link editor applies — text selected or caret inside a link — exactly the condition features/runs/lib/composerClaim.ts's composerHoldsGo reads. So in all three of those states the palette opens and search-dialog-input never appears. The merge resolution keeps upstream's three scenarios intact and inverts only their expectations: `palette` visible, `search-dialog-input` absent — the same inversion workspace-palette.spec.ts's 'primary+K is this palette everywhere else too' already carries and the same one the composerClaim/paletteKeys headers document. The first two scenarios (selected text opens Add link, caret-inside-link opens Edit link) are upstream's unchanged and still pass. It lives at the upstream-owned desktop/tests/e2e/ path because that is where playwright.config.ts's testDir points; only the three fall-through expectations are the fork's."
+    owner: "vingilot/runs"
+    removable_when: "Never, while ⌘K is the palette app-wide. It shrinks to nothing the day upstream retires its own quick-search-on-⌘K assertions or adopts an app-wide palette itself."
+    status: "permanent"
+    added: "2026-08-13"
