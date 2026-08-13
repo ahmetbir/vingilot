@@ -163,6 +163,7 @@ export default defineConfig({
         "**/workspace-no-coordinator.spec.ts",
         "**/workspace-readme-shots.spec.ts",
         "**/terminal-wheel.spec.ts",
+        "**/terminal-drop.spec.ts",
         "**/buzz-term-wheel.spec.ts",
         "**/terminal-chrome.spec.ts",
         "**/diff-keeps-up.spec.ts",

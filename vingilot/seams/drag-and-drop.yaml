@@ -1,0 +1,100 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: drag & drop into the terminal (and the
+# blob targets the enabling flag darkens)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries. No schema_version here: the root file carries it.
+#
+# Scope of this fragment: the owner asked for "drag & drop into the terminal".
+# On macOS WKWebView a dropped file's real filesystem path is only ever handed
+# to the webview by the native drop layer — WebKit leaves File.path empty on the
+# HTML5 path — so the ask forces app.windows[0].dragDropEnabled from false to
+# true in tauri.conf.json. That flag is global to the one window, and turning it
+# on darkens every HTML5 file-drop target the app had. So this feature is
+# necessarily two halves: the terminal path-drop the owner wanted, and a
+# compensation for each blob target the flip would otherwise break.
+#
+# WHERE THE WORK LIVES, AND WHY MOST OF IT NEEDS NO ENTRY:
+#   - The routing core, the shell escaper, the byte-read client, the React hook
+#     and the terminal wiring are all under desktop/src/features/runs/**, the
+#     Runs island seams.yaml already declares. The new Rust command lives in its
+#     own island, declared below like every other vingilot_* island.
+#   - The flag flip itself is one field in tauri.conf.json, already a declared
+#     seam; its reason was amended (not duplicated here) to record the flip and
+#     to point at this fragment for the compensation.
+#   - lib.rs (the mod line) and vingilot_command_table.rs (the one command line)
+#     are already declared seams whose stated purpose is exactly this — one line
+#     per fork command — so a new island command needs no new entry there.
+#   - playwright.config.ts (the spec registration) and
+#     desktop/src/features/settings/ui/BackupTestFlow.tsx (already a declared
+#     brand-sweep touch, additively re-fed here) are already in the registry.
+#
+# WHAT IS LEFT, AND IS DECLARED BELOW: the new Rust island, the three upstream
+# blob targets not previously touched (composer upload hook + its host, persona
+# import, agent avatar), and the browser proof. Each upstream touch is
+# ADDITIVE: the existing HTML5 handlers are left in place (they still fire in
+# the e2e browser, where the native flag has no effect and there is no
+# onDragDropEvent), and a native path is added beside them that reads the
+# dropped path back to bytes and calls the SAME existing uploader. Nothing
+# upstream-owned changes behaviour on the path it already had.
+# ------------------------------------------------------------------------------
+
+seams:
+  - path: "desktop/src-tauri/src/vingilot_drop/**"
+    reason: "A new fork-owned island inside the Rust side: one command, vingilot_drop_read(path) -> bytes, that reads a Finder-dropped file back to bytes so the webview can rebuild the File its HTML5 uploaders already take. It is deliberately the ONLY read-by-arbitrary-path command in the app -- vingilot_files refuses anything outside a worktree precisely so a general file read has exactly one door, and this is that door, opened only by the owner physically dragging a file in, which is consent to read exactly that file. Bounded: the size is checked from metadata before the open (dropping a 40 GB image is one stat and a refusal, the lesson vingilot_files::read already paid for), and the read runs off the IPC thread via spawn_blocking for the same reason vingilot_files gives -- a slow disk read must not stall the terminal beside the pane. Additive-only new directory under desktop/src-tauri/src, no upstream file renamed or deleted, so it cannot merge-conflict, mirroring vingilot_pty and vingilot_files."
+    owner: "vingilot/runs"
+    removable_when: "Never, while a Finder drop can hand the app a path it must read bytes for -- which is for as long as dragDropEnabled is true."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/messages/lib/useMediaUpload.ts"
+    reason: "One additive method on the composer's upload controller: handleNativeFiles(files), the native-drop twin of the existing handleDrop's core. With dragDropEnabled true the composer's HTML5 onDrop no longer fires in the real app (macOS routes the drop to onDragDropEvent), so the paths are read back to Files by the island and handed to the SAME accept-everything queue/upload split handleDrop already ran -- no policy is duplicated, only the event source changes. Also returns setIsDragOver so the native hover event can drive the same drop-zone overlay the HTML5 dragenter drove. The existing handleDrop/handleDragEnter/handleDragOver/handleDragLeave are untouched and still fire in the e2e browser. This file is upstream-owned and is where the composer's drop logic lives; there is no smaller touch that re-feeds it than adding one sibling method next to the one it mirrors."
+    owner: "vingilot/runs"
+    removable_when: "The window's native drop is turned off (dragDropEnabled back to false), or upstream adopts a read-by-path drop of its own that the composer can consume."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/messages/ui/MessageComposer.tsx"
+    reason: "Registers the composer <form> as a native file-drop zone (features/runs/lib/useNativeFileDrop): a ref on the existing form, and one hook call whose onDrop reads the dropped paths back to Files (features/runs/lib/droppedFile) and calls media.handleNativeFiles, whose onHoverChange drives media.setIsDragOver -- both gated by the same ownsDropZone / isDeferredEditPending conditions the HTML5 handlers already carry. The HTML5 onDrop/onDragEnter/onDragOver/onDragLeave on the form are left exactly as they were (they still fire in the e2e browser), so this is purely additive: the composer gains a second, native way to receive a drop and loses none of the one it had. It is the composer's own file, and the form it registers is the drop surface the owner sees; no shared file is edited to do it."
+    owner: "vingilot/runs"
+    removable_when: "The window's native drop is turned off, or the composer's drop is re-expressed through a shared native-drop primitive upstream grows."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/channels/ui/ChannelPane.tsx"
+    reason: "One additive attribute: ref={canDropInMainColumn ? mainComposerMedia.composerDropRef : undefined} on the channel-drop-zone section. This is the real drop surface for a channel -- the composer there does not own its own drop zone (ChannelPane creates the media controller with useMediaUpload and passes it down as mediaController, so the composer's ownsDropZone is false and its HTML5 handlers are undefined); the section owns the drop and wires mainComposerMedia.handleDragEnter/handleDrop on the very same element. composerDropRef is the callback ref useMediaUpload now returns; attaching it here registers exactly this section as the native drop zone, gated by the same canDropInMainColumn the HTML5 handlers already carry, and null on the closed gate tears it down. Without this attach, a Finder drop on a channel would darken silently after the flag flip. The HTML5 handlers on the section are untouched and still fire in the e2e browser. Upstream-owned, and the smallest touch is this one ref beside the drop handlers that were already here."
+    owner: "vingilot/runs"
+    removable_when: "The window's native drop is turned off, or the channel column's drop moves to a shared native-drop primitive."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/forum/ui/ForumComposer.tsx"
+    reason: "One additive attribute: ref={media.composerDropRef} on the forum composer <form>, which owns its own drop zone (media = useMediaUpload(); the form wires media.handleDragEnter/handleDrop directly, no mediaController is passed to a child). Attaching the callback ref useMediaUpload returns registers this form as the native drop zone so a Finder drop on the forum composer still uploads after the flag flip, exactly as its HTML5 onDrop does in the e2e browser. Upstream-owned; the form and its media controller are already here, so this one ref is the whole touch."
+    owner: "vingilot/runs"
+    removable_when: "The window's native drop is turned off, or the forum composer's drop moves to a shared native-drop primitive."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/agents/ui/PersonaCatalogDialog.tsx"
+    reason: "Registers the persona import dialog's content as a native file-drop zone, additively, so a .agent.png / .agent.json dragged onto it still imports after the flag flip. One ref reused from the existing contentRef, one useNativeFileDrop call gated by the same open && isImportSelected the HTML5 handlers check, reading the dropped path back to a File and calling the SAME importFile, and driving the same setIsDragOver the HTML5 dragenter drove. The dialog's existing onDrop/onDragEnter/onDragLeave/onDragOver are untouched and still fire in the e2e browser. Upstream-owned, and the smallest re-feed possible: the drop target element and the import function are already here."
+    owner: "vingilot/runs"
+    removable_when: "The window's native drop is turned off, or persona import moves to a shared native-drop primitive."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/agents/ui/AgentCreationPreview.tsx"
+    reason: "NOT YET COMPENSATED — the one dark target the flag flip leaves. The file is byte-unchanged: it sits at 1025 lines, over the 1000-line cap, and the two fieldset refs the native-drop re-feed needs cannot be added without splitting it first (split, never raise). Consequence, stated plainly: in the real macOS app, dragging an image onto the agent-avatar fieldsets no longer fires their HTML5 onDrop (the click-to-browse picker is unaffected); the e2e browser still fires HTML5, so no spec catches it. The planned compensation is the same shape as the others: split the file, then two useNativeFileDrop refs gated by the existing menu-open conditions, feeding the SAME uploadAvatarFile. This entry stays so the registry names the gap rather than implying the compensation exists."
+    owner: "vingilot/runs"
+    removable_when: "The avatar drop is re-fed natively (file split + useNativeFileDrop), or the window's native drop is turned off."
+    status: "temporary"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/e2e/terminal-drop.spec.ts"
+    reason: "The browser proof of the ask and of the compensation. It synthesizes exactly the Tauri events the native drop layer emits (tauri://drag-enter / -drag-drop with the OS's own paths+position payload) through the app-installed mock bridge's emitter, because a real Finder drag cannot be issued from a browser and the drop the product cares about arrives on onDragDropEvent, not the DOM. Everything downstream is the product: the real routing (features/runs/lib/nativeDrop), the real Terminal, xterm, and pty_write client, recorded only at the IPC transport. It asserts a dropped path is inserted at the cursor shell-escaped and ending in a space and never a newline (a drop inserts, it does not run), that several files arrive space-separated and each escaped, that the drop affordance shows only while a file hovers the pane and never for the app's own pointer DnD (which never reaches onDragDropEvent at all), that a drop outside the terminal reaches nobody, and -- the preserved blob target -- that a native drop over the composer reads the dropped file back through vingilot_drop_read, which is the one new link the flag flip put in that path. The pure halves are proved without a browser and kept there: features/runs/lib/shellEscape.test.mjs owns the escaping exhaustively (spaces, quotes, unicode, ampersands, shell metacharacters) and nativeDrop.test.mjs owns the physical-to-CSS pixel conversion and the ancestor routing fold. Lives at the upstream-owned desktop/tests/e2e/ path because that is where playwright.config.ts's testDir points and a spec cannot be moved under vingilot/ without moving the whole runner, exactly as every other fork spec does."
+    owner: "vingilot/runs"
+    removable_when: "Never, while a Finder drop inserts a path into the terminal and the composer must still read a dropped file."
+    status: "permanent"
+    added: "2026-08-13"

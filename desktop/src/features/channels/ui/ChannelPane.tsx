@@ -537,6 +537,9 @@ export const ChannelPane = React.memo(function ChannelPane({
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           inert={channelIsCovered ? true : undefined}
           data-testid="channel-drop-zone"
+          ref={
+            canDropInMainColumn ? mainComposerMedia.composerDropRef : undefined
+          }
           onDragEnter={
             canDropInMainColumn ? mainComposerMedia.handleDragEnter : undefined
           }

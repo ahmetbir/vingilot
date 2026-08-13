@@ -890,6 +890,7 @@ function MessageComposerImpl({
                 "backdrop-blur-md dark:backdrop-blur-xl",
             )}
             data-testid="message-composer"
+            ref={ownsDropZone ? media.composerDropRef : undefined}
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}
             onDragOver={ownsDropZone ? media.handleDragOver : undefined}
@@ -904,9 +905,7 @@ function MessageComposerImpl({
                   }
                 : undefined
             }
-            onSubmit={(event) => {
-              handleSubmit(event);
-            }}
+            onSubmit={handleSubmit}
           >
             {ownsDropZone && media.isDragOver && <DropZoneOverlay />}
             <EmojiAutocomplete

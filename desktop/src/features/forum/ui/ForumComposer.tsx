@@ -448,6 +448,7 @@ export function ForumComposer({
           "relative rounded-2xl border border-input bg-card px-3 py-2 sm:px-4",
           className,
         )}
+        ref={media.composerDropRef}
         onBlurCapture={handleFormBlur}
         onDragEnter={(event) => {
           expandCompactComposer();

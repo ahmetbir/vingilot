@@ -112,6 +112,7 @@ macro_rules! table {
             open_project_merge_recovery_terminal,
             vingilot_agent::agent_probe,
             vingilot_agent::agent_run,
+            vingilot_drop::vingilot_drop_read,
             vingilot_editor::editor_open,
             vingilot_editor::editor_probe,
             vingilot_files::read::file_read,

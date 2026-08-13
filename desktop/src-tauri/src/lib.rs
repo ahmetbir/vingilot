@@ -49,6 +49,7 @@ mod vingilot_agent;
 // (see the module docs).
 mod vingilot_brand;
 mod vingilot_command_table;
+mod vingilot_drop;
 mod vingilot_editor;
 mod vingilot_files;
 mod vingilot_harbor;

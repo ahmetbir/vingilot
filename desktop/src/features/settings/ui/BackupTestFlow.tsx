@@ -2,6 +2,8 @@ import { Check, Eye, EyeOff, FileKey2, FileUp } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import * as React from "react";
 
+import { filesFromPaths } from "@/features/runs/lib/droppedFile";
+import { useNativeFileDrop } from "@/features/runs/lib/useNativeFileDrop";
 import {
   verifyNcryptsecBackup,
   type BackupVerification,
@@ -158,6 +160,7 @@ export function BackupTestFlow({
   const [error, setError] = React.useState<string | null>(null);
   const [isVerifying, setIsVerifying] = React.useState(false);
   const [isRevealed, setIsRevealed] = React.useState(false);
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const passwordInputRef = React.useRef<HTMLInputElement | null>(null);
   const mountedRef = React.useRef(true);
@@ -203,6 +206,24 @@ export function BackupTestFlow({
     },
     [onProgressChange],
   );
+
+  // Native-drop twin of the drop overlay's HTML5 onDrop, and the driver of its
+  // visibility. With the window's native drop enabled the window `dragenter`
+  // that sets `isWindowDragging` never fires in the real app, so the native
+  // hover event drives it here instead, and the native drop reads the path back
+  // to a File and runs the same handleFile. The DOM overlay handlers stay for
+  // the e2e browser.
+  useNativeFileDrop(hostRef, {
+    enabled: stage === "drop",
+    onDrop: (paths) => {
+      if (paths.length === 0) return;
+      void filesFromPaths(paths).then((files) => {
+        const file = files[0];
+        if (file) void handleFile(file);
+      });
+    },
+    onHoverChange: setIsWindowDragging,
+  });
 
   const handleVerify = React.useCallback(async () => {
     if (!ncryptsec || !attempt || isVerifying) return;
@@ -295,6 +316,7 @@ export function BackupTestFlow({
     <div
       className="mx-auto w-full max-w-125 space-y-4"
       data-testid="backup-test-flow"
+      ref={hostRef}
     >
       {stage === "drop" ? (
         <>

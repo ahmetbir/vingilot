@@ -5,6 +5,8 @@ import { isCatalogPersonaSelected } from "@/features/agents/lib/catalog";
 import { isCatalogPersona } from "@/features/agents/lib/personaCatalogRelay";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
+import { filesFromPaths } from "@/features/runs/lib/droppedFile";
+import { useNativeFileDrop } from "@/features/runs/lib/useNativeFileDrop";
 import type { AgentPersona } from "@/shared/api/types";
 import { useFeedbackToasts } from "@/shared/hooks/useToastEffect";
 import { cn } from "@/shared/lib/cn";
@@ -178,6 +180,22 @@ export function PersonaCatalogDialog({
     onOpenChange(false);
     onImportFile(Array.from(new Uint8Array(buffer)), file.name);
   }
+
+  // Native-drop twin of the dialog's HTML5 onDrop. In the real app the window's
+  // native drop delivers dropped paths through onDragDropEvent rather than the
+  // DOM; here they are read back to Files and the same importFile runs. The DOM
+  // handlers on ChooserDialogContent stay for the e2e browser.
+  useNativeFileDrop(contentRef, {
+    enabled: open && isImportSelected,
+    onDrop: (paths) => {
+      if (paths.length === 0) return;
+      void filesFromPaths(paths).then((files) => {
+        const file = files[0];
+        if (file) void importFile(file);
+      });
+    },
+    onHoverChange: setIsDragOver,
+  });
 
   return (
     <>

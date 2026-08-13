@@ -6,6 +6,8 @@ import {
   uploadMediaBytes,
 } from "@/shared/api/tauri";
 import { uploadMediaFile } from "@/shared/api/tauriMedia";
+import { filesFromPaths } from "@/features/runs/lib/droppedFile";
+import { useNativeFileDropRef } from "@/features/runs/lib/useNativeFileDrop";
 import type { QueuedMediaAttachment } from "./backgroundMediaUploadStore";
 import { applyImetaUpdate, compactImetaSlots } from "./imetaSlots";
 import { useFilePicker } from "./useFilePicker";
@@ -680,6 +682,27 @@ export function useMediaUpload({
     [queueFiles, shouldQueueFile, uploadFiles],
   );
 
+  // The drop surface as a native drop zone, the twin of the HTML5 onDrop the
+  // host wires. With the window's native drop enabled (tauri.conf.json) a
+  // Finder drop reaches onDragDropEvent, not the DOM, so the dropped paths are
+  // read back to Files and run through the same accept-everything queue/upload
+  // split handleDrop uses. composerDropRef is a callback ref the host attaches
+  // to WHATEVER element owns its drop (the standalone composer's <form>, the
+  // channel column's <section>, a thread panel div) and gates behind its own
+  // condition — attaching null tears the zone down. The HTML5 handlers stay for
+  // the e2e browser, where the native event does not exist.
+  const composerDropRef = useNativeFileDropRef({
+    onDrop: (paths) => {
+      void filesFromPaths(paths).then((files) => {
+        setIsDragOver(false);
+        if (files.length === 0) return;
+        queueFiles(files.filter(shouldQueueFile));
+        uploadFiles(files.filter((file) => !shouldQueueFile(file)));
+      });
+    },
+    onHoverChange: setIsDragOver,
+  });
+
   const handleDragEnter = React.useCallback(
     (event: React.DragEvent<HTMLElement>) => {
       if (!isFileDrag(event)) return;
@@ -910,6 +933,7 @@ export function useMediaUpload({
     () => ({
       cancelUpload,
       clearQueuedAttachments,
+      composerDropRef,
       handleDragEnter,
       handleDragLeave,
       handleDragOver,
@@ -940,6 +964,7 @@ export function useMediaUpload({
     [
       cancelUpload,
       clearQueuedAttachments,
+      composerDropRef,
       handleDragEnter,
       handleDragLeave,
       handleDragOver,

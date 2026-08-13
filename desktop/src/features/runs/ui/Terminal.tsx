@@ -119,6 +119,8 @@ import {
   linesBehind,
   scrollbackNotice,
 } from "@/features/runs/lib/terminalScrollback";
+import { shellEscapePaths } from "@/features/runs/lib/shellEscape";
+import { useNativeFileDrop } from "@/features/runs/lib/useNativeFileDrop";
 import { wheelOwnerProps } from "@/shared/lib/wheelOwner";
 
 interface TerminalProps {
@@ -228,6 +230,10 @@ export function Terminal({
   sessionId,
 }: TerminalProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
+  /** The whole pane's box, the drop zone a Finder drag is hit-tested against.
+   * Outside the xterm host (`containerRef`) so the affordance can be drawn over
+   * the pane without reaching into the element xterm owns. */
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
   const termRef = React.useRef<XTerm | null>(null);
   /** The element the app's colours are read off. Outside the xterm host on
    * purpose — that element belongs to xterm, and this one exists to be
@@ -241,6 +247,25 @@ export function Terminal({
    * attachment owns it: it closes over that attachment's xterm, phase, and
    * frame handle, and is null between attachments. */
   const remeasureRef = React.useRef<(() => void) | null>(null);
+  /** True while a Finder file drag is hovering this pane. Drives the quiet
+   * drop affordance below. Never true for the app's own @dnd-kit drags — a
+   * sidebar reorder is pointer events and never reaches `onDragDropEvent`
+   * (`lib/nativeDrop.ts`), so this stays dark while a row is dragged past. */
+  const [isDropTarget, setIsDropTarget] = React.useState(false);
+
+  // A dropped file inserts its shell-escaped absolute path at the cursor, iTerm
+  // style — the same `pty_write` channel a keystroke uses, so it lands exactly
+  // where the caret is. A trailing space (never a newline) is appended so the
+  // owner can drop again or type the next argument; the line is his to run, and
+  // a drop that ran itself would be a drop that could run anything.
+  useNativeFileDrop(rootRef, {
+    enabled: cwd !== null,
+    onDrop: (paths) => {
+      if (paths.length === 0) return;
+      void ptyWrite(sessionId, `${shellEscapePaths(paths)} `);
+    },
+    onHoverChange: setIsDropTarget,
+  });
 
   // One xterm instance per attachment. Tearing this down detaches a view; it
   // does not end the session, and re-running it reattaches to the same live
@@ -517,7 +542,21 @@ export function Terminal({
     <div
       className={`relative min-h-0 min-w-0 flex-1 ${active ? "flex" : "hidden"}`}
       data-testid={`terminal-${sessionId}`}
+      ref={rootRef}
     >
+      {/* The drop affordance: a quiet ring in the app's accent, drawn over the
+       * pane only while a Finder file drag hovers it. `pointer-events-none` so
+       * it never intercepts the hit-test that routes the drop — the position
+       * still resolves to the terminal element underneath. Theme-correct
+       * because `border-primary`/`bg-primary` are the app's own tokens, the
+       * same accent every other drop target in the app uses. */}
+      {isDropTarget && cwd !== null ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-20 rounded-md border-2 border-dashed border-primary/70 bg-primary/5"
+          data-testid={`terminal-drop-target-${sessionId}`}
+        />
+      ) : null}
       {/* The element `terminalTheme` dresses to read the app's colours. Hidden
        * by its parent rather than by its own class, because its own class is
        * the thing being rewritten. */}
