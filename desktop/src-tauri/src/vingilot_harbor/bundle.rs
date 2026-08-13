@@ -41,7 +41,7 @@ use std::path::{Path, PathBuf};
 /// summary. A floating tag is how a working install changes under somebody
 /// overnight, which the plan names as the thing to avoid — so this is the one
 /// line to edit, and there is exactly one of it.
-pub(crate) const RELAY_IMAGE: &str = "ghcr.io/ahmetbir/vingilot-relay:0.2.5";
+pub(crate) const RELAY_IMAGE: &str = "ghcr.io/ahmetbir/vingilot-relay@sha256:8a2b2207d3f7ec9053747b2ca6aefdb93d350390b06beb52c980be7a24fd4c37";
 
 /// Where `RELAY_IMAGE` goes in [`COMPOSE_TEMPLATE`].
 ///
