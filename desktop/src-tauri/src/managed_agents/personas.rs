@@ -123,10 +123,15 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
 ];
 
 pub(crate) fn built_in_persona_avatar_url(id: &str) -> Option<&'static str> {
-    BUILT_IN_PERSONAS
-        .iter()
-        .find(|persona| persona.id == id)
-        .and_then(|persona| persona.avatar_url)
+    // The crew's art is encoded from pack PNGs on first use
+    // (vingilot_crew::avatar_url); the bees' stays the literal it always was.
+    // One accessor so the two kinds of built-in art leave through one door.
+    super::vingilot_crew::avatar_url(id).or_else(|| {
+        BUILT_IN_PERSONAS
+            .iter()
+            .find(|persona| persona.id == id)
+            .and_then(|persona| persona.avatar_url)
+    })
 }
 
 const RETIRED_PERSONAS: &[(&str, &str)] = &[
@@ -174,7 +179,9 @@ fn built_in_persona_records(now: &str) -> Vec<AgentDefinition> {
         .map(|persona| AgentDefinition {
             id: persona.id.to_string(),
             display_name: persona.display_name.to_string(),
-            avatar_url: persona.avatar_url.map(|s| s.to_string()),
+            avatar_url: super::vingilot_crew::avatar_url(persona.id)
+                .or(persona.avatar_url)
+                .map(|s| s.to_string()),
             // Crew prompts are `.persona.md` pack files, so the YAML
             // frontmatter is split off here (with `buzz-persona`'s own
             // splitter) before the prompt reaches an agent. A prompt without

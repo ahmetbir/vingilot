@@ -12,17 +12,21 @@ type StageCharacter = {
 };
 
 /**
- * Same animated APNGs the "Meet your starter team" onboarding step uses — one
- * entry per crew member that has character art.
+ * The crew's emblems, one per member the welcome team seeds, in provisioning
+ * order (`vingilot_crew::WELCOME_TEAM_PERSONA_IDS`). The Captain generated
+ * them from `vingilot/brand/crew-avatar-prompts.md` — one family, navy ring,
+ * parchment-gold linework — and the same PNGs are the personas' own avatars
+ * (data-URI encoded in `vingilot_crew`). Static rather than the bees' APNGs:
+ * an emblem does not need to wave to say who is arriving.
  *
- * It is empty: the crew (Navigator, Bosun, Lookout, Scribe) replaced the bees
- * as the default team and has no art yet, and the bees' APNGs are not stand-ins
- * for it — a bee on the banner while a Bosun is being provisioned is the exact
- * mismatch the crew exists to remove. The stage keeps its wrapper so the exit
- * animation (and `onExitComplete`) behaves identically; it simply has nobody
- * standing on it until the art lands.
+ * Mate is deliberately absent, as it is from the team itself — owner-only DM.
  */
-const STAGE_CHARACTERS: readonly StageCharacter[] = [];
+const STAGE_CHARACTERS: readonly StageCharacter[] = [
+  { name: "Navigator", animationUrl: "/onboarding/starter-team/navigator.png" },
+  { name: "Bosun", animationUrl: "/onboarding/starter-team/bosun.png" },
+  { name: "Lookout", animationUrl: "/onboarding/starter-team/lookout.png" },
+  { name: "Scribe", animationUrl: "/onboarding/starter-team/scribe.png" },
+];
 
 const STAGE_EXIT_ANIMATION = "motion-kickoff-stage-exit";
 

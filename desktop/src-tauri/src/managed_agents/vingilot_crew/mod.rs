@@ -84,3 +84,58 @@ pub(crate) fn prompt_body(raw: &'static str) -> &'static str {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+// ── Avatars ──────────────────────────────────────────────────────────────────
+//
+// The Captain generated the five emblems from `vingilot/brand/
+// crew-avatar-prompts.md` (one family: navy porthole ring, parchment-gold
+// linework, one teal accent) and they ship the way the prompts ship — files in
+// the pack, compiled in. `include_bytes!` + one base64 encoding at first use,
+// rather than the bees' approach of a hand-pasted data-URI literal: the PNG in
+// the repository stays a PNG somebody can open, diff and replace, and the
+// encoded copy exists only in memory.
+//
+// `Box::leak` is deliberate and bounded: five strings, once each, for the
+// process lifetime — the same lifetime the bees' `const` literals have, spelled
+// in five lines instead of five thousand.
+
+use std::sync::LazyLock;
+
+use base64::Engine as _;
+
+fn avatar_data_uri(png: &'static [u8]) -> &'static str {
+    let encoded = base64::engine::general_purpose::STANDARD.encode(png);
+    Box::leak(format!("data:image/png;base64,{encoded}").into_boxed_str())
+}
+
+macro_rules! crew_avatar {
+    ($name:ident, $file:literal) => {
+        static $name: LazyLock<&'static str> = LazyLock::new(|| {
+            avatar_data_uri(include_bytes!(concat!(
+                "../../../../../vingilot/personas/vingilot-crew/avatars/",
+                $file
+            )))
+        });
+    };
+}
+
+crew_avatar!(MATE_AVATAR, "mate.png");
+crew_avatar!(BOSUN_AVATAR, "bosun.png");
+crew_avatar!(LOOKOUT_AVATAR, "lookout.png");
+crew_avatar!(NAVIGATOR_AVATAR, "navigator.png");
+crew_avatar!(SCRIBE_AVATAR, "scribe.png");
+
+/// The crew member's avatar as a data URI, or `None` for an id that is not
+/// crew. The catalog's conversion calls this exactly where it reads the bees'
+/// literal `avatar_url`s, so the two kinds of built-in art leave through one
+/// door.
+pub(crate) fn avatar_url(id: &str) -> Option<&'static str> {
+    match id {
+        MATE_ID => Some(*MATE_AVATAR),
+        BOSUN_ID => Some(*BOSUN_AVATAR),
+        LOOKOUT_ID => Some(*LOOKOUT_AVATAR),
+        NAVIGATOR_ID => Some(*NAVIGATOR_AVATAR),
+        SCRIBE_ID => Some(*SCRIBE_AVATAR),
+        _ => None,
+    }
+}
