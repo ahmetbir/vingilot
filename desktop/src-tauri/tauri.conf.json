@@ -70,7 +70,11 @@
       "infoPlist": "Info.plist",
       "entitlements": "Entitlements.plist",
       "dmg": {
-        "background": "icons/dmg-background.png",
+        "background": "icons/dmg-background.tiff",
+        "windowPosition": {
+          "x": 400,
+          "y": 200
+        },
         "windowSize": {
           "width": 660,
           "height": 495
