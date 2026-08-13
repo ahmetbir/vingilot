@@ -7,6 +7,7 @@ type SettingsSection =
   | "agents"
   | "channel-templates"
   | "compute"
+  | "home-harbor"
   | "appearance"
   | "shortcuts"
   | "hosted-communities"

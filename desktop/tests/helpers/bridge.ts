@@ -1,5 +1,11 @@
 import type { Page } from "@playwright/test";
 import type { ChannelTemplate, RelayEvent } from "../../src/shared/api/types";
+import type {
+  HarborProbe,
+  HarborStartReport,
+  HarborStatus,
+  HarborStep,
+} from "../../src/shared/api/tauriHarbor";
 import { FEATURE_OVERRIDES_STORAGE_KEY, PREVIEW_FEATURE_IDS } from "./features";
 
 export const TEST_IDENTITIES = {
@@ -166,6 +172,18 @@ type MockBridgeOptions = {
   };
   /** Native picker boundary result for Pocket voice import tests. */
   pocketVoiceImportResult?: "success" | "cancel" | "invalid";
+  /** Home harbor (`vingilot_harbor`) command responses. Every field is optional;
+   *  a spec seeds only what it drives (probe, step stream, status, failures). */
+  harbor?: {
+    probe?: HarborProbe;
+    installSteps?: HarborStep[];
+    installReport?: HarborStartReport;
+    installError?: string;
+    status?: HarborStatus;
+    statusSequence?: HarborStatus[];
+    startError?: string;
+    stopError?: string;
+  };
   /** Advertised HEAD for the first mock project without adding that branch. */
   projectHeadBranch?: string;
   /** Relay NIP-11 identity used to sign authoritative repository state. */

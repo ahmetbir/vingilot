@@ -69,6 +69,16 @@ const COMMUNITY_ONBOARDING_TRANSACTION_STORAGE_KEY =
 const ONE_PIXEL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const DEFAULT_MOCK_PUBKEY = "deadbeef".repeat(8);
+
+/**
+ * Open the hosted-community door. "Create a community" now opens a two-door
+ * hub — a hosted community, or a local home harbor — so the hosted flow these
+ * specs exercise lives one click deeper than it used to.
+ */
+async function openHostedCreate(page: Page) {
+  await page.getByTestId("community-choice-create").click();
+  await page.getByTestId("community-choice-create-hosted").click();
+}
 const BLANK_TYLER_IDENTITY = {
   ...TEST_IDENTITIES.tyler,
   username: "",
@@ -929,7 +939,7 @@ test("first-community owner can connect an existing hosted community", async ({
   );
   await page.goto("/");
 
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await expect(page.getByText("North Star")).toBeVisible();
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(
@@ -987,7 +997,7 @@ test("first-community owner can create and connect a hosted community", async ({
   );
   await page.goto("/");
 
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await page.getByRole("button", { name: "Sign in to continue" }).click();
   await expect(
     page.getByRole("heading", { name: "Finish connecting Buzz" }),
@@ -1063,7 +1073,7 @@ test("hosted community address line stays within the card for a long name", asyn
   await page.setViewportSize({ width: 800, height: 720 });
   await page.goto("/");
 
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await page.getByRole("button", { name: "Sign in to continue" }).click();
   await expect(
     page.getByRole("heading", { name: "Finish connecting Buzz" }),
@@ -1132,7 +1142,7 @@ test("first-community reports a created community without a relay address", asyn
   );
   await page.goto("/");
 
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await page.getByRole("textbox", { name: "Community name" }).fill("bee-lab");
   await expect(page.getByText("That address is available.")).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
@@ -1163,15 +1173,16 @@ test("first-community X cancels a pending sign-in", async ({ page }) => {
   );
   await page.goto("/");
 
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await page.getByRole("button", { name: "Sign in to continue" }).click();
   await expect(page.getByText("Waiting for your browser…")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Cancel sign-in" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Close" }).click();
+  // Closing the hosted sign-in returns to the create hub it opened over.
   await expect(
-    page.getByRole("button", { name: /Create a community/ }),
+    page.getByTestId("community-choice-create-hosted"),
   ).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => window.__BUZZ_E2E_COMMANDS__ ?? []))
@@ -1205,7 +1216,7 @@ test("first-community owner can replace a mismatched account identity", async ({
   );
   await page.goto("/");
 
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await expect(
     page.getByRole("heading", {
       name: "This account uses a different Buzz identity",
@@ -1255,7 +1266,7 @@ test("first-community explains when the local identity belongs to another accoun
   );
   await page.goto("/");
 
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await page
     .getByRole("button", { name: "Use this device's identity" })
     .click();
@@ -1296,9 +1307,9 @@ test("back clears Builderlab auth before returning to first-community choices", 
   );
   await page.goto("/");
 
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await page.getByRole("button", { name: "Back" }).click();
-  await page.getByTestId("community-choice-create").click();
+  await openHostedCreate(page);
   await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
 });
 

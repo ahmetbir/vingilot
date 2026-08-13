@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
+  Anchor,
   Archive,
   BellRing,
   Bot,
@@ -80,6 +81,7 @@ import { NotificationSettingsCard } from "./NotificationSettingsCard";
 import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
 import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
 import { HostedCommunitiesSettingsCard } from "./HostedCommunitiesSettingsCard";
+import { HomeHarborSettingsCard } from "./HomeHarborSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
 import { UpdateChecker } from "../UpdateChecker";
@@ -97,6 +99,7 @@ export type SettingsSection =
   | "appearance"
   | "shortcuts"
   | "hosted-communities"
+  | "home-harbor"
   | "community-members"
   | "moderation"
   | "custom-emoji"
@@ -117,6 +120,7 @@ const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "appearance",
   "shortcuts",
   "hosted-communities",
+  "home-harbor",
   "community-members",
   "moderation",
   "custom-emoji",
@@ -207,6 +211,11 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     value: "hosted-communities",
     label: "Hosted communities",
     icon: MessagesSquare,
+  },
+  {
+    value: "home-harbor",
+    label: "Home harbor",
+    icon: Anchor,
   },
   {
     value: "community-members",
@@ -838,6 +847,8 @@ export function renderSettingsSection(
       return <KeyboardShortcutsCard />;
     case "hosted-communities":
       return <HostedCommunitiesSettingsCard />;
+    case "home-harbor":
+      return <HomeHarborSettingsCard />;
     case "community-members":
       return (
         <CommunityMembersSettingsCard currentPubkey={props.currentPubkey} />

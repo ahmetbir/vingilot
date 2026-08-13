@@ -10,7 +10,16 @@
 # Scope of this fragment: making Vingilot run on one machine with no host to
 # join (vingilot/docs/plans/2026-08-13-home-harbor.md). Task 1 is the relay
 # image the harbor pulls — the fork publishing a relay image under its own name
-# instead of failing to publish one under upstream's.
+# instead of failing to publish one under upstream's. Tasks 2 and 3 are the
+# harbor itself: the compose bundle the app writes into ~/.vingilot/harbor/, the
+# Rust island that starts and watches it, and the one line in lib.rs that
+# registers it.
+#
+# The Rust half needed a structural change this fragment authorises and the
+# lib.rs entry in vingilot/seams.yaml predicted: that file was at exactly 1000
+# counted lines of the repository ratchet's 1000, so the harbor's five commands
+# had nowhere to go. Its command table moved into a fork-owned file. See the
+# vingilot_command_table.rs entry below for the mechanism and its merge cost.
 #
 # Nothing here touches how the relay is built. The root Dockerfile already
 # builds it, correctly, and is unmodified: run 31699317684 in this fork proved
@@ -39,4 +48,115 @@ seams:
     owner: "vingilot/ci"
     removable_when: "Upstream makes the contract tolerant of an absent publisher on its own, or the fork carries docker.yml again."
     status: "temporary"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/vingilot_harbor/**"
+    reason: "A ninth fork-owned island inside the Rust side (vingilot/docs/plans/2026-08-13-home-harbor.md, Tasks 2 and 3): the home harbor, which is a whole community -- relay, Postgres, Redis -- running on the owner's own machine so that 'join a community' has a door that needs no host. bundle.rs holds the compose file as a string constant and the four secrets it needs; compose.rs holds every argument vector this island is willing to hand docker plus the parsing of `compose ps` and the derivation of a state from it; mod.rs finds docker, runs it, and exposes the five commands. harbor_tests.rs and recorder_tests.rs are out-of-line test modules, the second of which runs the real vectors through a real exec against a recorder script -- docker is never installed, started or spawned by the suite. Three decisions are load-bearing and are argued at length in the files: the compose file is a string constant rather than a bundled tauri resource (tauri.conf.json has no resources key, a resource path differs between a cargo test, a tauri dev and a signed dmg, and vingilot_shim's SHIM_SCRIPT already ships bytes this way in this crate); the bundle is written only when absent and never overwritten, because harbor.env holds the only copy of the password the Postgres volume was initialised with and rewriting it locks the owner out of his own messages; and there is no uninstall command at all -- the two commands that would remove the volumes are built as strings for the Settings card to print, because the harbor's volumes are his messages. RELAY_URL is spelled ws://127.0.0.1:7447 in the compose file and in Rust, and both spellings are asserted against each other: the relay refuses the WebSocket upgrade with a bare 404 for any Host it has no community row for, seeds exactly one row from RELAY_URL's authority, and does not treat localhost and 127.0.0.1 as the same host -- and a wss:// spelling would make NIP-42 expect a wss:// relay tag from an app that signs ws://. Additive-only new directory under the upstream desktop/src-tauri/src tree -- no existing file is renamed or deleted, so it cannot merge-conflict, mirroring how desktop/src/features/runs/* is an island inside the upstream desktop/src tree."
+    owner: "vingilot/runs"
+    removable_when: "Never, while Vingilot can be run without a host to join."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/vingilot_command_table.rs"
+    reason: "New, fork-owned: Tauri's one command table, moved here out of lib.rs. This is the split the lib.rs entry in vingilot/seams.yaml said would be needed -- 'every fork command costs it a line, and at 999 of the repository ratchet's 1000 the next island to need one had nowhere to put it... The house rule is split, never raise' -- and vingilot_harbor is that next island. lib.rs counted exactly 1000 of the 1000-line limit (countLines counts raw lines and a trailing newline yields one extra element), and its merge-base counted 1000 too, so allowedLineCount was 1000 and the headroom was zero: not five lines for five commands, not one line for a plugin registration. The table is a macro_rules! expanded at lib.rs's invocation site rather than a function called from it, and that is not a stylistic choice: #[tauri::command] generates two hidden macros beside each function (__cmd__<name> and __tauri_command_name_<name>) and generate_handler! expands to those, not to the functions. Thirteen of the entries are unreachable from any other module -- commands::personas and commands::workspace are private and re-export their commands by name, which carries the function and leaves the macros behind a wall no use statement can reach; the absolute path form is refused outright for macro-expanded macro_export macros. Expanding at the crate root means every name resolves in exactly the scope that resolved it before the move, using lib.rs's own imports, so this file needs and must have no imports of its own. The alternative shapes were all worse: a tauri::plugin gives an island's commands a plugin:<name>| prefix and would have rewritten every invoke() call site in the webview (and still cost lib.rs the one line it did not have), and widening five upstream modules to pub(crate) is a bigger change to upstream files than this. The cost is stated rather than hidden: upstream adds commands to this list in lib.rs on its own schedule, so an upstream merge that touches the table conflicts here, and the resolution is always the same and always mechanical -- their new entries go in this list. In exchange lib.rs drops from 1000 counted lines to 689, which is ~300 lines of headroom for every island after this one."
+    owner: "vingilot/runs"
+    removable_when: "Upstream moves its own command table out of lib.rs, or lib.rs shrinks enough that the whole table fits back inside the ratchet."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/egress_guard_tests.rs"
+    reason: "One line added to one allowlist. Upstream's ncryptsec_handling_is_confined_to_allowlisted_files asserts that no file outside a named list so much as mentions `ncryptsec`, and it allowlists src/lib.rs with the comment 'module registration + invoke handler' -- because the invoke handler names create_ncryptsec_backup, verify_ncryptsec_backup and save_ncryptsec_copy. That handler is now in desktop/src-tauri/src/vingilot_command_table.rs, so the allowlist gains that path for the identical reason and lib.rs's comment loses the half that is no longer true. The structural claim upstream is making is untouched: a registration table names commands and handles no key material, which was as true of lib.rs as it is of the file the table moved to. It has to be at this path because the allowlist is an inline array in this test, not data a fork-owned file could supply -- the same shape of change, and the same argument, as the scripts/test-release-ref-contract.sh entry above."
+    owner: "vingilot/runs"
+    removable_when: "The command table moves back into lib.rs, or upstream stops asserting over an inline path allowlist."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/communities/ui/LocalHarborOnboarding.tsx"
+    reason: "New, fork-owned: the local door in the create-a-community flow (vingilot/docs/plans/2026-08-13-home-harbor.md, Tasks 3 and 4). It runs the vingilot_harbor island's probe → install → start sequence, renders each named step and every failure as its own sentence (a docker-absent probe offers the Docker Desktop link through the opener plugin, a --wait timeout renders the container the island names), states the four honesty lines on its intro, and on success hands ws://127.0.0.1:7447 to its onReady so the harbor is joined through the ordinary communityOnboarding.start(…) — there is no parallel onboarding path. Additive-only new file under the upstream desktop/src tree, an island beside the hosted-community door it sits next to; it renames and deletes nothing, so it cannot merge-conflict."
+    owner: "vingilot/runs"
+    removable_when: "Never, while Vingilot can be run without a host to join."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/settings/ui/HomeHarborSettingsCard.tsx"
+    reason: "New, fork-owned: Settings → Home harbor (vingilot/docs/plans/2026-08-13-home-harbor.md, Task 3). It draws the harbor's running/stopped/starting/unhealthy/not-installed/unknown state as one sentence each, wraps harbor_start / harbor_stop as the only lifecycle actions, gently polls a starting harbor to settled, and prints the two uninstall commands (compose down, volume removal) as copyable text it never runs — the harbor's volumes are the owner's messages. Additive-only new file; it is wired into the registry by the four-line change to SettingsPanels.tsx (already a declared seam) and the nav-group line in SettingsView.tsx below."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the home harbor exists."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/shared/api/tauriHarbor.ts"
+    reason: "New, fork-owned: the frontend client surface for the vingilot_harbor Rust island — typed mirrors of every harbor_* command and its payloads, the step-event subscription, the pure step-fold/order helpers the door accumulates a stream with, the loopback-authority test isHarborRelayUrl, and the harbor-auto-start preference (default off, so the app never starts Docker until the owner has said so once and it is remembered). HARBOR_RELAY_URL is spelled here exactly as Rust and the compose file spell it, ws://127.0.0.1:7447, for the reasons the vingilot_harbor entry argues. Additive-only new file under the upstream desktop/src/shared/api tree."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the home harbor exists."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/shared/api/tauriHarbor.test.mjs"
+    reason: "New, fork-owned: the pure-logic unit tests for tauriHarbor.ts — foldHarborStep/foldHarborSteps last-state-per-id merge, orderedHarborSteps canonical ordering, isHarborRelayUrl accepting only the loopback authority (and rejecting the localhost spelling the relay does not alias), and the auto-start preference round-trip. Runs under the desktop test-loader that stubs the tauri runtime imports, so no webview is needed. Additive-only new file beside the module it tests."
+    owner: "vingilot/runs"
+    removable_when: "Never, while tauriHarbor.ts exists."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/e2e/home-harbor.spec.ts"
+    reason: "New, fork-owned: the Playwright spec for the harbor, driven entirely through the mock bridge's seeded harbor_* commands (no Docker). Covers the create hub showing both doors, the local door rendering steps and joining the loopback relay, the docker-absent honesty sentence and Docker link, the --wait-timeout container name, and the Settings card's running/stopped/not-installed states. Registered in the smoke project in playwright.config.ts (already a declared seam). Additive-only new file under the upstream desktop/tests/e2e tree."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the home harbor exists."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/onboarding/communityOnboarding.tsx"
+    reason: "One member added to a closed union. FirstCommunityPage was \"join\" | \"member\" | \"owned\" — the first-run screen a transaction restores on cancel into WelcomeSetup's initialPage. The local door is a fourth first-run screen, so the union gains \"local\"; borrowing \"join\" would have landed a cancelled harbor install on the invite form instead of the local door. The honest change is to extend the type, which this entry authorises. Nothing else in the file changes — the stage machine is source- and page-agnostic. An upstream edit to this union merge-conflicts here and the resolution is mechanical: keep \"local\" alongside whatever upstream adds."
+    owner: "vingilot/runs"
+    removable_when: "The local door stops being a distinct first-run screen, or upstream adds a general first-run-page extension point."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/communities/ui/CommunityApplyErrorScreen.tsx"
+    reason: "The app opened onto a configured-but-stopped home harbor: this upstream error screen gains a harbor-only offer (vingilot/docs/plans/2026-08-13-home-harbor.md, Task 3, last bullet). When the failed community's relay is the loopback harbor authority, it renders a one-click Start plus a remembered 'start automatically when Vingilot opens' switch — and never starts Docker on the owner's behalf until that switch is on. Every non-harbor community keeps the unchanged Retry/Change-community screen (the offer is gated on isHarborRelayUrl). An upstream edit to this file conflicts here; the resolution keeps the isHarbor branch."
+    owner: "vingilot/runs"
+    removable_when: "Never, while a stopped home harbor can be the reason a community fails to connect."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/settings/ui/SettingsView.tsx"
+    reason: "One value added to one hardcoded nav group. The settings sidebar is built from settingsNavGroups, an explicit Personal/Communities/App grouping of section values that is separate from the settingsSections registry in SettingsPanels.tsx — a section absent from every group is registered and routable but never shown. The Home harbor section (added to SettingsPanels.tsx, a declared seam) joins the Communities group so its nav item renders. No other line changes. An upstream edit to settingsNavGroups conflicts here; the resolution keeps \"home-harbor\" in the Communities group."
+    owner: "vingilot/runs"
+    removable_when: "The Home harbor settings section is removed, or upstream derives the nav groups from the registry so no separate list needs the entry."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/helpers/settings.ts"
+    reason: "One member added to the test-helper's SettingsSection union so openSettings(page, \"home-harbor\") type-checks and clicks the new nav item. This is the e2e-side mirror of the section registration; it names sections by string, so the new one must be listed. Additive; an upstream edit to this union conflicts here and the resolution keeps \"home-harbor\"."
+    owner: "vingilot/runs"
+    removable_when: "The Home harbor settings section is removed."
+    status: "permanent"
+    added: "2026-08-13"
+
+  # The three entries below are deliberate duplicates of paths other fragments
+  # already declare (the sea-backdrop fragment set the precedent): the gate
+  # passes either way, but a merge conflict in one of these files should point
+  # the resolver at the harbor's stake in it, not only at the feature that
+  # declared the path first.
+
+  - path: "desktop/src/features/communities/ui/WelcomeSetup.tsx"
+    reason: "Also declared by brand-sweep/sea-backdrop for the restyle; the harbor's stake is structural. \"Create a community\" no longer opens the Builderlab sign-in directly: it navigates to a create-choice hub offering two doors — hosted (the old path, unchanged behind community-create-hosted) and \"Run Vingilot locally on this Mac\" (community-create-local → the local page rendering LocalHarborOnboarding). WelcomeSetupPage gains \"create-choice\" and \"local\", and startLocalHarbor joins the loopback relay through the SAME communityOnboarding.start the invite path uses — the plan's no-parallel-codepath rule, load-bearing at exactly this call site. A conflict here resolves by keeping the hub and both doors."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the local door exists."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/testing/e2eBridge.ts"
+    reason: "Also declared elsewhere; the harbor adds its mock command family (harbor_probe, harbor_install_and_start, harbor_status, harbor_start, harbor_stop, harbor_uninstall_commands) plus the __BUZZ_E2E_* seeding knobs the home-harbor spec drives them with. Additive block, no existing mock changed. Conflicts resolve by keeping the harbor block alongside upstream's mocks."
+    owner: "vingilot/runs"
+    removable_when: "The harbor commands are removed."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/helpers/bridge.ts"
+    reason: "Also declared elsewhere; the harbor adds the typed options that seed its e2eBridge mock state from a spec. Additive; conflicts resolve by keeping the harbor options."
+    owner: "vingilot/runs"
+    removable_when: "The harbor commands are removed."
+    status: "permanent"
     added: "2026-08-13"

@@ -2,6 +2,7 @@ import * as React from "react";
 import { Check, Copy } from "lucide-react";
 
 import { HostedCommunityOnboarding } from "@/features/communities/ui/HostedCommunityOnboarding";
+import { LocalHarborOnboarding } from "@/features/communities/ui/LocalHarborOnboarding";
 import { useCommunityOnboarding } from "@/features/onboarding/communityOnboarding";
 import { InviteRedeemForm } from "@/features/onboarding/ui/InviteRedeemForm";
 import { OnboardingChrome } from "@/features/onboarding/ui/OnboardingChrome";
@@ -21,7 +22,14 @@ import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { Button } from "@/shared/ui/button";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
-type WelcomeSetupPage = "welcome" | "existing" | "join" | "member" | "owned";
+type WelcomeSetupPage =
+  | "welcome"
+  | "existing"
+  | "create-choice"
+  | "local"
+  | "join"
+  | "member"
+  | "owned";
 type WelcomeTransitionMode = "initial" | OnboardingTransitionDirection;
 
 type WelcomeSetupProps = {
@@ -99,6 +107,21 @@ export function WelcomeSetup({
     [communityOnboarding, page],
   );
 
+  const startLocalHarbor = React.useCallback(
+    (relayUrl: string) => {
+      // The harbor is a community like any other: same entry point, no parallel
+      // onboarding. `communityName` is passed so it is not derived to the
+      // generic "Local Dev" every loopback host maps to.
+      communityOnboarding.start({
+        source: "first-community",
+        firstCommunityPage: "local",
+        relayUrl,
+        communityName: "Home harbor",
+      });
+    },
+    [communityOnboarding],
+  );
+
   const transitionDirection =
     transitionMode === "backward" ? "backward" : "forward";
   const welcomeEffect =
@@ -143,7 +166,7 @@ export function WelcomeSetup({
                 <button
                   className={COMMUNITY_OPTION_CARD_CLASS}
                   data-testid="community-choice-create"
-                  onClick={() => setIsHostedSignInOpen(true)}
+                  onClick={() => showPage("create-choice")}
                   type="button"
                 >
                   Create a community
@@ -213,6 +236,60 @@ export function WelcomeSetup({
                   Back
                 </Button>
               </OnboardingFooter>
+            </OnboardingSlideTransition>
+          ) : page === "create-choice" ? (
+            <OnboardingSlideTransition
+              className="flex h-full min-h-0 w-full flex-col items-center text-center"
+              containerClassName="h-full min-h-0 [&>.buzz-onboarding-transition-line]:h-full"
+              direction={transitionDirection}
+              transitionKey={`create-choice-${transitionDirection}`}
+            >
+              <div className="w-full max-w-[760px]">
+                <h1 className="text-title font-normal">Create a community</h1>
+                <p className="mt-3 text-sm leading-6 text-foreground/80">
+                  Host it with Block, or run the whole thing on this Mac.
+                </p>
+              </div>
+              <div className="flex w-full flex-1 flex-col items-center justify-center gap-5 py-8">
+                <button
+                  className={COMMUNITY_OPTION_CARD_CLASS}
+                  data-testid="community-choice-create-hosted"
+                  onClick={() => setIsHostedSignInOpen(true)}
+                  type="button"
+                >
+                  Create a hosted community
+                </button>
+                <button
+                  className={COMMUNITY_OPTION_CARD_CLASS}
+                  data-testid="community-choice-create-local"
+                  onClick={() => showPage("local")}
+                  type="button"
+                >
+                  Run Vingilot on this Mac
+                </button>
+              </div>
+              <OnboardingFooter>
+                <Button
+                  className="h-9 rounded-full bg-foreground/10 px-6 hover:bg-foreground/15"
+                  data-testid="create-choice-back"
+                  onClick={() => showPage("welcome")}
+                  type="button"
+                  variant="ghost"
+                >
+                  Back
+                </Button>
+              </OnboardingFooter>
+            </OnboardingSlideTransition>
+          ) : page === "local" ? (
+            <OnboardingSlideTransition
+              className="flex h-full min-h-0 w-full flex-col items-center text-center"
+              direction={transitionDirection}
+              transitionKey={`local-${transitionDirection}`}
+            >
+              <LocalHarborOnboarding
+                onBack={() => showPage("create-choice")}
+                onReady={startLocalHarbor}
+              />
             </OnboardingSlideTransition>
           ) : page === "owned" ? (
             <OnboardingSlideTransition

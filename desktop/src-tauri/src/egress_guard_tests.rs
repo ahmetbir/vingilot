@@ -409,7 +409,12 @@ fn ncryptsec_handling_is_confined_to_allowlisted_files() {
         "src/egress_guard_tests.rs",
         "src/commands/identity.rs",
         "src/commands/identity_key_backup_tests.rs",
-        "src/lib.rs", // module registration + invoke handler
+        "src/lib.rs", // module registration
+        // The invoke handler, which names the three ncryptsec commands. It used
+        // to be in lib.rs and moved out for the line ratchet
+        // (vingilot/seams/home-harbor.yaml); it is a registration table and
+        // handles no key material, exactly as lib.rs did not.
+        "src/vingilot_command_table.rs",
         // boundary wiring (guard call sites name the module, not the codec):
         "src/relay.rs",
         "src/relay/submit.rs",

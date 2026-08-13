@@ -1,0 +1,255 @@
+# Build the relay and publish it as the fork's own image.
+#
+# This replaces upstream's inherited `.github/workflows/docker.yml`, which was
+# deleted rather than edited. Read the failure it died of, because it is the
+# whole reason this file exists — from run 31699317684, the arm64 relay job,
+# after ten minutes of a completely successful build:
+#
+#   #51 exporting to image
+#   ERROR: failed to push ghcr.io/block/buzz: denied: permission_denied:
+#          The requested installation does not exist.
+#
+# So: GHCR, not ECR, and the Dockerfile was never the problem. The problem was
+# the namespace — `ghcr.io/block/buzz` belongs to upstream and this fork's
+# GITHUB_TOKEN cannot write it — and the trigger, `push: branches: [main]`,
+# which meant every single commit to main took that same ten minutes and then
+# went red. That workflow also published a second image (the push gateway) and
+# stitched two native-arch builds into a multi-arch manifest through a digest
+# artifact dance, none of which this fork consumes.
+#
+# What this publishes: `ghcr.io/ahmetbir/vingilot-relay`, the root Dockerfile's
+# `runtime` target — buzz-relay, buzz-admin and buzz-pair-relay plus both web
+# bundles, which is what the home harbor's compose bundle runs.
+#
+# ── arm64 only, deliberately ─────────────────────────────────────────────────
+#
+# One architecture, one job, no manifest stitching. The consumer of this image
+# is the owner's Apple Silicon Mac running the home harbor, so linux/arm64 is
+# the architecture that is actually pulled. The two ways to add amd64 both cost
+# more than they are worth here: QEMU emulation on one runner turns a ten-minute
+# Rust build into an hours-long one, and a native-runner matrix needs the
+# push-by-digest + `imagetools create` merge job that made the file this
+# replaces four jobs long. If an amd64 consumer ever appears, add a second
+# native runner and the merge job then — with a reason, rather than carrying the
+# machinery now for nobody.
+#
+# ── How a version becomes a tag ──────────────────────────────────────────────
+#
+#   push tag vingilot-v0.2.5       → :0.2.5  and  :latest
+#   push tag vingilot-v0.3.0-rc.1  → :0.3.0-rc.1  (:latest does not move)
+#   workflow_dispatch, version=X   → the same, from the input (first publish,
+#                                     and any rescue)
+#   pull_request                   → build only, never pushed
+#
+# The stripping of `vingilot-v` and the stable/prerelease decision live in
+# vingilot/scripts/relay-image-version.sh, not in a metadata-action expression,
+# because that decision has refusals in it (a branch has no version; a `+build`
+# suffix cannot be a container tag) and refusals deserve a test. The tags here
+# are `type=raw` lookups of what that script decided, so what gets published is
+# what the script's assertions cover.
+#
+# `vingilot-v*.*.*` is also vingilot-desktop.yml's release trigger, and that is
+# accepted rather than worked around: the fork has one version line, so the
+# relay image version is the release it shipped in. The harbor bundle pins a
+# digest regardless — a floating tag is how a working install changes under
+# someone overnight.
+#
+# ── Two notes for whoever wires the harbor up ────────────────────────────────
+#
+# 1. The digest to pin is printed in this workflow's run summary.
+# 2. GHCR packages start PRIVATE. metadata-action stamps
+#    org.opencontainers.image.source at THIS repository, which is what lets GHCR
+#    link the package to it and inherit its public visibility — the Dockerfile's
+#    own LABEL says block/buzz and would link the package to the wrong place, so
+#    the `--label` flags below deliberately override it. Check the package's
+#    visibility once after the first publish: the harbor pulls anonymously on a
+#    user's machine, and a private package makes `docker compose up` fail with
+#    an authentication error that looks nothing like the real cause.
+
+name: Vingilot relay image
+
+on:
+  push:
+    tags:
+      - "vingilot-v*.*.*"
+  pull_request:
+    paths:
+      # The image's own inputs. `web/**` and `admin-web/**` are in here because
+      # the Dockerfile builds both bundles into the image: a broken vite build
+      # is a broken relay image, and this is where that shows up.
+      - "Dockerfile"
+      - ".dockerignore"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "crates/**"
+      - "web/**"
+      - "admin-web/**"
+      - "pnpm-lock.yaml"
+      - "patches/**"
+      # And the publisher itself, so a change to any of these three files is
+      # exercised by the pull request that makes it.
+      - ".github/workflows/vingilot-relay-image.yml"
+      - "vingilot/scripts/relay-image-version.sh"
+      - "vingilot/scripts/test-relay-image-version.sh"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 0.2.4 (no vingilot-v prefix). Required — a dispatch runs from a branch, and a branch carries no version."
+        required: true
+
+# Cancel superseded pull-request builds; never cancel a publish mid-flight.
+concurrency:
+  group: vingilot-relay-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Deny by default; each job grants only what it needs.
+permissions: {}
+
+env:
+  IMAGE_NAME: ghcr.io/ahmetbir/vingilot-relay
+
+jobs:
+  # Seconds of runtime, and it runs before the ninety-minute job rather than
+  # inside it: a publisher that resolved the wrong version, or that lost its
+  # owner guard, should fail in the first ten seconds and say which assertion
+  # broke.
+  contract:
+    # The OWNER, not the full owner/name — a `pull_request` workflow runs from
+    # the merge commit, so without this a fork-to-upstream PR would carry this
+    # publisher into block/buzz's CI. Same guard, same reasoning, as every job
+    # in vingilot-desktop.yml.
+    if: github.repository_owner == 'ahmetbir'
+    name: Publisher contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: The version resolver's own assertions
+        run: ./vingilot/scripts/test-relay-image-version.sh
+
+  image:
+    # Owner, not owner/name — see the note on the `contract` job.
+    if: github.repository_owner == 'ahmetbir'
+    name: Build and publish (linux/arm64)
+    needs: [contract]
+    runs-on: ubuntu-24.04-arm
+    # A cold Rust workspace build with no cache hit is the worst case. The
+    # warm case measured on this runner class is about ten minutes.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write # push to GHCR; no other credential is involved
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      # Skipped on a pull request, which publishes nothing and therefore needs
+      # no version. The script appends `version=` and `stable=` directly.
+      - name: Resolve the version to publish
+        id: version
+        if: github.event_name != 'pull_request'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: ./vingilot/scripts/relay-image-version.sh "$GITHUB_REF_NAME" "$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        with:
+          # Buildkit's default parallelism of 4 OOMs a GitHub runner during Rust
+          # compiles (moby/buildkit#3969). Upstream learned this here; the cap
+          # is worth keeping.
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+
+      # A pull request from a fork has no GHCR credentials and builds only.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          # `latest=false`: :latest is emitted by the explicit raw tag below,
+          # gated on the resolver's own stable/prerelease decision, so there is
+          # exactly one thing in this file that decides whether :latest moves.
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }}
+            type=raw,value=latest,enable=${{ steps.version.outputs.stable == 'true' }}
+            type=ref,event=pr
+          # metadata-action also generates source/url/revision/created from this
+          # repository's context, and build-push-action passes all of them as
+          # `--label`, which overrides the Dockerfile's own LABEL block. That
+          # override is load-bearing: see the note at the top of this file about
+          # GHCR package visibility.
+          labels: |
+            org.opencontainers.image.title=Vingilot relay
+            org.opencontainers.image.description=The Buzz relay as Vingilot ships it - the server half of the home harbor
+
+      - name: Build the relay image
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile
+          # `runtime`, the stripped default target. `runtime-debug` exists for
+          # native profilers and is not something a home harbor pulls.
+          target: runtime
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # A single-platform image with provenance becomes an OCI index with an
+          # unknown/unknown entry, and the digest to pin then names the index
+          # rather than the image. Off, so the digest in the summary is the
+          # image's own.
+          provenance: false
+          # Two caches, read in order: the fork's own, and upstream's public
+          # arm64 buildcache. The second is why the first build after this lands
+          # is not a cold one — the crates are still upstream's, so upstream's
+          # layers still hit. A missing or unreadable cache ref is a buildkit
+          # warning, not a failure.
+          cache-from: |
+            type=registry,ref=${{ env.IMAGE_NAME }}-buildcache:arm64
+            type=registry,ref=ghcr.io/block/buzz-buildcache:arm64
+          cache-to: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('type=registry,ref={0}-buildcache:arm64,mode=max,compression=zstd', env.IMAGE_NAME) || '' }}
+
+      - name: Say what was published
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Published \`${IMAGE}\` (linux/arm64)"
+            echo
+            echo "**Tags**"
+            echo '```'
+            printf '%s\n' "$TAGS"
+            echo '```'
+            echo
+            echo "**Pin this digest in the harbor bundle.** A floating tag is how a working install changes under someone overnight."
+            echo '```'
+            echo "${IMAGE}@${DIGEST}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Say what was built
+        if: github.event_name == 'pull_request'
+        run: echo "Built the relay image for linux/arm64 and pushed nothing. Publishing happens on a vingilot-v tag or a manual dispatch." >> "$GITHUB_STEP_SUMMARY"

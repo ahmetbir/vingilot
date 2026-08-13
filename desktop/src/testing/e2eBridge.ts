@@ -11,6 +11,14 @@ import {
 } from "./e2eBridgeCustomHarnesses.ts";
 
 import { relayClient } from "@/shared/api/relayClient";
+import {
+  HARBOR_RELAY_URL,
+  HARBOR_STEP_EVENT,
+  type HarborProbe,
+  type HarborStartReport,
+  type HarborStatus,
+  type HarborStep,
+} from "@/shared/api/tauriHarbor";
 import { activateRateLimit } from "@/shared/api/relayRateLimitGate";
 import type { ConnectionState } from "@/shared/api/relayClientShared";
 import type { ChannelTemplate, RelayEvent } from "@/shared/api/types";
@@ -158,6 +166,31 @@ type MockHuddleSeed = {
   isCreator?: boolean;
 };
 
+/**
+ * Home harbor (`vingilot_harbor`) command responses for the mock bridge. Every
+ * field is optional so a spec seeds only what it exercises: a docker-absent
+ * probe, a step stream, a status the settings card draws, or a start/stop
+ * failure sentence. Mirror of the test-facing shape in tests/helpers/bridge.ts.
+ */
+type MockHarbor = {
+  /** `harbor_probe` result. Default is a ready docker engine. */
+  probe?: HarborProbe;
+  /** Steps emitted on {@link HARBOR_STEP_EVENT} during `harbor_install_and_start`. */
+  installSteps?: HarborStep[];
+  /** `harbor_install_and_start` report. Default is an all-done success. */
+  installReport?: HarborStartReport;
+  /** When set, `harbor_install_and_start` rejects with this message. */
+  installError?: string;
+  /** `harbor_status` result. Default is a running harbor. */
+  status?: HarborStatus;
+  /** Successive `harbor_status` results; call N returns N, the last repeats. */
+  statusSequence?: HarborStatus[];
+  /** When set, `harbor_start` rejects with this message. */
+  startError?: string;
+  /** When set, `harbor_stop` rejects with this message. */
+  stopError?: string;
+};
+
 type E2eConfig = {
   mode?: "mock" | "relay";
   mock?: {
@@ -168,6 +201,8 @@ type E2eConfig = {
     };
     /** Native picker boundary result for Pocket voice import tests. */
     pocketVoiceImportResult?: "success" | "cancel" | "invalid";
+    /** Home harbor (`vingilot_harbor`) command responses. See MockBridgeOptions. */
+    harbor?: MockHarbor;
     /** Advertised HEAD for the first mock project without adding that branch. */
     projectHeadBranch?: string;
     /** Builderlab account returned by hosted-community onboarding. Null/omitted = signed out. */
@@ -7194,6 +7229,9 @@ function withMockRuntimeConfigMetadata(
 
 let runtimeCatalogDiscoveryCount = 0;
 let mockInstallCompleted = false;
+// Successive `harbor_status` calls walk a seeded `statusSequence`; the last
+// entry repeats. Lets a spec follow a harbor from starting → running.
+let harborStatusCount = 0;
 let mockConnectCompleted = false;
 
 async function handleDiscoverAcpRuntimes(
@@ -10296,6 +10334,92 @@ export function maybeInstallE2eTauriMocks() {
             normalized_host: `${name}.communities.buzz.xyz`,
           },
         };
+      }
+      case "harbor_probe":
+        return (
+          activeConfig?.mock?.harbor?.probe ?? {
+            docker: "ready",
+            refusal: null,
+            installUrl: null,
+            engine: "27.0.0",
+          }
+        );
+      case "harbor_install_and_start": {
+        const harbor = activeConfig?.mock?.harbor;
+        if (harbor?.installError) throw new Error(harbor.installError);
+        for (const step of harbor?.installSteps ?? []) {
+          await emit(HARBOR_STEP_EVENT, step);
+        }
+        return (
+          harbor?.installReport ?? {
+            steps: harbor?.installSteps ?? [
+              {
+                step: "checking-docker",
+                state: "done",
+                detail: "Docker is running.",
+              },
+              {
+                step: "writing-bundle",
+                state: "done",
+                detail: "Wrote the harbor bundle.",
+              },
+              {
+                step: "starting",
+                state: "done",
+                detail: "Started the containers.",
+              },
+              {
+                step: "waiting-for-health",
+                state: "done",
+                detail: "The relay is answering.",
+              },
+            ],
+            relayUrl: HARBOR_RELAY_URL,
+            failure: null,
+          }
+        );
+      }
+      case "harbor_status": {
+        const harbor = activeConfig?.mock?.harbor;
+        if (harbor?.statusSequence && harbor.statusSequence.length > 0) {
+          const index = Math.min(
+            harborStatusCount,
+            harbor.statusSequence.length - 1,
+          );
+          harborStatusCount += 1;
+          return harbor.statusSequence[index];
+        }
+        return (
+          harbor?.status ?? {
+            state: "running",
+            docker: "ready",
+            services: [
+              { service: "relay", state: "running", health: "healthy" },
+              { service: "postgres", state: "running", health: "healthy" },
+              { service: "redis", state: "running", health: "healthy" },
+            ],
+            relayUrl: HARBOR_RELAY_URL,
+            composePath: "/Users/dev/.vingilot/harbor/harbor-compose.yml",
+            envPath: "/Users/dev/.vingilot/harbor/harbor.env",
+            composeIsShipped: true,
+            uninstall: {
+              down: "docker compose -p vingilot-harbor -f /Users/dev/.vingilot/harbor/harbor-compose.yml down",
+              volumes:
+                "docker volume rm vingilot-harbor_postgres vingilot-harbor_redis vingilot-harbor_git",
+            },
+            message: null,
+          }
+        );
+      }
+      case "harbor_start": {
+        const startError = activeConfig?.mock?.harbor?.startError;
+        if (startError) throw new Error(startError);
+        return null;
+      }
+      case "harbor_stop": {
+        const stopError = activeConfig?.mock?.harbor?.stopError;
+        if (stopError) throw new Error(stopError);
+        return null;
       }
       case "mesh_installed_models":
         return mockMeshState.models;
