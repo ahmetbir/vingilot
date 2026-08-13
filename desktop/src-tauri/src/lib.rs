@@ -43,6 +43,7 @@ mod vingilot_agent;
 mod vingilot_brand;
 mod vingilot_editor;
 mod vingilot_files;
+mod vingilot_hooks;
 mod vingilot_projects;
 mod vingilot_pty;
 mod vingilot_repo;
@@ -472,6 +473,7 @@ pub fn run() {
                     .media_proxy_port
                     .store(port, std::sync::atomic::Ordering::Relaxed);
             });
+            tauri::async_runtime::spawn(vingilot_hooks::start_and_report()); // See vingilot_hooks.
 
             // Create the Buzz nest (~/.buzz or ~/.buzz-dev for dev builds) before
             // agents are restored, so default_agent_workdir() resolves to the
@@ -686,6 +688,7 @@ pub fn run() {
             vingilot_editor::editor_probe,
             vingilot_files::read::file_read,
             vingilot_files::tree::worktree_tree,
+            vingilot_hooks::hook_liveness,
             vingilot_projects::projects_load,
             vingilot_projects::projects_save,
             vingilot_pty::pty_open,
