@@ -1,0 +1,42 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the home harbor
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: making Vingilot run on one machine with no host to
+# join (vingilot/docs/plans/2026-08-13-home-harbor.md). Task 1 is the relay
+# image the harbor pulls — the fork publishing a relay image under its own name
+# instead of failing to publish one under upstream's.
+#
+# Nothing here touches how the relay is built. The root Dockerfile already
+# builds it, correctly, and is unmodified: run 31699317684 in this fork proved
+# it, reaching `#51 exporting to image` on a native arm64 runner and then dying
+# on the push alone -- `failed to push ghcr.io/block/buzz: denied:
+# permission_denied`. The namespace was the bug, so the namespace is what these
+# entries change.
+
+seams:
+  - path: ".github/workflows/vingilot-relay-image.yml"
+    reason: "New, fork-owned: the publisher for ghcr.io/ahmetbir/vingilot-relay, the image the home harbor pulls. Actions reads workflows from this fixed path, so it cannot live under vingilot/, and the decision it makes -- which version to publish, and whether that version moves :latest -- is delegated to vingilot/scripts/relay-image-version.sh so the refusals in it can be tested off a runner. It replaces upstream's docker.yml rather than overriding its GHCR_IMAGE variable: that variable would have fixed the namespace and left the rest, and the rest is a second image the fork does not consume (the push gateway), a push-to-main trigger that spent ten minutes of a runner on every commit, and a push-by-digest plus imagetools merge job that exists only to stitch two architectures. One arch here, deliberately -- the consumer is an Apple Silicon Mac, so linux/arm64 on a native ubuntu-24.04-arm runner is what actually gets pulled, and neither QEMU nor a merge job earns its cost for a consumer that does not exist yet. Publishes only on a vingilot-v*.*.* tag or a manual dispatch; a pull request builds the image and pushes nothing. Guarded on github.repository_owner == ahmetbir for the same reason every job in vingilot-desktop.yml is: a pull_request workflow runs from the merge commit, so without it a fork-to-upstream PR would carry this publisher into block/buzz CI."
+    owner: "vingilot/ci"
+    removable_when: "Never, while the fork ships a relay image of its own. Replaceable only if upstream publishes an image the harbor can pull unmodified and the fork stops needing its own namespace."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: ".github/workflows/docker.yml"
+    reason: "DELETED. Upstream's relay publisher, inherited by the fork and red on every single push to main since the fork existed: it pushes ghcr.io/block/buzz and ghcr.io/block/buzz-push-gateway, and this fork's GITHUB_TOKEN cannot write either namespace (`denied: permission_denied: The requested installation does not exist`, run 31699317684). Deleted rather than kept-and-neutered, because every mechanism for neutering it leaves a live publisher for a release lane the fork does not have: the file also carries upstream's relay-v release contract, its scripts/verify-release-ref.sh gate, its provenance attestation for the block namespace, and a second image (the push gateway) the fork neither builds nor deploys. A repository variable GHCR_IMAGE would have redirected the relay half and left the push-gateway half failing. The fork's replacement is .github/workflows/vingilot-relay-image.yml. This entry is what authorises the deletion -- the seam gate checks deleted paths as well as added ones -- and it stays in the registry so an upstream merge that reintroduces the file is a decision rather than a surprise."
+    owner: "vingilot/ci"
+    removable_when: "Upstream stops publishing images from this repository, or the fork gains write access to the block GHCR namespace and wants upstream's publisher back."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "scripts/test-release-ref-contract.sh"
+    reason: "Two assertions in upstream's release-source contract name .github/workflows/docker.yml by path -- one grep for inputs.ref across the publishers, one grep for verify-release-ref.sh in each -- and grep exits 2 on a missing file, which under this script's `set -e` turns the deletion above into a red gate for the wrong reason. It is not a cosmetic red either: the step runs in ci.yml's `Detect Changed Paths` job, which is a `needs:` for most of that workflow, so a failure there cascades into skipping the fork's inherited CI. The change is the smallest one that keeps the contract honest: build the publisher list from the workflows that are actually present, and assert over that list. Every assertion upstream wrote about release.yml still runs unchanged, and if docker.yml ever comes back the two assertions come back with it. It has to be at this path because the assertions are inline greps in this script, not data any fork-owned file could supply."
+    owner: "vingilot/ci"
+    removable_when: "Upstream makes the contract tolerant of an absent publisher on its own, or the fork carries docker.yml again."
+    status: "temporary"
+    added: "2026-08-13"
