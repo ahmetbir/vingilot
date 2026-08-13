@@ -5,6 +5,7 @@ import {
   useAcpRuntimesQuery,
   useManagedAgentsQuery,
 } from "@/features/agents/hooks";
+import { useAgentAccessOwnerOnlyQuery } from "@/features/agents/useAgentAccessOwnerOnly";
 import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
 import { clearActiveTurnsForAgentOnStop } from "@/features/agents/managedAgentRuntimeHooks";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -15,6 +16,7 @@ import {
   pickWelcomeTeamStarterAgentForRelay,
   WELCOME_TEAM_STARTERS,
   type WelcomeTeamStarterDefinition,
+  welcomeTeammateHasExpectedAccess,
 } from "@/features/onboarding/welcomeGuide";
 import { isWelcomeChannel } from "@/features/onboarding/welcome";
 import { getThreadReference } from "@/features/messages/lib/threading";
@@ -360,13 +362,15 @@ async function markerExists(channelId: string, marker: string) {
 export function welcomeTeammateNeedsRestart(
   agent: ManagedAgent,
   leadPubkey: string,
+  agentAccessOwnerOnly = false,
 ) {
   return (
     agent.status === "running" &&
     (agent.needsRestart ||
-      agent.respondTo !== "allowlist" ||
-      !agent.respondToAllowlist.some(
-        (pubkey) => normalizePubkey(pubkey) === normalizePubkey(leadPubkey),
+      !welcomeTeammateHasExpectedAccess(
+        agent,
+        leadPubkey,
+        agentAccessOwnerOnly,
       ))
   );
 }
@@ -498,6 +502,8 @@ export function useWelcomeKickoff(
   const { activeCommunity } = useCommunities();
   const runtimesQuery = useAcpRuntimesQuery();
   const managedAgentsQuery = useManagedAgentsQuery();
+  const agentAccessOwnerOnlyQuery = useAgentAccessOwnerOnlyQuery();
+  const agentAccessOwnerOnly = agentAccessOwnerOnlyQuery.data;
   const { globalConfig, isLoading: configLoading } = useGlobalAgentConfig();
   const channelId = activeChannel?.id ?? null;
   const isActiveWelcome = isWelcomeChannel(activeChannel);
@@ -558,7 +564,8 @@ export function useWelcomeKickoff(
       !channelId ||
       !isActiveWelcome ||
       configLoading ||
-      runtimesQuery.isPending
+      runtimesQuery.isPending ||
+      agentAccessOwnerOnly === undefined
     ) {
       return;
     }
@@ -612,7 +619,11 @@ export function useWelcomeKickoff(
             );
             if (
               isTeammate &&
-              welcomeTeammateNeedsRestart(agent, resolvedAgentSet.lead.pubkey)
+              welcomeTeammateNeedsRestart(
+                agent,
+                resolvedAgentSet.lead.pubkey,
+                agentAccessOwnerOnly,
+              )
             ) {
               return restartWelcomeTeammate(agent, {
                 onStopped: () => clearActiveTurnsForAgentOnStop(agent.pubkey),
@@ -689,6 +700,7 @@ export function useWelcomeKickoff(
     })();
   }, [
     activeCommunity?.relayUrl,
+    agentAccessOwnerOnly,
     channelId,
     configLoading,
     isActiveWelcome,

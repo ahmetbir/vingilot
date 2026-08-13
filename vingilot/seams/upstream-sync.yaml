@@ -1,0 +1,59 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: upstream sync (block/buzz 0.5.11)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: the workflow touches the 0.5.3 -> 0.5.11 merge forced.
+# Upstream's 231-commit sync brought two new CI workflows that carry the exact
+# failure vingilot/seams/home-harbor.yaml already deleted docker.yml for — a
+# publisher for a ghcr.io/block/* image the fork cannot write, and an inherited
+# smoke lane that runs on every push to a repo the fork does not have the infra
+# for. docker.yml itself, and scripts/test-release-ref-contract.sh, are already
+# declared in home-harbor.yaml; only the two new paths appear here.
+
+seams:
+  - path: ".github/workflows/sprig-image.yml"
+    reason: "DELETED. New in upstream 0.5.11: the publisher for ghcr.io/block/buzz-sprig, the digest-pinned box the Kubernetes backend pulls. It triggers on push to main and pushes to the block GHCR namespace, which this fork's GITHUB_TOKEN cannot write — the identical denied: permission_denied failure that made the fork delete docker.yml, on an image the fork neither builds nor deploys (the Kubernetes backend is upstream-only). The IMAGE_NAME var indirection would still leave a push-to-main publisher for a release lane the fork does not have, so it is deleted rather than neutered, exactly as docker.yml was. This entry authorises the deletion — the seam gate checks deleted paths as well as added ones — and stays in the registry so a later upstream merge that reintroduces the file is a decision rather than a surprise."
+    owner: "vingilot/ci"
+    removable_when: "Upstream stops publishing the sprig image from this repository, or the fork gains write access to the block GHCR namespace and ships the Kubernetes backend."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: ".github/workflows/mesh-lifecycle.yml"
+    reason: "New in upstream 0.5.11: the relay-driven mesh lifecycle smoke, which runs on every push to main and stands up block-only mesh infra. Guarded rather than deleted because it is trivially guardable — one job, gained one line, if github.repository == block/buzz — and keeping the file whole means a future upstream edit to it merges cleanly instead of re-adding a path the fork keeps having to delete. The guard names the exact repository, not the owner, for the reason vingilot-desktop.yml's guards give: a skipped job reports green with no work done, and a repository rename must not silently re-enable a lane that needs infra the fork does not have."
+    owner: "vingilot/ci"
+    removable_when: "Upstream gates the lifecycle smoke on its own repository, or the fork gains the mesh infra the smoke exercises."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/managed_agents/spawn_snapshot.rs"
+    reason: "The spawn_hash -> spawn_snapshot port. Upstream deleted managed_agents/spawn_hash.rs (the fork's seam for it is at vingilot/seams.yaml, the reply-path fix that routes the spawn hash through effective_mcp_command so an unclassified preset/custom harness resolves to buzz-dev-mcp rather than to nothing) and moved the same computation into this new file's SpawnConfig::from_inputs. The one-line intent moved with it: mcp_command is now effective_mcp_command(known_acp_runtime(&descriptor.command)) instead of the inline and_then(mcp_command).unwrap_or(\"\") upstream ships, so a running agent still shows the restart badge that reflects its real reply path. Same reason and same footing as the original spawn_hash.rs seam; it has to be at this path because the spawn snapshot is where upstream now derives the value."
+    owner: "vingilot/agents"
+    removable_when: "The MCP command stops being a spawn input the desktop derives, or upstream classifies tier-2 presets itself."
+    status: "temporary"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/commands/agent_discovery/managed_node_tests.rs"
+    reason: "One test assertion, forced by the brand sweep. Upstream 0.5.11 moved managed_node.rs's inline #[cfg(test)] module out to this new external file (#[path] mod tests). managed_node.rs's own product-name strings are a declared brand seam (vingilot/seams/brand-sweep.yaml) — the npm-EACCES hint reads 'Vingilot's private Node tools directory' — and this file's test_npm_eacces_hint_guidance assertion greps for that exact string, so leaving it as upstream's 'Buzz's private Node tools directory' would fail the test against the fork's own production string. Product-name only, the same axis brand-sweep.yaml authorises for managed_node.rs; it has to be at this path because the assertion is an inline literal in this test file."
+    owner: "vingilot/brand"
+    removable_when: "managed_node.rs's product-name strings stop being brand-swept, or upstream stops asserting the hint text verbatim."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/agents/ui/RestartDiffBadge.tsx"
+    reason: "One product-name string, forced by the brand sweep. Upstream 0.5.11 extracted the auto-restart blurb into this new file's AUTO_RESTART_ON_BLURB constant ('… Buzz can restart it automatically after ~3 minutes idle …'), which UserProfilePanelTabs.tsx (a declared brand seam) now renders instead of the inline string the fork had rebranded to Vingilot. The rename follows the constant to its new home so the user-facing copy stays Vingilot. Product-name only, the same axis brand-sweep.yaml authorises across the desktop UI; it has to be at this path because the string is an inline literal in this new file."
+    owner: "vingilot/brand"
+    removable_when: "Upstream stops holding the blurb as a product-named constant, or the brand sweep is retired."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/e2e/buzz-term-wheel.spec.ts"
+    reason: "Upstream's Buzz Term wheel spec, kept beside the fork's own. Upstream 0.5.11 added desktop/tests/e2e/terminal-wheel.spec.ts (233 lines, asserting a wheel over the Buzz Term dock reaches terminal_scroll) at the exact path the fork already ships a different terminal-wheel.spec.ts (364 lines, asserting a wheel over the vingilot_pty terminal) — an add/add collision of two genuinely different tests. Rather than lose either coverage, upstream's file is renamed to this path and the fork's keeps terminal-wheel.spec.ts; both globs are unioned into playwright.config.ts's testMatch. It lives at the upstream-owned desktop/tests/e2e/ path for the same reason every fork spec does: that is where playwright.config.ts's testDir points. The content is upstream's, unedited apart from the filename."
+    owner: "vingilot/runs"
+    removable_when: "Upstream renames or removes its Buzz Term wheel spec so the path no longer collides, or the fork's own terminal-wheel spec is removed."
+    status: "permanent"
+    added: "2026-08-13"

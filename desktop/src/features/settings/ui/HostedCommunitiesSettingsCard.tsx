@@ -435,7 +435,10 @@ export function HostedCommunitiesSettingsCard() {
       ) : !auth ? (
         <div className="rounded-xl border border-border/70 p-5">
           <h3 className="font-medium">Sign in to manage hosted communities</h3>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          <p
+            className="mt-2 max-w-2xl text-sm text-muted-foreground/70"
+            data-settings-subcopy
+          >
             Authentication opens in your browser and returns securely to
             Vingilot. You can use every other part of the app without signing
             in.
@@ -479,7 +482,10 @@ export function HostedCommunitiesSettingsCard() {
               <h3 className="font-medium">
                 Link this account to your Buzz identity
               </h3>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p
+                className="mt-2 text-sm text-muted-foreground/70"
+                data-settings-subcopy
+              >
                 This Builderlab account isn&apos;t linked to a Buzz identity
                 yet. Connect this device&apos;s key to create and own
                 communities under it — Vingilot signs a one-time challenge
@@ -504,7 +510,10 @@ export function HostedCommunitiesSettingsCard() {
                   <h3 className="font-medium">
                     This account is connected to a different Buzz identity
                   </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
+                  <p
+                    className="mt-2 text-sm text-muted-foreground/70"
+                    data-settings-subcopy
+                  >
                     Your Builderlab account owns communities under another Buzz
                     key, so connecting them here would join a relay this device
                     isn&apos;t a member of. Creating and connecting are paused
@@ -614,7 +623,10 @@ export function HostedCommunitiesSettingsCard() {
           >
             <div>
               <h3 className="font-medium">Create a community</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p
+                className="mt-1 text-sm text-muted-foreground/70"
+                data-settings-subcopy
+              >
                 Choose the address your team will use to connect.
               </p>
             </div>
@@ -765,7 +777,10 @@ function CommunityRow({
         {showIconPicker ? <CommunityIconSettingsCard compact /> : null}
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{displayName}</p>
-          <p className="truncate text-xs text-muted-foreground">
+          <p
+            className="truncate text-xs text-muted-foreground/70"
+            data-settings-subcopy
+          >
             {community.normalized_host}
             {archived ? " · Archived" : ""}
           </p>

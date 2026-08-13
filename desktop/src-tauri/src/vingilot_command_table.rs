@@ -157,7 +157,6 @@ macro_rules! table {
             get_relay_ws_url,
             get_relay_http_url,
             get_media_proxy_port,
-            fetch_link_preview_title,
             discover_acp_auth_methods,
             discover_acp_providers,
             discover_git_bash_prerequisite,
@@ -379,6 +378,41 @@ macro_rules! table {
             tray_menu::take_tray_actions,
             #[cfg(target_os = "macos")]
             tray_menu::update_tray_agent_activity,
+            // ── Upstream 0.5.11 merge: commands added by block/buzz across the
+            // 231-commit sync. Same names/paths/cfg as upstream's lib.rs
+            // generate_handler!; they resolve in lib.rs's crate-root scope like
+            // every entry above. ──────────────────────────────────────────────
+            terminal_runtime::terminal_attach,
+            terminal_runtime::terminal_detach,
+            terminal_runtime::terminal_close,
+            terminal_runtime::terminal_input,
+            terminal_runtime::terminal_resize,
+            terminal_runtime::terminal_scroll,
+            terminal_runtime::terminal_ack,
+            terminal_runtime::terminal_viewport_ready,
+            terminal_runtime::terminal_focus,
+            #[cfg(target_os = "macos")]
+            macos_notifications::take_pending_activations,
+            #[cfg(target_os = "macos")]
+            macos_notifications::notification_permission_state,
+            #[cfg(target_os = "macos")]
+            macos_notifications::request_notification_access,
+            huddle::agent_voice::ensure_huddle_agent_voice_settings,
+            huddle::agent_voice::set_huddle_agent_tts_enabled,
+            huddle::agent_voice::set_huddle_agent_voice,
+            huddle::agents::sync_agents_to_active_huddle,
+            archive::get_agent_usage_series,
+            close_huddle_companion,
+            open_huddle_window,
+            interrupt_huddle_speech,
+            remove_agent_from_huddle,
+            set_huddle_manual_mic_unmuted,
+            read_clipboard_text,
+            upload_media_bytes_raw,
+            cancel_media_upload,
+            fetch_link_preview_metadata,
+            agent_access_owner_only,
+            start_identity_recovery_pairing,
         ]
     };
 }

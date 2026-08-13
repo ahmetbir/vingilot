@@ -1,12 +1,4 @@
-//! Initial-window presentation: reveal, opaque backing, and geometry
-//! settling — split out of `lib.rs`.
-//!
-//! Extracted because the desktop file-size ratchet holds `lib.rs` at its
-//! limit and registering a new Tauri plugin needed room. The repo's rule for
-//! that situation is to split the file, never to raise the limit, and these
-//! four items are the most cohesive unit in there: they all concern how the
-//! main window looks during its first frames, and nothing outside depends on
-//! their internals.
+//! First-frame window reveal helpers.
 
 #[cfg(target_os = "macos")]
 pub(crate) const INITIAL_RENDER_READY_EVENT: &str = "initial-render-ready";
@@ -23,9 +15,16 @@ pub(crate) fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>
 
 #[cfg(target_os = "macos")]
 pub(crate) fn set_initial_window_backing<R: tauri::Runtime>(window: &tauri::Window<R>) {
-    // The window remains transparent at runtime for vibrancy. Use an opaque
-    // native backing only across the first visible frames so the previous app
-    // cannot show through before WebKit has submitted its first surface.
+    // Both this write and the deferred clear target the Window (NSWindow)
+    // backing color only; they never touch the webview canvas or the
+    // NSVisualEffectView, so they are not load-bearing for glass. Glass state
+    // — the effect view and webview-canvas transparency — is managed entirely
+    // by `set_window_vibrancy`, which the ThemeProvider calls after mount. The
+    // 250ms-delayed clear cannot clobber a persisted-glass-on cold boot
+    // regardless of ordering with that call.
+    //
+    // Write an opaque dark backing so the previous app cannot show through
+    // before WebKit submits its first composited surface.
     if let Err(error) = window.set_background_color(Some(tauri::window::Color(17, 21, 24, 255))) {
         eprintln!("buzz-desktop: failed to set initial window backing: {error}");
     }
@@ -34,6 +33,10 @@ pub(crate) fn set_initial_window_backing<R: tauri::Runtime>(window: &tauri::Wind
 #[cfg(target_os = "macos")]
 pub(crate) async fn clear_initial_window_backing<R: tauri::Runtime>(window: &tauri::Window<R>) {
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    // Restore the default system window background so fast-resize gutter
+    // flashes match the platform theme rather than the hardcoded dark color
+    // written at reveal. Targets the Window (NSWindow) layer only; webview
+    // canvas and glass state are unaffected.
     if let Err(error) = window.set_background_color(None) {
         eprintln!("buzz-desktop: failed to clear initial window backing: {error}");
     }
@@ -52,10 +55,7 @@ pub(crate) async fn wait_for_stable_initial_window_geometry<R: tauri::Runtime>(
     for _ in 0..MAX_POLLS {
         // Accept whatever geometry the window-state plugin restores — maximized
         // or a normal saved size. macOS applies the restore asynchronously, so
-        // we only need consecutive identical outer bounds to know it settled.
-        // Gating on `is_maximized()` here would leave `bounds` permanently
-        // `None` for restored non-maximized windows and stall the reveal until
-        // the poll timeout.
+        // consecutive identical outer bounds are enough to know it settled.
         let bounds = match (window.outer_position(), window.outer_size()) {
             (Ok(position), Ok(size)) => Some((position.x, position.y, size.width, size.height)),
             _ => None,

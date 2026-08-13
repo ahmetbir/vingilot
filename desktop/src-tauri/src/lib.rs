@@ -1,4 +1,5 @@
 #![recursion_limit = "256"] // Deep Tauri command futures exceed the default layout query depth.
+mod app_menu;
 mod app_state;
 mod archive;
 mod builderlab;
@@ -11,7 +12,10 @@ mod huddle;
 mod identity_storage;
 mod initial_window;
 mod key_backup;
+mod link_preview_tags;
 mod linux_media;
+#[cfg(target_os = "macos")]
+mod macos_notifications;
 mod managed_agents;
 mod media_proxy;
 #[cfg(feature = "mesh-llm")]
@@ -33,6 +37,9 @@ mod reset;
 mod secret_store;
 mod shutdown;
 mod templates;
+mod terminal_runtime;
+#[cfg_attr(not(test), allow(dead_code))]
+mod terminal_transport;
 #[cfg(target_os = "macos")]
 mod tray_menu;
 mod util;
@@ -68,17 +75,14 @@ use huddle::audio_output::{
 };
 use huddle::reconnect::reconnect_huddle_audio;
 use huddle::{
-    add_agent_to_huddle, check_pipeline_hotstart, confirm_huddle_active, download_voice_models,
-    end_huddle, get_huddle_agent_pubkeys, get_huddle_state, get_model_status, get_voice_input_mode,
-    join_huddle, leave_huddle, push_audio_pcm, set_huddle_transcription_enabled, set_tts_enabled,
-    set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
+    add_agent_to_huddle, check_pipeline_hotstart, close_huddle_companion, confirm_huddle_active,
+    download_voice_models, end_huddle, get_huddle_agent_pubkeys, get_huddle_state,
+    get_model_status, get_voice_input_mode, interrupt_huddle_speech, join_huddle, leave_huddle,
+    open_huddle_window, push_audio_pcm, remove_agent_from_huddle, set_huddle_manual_mic_unmuted,
+    set_huddle_transcription_enabled, set_tts_enabled, set_voice_input_mode, speak_agent_message,
+    start_huddle, start_stt_pipeline, HuddlePhase,
 };
-use initial_window::reveal_initial_window;
-#[cfg(target_os = "macos")]
-use initial_window::{
-    clear_initial_window_backing, set_initial_window_backing,
-    wait_for_stable_initial_window_geometry, INITIAL_RENDER_READY_EVENT,
-};
+use initial_window::*;
 use managed_agents::{
     backfill_persona_snapshots, ensure_nest, list_managed_agent_runtimes,
     put_managed_agent_runtime_lifecycle, reconcile_managed_agent_runtimes,
@@ -91,13 +95,12 @@ use mesh_llm_stubs::*;
 use shutdown::{hard_exit_after_mesh_shutdown, relaunch_after_mesh_shutdown};
 use shutdown::{is_restart_request, shut_down_app};
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
-use tauri::{Emitter, Manager, RunEvent};
 #[cfg(target_os = "macos")]
-use tauri::{Listener, WindowEvent};
+use tauri::Listener;
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 #[cfg(target_os = "macos")]
 use tray_menu::show_main_window;
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // mesh-llm's async chains (model download, node start/join) overflow
@@ -127,7 +130,6 @@ pub fn run() {
             eprintln!("buzz-mesh: failed to build big-stack tokio runtime, using default: {error}");
         }
     }
-
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // Focus the existing window when a duplicate instance launches.
@@ -211,8 +213,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     // The global-shortcut plugin is omitted from test builds: linking it into
-    // the lib-test binary makes it fail to load on Windows
-    // (STATUS_ENTRYPOINT_NOT_FOUND) before any test runs.
+    // the lib-test binary makes it fail to load on Windows (STATUS_ENTRYPOINT_NOT_FOUND) before any test runs.
     #[cfg(not(test))]
     let builder = builder.plugin({
         use tauri_plugin_global_shortcut::ShortcutState;
@@ -309,10 +310,7 @@ pub fn run() {
         builder.plugin(tauri_plugin_updater::Builder::new().build())
     };
 
-    #[cfg(not(buzz_updater_enabled))]
-    let builder = builder;
-
-    let app = builder
+    let app = app_menu::install(builder)
         .register_asynchronous_uri_scheme_protocol("buzz-media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -328,10 +326,14 @@ pub fn run() {
         .manage(commands::pairing::PairingHandle::new())
         .manage(vingilot_pty::PtySessions::new())
         .manage(vingilot_window::WindowLayers::new())
+        .manage(terminal_runtime::TerminalSessions::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             #[cfg(target_os = "macos")]
-            tray_menu::init(&app_handle)?;
+            {
+                tray_menu::init(&app_handle)?;
+                macos_notifications::init(&app_handle)?;
+            }
 
             // ── Phase 2: boot-time sentinel wipe ──────────────────────────────
             // Must run before migrations and identity resolution so the wipe
@@ -632,13 +634,11 @@ pub fn run() {
                     }
                 });
             }
-
             Ok(())
         })
         .invoke_handler(vingilot_command_table::table!())
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
-
     let shutdown_done = Arc::new(AtomicBool::new(false));
 
     #[cfg(unix)]
@@ -654,11 +654,37 @@ pub fn run() {
             label,
             event: WindowEvent::CloseRequested { api, .. },
             ..
-        } => {
+        } if !label.starts_with("huddle-") => {
             // ⌘W and the red button both land here. The arm has to be in this
             // closure — `RunEvent` is delivered nowhere else — but everything
             // it does is the fork's, so all of it lives in `vingilot_window`.
+            // Huddle companion windows are excluded so upstream's arm below
+            // restores the drawer on their close (this arm would otherwise
+            // swallow the event and leave the huddle drawer hidden).
             vingilot_window::apply_close_request(app_handle, &label, &api);
+        }
+        RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::CloseRequested { .. },
+            ..
+        } if label.starts_with("huddle-") => {
+            let is_active_huddle_window =
+                app_handle
+                    .state::<AppState>()
+                    .huddle()
+                    .ok()
+                    .is_some_and(|huddle| {
+                        !matches!(huddle.phase, HuddlePhase::Idle | HuddlePhase::Leaving)
+                            && huddle
+                                .ephemeral_channel_id
+                                .as_deref()
+                                .is_some_and(|channel_id| label == format!("huddle-{channel_id}"))
+                    });
+            if is_active_huddle_window {
+                if let Err(error) = app_handle.emit("huddle-companion-returned", ()) {
+                    eprintln!("buzz-desktop: failed to restore huddle drawer: {error}");
+                }
+            }
         }
         RunEvent::ExitRequested { code, .. } => {
             if is_restart_request(code) {
