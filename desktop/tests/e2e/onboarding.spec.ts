@@ -9,6 +9,14 @@ import {
   seedActiveIdentity,
 } from "../helpers/onboarding";
 
+/**
+ * The welcome guide is the crew's lead (`WELCOME_TEAM_STARTERS[0]` in
+ * welcomeGuide.ts). Restated here rather than imported: these specs run against
+ * the built bundle through the mock bridge and do not import app modules.
+ */
+const WELCOME_GUIDE_NAME = "Navigator";
+const WELCOME_GUIDE_PERSONA = "builtin:navigator";
+
 type RelayConnectionState =
   | "connected"
   | "connecting"
@@ -541,31 +549,36 @@ async function expectWelcomeGuideIntro(
           Array<{ pubkey: string; name: string; persona_id: string | null }>
         >(page, "list_managed_agents"),
       ]);
-      const fizz = agents.find(
-        (agent) => agent.name === "Fizz" && agent.persona_id === "builtin:fizz",
+      // The crew's lead — Navigator — is the welcome guide (WELCOME_TEAM_STARTERS
+      // in welcomeGuide.ts). Fizz was the lead before the crew; an install that
+      // still has one is not what a first run provisions.
+      const lead = agents.find(
+        (agent) =>
+          agent.name === WELCOME_GUIDE_NAME &&
+          agent.persona_id === WELCOME_GUIDE_PERSONA,
       );
-      const fizzMember = fizz
-        ? members.members.find((member) => member.pubkey === fizz.pubkey)
+      const leadMember = lead
+        ? members.members.find((member) => member.pubkey === lead.pubkey)
         : null;
-      const profileAvatarUrl = fizz
+      const profileAvatarUrl = lead
         ? (
             await invokeMockCommand<{
               profiles: Record<string, { avatar_url: string | null }>;
             }>(page, "get_users_batch", {
-              pubkeys: [fizz.pubkey],
+              pubkeys: [lead.pubkey],
             })
-          ).profiles[fizz.pubkey]?.avatar_url
+          ).profiles[lead.pubkey]?.avatar_url
         : null;
 
       return {
-        fizzIsBot: fizzMember?.role === "bot" && fizzMember.is_agent,
-        fizzPersonaId: fizz?.persona_id ?? null,
+        leadIsBot: leadMember?.role === "bot" && leadMember.is_agent,
+        leadPersonaId: lead?.persona_id ?? null,
         profileAvatarUrl,
       };
     })
     .toEqual({
-      fizzIsBot: true,
-      fizzPersonaId: "builtin:fizz",
+      leadIsBot: true,
+      leadPersonaId: WELCOME_GUIDE_PERSONA,
       profileAvatarUrl: null,
     });
 
@@ -2847,7 +2860,7 @@ test("successful starter channel retry clears its actionable toast", async ({
   await expectStarterChannels(page);
 });
 
-test("first-run onboarding posts the live Fizz kickoff", async ({ page }) => {
+test("first-run onboarding posts the live crew kickoff", async ({ page }) => {
   await seedActiveIdentity(page, BLANK_TYLER_IDENTITY);
   await installMockBridge(
     page,
@@ -2869,10 +2882,10 @@ test("first-run onboarding posts the live Fizz kickoff", async ({ page }) => {
   // Greeted by the name typed above — the @mention pill also files the opener
   // into the new user's Inbox mentions feed.
   await expect(page.getByTestId("message-timeline")).toContainText(
-    "Hi @Morty QA, I'm Fizz. Welcome to Vingilot.",
+    "Hi @Morty QA, I'm Navigator. Welcome to Vingilot.",
   );
   await expect(page.getByTestId("message-timeline")).toContainText(
-    "Honey and Bumble, introduce yourselves",
+    "Bosun, Lookout and Scribe, introduce yourselves",
   );
 });
 
@@ -2893,10 +2906,10 @@ test("first-run onboarding lands before Welcome team bootstrap completes", async
   await expectPrivateWelcomeLanding(page);
   await expect(page.getByTestId("app-loading-gate")).toHaveCount(0);
   await expect(page.getByTestId("message-timeline")).toContainText(
-    "Hi @Morty QA, I'm Fizz. Welcome to Vingilot.",
+    "Hi @Morty QA, I'm Navigator. Welcome to Vingilot.",
   );
   await page.waitForTimeout(1_500);
-  expect(await commandCount(page, "create_managed_agent")).toBe(3);
+  expect(await commandCount(page, "create_managed_agent")).toBe(4);
 });
 
 test("existing relay profile with display name auto-skips onboarding without localStorage", async ({

@@ -319,27 +319,28 @@ fn migration_customized_fizz_is_demoted_to_user_team() {
 }
 
 #[test]
-fn welcome_team_is_seeded_and_idempotent() {
+fn crew_team_is_seeded_and_idempotent() {
     let (records, changed) = merge_teams(Vec::new(), "2026-07-01T00:00:00Z");
 
     assert!(changed);
     assert_eq!(records.len(), 1);
-    let welcome = &records[0];
-    assert_eq!(welcome.id, "builtin-team:welcome");
-    assert_eq!(welcome.name, "Welcome Team");
+    let crew = &records[0];
+    assert_eq!(crew.id, "builtin-team:crew");
+    assert_eq!(crew.name, "The Crew");
     assert_eq!(
-        welcome.description.as_deref(),
-        Some("A friendly starter trio ready to help you plan, create, and ship.")
+        crew.description.as_deref(),
+        Some("Navigator plots the course, Bosun keeps the ship running, Lookout sees trouble first, Scribe writes the log.")
     );
     assert_eq!(
-        welcome.persona_ids,
+        crew.persona_ids,
         vec![
-            "builtin:fizz".to_string(),
-            "builtin:honey".to_string(),
-            "builtin:bumble".to_string(),
+            "builtin:navigator".to_string(),
+            "builtin:bosun".to_string(),
+            "builtin:lookout".to_string(),
+            "builtin:scribe".to_string(),
         ]
     );
-    assert!(welcome.is_builtin);
+    assert!(crew.is_builtin);
 
     let expected = serde_json::to_value(&records).unwrap();
     let (records_after_second_merge, changed) = merge_teams(records, "2026-07-02T00:00:00Z");
@@ -350,31 +351,107 @@ fn welcome_team_is_seeded_and_idempotent() {
     );
 }
 
+/// Mate is an owner-only DM (the assistant plan's identity decision), so the
+/// seeded team must not contain it — even though it is a built-in persona.
 #[test]
-fn welcome_team_seed_does_not_overwrite_customization() {
-    let (mut records, _) = merge_teams(Vec::new(), "2026-07-01T00:00:00Z");
-    let welcome = records
-        .iter_mut()
+fn crew_team_seed_excludes_mate() {
+    let (records, _) = merge_teams(Vec::new(), "2026-07-01T00:00:00Z");
+    let crew = records
+        .iter()
+        .find(|team| team.id == "builtin-team:crew")
+        .expect("crew team should be seeded");
+    assert!(
+        !crew.persona_ids.iter().any(|id| id == "builtin:mate"),
+        "Mate must not be seeded into the team channel"
+    );
+}
+
+/// The bees stop being the default greeting. An install that never touched the
+/// old Welcome Team loses it silently and gets the crew instead.
+#[test]
+fn migration_pristine_welcome_team_is_purged_for_the_crew() {
+    let pristine = TeamRecord {
+        id: "builtin-team:welcome".to_string(),
+        name: "Welcome Team".to_string(),
+        description: Some(
+            "A friendly starter trio ready to help you plan, create, and ship.".to_string(),
+        ),
+        instructions: None,
+        persona_ids: vec![
+            "builtin:fizz".to_string(),
+            "builtin:honey".to_string(),
+            "builtin:bumble".to_string(),
+        ],
+        is_builtin: true,
+        source_dir: None,
+        is_symlink: false,
+        symlink_target: None,
+        version: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+
+    let (records, changed) = merge_teams(vec![pristine], "2026-07-01T00:00:00Z");
+
+    assert!(changed);
+    assert!(!records.iter().any(|t| t.id == "builtin-team:welcome"));
+    assert!(records.iter().any(|t| t.id == "builtin-team:crew"));
+}
+
+/// A Welcome Team the Captain edited is his, not ours: it survives the swap as
+/// a user-owned team he can keep, rename or delete.
+#[test]
+fn migration_customized_welcome_team_is_demoted_not_deleted() {
+    let customized = TeamRecord {
+        id: "builtin-team:welcome".to_string(),
+        name: "My Welcome Team".to_string(),
+        description: Some("My customized starter team.".to_string()),
+        instructions: None,
+        persona_ids: vec!["builtin:honey".to_string()],
+        is_builtin: true,
+        source_dir: None,
+        is_symlink: false,
+        symlink_target: None,
+        version: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+
+    let (records, changed) = merge_teams(vec![customized], "2026-07-02T00:00:00Z");
+
+    assert!(changed);
+    let demoted = records
+        .iter()
         .find(|team| team.id == "builtin-team:welcome")
-        .expect("welcome team should be seeded");
-    welcome.name = "My Welcome Team".to_string();
-    welcome.description = Some("My customized starter team.".to_string());
-    welcome.persona_ids = vec!["builtin:honey".to_string()];
+        .expect("customized welcome team should be preserved");
+    assert!(!demoted.is_builtin);
+    assert_eq!(demoted.name, "My Welcome Team");
+    assert_eq!(demoted.persona_ids, vec!["builtin:honey".to_string()]);
+    assert!(records.iter().any(|t| t.id == "builtin-team:crew"));
+}
+
+#[test]
+fn crew_team_seed_does_not_overwrite_customization() {
+    let (mut records, _) = merge_teams(Vec::new(), "2026-07-01T00:00:00Z");
+    let crew = records
+        .iter_mut()
+        .find(|team| team.id == "builtin-team:crew")
+        .expect("crew team should be seeded");
+    crew.name = "My Crew".to_string();
+    crew.description = Some("My customized crew.".to_string());
+    crew.persona_ids = vec!["builtin:lookout".to_string()];
 
     let (records, changed) = merge_teams(records, "2026-07-02T00:00:00Z");
 
     assert!(!changed);
-    let welcome = records
+    let crew = records
         .iter()
-        .find(|team| team.id == "builtin-team:welcome")
-        .expect("customized welcome team should be preserved");
-    assert_eq!(welcome.name, "My Welcome Team");
-    assert_eq!(
-        welcome.description.as_deref(),
-        Some("My customized starter team.")
-    );
-    assert_eq!(welcome.persona_ids, vec!["builtin:honey".to_string()]);
-    assert!(welcome.is_builtin);
+        .find(|team| team.id == "builtin-team:crew")
+        .expect("customized crew team should be preserved");
+    assert_eq!(crew.name, "My Crew");
+    assert_eq!(crew.description.as_deref(), Some("My customized crew."));
+    assert_eq!(crew.persona_ids, vec!["builtin:lookout".to_string()]);
+    assert!(crew.is_builtin);
 }
 
 // ── load_teams_readonly tests ──────────────────────────────────────────
@@ -391,7 +468,7 @@ fn load_teams_readonly_absent_file_performs_no_write() {
 
     // Returns the merged built-in list without persisting it.
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].id, "builtin-team:welcome");
+    assert_eq!(records[0].id, "builtin-team:crew");
 
     // The file must still NOT exist — no write-on-load side effect.
     assert!(

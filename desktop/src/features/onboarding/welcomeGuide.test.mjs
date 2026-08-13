@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   activateWelcomeTeamPersonasSequentially,
+  assertWelcomeTeamAgents,
   buildWelcomeStarterCreateInput,
   LEGACY_WELCOME_GUIDE_SYSTEM_PROMPT,
   pickWelcomeGuideAgent,
@@ -290,12 +291,63 @@ test("existing Welcome starter needs no update when runtime already matches", ()
 });
 
 test("welcome team starter definitions and role identities are stable", () => {
-  assert.equal(WELCOME_TEAM_ID, "builtin-team:welcome");
+  assert.equal(WELCOME_TEAM_ID, "builtin-team:crew");
   assert.deepEqual(WELCOME_TEAM_STARTERS, [
-    { name: "Fizz", personaId: "builtin:fizz", role: "lead" },
-    { name: "Honey", personaId: "builtin:honey", role: "teammate" },
-    { name: "Bumble", personaId: "builtin:bumble", role: "teammate" },
+    { name: "Navigator", personaId: "builtin:navigator", role: "lead" },
+    { name: "Bosun", personaId: "builtin:bosun", role: "teammate" },
+    { name: "Lookout", personaId: "builtin:lookout", role: "teammate" },
+    { name: "Scribe", personaId: "builtin:scribe", role: "teammate" },
   ]);
+});
+
+// The bees stop being the default greeting: the seeded team is the crew, and
+// the Rust seed (`vingilot_crew::WELCOME_TEAM_PERSONA_IDS`) must agree with this
+// list persona-for-persona or provisioning looks for agents the team has no
+// members for.
+test("the seeded team is the crew, not the bees", () => {
+  const personaIds = WELCOME_TEAM_STARTERS.map(({ personaId }) => personaId);
+  for (const bee of ["builtin:fizz", "builtin:honey", "builtin:bumble"]) {
+    assert.ok(
+      !personaIds.includes(bee),
+      `${bee} must not be seeded into the welcome channel`,
+    );
+  }
+});
+
+// The assistant plan's identity decision: Mate is an owner-only DM. It is a
+// built-in persona, which is exactly why its absence here has to be asserted —
+// adding it to the roster would be a one-line, silent reversal.
+test("Mate is never seeded into the welcome channel", () => {
+  assert.ok(
+    !WELCOME_TEAM_STARTERS.some(
+      ({ personaId, name }) => personaId === "builtin:mate" || name === "Mate",
+    ),
+    "Mate is owner-only DM and must not be a channel member",
+  );
+});
+
+test("exactly one starter leads and the rest are teammates", () => {
+  const leads = WELCOME_TEAM_STARTERS.filter(({ role }) => role === "lead");
+  assert.equal(leads.length, 1);
+  assert.equal(leads[0], WELCOME_TEAM_STARTERS[0]);
+  assert.equal(leads[0].personaId, WELCOME_GUIDE_PERSONA_ID);
+  assert.equal(leads[0].name, WELCOME_GUIDE_AGENT_NAME);
+});
+
+test("assertWelcomeTeamAgents rejects a short or holed roster", () => {
+  const agents = WELCOME_TEAM_STARTERS.map(({ name }) =>
+    makeAgent({ name, pubkey: name.toLowerCase().padEnd(64, "0") }),
+  );
+  assert.deepEqual(assertWelcomeTeamAgents(agents), agents);
+
+  assert.throws(
+    () => assertWelcomeTeamAgents(agents.slice(1)),
+    /did not return every starter/,
+  );
+  assert.throws(
+    () => assertWelcomeTeamAgents([agents[0], undefined, agents[2], agents[3]]),
+    /did not return every starter/,
+  );
 });
 
 test("starter matching ignores user agents with a Welcome persona", () => {

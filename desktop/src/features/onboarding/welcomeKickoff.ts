@@ -118,7 +118,9 @@ const closerTimeouts = new Map<
 
 type WelcomeAgentSet = {
   lead: ManagedAgent;
-  teammates: [ManagedAgent, ManagedAgent];
+  // Not a fixed-arity tuple: the crew roster is a list in `WELCOME_TEAM_STARTERS`
+  // and its size is that list's business, not this type's.
+  teammates: readonly ManagedAgent[];
 };
 
 function markerEvent(events: readonly RelayEvent[], marker: string) {
@@ -138,7 +140,7 @@ export function resolveWelcomeAgentSet(
   if (ordered.some((agent) => !agent)) return null;
   return {
     lead: ordered[0] as ManagedAgent,
-    teammates: [ordered[1] as ManagedAgent, ordered[2] as ManagedAgent],
+    teammates: ordered.slice(1) as ManagedAgent[],
   };
 }
 
@@ -282,7 +284,7 @@ function isReplyToOpener(event: RelayEvent, opener: RelayEvent) {
 function introAuthorsAfterOpener(
   events: readonly RelayEvent[],
   opener: RelayEvent,
-  teammates: readonly [ManagedAgent, ManagedAgent],
+  teammates: readonly ManagedAgent[],
 ) {
   const authors = new Set(
     events
@@ -576,8 +578,8 @@ export function useWelcomeKickoff(
           queryKey: managedAgentsQueryKey,
         });
         const resolvedAgentSet: WelcomeAgentSet = {
-          lead: welcomeTeam[0],
-          teammates: [welcomeTeam[1], welcomeTeam[2]],
+          lead: welcomeTeam[0] as ManagedAgent,
+          teammates: welcomeTeam.slice(1),
         };
 
         if (await markerExists(channelId, closerMarker)) {

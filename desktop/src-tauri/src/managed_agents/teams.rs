@@ -31,23 +31,42 @@ struct BuiltInTeam {
     persona_ids: &'static [&'static str],
 }
 
+// The default greeting is the ship's crew, not the bees. Vingilot is a ship and
+// the owner is its Captain, so the agents a fresh install meets are named for
+// ship roles (vingilot/docs/plans/2026-08-12-the-crew.md). The roster and the
+// exclusion of Mate — owner-only DM per the assistant plan's identity decision
+// — live in `super::vingilot_crew`, next to the prompts themselves.
 const BUILT_IN_TEAMS: &[BuiltInTeam] = &[BuiltInTeam {
-    id: "builtin-team:welcome",
-    name: "Welcome Team",
-    description: Some("A friendly starter trio ready to help you plan, create, and ship."),
-    persona_ids: &["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    id: "builtin-team:crew",
+    name: "The Crew",
+    description: Some("Navigator plots the course, Bosun keeps the ship running, Lookout sees trouble first, Scribe writes the log."),
+    persona_ids: super::vingilot_crew::WELCOME_TEAM_PERSONA_IDS,
 }];
 
 // Built-in teams that have been retired. A stored copy that still exactly
 // matches its seed is purged on load (the user never touched it); customized
 // copies are demoted to user-owned teams by the retirement loop in
 // merge_teams_impl.
-const RETIRED_BUILT_IN_TEAMS: &[BuiltInTeam] = &[BuiltInTeam {
-    id: "builtin-team:fizz",
-    name: "Fizz",
-    description: Some("Fizz works carefully and collaboratively."),
-    persona_ids: &["builtin:fizz"],
-}];
+//
+// `builtin-team:welcome` is retired rather than edited in place: `merge_teams`
+// only ever ADDS a missing built-in, so rewriting the seed's persona_ids would
+// have left every existing install greeted by the bees forever. Retiring it
+// purges the untouched copies and demotes the customized ones, and the crew
+// team seeds beside whatever is left.
+const RETIRED_BUILT_IN_TEAMS: &[BuiltInTeam] = &[
+    BuiltInTeam {
+        id: "builtin-team:fizz",
+        name: "Fizz",
+        description: Some("Fizz works carefully and collaboratively."),
+        persona_ids: &["builtin:fizz"],
+    },
+    BuiltInTeam {
+        id: "builtin-team:welcome",
+        name: "Welcome Team",
+        description: Some("A friendly starter trio ready to help you plan, create, and ship."),
+        persona_ids: &["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    },
+];
 
 fn built_in_team_records(built_ins: &[BuiltInTeam], now: &str) -> Vec<TeamRecord> {
     built_ins

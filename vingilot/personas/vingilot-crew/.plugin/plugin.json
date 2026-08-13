@@ -1,0 +1,25 @@
+{
+  "$schema": "https://open-plugin-spec.org/schema/v1/plugin.json",
+  "id": "vingilot-crew",
+  "name": "Vingilot Crew",
+  "version": "1.0.0",
+  "description": "The ship's standing crew: Mate reads the whole workspace, Bosun keeps the build running, Lookout reviews adversarially, Navigator plots the course, Scribe writes the log.",
+  "keywords": ["vingilot", "crew", "default", "workspace"],
+  "personas": [
+    "personas/mate.persona.md",
+    "personas/bosun.persona.md",
+    "personas/lookout.persona.md",
+    "personas/navigator.persona.md",
+    "personas/scribe.persona.md"
+  ],
+  "pack_instructions": "instructions.md",
+  "defaults": {
+    "triggers": {
+      "mentions": true,
+      "keywords": [],
+      "all_messages": false
+    },
+    "thread_replies": true,
+    "broadcast_replies": false
+  }
+}

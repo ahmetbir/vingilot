@@ -1,0 +1,113 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the crew
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: one class of change, from
+# vingilot/docs/plans/2026-08-12-the-crew.md — the fork ships a named crew whose
+# prompts are real work (Mate, Bosun, Lookout, Navigator, Scribe; the owner is
+# the Captain), and upstream's bee trio (Fizz, Honey, Bumble) stops being the
+# default greeting. The prompts themselves are NOT here: they live in
+# vingilot/personas/vingilot-crew/, inside the fork's own tree, in exactly the
+# shape crates/buzz-persona validates. The entries below are only the places
+# upstream decides *which personas exist* and *which team a fresh install
+# meets*, and there is no fork-owned seam for either decision — one built-in
+# catalog, one built-in team list, one provisioning path.
+#
+# Explicitly NOT covered by these entries: the bee personas themselves (they
+# stay in the catalog, unedited, and remain activatable), agent minting, key
+# handling, the relay, or any change to how a persona is spawned. The crew adds
+# rows to a catalog and swaps which rows the welcome team names; it changes no
+# mechanism.
+#
+# No schema_version here: the root file carries it for the whole registry.
+# ------------------------------------------------------------------------------
+
+seams:
+  - path: "desktop/src-tauri/src/managed_agents/vingilot_crew/**"
+    reason: "The island for the crew: persona ids, the compiled-in `.persona.md` pack files (include_str! over vingilot/personas/vingilot-crew/), the frontmatter split that turns a pack file into a system prompt, and the seeded-roster list that excludes Mate. Fork-owned logic in a fork-owned module. It sits under managed_agents/ rather than beside the other vingilot_* islands at the crate root because it registers no Tauri command and has exactly one consumer -- the persona catalog and team seed in that same module -- so it costs lib.rs (997 of the 1000-line ratchet) nothing at all. It reuses buzz-persona's own split_frontmatter rather than parsing the format a second time, so the pack and the built-in catalog cannot drift."
+    owner: "vingilot/the-crew"
+    removable_when: "Never, while the fork ships its own default agents. Removable only if the Tauri crate can load a persona pack from a fork-owned path at runtime, at which point the compiled-in copies and this module collapse into that loader."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/managed_agents/mod.rs"
+    reason: "One line: `pub(crate) mod vingilot_crew;`, declaring the island above. Rust has no other way to attach a module to its parent, and this is the parent -- the alternative is a `mod` line in lib.rs, which is at 997 of the 1000-line ratchet and already spends a line on every island that registers a Tauri command. The crew registers none, so it costs this file a line instead and lib.rs nothing."
+    owner: "vingilot/the-crew"
+    removable_when: "The vingilot_crew seam above is removable."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/managed_agents/personas.rs"
+    reason: "The single built-in agent catalog. Adds the five crew personas as BUILT_IN_PERSONAS entries (ahead of the bees, which is the order the catalog and My Agents present), each one a reference to a prompt in vingilot_crew rather than a prompt written here; and routes every built-in's system_prompt through vingilot_crew::prompt_body so a `.persona.md` file's YAML frontmatter is split off before it reaches an agent. Upstream has exactly one such list and one place that turns it into records -- a persona that is not in this array does not exist to the app, so a fork-owned catalog beside it would be a second mechanism, not a seam. The bee entries are untouched."
+    owner: "vingilot/the-crew"
+    removable_when: "Upstream grows a registration API for built-in personas (a `register_persona_pack`-shaped seam) that a fork module can call, making the array itself extensible without editing it."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/managed_agents/personas/tests.rs"
+    reason: "The guard on the catalog above. Updates the pinned built-in roster (display names and active ids) to the crew-then-bees order, and adds the assertion that no built-in's system prompt carries frontmatter -- the failure the include_str! approach would otherwise ship silently, where a YAML block reaches a model as if it were instructions. Same file as the code it guards, by upstream's own #[path] layout."
+    owner: "vingilot/the-crew"
+    removable_when: "The catalog seam above is removable."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/managed_agents/teams.rs"
+    reason: "The seeded built-in team -- the one thing that decides which agents a fresh install is greeted by. BUILT_IN_TEAMS becomes builtin-team:crew (persona ids from vingilot_crew, Mate excluded), and the old builtin-team:welcome bee trio moves into RETIRED_BUILT_IN_TEAMS. It is retired rather than edited in place because merge_teams only ever ADDS a missing built-in: rewriting the seed would have left every existing install greeted by the bees forever, while retirement purges the untouched copies and demotes the customized ones to user-owned teams the Captain can keep. Both mechanisms are upstream's own and are used exactly as written."
+    owner: "vingilot/the-crew"
+    removable_when: "Upstream makes the seeded team configurable by the embedding product (a default-team hook a fork module can supply), rather than a const array in this file."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src-tauri/src/managed_agents/teams_tests.rs"
+    reason: "The guard on the team seed above: the crew team is seeded and idempotent, it excludes Mate, a pristine bee Welcome Team is purged on load, and a customized one is demoted rather than deleted. The migration pins are the point -- the swap is only correct if it also does the right thing to an install that already has the old team."
+    owner: "vingilot/the-crew"
+    removable_when: "The team seam above is removable."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/onboarding/welcomeGuide.test.mjs"
+    reason: "The frontend guard on the swap point. welcomeGuide.ts itself is already a declared seam (vingilot/seams/brand-sweep.yaml); this is the test file that pins WELCOME_TEAM_ID and WELCOME_TEAM_STARTERS, and now also pins that no bee is seeded, that Mate never is, that exactly one starter leads, and that a short roster is rejected instead of silently treated as complete."
+    owner: "vingilot/the-crew"
+    removable_when: "welcomeGuide.ts stops being a seam."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/onboarding/welcomeKickoff.test.mjs"
+    reason: "The guard on the kickoff, whose fixtures were the bee trio by name. Renamed to the crew, extended to four starters, and given two pins the swap needs: an install still running Fizz/Honey/Bumble resolves to no agent set at all (so the kickoff provisions the crew rather than half-greeting with the old team), and a Mate instance bound to the crew team is never picked up as lead or teammate. welcomeKickoff.ts itself is already a declared seam (vingilot/seams/brand-sweep.yaml)."
+    owner: "vingilot/the-crew"
+    removable_when: "welcomeKickoff.ts stops being a seam."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/features/onboarding/ui/WelcomeKickoffStage.tsx"
+    reason: "The decorative character row standing on the Welcome composer banner while the team is provisioned -- three hardcoded bee APNGs. With the crew seeded it would show bees while a Bosun is being minted, which is precisely the mismatch the crew exists to remove, and the bees' art is not a stand-in for a crew that has none yet. The list becomes empty and the component keeps its wrapper, so the exit animation and its onExitComplete callback behave identically."
+    owner: "vingilot/the-crew"
+    removable_when: "The crew has character art, at which point this list is populated rather than emptied; or the stage is retired."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/src/testing/e2eBridge.ts"
+    reason: "The mock Tauri bridge's built-in persona catalog, which the desktop app cannot render without. The welcome bootstrap provisions the crew by persona id, so any spec that reaches Welcome fails at 'Navigator agent not found' unless the mock catalog carries the same rows the Rust catalog does. Adds the five crew personas ahead of the bees, mirroring managed_agents::personas; the bee rows are untouched because specs still exercise them as built-in personas."
+    owner: "vingilot/the-crew"
+    removable_when: "The mock bridge derives its built-in persona list from the Rust catalog instead of restating it."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/e2e/workspace-crew.spec.ts"
+    reason: "Tasks 2 and 3's E2E proof: the mint offer draws five rows on a workspace with no crew, a rename lands in the field, 'Not now' survives a reload, a workspace that already has a crew member is never asked, and a minted crew grows crew rows in the palette -- with the renamed member's own name on the row and the no-thread refusal in the sentence. The pure halves are deliberately kept out of the browser (crewMint.test.mjs owns the offer rule, the rename and the honest mint sentence; crewReach.test.mjs owns what a row says and when it refuses; paletteSources.test.mjs owns the candidate). What only a browser can say is the composition -- useCrewMint over the managed-agent query, useCrewReach through PaletteContext into crewSource and out to a rendered row -- none of which any unit test wires. Lives at the upstream-owned desktop/tests/e2e/ path for the same reason every other fork spec does: that is where playwright.config.ts's testDir points, and a fork-owned location would need its own testDir and project wiring for one file."
+    owner: "vingilot/the-crew"
+    removable_when: "Never, while the workspace offers to mint a crew. The spec goes when the offer does."
+    status: "permanent"
+    added: "2026-08-13"
+
+  - path: "desktop/tests/helpers/bridge.ts"
+    reason: "One default and one opt-out, both about a MODAL the fork added. The crew offer is a first-run question a workspace with no minted crew asks the moment it mounts, and every mock-mode spec is exactly that workspace -- so without this, the dialog lands on top of every workspace spec in the smoke project and the whole suite fails on a surface it is not testing. installBridge already seeds two first-run answers for the same reason (onboarding completion, the welcome channel), and seedCrewOfferAnswered is the third, beside them, writing crewMintStore.ts's own key. The `offerCrew: true` option is the opt-out, taken by workspace-crew.spec.ts alone -- including in its two tests that expect NO dialog, so that what hides it there is the crew existing rather than the seed. There is no fork-owned seam for this: installBridge is the single install path every spec calls, and a second helper would be a second bridge."
+    owner: "vingilot/the-crew"
+    removable_when: "The crew offer stops being modal, or the mock bridge seeds a crew by default so that no spec is a crewless workspace."
+    status: "permanent"
+    added: "2026-08-13"

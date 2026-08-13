@@ -13,6 +13,7 @@ import {
   takePendingWelcomeChannelForDirectEntry,
   WELCOME_SURFACE_READY_EVENT,
 } from "@/features/onboarding/welcome";
+import { WELCOME_TEAM_STARTERS } from "@/features/onboarding/welcomeGuide";
 import { useAvatarPresentation } from "@/features/profile/avatarPresentationStore";
 import { registerAvatarWhenReady } from "@/features/profile/avatarProfileSync";
 import { profileQueryKey } from "@/features/profile/hooks";
@@ -49,11 +50,13 @@ function isRelayMembershipDeniedError(error: unknown): boolean {
   );
 }
 
-const STARTER_PERSONA_ANIMATIONS: Record<string, string> = {
-  Fizz: "/onboarding/starter-team/fizz.png",
-  Honey: "/onboarding/starter-team/honey.png",
-  Bumble: "/onboarding/starter-team/bumble.png",
-};
+/**
+ * Animated APNGs for starter personas that have one. The crew has no character
+ * art yet, so its cards fall through to `ProfileAvatar` below — an honest
+ * placeholder rather than a bee standing in for a Bosun. Keyed by display name
+ * because that is what the persona record carries.
+ */
+const STARTER_PERSONA_ANIMATIONS: Record<string, string> = {};
 
 /** Fade duration for the "entering" curtain over the mounting app. */
 const ENTERING_CURTAIN_FADE_MS = 500;
@@ -185,7 +188,7 @@ export function CommunityOnboardingFlow({
     void listPersonas()
       .then((personas) =>
         setStarterPersonas(
-          ["Fizz", "Honey", "Bumble"].flatMap((name) => {
+          WELCOME_TEAM_STARTERS.flatMap(({ name }) => {
             const persona = personas.find(
               (candidate) => candidate.displayName === name,
             );

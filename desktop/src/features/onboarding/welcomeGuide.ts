@@ -20,15 +20,22 @@ import type {
 } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-export const WELCOME_GUIDE_AGENT_NAME = "Fizz";
-export const WELCOME_GUIDE_PERSONA_ID = "builtin:fizz";
-export const WELCOME_TEAM_ID = "builtin-team:welcome";
+export const WELCOME_GUIDE_AGENT_NAME = "Navigator";
+export const WELCOME_GUIDE_PERSONA_ID = "builtin:navigator";
+export const WELCOME_TEAM_ID = "builtin-team:crew";
 export const WELCOME_GUIDE_INTRO_MARKER = "buzz-welcome-intro.v1";
 const LEGACY_WELCOME_GUIDE_AGENT_NAME = "Kit";
+/**
+ * Fizz was the built-in guide before the crew. Its instances are still out
+ * there on existing installs, and the channel-reuse checks below have to keep
+ * recognising them — otherwise an upgrade greets a Welcome channel that already
+ * has a guide in it with a second one.
+ */
+const LEGACY_WELCOME_GUIDE_PERSONA_ID = "builtin:fizz";
 export const LEGACY_WELCOME_GUIDE_SYSTEM_PROMPT =
   "You are Kit, Sprout's friendly welcome guide. Help new users understand the community, channels, messages, and agents. Keep introductions concise, practical, and warm.";
 export const WELCOME_GUIDE_INTRO_MESSAGE =
-  "Hi, I'm Fizz. Welcome to Vingilot.\n\nI can help you get oriented, answer questions, and make the first few steps feel less mysterious.\n\nFeel free to ask me what else you can do in Vingilot, or just talk through what you want to build.";
+  "Hi, I'm Navigator. Welcome aboard Vingilot.\n\nYou're the Captain here. I plot the course — tell me what you want built and I'll turn it into a plan with the risks named.\n\nBosun keeps the build running, Lookout reviews what's about to land, and Scribe writes the log. Ask me what else this ship can do, or just talk through what you're working on.";
 
 export type WelcomeTeamRole = "lead" | "teammate";
 
@@ -38,14 +45,47 @@ export type WelcomeTeamStarterDefinition = Readonly<{
   role: WelcomeTeamRole;
 }>;
 
-/** Stable identities used to provision the Rust-seeded Welcome Team. */
+/**
+ * Stable identities used to provision the Rust-seeded crew team
+ * (`builtin-team:crew`, seeded by `managed_agents::teams`). The order is the
+ * provisioning order and the first entry is the lead — it speaks the opener and
+ * the others are allowlisted to it.
+ *
+ * **Mate is deliberately absent.** The First Mate is an owner-only DM per the
+ * assistant plan's identity decision, so it is never a channel member; the
+ * Rust seed excludes it too (`vingilot_crew::WELCOME_TEAM_PERSONA_IDS`), and
+ * both exclusions are asserted by tests rather than left to comments.
+ */
 export const WELCOME_TEAM_STARTERS = [
-  { name: "Fizz", personaId: "builtin:fizz", role: "lead" },
-  { name: "Honey", personaId: "builtin:honey", role: "teammate" },
-  { name: "Bumble", personaId: "builtin:bumble", role: "teammate" },
+  { name: "Navigator", personaId: "builtin:navigator", role: "lead" },
+  { name: "Bosun", personaId: "builtin:bosun", role: "teammate" },
+  { name: "Lookout", personaId: "builtin:lookout", role: "teammate" },
+  { name: "Scribe", personaId: "builtin:scribe", role: "teammate" },
 ] as const satisfies readonly WelcomeTeamStarterDefinition[];
 
-export type WelcomeTeamAgents = [ManagedAgent, ManagedAgent, ManagedAgent];
+/**
+ * The provisioned crew, in `WELCOME_TEAM_STARTERS` order: `[0]` is the lead,
+ * the rest are its teammates. Deliberately not a fixed-arity tuple — the roster
+ * is a list in one place, and changing its size must not require retyping the
+ * kickoff. `assertWelcomeTeamAgents` is what makes the arity a runtime fact.
+ */
+export type WelcomeTeamAgents = readonly ManagedAgent[];
+
+/**
+ * Every starter came back, or the caller gets an error instead of a short list
+ * it would silently treat as a complete team.
+ */
+export function assertWelcomeTeamAgents(
+  agents: readonly (ManagedAgent | undefined)[],
+): WelcomeTeamAgents {
+  if (
+    agents.length !== WELCOME_TEAM_STARTERS.length ||
+    agents.some((agent) => !agent)
+  ) {
+    throw new Error("Crew provisioning did not return every starter.");
+  }
+  return agents as WelcomeTeamAgents;
+}
 
 const welcomeTeamPromises = new Map<string, Promise<WelcomeTeamAgents>>();
 
@@ -62,7 +102,10 @@ function isAgentScopedToRelay(agent: ManagedAgent, relayUrl?: string | null) {
 }
 
 function isBuiltInWelcomeGuideAgent(agent: ManagedAgent) {
-  return agent.personaId === WELCOME_GUIDE_PERSONA_ID;
+  return (
+    agent.personaId === WELCOME_GUIDE_PERSONA_ID ||
+    agent.personaId === LEGACY_WELCOME_GUIDE_PERSONA_ID
+  );
 }
 
 function isLegacyKitWelcomeGuideAgent(agent: ManagedAgent) {
@@ -261,9 +304,9 @@ export function welcomeStarterRuntimeUpdate(
 }
 
 /**
- * Ensure the complete built-in Welcome Team is ready for kickoff.
+ * Ensure the complete built-in crew team is ready for kickoff.
  * The team itself is Rust-seeded; this only activates personas, creates any
- * missing relay-scoped instances, and adds all three to Welcome as bots.
+ * missing relay-scoped instances, and adds every starter to Welcome as a bot.
  */
 async function provisionWelcomeTeam(
   channelId: string,
@@ -314,14 +357,14 @@ async function provisionWelcomeTeam(
     const created = await createManagedAgent(desired);
     agents.push(created.agent);
   }
-  const [lead, honey, bumble] = agents;
-  if (!lead || !honey || !bumble) {
-    throw new Error("Welcome Team provisioning did not return every starter.");
-  }
-  const welcomeAgents: WelcomeTeamAgents = [lead, honey, bumble];
+  const provisioned = assertWelcomeTeamAgents(agents);
+  const lead = provisioned[0] as ManagedAgent;
   const leadPubkey = lead.pubkey;
-  for (const index of [1, 2] as const) {
-    const teammate = welcomeAgents[index];
+  // Every teammate answers the lead, whatever the roster's size — indices are
+  // derived from the starter list rather than written out.
+  const welcomeAgents = [...provisioned];
+  for (let index = 1; index < welcomeAgents.length; index += 1) {
+    const teammate = welcomeAgents[index] as ManagedAgent;
     const alreadyAllowsLead =
       teammate.respondTo === "allowlist" &&
       teammate.respondToAllowlist.some(

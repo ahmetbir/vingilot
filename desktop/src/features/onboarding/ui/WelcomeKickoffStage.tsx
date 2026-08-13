@@ -11,12 +11,18 @@ type StageCharacter = {
   animationUrl: string;
 };
 
-/** Same animated APNGs the "Meet your starter team" onboarding step uses. */
-const STAGE_CHARACTERS: readonly StageCharacter[] = [
-  { name: "Fizz", animationUrl: "/onboarding/starter-team/fizz.png" },
-  { name: "Honey", animationUrl: "/onboarding/starter-team/honey.png" },
-  { name: "Bumble", animationUrl: "/onboarding/starter-team/bumble.png" },
-];
+/**
+ * Same animated APNGs the "Meet your starter team" onboarding step uses — one
+ * entry per crew member that has character art.
+ *
+ * It is empty: the crew (Navigator, Bosun, Lookout, Scribe) replaced the bees
+ * as the default team and has no art yet, and the bees' APNGs are not stand-ins
+ * for it — a bee on the banner while a Bosun is being provisioned is the exact
+ * mismatch the crew exists to remove. The stage keeps its wrapper so the exit
+ * animation (and `onExitComplete`) behaves identically; it simply has nobody
+ * standing on it until the art lands.
+ */
+const STAGE_CHARACTERS: readonly StageCharacter[] = [];
 
 const STAGE_EXIT_ANIMATION = "motion-kickoff-stage-exit";
 

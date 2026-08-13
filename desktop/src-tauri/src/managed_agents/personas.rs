@@ -25,7 +25,68 @@ const HONEY_SYSTEM_PROMPT: &str = "You are Honey, a warm and thoughtful communic
 
 const BUMBLE_SYSTEM_PROMPT: &str = "You are Bumble, a curious and adventurous researcher. Explore questions, compare options, check assumptions, and explain what you find clearly. Be candid when uncertain and favor useful evidence. Add occasional bee wordplay or 🐝🔎—keep it playful, never chaotic.";
 
+// The crew comes first: `sort_personas` orders built-ins by their position
+// here, so this is the order the catalog and "My Agents" present. Their prompts
+// are the persona-pack files in `vingilot/personas/vingilot-crew/`, compiled in
+// by `super::vingilot_crew` — the pack is the one copy, this is a reference to
+// it. `built_in_persona_records` splits the YAML frontmatter off before the
+// prompt reaches an agent.
+//
+// The bees below are untouched. They stay in the catalog and stay active —
+// what they stop being is the *default greeting*: the welcome team seeds the
+// crew now (`managed_agents::teams`), so a ship-named product no longer opens
+// with bee-story names. Anyone who wants Fizz, Honey or Bumble still has them.
 const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
+    BuiltInPersona {
+        id: super::vingilot_crew::MATE_ID,
+        display_name: "Mate",
+        avatar_url: None,
+        system_prompt: super::vingilot_crew::MATE_PERSONA_FILE,
+        name_pool: &["Mate"],
+        model: None,
+        runtime: None,
+        default_active: true,
+    },
+    BuiltInPersona {
+        id: super::vingilot_crew::BOSUN_ID,
+        display_name: "Bosun",
+        avatar_url: None,
+        system_prompt: super::vingilot_crew::BOSUN_PERSONA_FILE,
+        name_pool: &["Bosun"],
+        model: None,
+        runtime: None,
+        default_active: true,
+    },
+    BuiltInPersona {
+        id: super::vingilot_crew::LOOKOUT_ID,
+        display_name: "Lookout",
+        avatar_url: None,
+        system_prompt: super::vingilot_crew::LOOKOUT_PERSONA_FILE,
+        name_pool: &["Lookout"],
+        model: None,
+        runtime: None,
+        default_active: true,
+    },
+    BuiltInPersona {
+        id: super::vingilot_crew::NAVIGATOR_ID,
+        display_name: "Navigator",
+        avatar_url: None,
+        system_prompt: super::vingilot_crew::NAVIGATOR_PERSONA_FILE,
+        name_pool: &["Navigator"],
+        model: None,
+        runtime: None,
+        default_active: true,
+    },
+    BuiltInPersona {
+        id: super::vingilot_crew::SCRIBE_ID,
+        display_name: "Scribe",
+        avatar_url: None,
+        system_prompt: super::vingilot_crew::SCRIBE_PERSONA_FILE,
+        name_pool: &["Scribe"],
+        model: None,
+        runtime: None,
+        default_active: true,
+    },
     BuiltInPersona {
         id: "builtin:fizz",
         display_name: "Fizz",
@@ -114,7 +175,11 @@ fn built_in_persona_records(now: &str) -> Vec<AgentDefinition> {
             id: persona.id.to_string(),
             display_name: persona.display_name.to_string(),
             avatar_url: persona.avatar_url.map(|s| s.to_string()),
-            system_prompt: persona.system_prompt.to_string(),
+            // Crew prompts are `.persona.md` pack files, so the YAML
+            // frontmatter is split off here (with `buzz-persona`'s own
+            // splitter) before the prompt reaches an agent. A prompt without
+            // frontmatter — every upstream built-in — passes through unchanged.
+            system_prompt: super::vingilot_crew::prompt_body(persona.system_prompt).to_string(),
             runtime: persona.runtime.map(|s| s.to_string()),
             model: persona.model.map(|s| s.to_string()),
             provider: None,

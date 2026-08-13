@@ -37,6 +37,12 @@ pub(crate) mod team_events;
 mod team_repair;
 mod teams;
 mod types;
+// The crew: fork-owned default agents and the compiled-in persona-pack
+// prompts behind them (vingilot/docs/plans/2026-08-12-the-crew.md). It lives
+// here rather than beside the other vingilot_* islands because it registers no
+// Tauri command and has exactly one consumer: this module's persona catalog and
+// team seed.
+pub(crate) mod vingilot_crew;
 
 // Shared guard for tests that mutate or read process-global PATH.
 #[cfg(test)]

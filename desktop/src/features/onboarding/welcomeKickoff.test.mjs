@@ -20,7 +20,7 @@ function agent(name, personaId, pubkey) {
   return {
     name,
     personaId,
-    teamId: "builtin-team:welcome",
+    teamId: "builtin-team:crew",
     pubkey,
     relayUrl: "ws://localhost:3000",
     status: "stopped",
@@ -29,44 +29,70 @@ function agent(name, personaId, pubkey) {
   };
 }
 
-const fizz = agent("Fizz", "builtin:fizz", "f".repeat(64));
-const honey = agent("Honey", "builtin:honey", "h".repeat(64));
-const bumble = agent("Bumble", "builtin:bumble", "b".repeat(64));
+const navigator = agent("Navigator", "builtin:navigator", "f".repeat(64));
+const bosun = agent("Bosun", "builtin:bosun", "h".repeat(64));
+const lookout = agent("Lookout", "builtin:lookout", "b".repeat(64));
+const scribe = agent("Scribe", "builtin:scribe", "5".repeat(64));
 
 test("resolveWelcomeAgentSet orders agents by stable persona identity", () => {
-  assert.deepEqual(resolveWelcomeAgentSet([bumble, fizz, honey]), {
-    lead: fizz,
-    teammates: [honey, bumble],
-  });
-  assert.equal(resolveWelcomeAgentSet([fizz, honey]), null);
+  assert.deepEqual(
+    resolveWelcomeAgentSet([lookout, scribe, navigator, bosun]),
+    {
+      lead: navigator,
+      teammates: [bosun, lookout, scribe],
+    },
+  );
+  assert.equal(resolveWelcomeAgentSet([navigator, bosun, lookout]), null);
+});
+
+// The bees were the starters before the crew. An install still running Fizz,
+// Honey and Bumble resolves to no set at all rather than a partial one — the
+// kickoff then provisions the crew instead of half-greeting with the old team.
+test("resolveWelcomeAgentSet does not resolve the retired bee team", () => {
+  const bees = [
+    agent("Fizz", "builtin:fizz", "1".repeat(64)),
+    agent("Honey", "builtin:honey", "2".repeat(64)),
+    agent("Bumble", "builtin:bumble", "3".repeat(64)),
+  ];
+  assert.equal(resolveWelcomeAgentSet(bees), null);
+});
+
+// Mate is an owner-only DM: even if an instance exists and is bound to the crew
+// team, it is not a starter, so it never becomes lead and never becomes a
+// teammate the opener mentions.
+test("resolveWelcomeAgentSet never picks up Mate", () => {
+  const mate = agent("Mate", "builtin:mate", "4".repeat(64));
+  const set = resolveWelcomeAgentSet([mate, navigator, bosun, lookout, scribe]);
+  assert.equal(set.lead, navigator);
+  assert.deepEqual(set.teammates, [bosun, lookout, scribe]);
 });
 
 test("opener uses current agent names and requests bounded simultaneous intros", () => {
-  const opener = buildWelcomeKickoffOpener({ ...fizz, name: "Fizzy" }, [
-    { ...honey, name: "Honeybee" },
-    bumble,
+  const opener = buildWelcomeKickoffOpener({ ...navigator, name: "Skipper" }, [
+    { ...bosun, name: "Boats" },
+    lookout,
   ]);
 
-  assert.match(opener, /I'm Fizzy/);
-  assert.match(opener, /@Honeybee and @Bumble/);
+  assert.match(opener, /I'm Skipper/);
+  assert.match(opener, /@Boats and @Lookout/);
   assert.doesNotMatch(opener, /@@/);
   assert.match(opener, /sentence or two/);
   assert.match(opener, /Don't start any work yet/);
 });
 
 test("teammates are not ready until every harness publishes online presence", () => {
-  assert.equal(areWelcomeTeammatesOnline([honey, bumble], undefined), false);
+  assert.equal(areWelcomeTeammatesOnline([bosun, lookout], undefined), false);
   assert.equal(
-    areWelcomeTeammatesOnline([honey, bumble], {
-      [honey.pubkey]: "online",
-      [bumble.pubkey]: "offline",
+    areWelcomeTeammatesOnline([bosun, lookout], {
+      [bosun.pubkey]: "online",
+      [lookout.pubkey]: "offline",
     }),
     false,
   );
   assert.equal(
-    areWelcomeTeammatesOnline([honey, bumble], {
-      [honey.pubkey]: "online",
-      [bumble.pubkey]: "online",
+    areWelcomeTeammatesOnline([bosun, lookout], {
+      [bosun.pubkey]: "online",
+      [lookout.pubkey]: "online",
     }),
     true,
   );
@@ -74,41 +100,41 @@ test("teammates are not ready until every harness publishes online presence", ()
 
 test("readiness wait observes agents becoming online without navigation", async () => {
   let reads = 0;
-  const ready = await waitForWelcomeTeammatesOnline([honey, bumble], {
+  const ready = await waitForWelcomeTeammatesOnline([bosun, lookout], {
     isCancelled: () => false,
     loadPresence: async () => {
       reads += 1;
       return reads < 3
-        ? { [honey.pubkey]: "online", [bumble.pubkey]: "offline" }
-        : { [honey.pubkey]: "online", [bumble.pubkey]: "online" };
+        ? { [bosun.pubkey]: "online", [lookout.pubkey]: "offline" }
+        : { [bosun.pubkey]: "online", [lookout.pubkey]: "online" };
     },
     pollMs: 0,
     waitMs: 1_000,
   });
 
-  assert.deepEqual(ready, [honey, bumble]);
+  assert.deepEqual(ready, [bosun, lookout]);
   assert.equal(reads, 3);
 });
 
 test("readiness wait retries transient presence failures", async () => {
   let reads = 0;
-  const ready = await waitForWelcomeTeammatesOnline([honey, bumble], {
+  const ready = await waitForWelcomeTeammatesOnline([bosun, lookout], {
     isCancelled: () => false,
     loadPresence: async () => {
       reads += 1;
       if (reads === 1) throw new Error("relay unavailable");
-      return { [honey.pubkey]: "online", [bumble.pubkey]: "online" };
+      return { [bosun.pubkey]: "online", [lookout.pubkey]: "online" };
     },
     pollMs: 0,
     waitMs: 1_000,
   });
 
-  assert.deepEqual(ready, [honey, bumble]);
+  assert.deepEqual(ready, [bosun, lookout]);
   assert.equal(reads, 2);
 });
 
 test("readiness wait cancels when Welcome loses focus", async () => {
-  const ready = await waitForWelcomeTeammatesOnline([honey, bumble], {
+  const ready = await waitForWelcomeTeammatesOnline([bosun, lookout], {
     isCancelled: () => true,
     loadPresence: async () => {
       throw new Error("cancelled waits must not query");
@@ -150,25 +176,25 @@ test("kickoff coordinator preserves one task across rerenders and cancels on nav
 
 test("closer degrades coherently for partial and total startup failure", () => {
   assert.match(buildWelcomeKickoffCloser([]), /What can we help you build/);
-  assert.match(buildWelcomeKickoffCloser(["Honey"]), /Honey is having trouble/);
+  assert.match(buildWelcomeKickoffCloser(["Bosun"]), /Bosun is having trouble/);
   assert.match(
-    buildWelcomeKickoffCloser(["Honey", "Bumble"]),
-    /Honey and Bumble couldn't start/,
+    buildWelcomeKickoffCloser(["Bosun", "Lookout"]),
+    /Bosun and Lookout couldn't start/,
   );
   assert.match(
-    buildWelcomeKickoffCloser(["Honey", "Bumble"]),
+    buildWelcomeKickoffCloser(["Bosun", "Lookout"]),
     /I'm still here to help/,
   );
 });
 
 test("closer names teammates that did not reply before the intro wait", () => {
   assert.match(
-    buildWelcomeKickoffCloser([], ["Bumble"]),
-    /Bumble is taking longer to reply/,
+    buildWelcomeKickoffCloser([], ["Lookout"]),
+    /Lookout is taking longer to reply/,
   );
   assert.match(
-    buildWelcomeKickoffCloser(["Honey"], ["Bumble"]),
-    /Honey and Bumble are taking longer than expected/,
+    buildWelcomeKickoffCloser(["Bosun"], ["Lookout"]),
+    /Bosun and Lookout are taking longer than expected/,
   );
 });
 
@@ -176,34 +202,34 @@ test("running teammates restart when their allowlist does not include the lead",
   assert.equal(
     welcomeTeammateNeedsRestart(
       {
-        ...honey,
+        ...bosun,
         status: "running",
         respondTo: "allowlist",
-        respondToAllowlist: [fizz.pubkey],
+        respondToAllowlist: [navigator.pubkey],
       },
-      fizz.pubkey,
+      navigator.pubkey,
     ),
     false,
   );
   assert.equal(
     welcomeTeammateNeedsRestart(
       {
-        ...bumble,
+        ...lookout,
         status: "running",
         respondTo: "allowlist",
-        respondToAllowlist: [honey.pubkey],
+        respondToAllowlist: [bosun.pubkey],
       },
-      fizz.pubkey,
+      navigator.pubkey,
     ),
     true,
   );
 });
 
 test("opener keeps partial-readiness warm and mentions only online teammates", () => {
-  const agentSet = { lead: fizz, teammates: [honey, bumble] };
+  const agentSet = { lead: navigator, teammates: [bosun, lookout] };
   const introTeammates = selectWelcomeKickoffIntroTeammates(
     agentSet.teammates,
-    [honey],
+    [bosun],
   );
   const input = buildWelcomeKickoffOpenerSendInput(
     agentSet,
@@ -211,18 +237,18 @@ test("opener keeps partial-readiness warm and mentions only online teammates", (
     "welcome-1",
   );
 
-  assert.deepEqual(input.mentionPubkeys, [honey.pubkey]);
+  assert.deepEqual(input.mentionPubkeys, [bosun.pubkey]);
   assert.deepEqual(input.additionalMarkers, []);
-  assert.match(input.content, /@Honey, introduce yourself/);
+  assert.match(input.content, /@Bosun, introduce yourself/);
   assert.doesNotMatch(input.content, /@@/);
   assert.doesNotMatch(
     input.content,
-    /Bumble.*trouble|couldn't start|taking longer/i,
+    /Lookout.*trouble|couldn't start|taking longer/i,
   );
 });
 
 test("opener greets the owner by name and tags their pubkey", () => {
-  const agentSet = { lead: fizz, teammates: [honey, bumble] };
+  const agentSet = { lead: navigator, teammates: [bosun, lookout] };
   const owner = { pubkey: "owner-pubkey-hex", displayName: "Morgan" };
   const input = buildWelcomeKickoffOpenerSendInput(
     agentSet,
@@ -232,17 +258,17 @@ test("opener greets the owner by name and tags their pubkey", () => {
   );
 
   assert.deepEqual(input.mentionPubkeys, [
-    honey.pubkey,
-    bumble.pubkey,
+    bosun.pubkey,
+    lookout.pubkey,
     owner.pubkey,
   ]);
-  assert.match(input.content, /^Hi @Morgan, I'm Fizz\./);
+  assert.match(input.content, /^Hi @Morgan, I'm Navigator\./);
   // The raw pubkey must never leak into the visible copy.
   assert.doesNotMatch(input.content, /owner-pubkey-hex/);
 });
 
 test("opener falls back to an unnamed greeting when the display name is missing", () => {
-  const agentSet = { lead: fizz, teammates: [honey, bumble] };
+  const agentSet = { lead: navigator, teammates: [bosun, lookout] };
   const owner = { pubkey: "owner-pubkey-hex", displayName: "  " };
   const input = buildWelcomeKickoffOpenerSendInput(
     agentSet,
@@ -253,12 +279,12 @@ test("opener falls back to an unnamed greeting when the display name is missing"
 
   // Still tagged for the Inbox mentions feed, just no visible greeting name.
   assert.ok(input.mentionPubkeys.includes(owner.pubkey));
-  assert.match(input.content, /^Hi, I'm Fizz\./);
+  assert.match(input.content, /^Hi, I'm Navigator\./);
   assert.doesNotMatch(input.content, /@\s/);
 });
 
 test("opener greets and tags the owner even when no teammates come online", () => {
-  const agentSet = { lead: fizz, teammates: [honey, bumble] };
+  const agentSet = { lead: navigator, teammates: [bosun, lookout] };
   const input = buildWelcomeKickoffOpenerSendInput(agentSet, [], "welcome-1", {
     pubkey: "owner-pubkey-hex",
     displayName: "Morgan",
@@ -266,28 +292,28 @@ test("opener greets and tags the owner even when no teammates come online", () =
 
   assert.deepEqual(input.mentionPubkeys, ["owner-pubkey-hex"]);
   assert.equal(input.additionalMarkers.length, 1);
-  assert.match(input.content, /^Hi @Morgan, I'm Fizz\./);
+  assert.match(input.content, /^Hi @Morgan, I'm Navigator\./);
 });
 
 test("opener does not duplicate the owner pubkey if already mentioned", () => {
-  const agentSet = { lead: fizz, teammates: [honey, bumble] };
+  const agentSet = { lead: navigator, teammates: [bosun, lookout] };
   const input = buildWelcomeKickoffOpenerSendInput(
     agentSet,
-    [honey],
+    [bosun],
     "welcome-1",
-    { pubkey: honey.pubkey, displayName: honey.name },
+    { pubkey: bosun.pubkey, displayName: bosun.name },
   );
 
-  assert.deepEqual(input.mentionPubkeys, [honey.pubkey]);
+  assert.deepEqual(input.mentionPubkeys, [bosun.pubkey]);
 });
 
-test("opener degrades to one seeded Fizz message when no teammate comes online", () => {
-  const agentSet = { lead: fizz, teammates: [honey, bumble] };
+test("opener degrades to one seeded Navigator message when no teammate comes online", () => {
+  const agentSet = { lead: navigator, teammates: [bosun, lookout] };
   const input = buildWelcomeKickoffOpenerSendInput(agentSet, [], "welcome-1");
 
   assert.deepEqual(input.mentionPubkeys, []);
   assert.equal(input.additionalMarkers.length, 1);
-  assert.match(input.content, /I'm here with Honey and Bumble/);
+  assert.match(input.content, /I'm here with Bosun and Lookout/);
   assert.match(input.content, /What can we help you build/);
   assert.doesNotMatch(
     input.content,
@@ -296,17 +322,17 @@ test("opener degrades to one seeded Fizz message when no teammate comes online",
 });
 
 test("readiness wait returns the subset that became online by the deadline", async () => {
-  const online = await waitForWelcomeTeammatesOnline([honey, bumble], {
+  const online = await waitForWelcomeTeammatesOnline([bosun, lookout], {
     isCancelled: () => false,
     loadPresence: async () => ({
-      [honey.pubkey]: "online",
-      [bumble.pubkey]: "offline",
+      [bosun.pubkey]: "online",
+      [lookout.pubkey]: "offline",
     }),
     pollMs: 0,
     waitMs: 0,
   });
 
-  assert.deepEqual(online, [honey]);
+  assert.deepEqual(online, [bosun]);
 });
 
 function relayEvent({ id, pubkey, createdAt = 1, tags = [], content = "" }) {
@@ -322,10 +348,10 @@ function relayEvent({ id, pubkey, createdAt = 1, tags = [], content = "" }) {
 }
 
 test("closer classification sees replies that arrive during the final beat", async () => {
-  const agentSet = { lead: fizz, teammates: [honey, bumble] };
+  const agentSet = { lead: navigator, teammates: [bosun, lookout] };
   const opener = relayEvent({
     id: "opener",
-    pubkey: fizz.pubkey,
+    pubkey: navigator.pubkey,
     tags: [["client", "buzz-welcome-kickoff.opener.v1"]],
   });
   const events = [opener];
@@ -333,14 +359,14 @@ test("closer classification sees replies that arrive during the final beat", asy
   const beforeBeat = classifyWelcomeKickoffResolution(events, opener, agentSet);
   assert.deepEqual(
     beforeBeat.unresolved.map((agent) => agent.name),
-    ["Honey", "Bumble"],
+    ["Bosun", "Lookout"],
   );
 
   const beat = waitForWelcomeKickoffBeat({ waitMs: 5 });
   events.push(
     relayEvent({
-      id: "honey-intro",
-      pubkey: honey.pubkey,
+      id: "bosun-intro",
+      pubkey: bosun.pubkey,
       createdAt: 2,
       tags: [
         ["e", opener.id, "", "root"],
@@ -353,7 +379,7 @@ test("closer classification sees replies that arrive during the final beat", asy
   const afterBeat = classifyWelcomeKickoffResolution(events, opener, agentSet);
   assert.deepEqual(
     afterBeat.unresolved.map((agent) => agent.name),
-    ["Bumble"],
+    ["Lookout"],
   );
 });
 
@@ -371,7 +397,7 @@ function introReply(id, pubkey, openerId) {
 
 const kickoffOpener = relayEvent({
   id: "opener",
-  pubkey: fizz.pubkey,
+  pubkey: navigator.pubkey,
   tags: [["client", "buzz-welcome-kickoff.opener.v1"]],
 });
 
@@ -380,11 +406,11 @@ const kickoffOpener = relayEvent({
 // opener and never the intros, and the closer stalled until the user happened
 // to click into the thread. Merging the opener's subtree in is the fix.
 test("intro replies reach the closer classification without the user opening the thread", () => {
-  const agentSet = { lead: fizz, teammates: [honey, bumble] };
+  const agentSet = { lead: navigator, teammates: [bosun, lookout] };
   const channelEvents = [kickoffOpener];
   const openerReplies = [
-    introReply("honey-intro", honey.pubkey, kickoffOpener.id),
-    introReply("bumble-intro", bumble.pubkey, kickoffOpener.id),
+    introReply("bosun-intro", bosun.pubkey, kickoffOpener.id),
+    introReply("lookout-intro", lookout.pubkey, kickoffOpener.id),
   ];
 
   // Pin the pre-fix behaviour: on the channel events alone, both teammates
@@ -395,7 +421,7 @@ test("intro replies reach the closer classification without the user opening the
       kickoffOpener,
       agentSet,
     ).unresolved.map((agent) => agent.name),
-    ["Honey", "Bumble"],
+    ["Bosun", "Lookout"],
   );
 
   // With the subtree merged in, the same intros resolve the kickoff.
@@ -410,16 +436,16 @@ test("intro replies reach the closer classification without the user opening the
 });
 
 test("merging the opener subtree never double-counts an already-visible reply", () => {
-  const honeyIntro = introReply("honey-intro", honey.pubkey, kickoffOpener.id);
+  const bosunIntro = introReply("bosun-intro", bosun.pubkey, kickoffOpener.id);
   // An open thread feeds the same replies in through both sources.
   const merged = mergeKickoffEvents(
-    [kickoffOpener, honeyIntro],
-    [honeyIntro, introReply("bumble-intro", bumble.pubkey, kickoffOpener.id)],
+    [kickoffOpener, bosunIntro],
+    [bosunIntro, introReply("lookout-intro", lookout.pubkey, kickoffOpener.id)],
   );
 
   assert.deepEqual(
     merged.map((event) => event.id),
-    ["opener", "honey-intro", "bumble-intro"],
+    ["opener", "bosun-intro", "lookout-intro"],
   );
 });
 

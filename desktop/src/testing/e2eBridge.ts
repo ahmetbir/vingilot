@@ -2210,7 +2210,42 @@ function resetMockManagedAgents(config?: E2eConfig) {
 function resetMockPersonas(config?: E2eConfig) {
   const now = new Date().toISOString();
   const activePersonaIds = new Set(config?.mock?.activePersonaIds ?? []);
+  // Mirrors the Rust catalog's order (`managed_agents::personas`): the crew
+  // first, then the bees it replaced as the default greeting. The crew is what
+  // the welcome bootstrap provisions, so it has to be here for any spec that
+  // reaches Welcome; the bees stay because they are still built-in personas and
+  // specs exercise them as such.
   const builtInPersonas = [
+    {
+      id: "builtin:mate",
+      display_name: "Mate",
+      avatar_url: null,
+      system_prompt: "You are Mate.",
+    },
+    {
+      id: "builtin:bosun",
+      display_name: "Bosun",
+      avatar_url: null,
+      system_prompt: "You are Bosun.",
+    },
+    {
+      id: "builtin:lookout",
+      display_name: "Lookout",
+      avatar_url: null,
+      system_prompt: "You are Lookout.",
+    },
+    {
+      id: "builtin:navigator",
+      display_name: "Navigator",
+      avatar_url: null,
+      system_prompt: "You are Navigator.",
+    },
+    {
+      id: "builtin:scribe",
+      display_name: "Scribe",
+      avatar_url: null,
+      system_prompt: "You are Scribe.",
+    },
     {
       id: "builtin:fizz",
       display_name: "Fizz",

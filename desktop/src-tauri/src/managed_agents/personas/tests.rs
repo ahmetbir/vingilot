@@ -45,7 +45,19 @@ fn merge_personas_adds_missing_built_ins() {
         .iter()
         .map(|record| record.display_name.as_str())
         .collect();
-    assert_eq!(display_names, vec!["Fizz", "Honey", "Bumble"]);
+    assert_eq!(
+        display_names,
+        vec![
+            "Mate",
+            "Bosun",
+            "Lookout",
+            "Navigator",
+            "Scribe",
+            "Fizz",
+            "Honey",
+            "Bumble"
+        ]
+    );
     let active_ids: Vec<&str> = records
         .iter()
         .filter(|record| record.is_active)
@@ -53,7 +65,61 @@ fn merge_personas_adds_missing_built_ins() {
         .collect();
     assert_eq!(
         active_ids,
-        vec!["builtin:fizz", "builtin:honey", "builtin:bumble"]
+        vec![
+            "builtin:mate",
+            "builtin:bosun",
+            "builtin:lookout",
+            "builtin:navigator",
+            "builtin:scribe",
+            "builtin:fizz",
+            "builtin:honey",
+            "builtin:bumble",
+        ]
+    );
+}
+
+/// The crew's prompts come from `.persona.md` pack files. `built_in_persona_records`
+/// is where the YAML frontmatter is split off, so this is where "a system prompt
+/// never carries frontmatter" has to hold — for the crew, and unchanged for the
+/// upstream built-ins that have none.
+#[test]
+fn built_in_records_carry_prompt_bodies_not_persona_files() {
+    let records = built_in_persona_records("2026-03-19T00:00:00Z");
+
+    for record in &records {
+        assert!(
+            !record.system_prompt.starts_with("---"),
+            "{}: frontmatter leaked into the system prompt",
+            record.id
+        );
+        assert!(
+            !record.system_prompt.contains("display_name:"),
+            "{}: frontmatter key leaked into the system prompt",
+            record.id
+        );
+        assert!(
+            !record.system_prompt.is_empty(),
+            "{}: empty system prompt",
+            record.id
+        );
+    }
+
+    let mate = records
+        .iter()
+        .find(|record| record.id == "builtin:mate")
+        .expect("Mate should be a built-in persona");
+    assert!(mate.system_prompt.contains("First Mate"));
+    assert!(mate
+        .system_prompt
+        .contains("overrides everything in this prompt"));
+
+    let fizz = records
+        .iter()
+        .find(|record| record.id == "builtin:fizz")
+        .expect("Fizz should still be a built-in persona");
+    assert!(
+        fizz.system_prompt.starts_with("You are Fizz"),
+        "upstream prompts must pass through untouched"
     );
 }
 
