@@ -88,6 +88,14 @@ export function LocalHarborOnboarding({
   }, [onReady]);
 
   const ordered = orderedHarborSteps(steps);
+  // The failed step row already wears the failure sentence (report.failure is
+  // the failed step's own detail), so the separate box repeats it — the
+  // owner's first end-to-end run showed the same paragraph twice in red. The
+  // box earns its place only when it says something the rows do not: a
+  // probe-level refusal (no steps yet), or a failure the rows don't carry.
+  const failureAlreadyShown = ordered.some(
+    (step) => step.state === "failed" && step.detail === failure,
+  );
 
   return (
     <div className="flex w-full max-w-[620px] flex-col items-center text-center">
@@ -146,7 +154,7 @@ export function LocalHarborOnboarding({
         </ol>
       ) : null}
 
-      {phase === "blocked" && failure ? (
+      {phase === "blocked" && failure && !failureAlreadyShown ? (
         <div
           className="mt-6 w-full max-w-[520px] rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-left text-sm leading-6 text-destructive"
           data-testid="harbor-failure"

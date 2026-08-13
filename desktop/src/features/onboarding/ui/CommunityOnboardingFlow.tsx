@@ -593,7 +593,7 @@ export function CommunityOnboardingFlow({
                         autoCapitalize="none"
                         autoComplete="username"
                         autoCorrect="off"
-                        className="h-14 rounded-2xl border-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.28)] bg-[rgb(var(--buzz-onboarding-avatar-dialog-bg)/0.95)] px-5 text-sm shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.5)] md:text-sm"
+                        className="h-14 rounded-2xl border-foreground/20 bg-background/40 px-5 text-sm text-foreground shadow-none backdrop-blur-sm placeholder:text-foreground/45 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-foreground/50 md:text-sm"
                         data-testid="community-profile-name-key"
                         disabled={isPending || isUploadingAvatar}
                         id="community-display-name"

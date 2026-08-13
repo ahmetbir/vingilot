@@ -822,3 +822,50 @@ fn compose_args_appends_its_tail_and_nothing_else() {
     assert_eq!(args.len(), 9);
     assert_eq!(&args[7..], &["ps".to_owned(), "--all".to_owned()]);
 }
+
+/// `child_path` — the PATH a docker child inherits.
+///
+/// Three claims: the binary's own directory leads the additions (the
+/// credential helper lives beside the binary), a directory already present in
+/// the app's PATH is not repeated, and a bare `docker` (found via PATH, no
+/// parent directory) still gets the well-known install locations.
+#[test]
+fn the_childs_path_leads_with_the_binaries_own_directory() {
+    let path = super::child_path(
+        "/Applications/Docker.app/Contents/Resources/bin/docker",
+        Some("/usr/bin:/bin"),
+        None,
+    );
+    let segments: Vec<&str> = path.split(':').collect();
+    assert_eq!(segments[0], "/usr/bin");
+    assert_eq!(segments[1], "/bin");
+    assert_eq!(segments[2], "/Applications/Docker.app/Contents/Resources/bin");
+    assert!(segments.contains(&"/usr/local/bin"));
+    assert!(segments.contains(&"/opt/homebrew/bin"));
+}
+
+#[test]
+fn a_directory_already_on_the_path_is_not_repeated() {
+    let path = super::child_path("/usr/local/bin/docker", Some("/usr/local/bin:/usr/bin"), None);
+    let hits = path
+        .split(':')
+        .filter(|segment| *segment == "/usr/local/bin")
+        .count();
+    assert_eq!(hits, 1);
+}
+
+#[test]
+fn a_bare_docker_still_gets_the_wellknown_directories() {
+    let home = TempDir::new().expect("tempdir");
+    let path = super::child_path("docker", None, Some(home.path()));
+    let docker_bin = home
+        .path()
+        .join(".docker")
+        .join("bin")
+        .to_string_lossy()
+        .into_owned();
+    let segments: Vec<&str> = path.split(':').collect();
+    assert!(!path.starts_with(':'));
+    assert!(segments.contains(&"/usr/local/bin"));
+    assert!(segments.contains(&docker_bin.as_str()));
+}

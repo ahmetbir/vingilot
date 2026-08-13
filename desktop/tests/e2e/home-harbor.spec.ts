@@ -201,12 +201,17 @@ test("a --wait timeout names the container that never went healthy", async ({
   await expect(
     page.getByTestId("harbor-step-waiting-for-health"),
   ).toHaveAttribute("data-state", "failed");
-  await expect(page.getByTestId("harbor-failure")).toContainText(
-    "vingilot-relay (unhealthy)",
-  );
-  await expect(page.getByTestId("harbor-failure")).toContainText(
-    "docker compose -p vingilot-harbor logs relay",
-  );
+  // The failed step row carries the sentence itself — container name and the
+  // logs command. The separate failure box must NOT appear when it would only
+  // repeat that row: the owner's first real run showed the same paragraph
+  // twice in red, and this pins the dedup.
+  await expect(
+    page.getByTestId("harbor-step-waiting-for-health"),
+  ).toContainText("vingilot-relay (unhealthy)");
+  await expect(
+    page.getByTestId("harbor-step-waiting-for-health"),
+  ).toContainText("docker compose -p vingilot-harbor logs relay");
+  await expect(page.getByTestId("harbor-failure")).toHaveCount(0);
 });
 
 test("the settings card draws a running harbor with Stop and the uninstall commands", async ({

@@ -207,3 +207,45 @@ fn a_second_install_reruns_docker_and_rewrites_nothing() {
         vec![info_args(), up_args(&paths), wait_args(&paths)]
     );
 }
+
+/// The child's `PATH` carries the resolved binary's own directory.
+///
+/// This is the credential-helper defect, pinned at the same boundary that
+/// caught the argument vectors: docker invokes `docker-credential-desktop`
+/// via the `PATH` it inherits, and a Finder-launched app's PATH has none of
+/// Docker Desktop's directories in it. The recorder here records `$PATH`
+/// instead of its arguments, and the assertion is that the directory the
+/// recorder itself lives in — standing in for wherever `docker` was found —
+/// arrived inside it.
+#[test]
+fn the_child_path_carries_the_binaries_own_directory() {
+    let dir = tempdir();
+    let record = dir.path().join("record");
+    let path = dir.path().join("path-docker");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s' \"$PATH\" > '{record}'\n",
+        record = record.display(),
+    );
+    if let Err(error) = fs::write(&path, script) {
+        panic!("could not write the recorder: {error}");
+    }
+    if let Err(error) = fs::set_permissions(
+        &path,
+        <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+    ) {
+        panic!("could not mark the recorder executable: {error}");
+    }
+
+    if let Err(error) = run(&path.to_string_lossy(), &[]) {
+        panic!("the recorder refused: {error:?}");
+    }
+    let seen = match fs::read_to_string(&record) {
+        Ok(body) => body,
+        Err(error) => panic!("could not read the recorded PATH: {error}"),
+    };
+    let parent = dir.path().to_string_lossy().into_owned();
+    assert!(
+        seen.split(':').any(|segment| segment == parent),
+        "the child's PATH does not carry the binary's directory",
+    );
+}

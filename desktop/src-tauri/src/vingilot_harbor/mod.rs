@@ -166,6 +166,43 @@ pub(crate) enum DockerError {
     Refused { code: Option<i32>, stderr: String },
 }
 
+/// The `PATH` a docker child process gets.
+///
+/// Finding the `docker` binary by absolute path is not enough: docker itself
+/// then invokes its credential helper (`docker-credential-desktop`, named by
+/// `credsStore` in `~/.docker/config.json`) **via `PATH`**, for every pull —
+/// public images included. A Finder-launched app's PATH has none of Docker
+/// Desktop's directories in it, so the first real install died with
+/// `exec: "docker-credential-desktop": executable file not found in $PATH`
+/// before the registry was ever asked anything. The child therefore gets the
+/// app's PATH plus every directory `candidates` knows, the resolved binary's
+/// own directory first — the helper is installed beside the binary.
+pub(crate) fn child_path(binary: &str, current: Option<&str>, home: Option<&Path>) -> String {
+    let mut path = current.unwrap_or_default().to_owned();
+    let mut extras: Vec<String> = Vec::new();
+    if let Some(parent) = Path::new(binary).parent() {
+        if !parent.as_os_str().is_empty() {
+            extras.push(parent.to_string_lossy().into_owned());
+        }
+    }
+    extras.push("/usr/local/bin".to_owned());
+    extras.push("/opt/homebrew/bin".to_owned());
+    if let Some(home) = home {
+        extras.push(home.join(".docker").join("bin").to_string_lossy().into_owned());
+    }
+    extras.push("/Applications/Docker.app/Contents/Resources/bin".to_owned());
+    for extra in extras {
+        if path.split(':').any(|segment| segment == extra) {
+            continue;
+        }
+        if !path.is_empty() {
+            path.push(':');
+        }
+        path.push_str(&extra);
+    }
+    path
+}
+
 /// Run `docker <args>` and give back its stdout.
 ///
 /// `output()` rather than `status()`: every refusal in this island quotes
@@ -174,6 +211,14 @@ pub(crate) enum DockerError {
 pub(crate) fn run(binary: &str, args: &[String]) -> Result<String, DockerError> {
     match Command::new(binary)
         .args(args)
+        .env(
+            "PATH",
+            child_path(
+                binary,
+                std::env::var("PATH").ok().as_deref(),
+                dirs::home_dir().as_deref(),
+            ),
+        )
         .stdin(Stdio::null())
         .output()
     {
