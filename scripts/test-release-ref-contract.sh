@@ -43,15 +43,27 @@ git -C "$tmp" tag -m "relay release" relay-v2.0.0
   GITHUB_REF=refs/tags/relay-v2.0.0 "$verify" relay-v 2.0.0
 )
 
-if grep -q 'inputs\.ref' \
-  "$repo_root/.github/workflows/release.yml" \
-  "$repo_root/.github/workflows/docker.yml"; then
+# The publishers this contract covers, and only the ones that are present.
+# Vingilot deleted upstream's relay publisher (docker.yml) rather than editing
+# it: it pushed ghcr.io/block/buzz, which a fork's token cannot write, so it
+# failed on every commit. The fork publishes its own relay image from
+# .github/workflows/vingilot-relay-image.yml, which has no relay-v release lane
+# and no verify-release-ref.sh step to assert. Asserting over an absent file
+# would report a deleted publisher as a broken one — grep exits 2 on a missing
+# path, which under `set -e` fails this whole contract for the wrong reason.
+publishers=("$repo_root/.github/workflows/release.yml")
+if [ -f "$repo_root/.github/workflows/docker.yml" ]; then
+  publishers+=("$repo_root/.github/workflows/docker.yml")
+fi
+
+if grep -q 'inputs\.ref' "${publishers[@]}"; then
   echo "publisher workflow still accepts a caller-selected source ref" >&2
   exit 1
 fi
 
-grep -q 'verify-release-ref\.sh' "$repo_root/.github/workflows/release.yml"
-grep -q 'verify-release-ref\.sh' "$repo_root/.github/workflows/docker.yml"
+for publisher in "${publishers[@]}"; do
+  grep -q 'verify-release-ref\.sh' "$publisher"
+done
 grep -q 'test-release-ref-contract\.sh' "$repo_root/.github/workflows/ci.yml"
 "$repo_root/scripts/test-signed-canary-contract.sh"
 auto_tag="$repo_root/.github/workflows/auto-tag-on-release-pr-merge.yml"
