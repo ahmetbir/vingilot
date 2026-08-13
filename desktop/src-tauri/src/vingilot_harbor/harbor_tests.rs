@@ -839,14 +839,21 @@ fn the_childs_path_leads_with_the_binaries_own_directory() {
     let segments: Vec<&str> = path.split(':').collect();
     assert_eq!(segments[0], "/usr/bin");
     assert_eq!(segments[1], "/bin");
-    assert_eq!(segments[2], "/Applications/Docker.app/Contents/Resources/bin");
+    assert_eq!(
+        segments[2],
+        "/Applications/Docker.app/Contents/Resources/bin"
+    );
     assert!(segments.contains(&"/usr/local/bin"));
     assert!(segments.contains(&"/opt/homebrew/bin"));
 }
 
 #[test]
 fn a_directory_already_on_the_path_is_not_repeated() {
-    let path = super::child_path("/usr/local/bin/docker", Some("/usr/local/bin:/usr/bin"), None);
+    let path = super::child_path(
+        "/usr/local/bin/docker",
+        Some("/usr/local/bin:/usr/bin"),
+        None,
+    );
     let hits = path
         .split(':')
         .filter(|segment| *segment == "/usr/local/bin")

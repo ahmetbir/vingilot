@@ -24,7 +24,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz)
+# buzz-backend-kubernetes arrived with the 0.5.11 merge: upstream's k8s
+# compute backend, now in tauri.conf.json's externalBin, so a bundle without
+# the real binary fails at `resource path … doesn't exist` — exactly how
+# v0.2.7's first build died.
+SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz buzz-backend-kubernetes)
 TARGET="${1:-$(rustc -vV | sed -n 's|host: ||p')}"
 
 free_gib=$(df -g /System/Volumes/Data | awk 'NR==2 {print $4}')
@@ -37,7 +41,8 @@ echo "Disk: ${free_gib} GiB free. Target: ${TARGET}"
 
 echo "==> Building the sidecar binaries (release)"
 cargo build --release --target "$TARGET" \
-    -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p buzz-cli -p git-credential-nostr
+    -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p buzz-cli -p git-credential-nostr \
+    -p buzz-backend-kubernetes
 
 TARGET_DIR=$(cargo metadata --format-version 1 --no-deps \
     | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")

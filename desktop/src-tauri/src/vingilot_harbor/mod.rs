@@ -188,7 +188,12 @@ pub(crate) fn child_path(binary: &str, current: Option<&str>, home: Option<&Path
     extras.push("/usr/local/bin".to_owned());
     extras.push("/opt/homebrew/bin".to_owned());
     if let Some(home) = home {
-        extras.push(home.join(".docker").join("bin").to_string_lossy().into_owned());
+        extras.push(
+            home.join(".docker")
+                .join("bin")
+                .to_string_lossy()
+                .into_owned(),
+        );
     }
     extras.push("/Applications/Docker.app/Contents/Resources/bin".to_owned());
     for extra in extras {

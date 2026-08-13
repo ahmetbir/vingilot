@@ -51,6 +51,13 @@ seams:
     status: "permanent"
     added: "2026-08-13"
 
+  - path: "desktop/src/features/sidebar/ui/AppSidebar.types.ts"
+    reason: "AppSidebar's ratchet split. The merge left AppSidebar.tsx at 1004 lines — all six new lines upstream's own growth — and the fork's rule is split, never raise: the 93-line AppSidebarProps type moved into this file, which already held the sidebar's shared types (CollapsibleSidebarGroup, CreateChannelKind). No behavior moved; AppSidebar.tsx imports the type back and sits at 897. An upstream edit to either file conflicts here, and the resolution re-applies the split: upstream's props changes land in this file's AppSidebarProps, not back in the component."
+    owner: "vingilot/runs"
+    removable_when: "Upstream splits AppSidebar itself, or the fork's single-sidebar rework (owner queue) replaces the component."
+    status: "temporary"
+    added: "2026-08-13"
+
   - path: "desktop/tests/e2e/buzz-term-wheel.spec.ts"
     reason: "Upstream's Buzz Term wheel spec, kept beside the fork's own. Upstream 0.5.11 added desktop/tests/e2e/terminal-wheel.spec.ts (233 lines, asserting a wheel over the Buzz Term dock reaches terminal_scroll) at the exact path the fork already ships a different terminal-wheel.spec.ts (364 lines, asserting a wheel over the vingilot_pty terminal) — an add/add collision of two genuinely different tests. Rather than lose either coverage, upstream's file is renamed to this path and the fork's keeps terminal-wheel.spec.ts; both globs are unioned into playwright.config.ts's testMatch. It lives at the upstream-owned desktop/tests/e2e/ path for the same reason every fork spec does: that is where playwright.config.ts's testDir points. The content is upstream's, unedited apart from the filename."
     owner: "vingilot/runs"
