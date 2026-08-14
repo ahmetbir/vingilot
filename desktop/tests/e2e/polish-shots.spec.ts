@@ -302,19 +302,19 @@ test("files: the tree, the viewer, the long file, and the empty state", async ({
   await openPolishWorkspace(page);
   await openPane(page, "files");
 
-  // The tree drawer starts open at this width, over an empty viewer.
-  await expect(page.getByTestId("files-tree-drawer")).toBeVisible();
+  // The tree lives in the Deck sidebar's Files accordion member now
+  // (pane-nav-absorb plan) — open it and shoot it there.
+  await page.getByTestId("sidebar-accordion-header-files").click();
+  await expect(page.getByTestId("files-tree")).toBeVisible();
   await expect(page.getByTestId("files-row-src")).toBeVisible();
   await expect(page.getByTestId("files-row-README.md")).toBeVisible();
   await page.getByTestId("files-row-src").click();
   await expect(page.getByTestId("files-row-src/greet.ts")).toBeVisible();
-  await shoot(page, "pane-right", "files-tree");
+  await shoot(page, "app-sidebar", "files-tree");
 
   // A small file, highlighted. The colour poll is also what gates the "after"
   // shot on the async swap having landed.
   await page.getByTestId("files-row-src/greet.ts").click();
-  await page.getByTestId("files-tree-toggle").click();
-  await expect(page.getByTestId("files-tree-drawer")).toHaveCount(0);
   await expect(page.getByTestId("files-viewer-path")).toHaveText(
     "src/greet.ts",
   );
@@ -327,10 +327,7 @@ test("files: the tree, the viewer, the long file, and the empty state", async ({
   await shoot(page, "pane-right", "files-viewer");
 
   // The 400-line file — the shot that shows what the ceiling used to cost.
-  await page.getByTestId("files-tree-toggle").click();
-  await expect(page.getByTestId("files-tree-drawer")).toBeVisible();
   await page.getByTestId("files-row-src/long.ts").click();
-  await page.getByTestId("files-tree-toggle").click();
   await expect(page.getByTestId("files-viewer-path")).toHaveText("src/long.ts");
   await expect(page.getByTestId("files-viewer")).toContainText("const line399");
   // Give a background tokenise time to land when there is one; asserted only
@@ -339,13 +336,10 @@ test("files: the tree, the viewer, the long file, and the empty state", async ({
   await shoot(page, "pane-right", "files-viewer-long");
 
   // The empty state: leave and come back (a remount — `identity` is the
-  // worktree, but the slot renders one pane at a time), then put the drawer
-  // away over the nothing it starts on.
+  // worktree, but the slot renders one pane at a time). No drawer to put
+  // away: the viewer has the pane whole.
   await openPane(page, "search");
   await openPane(page, "files");
-  await expect(page.getByTestId("files-tree-drawer")).toBeVisible();
-  await page.getByTestId("files-tree-toggle").click();
-  await expect(page.getByTestId("files-tree-drawer")).toHaveCount(0);
   await expect(page.getByTestId("files-viewer-empty")).toBeVisible();
   await shoot(page, "pane-right", "files-empty");
 });
@@ -389,7 +383,7 @@ test("history: source control and commits, then a commit's patch", async ({
   ).toBeVisible();
   await expect(page.getByTestId("history-commits")).toBeVisible();
   await expect(page.getByTestId("history-patch-none")).toBeVisible();
-  await shoot(page, "pane-history", "history-list");
+  await shoot(page, "app-sidebar", "history-list");
 
   await page.getByTestId(`history-commit-${"a".repeat(40)}`).click();
   await expect(page.getByTestId("history-patch-title")).toContainText(

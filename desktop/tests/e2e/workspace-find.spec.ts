@@ -299,17 +299,17 @@ async function choosePane(page: Page, key: string) {
   await waitForAnimations(page);
 }
 
-/** A worktree, the Files pane, one file open, and the tree out of the way —
- * which is the whole gesture at 435px, and the state ⌘F is pressed from. */
+/** A worktree, the Files pane, one file open — the tree lives in the Deck
+ * sidebar's Files accordion member now (pane-nav-absorb plan), so this is the
+ * state ⌘F is pressed from with the viewer owning the pane whole. */
 async function openFile(page: Page, path: string) {
   await page.getByTestId(`worktree-row-${WORKTREE.binding_id}`).click();
   await choosePane(page, "files");
   await expect(page.getByTestId("pane-files")).toBeVisible();
+  await page.getByTestId("sidebar-accordion-header-files").click();
   await page.getByTestId("files-row-src").click();
   await page.getByTestId(`files-row-${path}`).click();
   await expect(page.getByTestId("files-viewer-path")).toHaveText(path);
-  await page.getByTestId("files-tree-toggle").click();
-  await expect(page.getByTestId("files-tree-drawer")).toHaveCount(0);
 }
 
 test("⌘F opens a find bar over the open file, counts, walks and closes", async ({

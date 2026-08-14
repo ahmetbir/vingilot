@@ -531,6 +531,14 @@ export async function openHistoryWorkspace(
 
   await page.goto("/#/workspace");
   await expect(page.getByTestId("runs-screen")).toBeVisible();
+  // A second call in the same test does NOT reload the document (same-hash
+  // goto), so the accordion may still have History open from the first
+  // half — the repo row lives under Worktrees, which must be the open member
+  // before it can be clicked.
+  const worktrees = page.getByTestId("sidebar-accordion-header-worktrees");
+  if ((await worktrees.getAttribute("aria-expanded")) === "false") {
+    await worktrees.click();
+  }
   await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
   await expect(page.getByTestId("work-surface")).toBeVisible();
   await page.getByTestId(`worktree-row-${WORKTREE.binding_id}`).click();
@@ -540,6 +548,11 @@ export async function openHistoryWorkspace(
  * own — Search is the only pane in the table that does, because Search is the
  * only one he left the app for. */
 export async function openHistoryPane(page: Page) {
+  // The lists live in the Deck sidebar's History accordion member now
+  // (pane-nav-absorb plan, Task 5); the pane holds the shared patch box.
+  // Opening both is the whole gesture the old single-component pane was.
+  await page.getByTestId("sidebar-accordion-header-history").click();
+  await expect(page.getByTestId("history-list")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("history");
@@ -561,8 +574,12 @@ export async function openHistoryPane(page: Page) {
  * VS Code-shaped failure — a stage button inside the row — from slipping
  * through this exclusion. */
 export async function controlNames(page: Page): Promise<string[]> {
+  // Both halves of what used to be one pane: the patch box that stayed in
+  // `pane-history` AND the sidebar-hosted status/commit lists — the plan is
+  // explicit that the mutating-verb rule must not leak back in through the
+  // sidebar's copy of the list (pane-nav-absorb §5).
   return page
-    .getByTestId("pane-history")
+    .locator('[data-testid="pane-history"], [data-testid="history-list"]')
     .locator("button:not([role='option']), input, [role='menuitem'], a[href]")
     .evaluateAll((nodes) =>
       nodes.map((node) =>

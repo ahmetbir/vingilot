@@ -262,13 +262,27 @@ async function choosePane(page: Page, key: string) {
 }
 
 async function selectWorktree(page: Page, branch: string) {
+  // The rows live under the accordion's Worktrees member (pane-nav-absorb
+  // plan); a trail that opened Files first has collapsed it, so reopen it
+  // before clicking — the owner's own gesture.
+  const worktrees = page.getByTestId("sidebar-accordion-header-worktrees");
+  if ((await worktrees.getAttribute("aria-expanded")) === "false") {
+    await worktrees.click();
+  }
   await page.getByTestId(`worktree-row-wt-${branch}`).click();
 }
 
-/** Open a file from the Files pane's tree. The pane must already be in the
- * slot — this is the third of the three navigations that feed the trail. */
+/** Open a file from the sidebar's Files tree (pane-nav-absorb plan — the
+ * tree left the pane for the Deck sidebar's Files accordion member). The pane
+ * must already be in the slot — this is the third of the three navigations
+ * that feed the trail. */
 async function openFileFromTree(page: Page, name: string) {
   await expect(page.getByTestId("pane-files")).toBeVisible();
+  const files = page.getByTestId("sidebar-accordion-header-files");
+  if ((await files.getAttribute("aria-expanded")) === "false") {
+    await files.click();
+  }
+  await expect(page.getByTestId("files-tree")).toBeVisible();
   const dir = page.getByTestId("files-row-src");
   if ((await page.getByTestId(`files-row-src/${name}`).count()) === 0) {
     await dir.click();

@@ -180,6 +180,7 @@ export default defineConfig({
         "**/workspace-open-in-editor.spec.ts",
         "**/workspace-search.spec.ts",
         "**/workspace-history.spec.ts",
+        "**/sidebar-deck-accordion.spec.ts",
         "**/workspace-find.spec.ts",
         "**/workspace-places.spec.ts",
         "**/polish-shots.spec.ts",

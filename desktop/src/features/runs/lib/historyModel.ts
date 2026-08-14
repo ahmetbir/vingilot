@@ -478,33 +478,11 @@ export function stepRow(
 // how the pane divides itself
 // ---------------------------------------------------------------------------
 
-/** Which halves of the pane are on screen.
- *
- * `diffLayout.ts` already decided the arithmetic for a pane holding a list and a
- * patch, and this reuses it rather than inventing a second set of widths — but
- * it makes a *different* call about what "too narrow for both" means, and the
- * difference is the point.
- *
- * In the Diff pane the patch is the reading and the list is navigation, so a
- * narrow pane keeps the patch and puts the list in a drawer over it. Here the
- * list is the reading: he opens History to look through commits, and most of the
- * time no commit is selected at all. So a narrow pane shows **one of the two at
- * a time** — the list until he picks something, then that thing's patch with the
- * way back on the header. A drawer would mean the pane opened onto an empty
- * patch box with the actual content hidden behind a control.
- *
- * Above `LIST_LEAVES_BELOW_PX` both fit and both are shown, which is the same
- * threshold the Diff pane yields at, so the two panes change shape at one width
- * rather than at two the owner has to learn separately. */
-export type HistoryLayout = "both" | "list" | "patch";
-
-export function historyLayout(
-  placement: { where: "beside" | "over" },
-  hasSelection: boolean,
-): HistoryLayout {
-  if (placement.where === "beside") return "both";
-  return hasSelection ? "patch" : "list";
-}
+// `historyLayout` — the list-vs-patch division of one pane — was deleted with
+// the division itself: the lists live in the Deck sidebar's History accordion
+// member now and the patch has the pane whole at every width
+// (vingilot/docs/plans/2026-08-14-pane-nav-absorb.md, Task 5 — honest
+// deletion, not a flag).
 
 // ---------------------------------------------------------------------------
 // readings: what the pane is entitled to say, and when

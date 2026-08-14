@@ -138,9 +138,13 @@ test("the workspace view swaps the channel list for the project tree, inside the
     page.getByTestId("runs-screen").getByTestId("projects-nav"),
   ).toHaveCount(0);
 
-  // The channel list does not bleed through underneath it.
-  await expect(page.getByTestId("stream-list")).toHaveCount(0);
-  await expect(page.getByTestId("dm-list")).toHaveCount(0);
+  // The channel list does not bleed through underneath it. Since the
+  // pane-nav-absorb amendment the lists ARE in this view's DOM — portalled
+  // into the Deck accordion's collapsed Chats member, on purpose ("deckten
+  // geri channellari ve dmleri gormek icin…") — so the claim is hidden, not
+  // absent: nothing channel-shaped is VISIBLE until he opens Chats.
+  await expect(page.getByTestId("stream-list")).toBeHidden();
+  await expect(page.getByTestId("dm-list")).toBeHidden();
 
   // Selection made in the sidebar's tree still drives the work surface —
   // the state the two trees share cannot have desynced silently.

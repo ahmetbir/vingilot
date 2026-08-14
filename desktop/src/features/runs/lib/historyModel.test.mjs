@@ -18,7 +18,6 @@ import {
   commitPatchNote,
   commitRowKey,
   commitSubject,
-  historyLayout,
   historyRows,
   logReading,
   missingPatchNote,
@@ -482,17 +481,4 @@ test("a binary file carries its sentence INSTEAD of a patch; a truncated one car
   assert.match(cut.note, /patch cut off/);
   assert.notEqual(cut.patch, "");
   assert.match(cut.patch, /\+new/);
-});
-
-// ---------------------------------------------------------------------------
-// how the pane divides itself
-// ---------------------------------------------------------------------------
-
-test("a pane wide enough shows both halves; a narrow one shows one at a time", () => {
-  assert.equal(historyLayout({ where: "beside" }, false), "both");
-  assert.equal(historyLayout({ where: "beside" }, true), "both");
-  // Narrow and nothing picked: the list, because the list is the reading here —
-  // a drawer would open the pane onto an empty patch box.
-  assert.equal(historyLayout({ where: "over" }, false), "list");
-  assert.equal(historyLayout({ where: "over" }, true), "patch");
 });

@@ -58,14 +58,13 @@ const COORDINATOR_ORIGIN = "http://127.0.0.1:7117";
 /** The 16-inch MacBook Pro's default logical resolution — the machine every
  * complaint in this plan was made about.
  *
- * **Measured, and the measurement is the reason this spec looks the way it
- * does.** At 1728px the shell leaves a 1195px work surface, `MIN_LEFT_PX` takes
- * 752px of it for the terminal's 80 columns and the divider 8px, so the right
- * pane is about 435px — under `PATCH_MIN_PX + LIST_MIN_PX`, which
- * `diffListPlacement` resolves to `over`. So at HIS width the tree is a drawer
- * over the viewer, not a column beside it, and every test below reads it there.
- * That is the layout he will actually get; a wider viewport would have tested
- * one nobody has. */
+ * **Measured, and the measurement is why the drawer died.** At 1728px the
+ * shell leaves a 1195px work surface, `MIN_LEFT_PX` takes 752px of it for the
+ * terminal's 80 columns and the divider 8px, so the right pane is about
+ * 435px — the squeeze the old in-pane drawer existed to survive. The
+ * pane-nav-absorb rework moved the tree into the Deck sidebar's Files
+ * accordion member instead, so at every width the viewer has the pane whole
+ * and the tree is read in the sidebar. */
 const SIXTEEN_INCH = { height: 1117, width: 1728 };
 
 const GIT_HOME = "/tmp/vingilot-files-home";
@@ -382,8 +381,15 @@ async function openFilesWorkspace(page: Page) {
 
 /** The pane, opened the way he would open it: ⌘K, the pane's own row, Enter.
  * Deliberately not by clicking through the picker — the palette is the door the
- * plan cares about, and a pane missing from `PANE_IDS` has no row here at all. */
+ * plan cares about, and a pane missing from `PANE_IDS` has no row here at all.
+ *
+ * The tree is not in the pane any more: it is the Deck sidebar's Files
+ * accordion member (pane-nav-absorb plan, Task 3), so this helper opens that
+ * member too — the drawer, its toggle, and the closeTree/openTree dance this
+ * file used to need at 435px are gone with the drawer itself. */
 async function openFilesPane(page: Page) {
+  await page.getByTestId("sidebar-accordion-header-files").click();
+  await expect(page.getByTestId("files-tree")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("files");
@@ -393,33 +399,12 @@ async function openFilesPane(page: Page) {
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("palette")).toBeHidden();
   await expect(page.getByTestId("pane-files")).toBeVisible();
-  // At his width the tree is the drawer, and it starts open because there is
-  // no file for it to be in the way of yet. Asserted rather than assumed: if
-  // the layout ever gets wide enough for the tree to stand beside the viewer,
-  // this is the line that says so.
-  await expect(page.getByTestId("files-tree-drawer")).toBeVisible();
 }
 
-/** Put the tree away, which is what he does once he has picked something —
- * and the only way to read the viewer at 435px. Doubles as the assertion that
- * the toggle works in both directions. */
-async function closeTree(page: Page) {
-  const toggle = page.getByTestId("files-tree-toggle");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await toggle.click();
-  await expect(page.getByTestId("files-tree-drawer")).toHaveCount(0);
-}
-
-async function openTree(page: Page) {
-  await page.getByTestId("files-tree-toggle").click();
-  await expect(page.getByTestId("files-tree-drawer")).toBeVisible();
-}
-
-/** Open a file from the tree and get the tree out of the way, which is the
- * whole gesture at this width. */
+/** Open a file from the sidebar's tree — one click; there is no drawer to put
+ * away, because the viewer has the pane to itself now. */
 async function openFromTree(page: Page, path: string) {
   await page.getByTestId(`files-row-${path}`).click();
-  await closeTree(page);
 }
 
 test("the Files pane is reachable from the palette and from the pane picker", async ({
@@ -509,7 +494,6 @@ test("an opened file is really highlighted, by the Shiki this app already ships"
   await openFilesPane(page);
   await page.getByTestId("files-row-src").click();
   await page.getByTestId("files-row-src/greet.ts").click();
-  await closeTree(page);
 
   await expect(page.getByTestId("files-viewer-code")).toBeVisible();
   // No plain-text notice: this file is under the tokenise budget and its
@@ -570,7 +554,6 @@ test("each refusal reaches the screen as its own sentence", async ({
   expect(tooLarge).toContain("512 KiB");
 
   // 2. Binary — a different sentence, saying a different thing.
-  await openTree(page);
   await openFromTree(page, "src/logo.png");
   await expect(refusal).toBeVisible();
   const binary = (await refusal.textContent()) ?? "";
@@ -580,7 +563,6 @@ test("each refusal reaches the screen as its own sentence", async ({
   // 3. An unknown grammar — the plain path's honest first case (Task 0: a file
   // the viewer CHOSE not to highlight no longer exists, so what remains says
   // what it is).
-  await openTree(page);
   await openFromTree(page, "src/trace.log");
   await expect(page.getByTestId("files-viewer-plain")).toBeVisible();
   const plainNote = page.getByTestId("files-viewer-plain-note");
@@ -593,7 +575,6 @@ test("each refusal reaches the screen as its own sentence", async ({
   // 4. The tokenise budget — the one ceiling that remains, with both numbers
   // said. A known grammar over 128 KiB renders plain and the sentence names
   // the budget it hit.
-  await openTree(page);
   await openFromTree(page, "src/wide.ts");
   await expect(page.getByTestId("files-viewer-plain")).toBeVisible();
   await expect(plainNote).toBeVisible();

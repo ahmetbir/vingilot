@@ -228,6 +228,10 @@ async function openFilesWorkspace(page: Page) {
 }
 
 async function openFilesPane(page: Page) {
+  // The tree lives in the Deck sidebar's Files accordion member now
+  // (pane-nav-absorb plan); the pane is the viewer alone.
+  await page.getByTestId("sidebar-accordion-header-files").click();
+  await expect(page.getByTestId("files-tree")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("files");
@@ -238,14 +242,10 @@ async function openFilesPane(page: Page) {
   await expect(page.getByTestId("pane-files")).toBeVisible();
 }
 
-/** Open a file from the tree and put the tree away — the whole gesture at his
- * width, where the tree is a drawer over the viewer. */
+/** Open a file from the sidebar's tree — one click; there is no drawer to
+ * put away, the viewer has the pane to itself. */
 async function openFromTree(page: Page, path: string) {
   await page.getByTestId(`files-row-${path}`).click();
-  const toggle = page.getByTestId("files-tree-toggle");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await toggle.click();
-  await expect(page.getByTestId("files-tree-drawer")).toHaveCount(0);
 }
 
 test("a markdown file toggles between source and rendered preview", async ({

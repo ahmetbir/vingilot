@@ -49,7 +49,6 @@ import {
   getWorkspace,
   listRuns,
   listWorktrees,
-  transitionRun,
 } from "@/features/runs/lib/coordinatorClient";
 import {
   groupWorktrees,
@@ -112,6 +111,7 @@ import { useColumns } from "@/features/runs/lib/useColumns";
 import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
 import { useSearchChord } from "@/features/runs/lib/useSearchChord";
 import { useShowPane } from "@/features/runs/lib/useShowPane";
+import { useStopAll } from "@/features/runs/lib/useStopAll";
 import { useProjectDocuments } from "@/features/runs/lib/useDocument";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
@@ -142,6 +142,7 @@ import { ScratchMarkdown } from "@/features/runs/ui/ScratchMarkdown";
 import { TriageBoard } from "@/features/runs/ui/TriageBoard";
 import { ControlPlaneBanner } from "@/features/runs/ui/ControlPlaneBanner";
 import { paneEntry, paneProbes } from "@/features/runs/ui/paneRegistry";
+import { SidebarDeckSections } from "@/features/runs/ui/SidebarDeckSections";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
 import { WorkspaceNav } from "@/features/runs/ui/WorkspaceNav";
 
@@ -233,7 +234,8 @@ export function RunsScreen() {
   // Landing-mode (project-less) run selection — unchanged from the old
   // screen's behavior.
   const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
-  const [stopEngaged, setStopEngaged] = React.useState(false);
+  // STOP, split out at the 1000-line ratchet (lib/useStopAll.ts).
+  const { engageStop, releaseStop, stopEngaged } = useStopAll(runs);
 
   // **Idempotent, and that is the whole point.** Choosing a *different*
   // project clears the worktree so the auto-select effect below lands on its
@@ -793,63 +795,60 @@ export function RunsScreen() {
       ? (runs.find((r) => r.id === selectedWorktree.owner_run_id) ?? null)
       : null;
 
-  async function engageStop() {
-    setStopEngaged(true);
-    const live = runs.filter(
-      (run) => run.status === "running" || run.status === "verifying",
-    );
-    await Promise.all(
-      live.map((run) => transitionRun(run.id, "paused", "stop engaged")),
-    );
-  }
-
-  function releaseStop() {
-    setStopEngaged(false);
-  }
-
   return (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       data-testid="runs-screen"
     >
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* The workspace nav, portalled into the app sidebar's contextual
-         * slot rather than rendered into this row — the single-sidebar
-         * rework's one move. Every prop stays this screen's live state. */}
+        {/* The sidebar's whole Deck region, portalled into the app sidebar's
+         * contextual slot rather than rendered into this row — still ONE
+         * payload through sidebarNavSlot, now the four-member accordion
+         * (pane-nav-absorb plan): Worktrees (this nav, unchanged), Files,
+         * History, and the amendment's Chats. Every prop stays this screen's
+         * live state. */}
         {navSlot === null
           ? null
           : createPortal(
-              <WorkspaceNav
-                actions={worktreeActions}
-                confirming={dialogs.removingProject}
-                coordinatorNotice={projectActions.coordinatorNotice}
-                creating={dialogs.creatingWorktree}
-                error={projectActions.error}
-                importNotice={projectActions.importNotice}
-                onAddProject={projectActions.addProject}
-                onConfirmingChange={dialogs.setRemovingProject}
-                onCreatingChange={dialogs.setCreatingWorktree}
-                onDismissError={projectActions.dismissError}
-                onDismissImportNotice={projectActions.dismissImportNotice}
-                onOpenPrune={dialogs.openPrune}
-                onPrunePreviewChange={dialogs.setPrunePreview}
-                onRemoveProject={projectActions.removeProject}
-                onSelectLanding={selectLanding}
-                onSelectRepo={selectRepo}
-                onSelectWorktree={setSelectedWorktreeId}
-                pending={projectActions.pending}
-                prunePreview={dialogs.prunePreview}
-                repoMarks={signals.byRepo}
-                repos={repos}
-                selectedRepo={selectedRepo}
-                selectedRepoId={selectedRepoId}
-                selectedWorktreeId={selectedWorktreeId}
-                stats={signals.stats}
-                storeNotice={projectActions.storeNotice}
-                worktreeMarks={signals.byWorktree}
-                worktreeOverlaps={signals.overlaps}
-                worktreeRoot={worktreeRoot}
-                worktrees={repoWorktrees}
+              <SidebarDeckSections
+                cwd={selectedWorktreeCwd}
+                onPaneAct={runPaneAct}
+                openedFile={openedFile}
+                showHistory={() => showPane("history")}
+                worktrees={
+                  <WorkspaceNav
+                    actions={worktreeActions}
+                    confirming={dialogs.removingProject}
+                    coordinatorNotice={projectActions.coordinatorNotice}
+                    creating={dialogs.creatingWorktree}
+                    error={projectActions.error}
+                    importNotice={projectActions.importNotice}
+                    onAddProject={projectActions.addProject}
+                    onConfirmingChange={dialogs.setRemovingProject}
+                    onCreatingChange={dialogs.setCreatingWorktree}
+                    onDismissError={projectActions.dismissError}
+                    onDismissImportNotice={projectActions.dismissImportNotice}
+                    onOpenPrune={dialogs.openPrune}
+                    onPrunePreviewChange={dialogs.setPrunePreview}
+                    onRemoveProject={projectActions.removeProject}
+                    onSelectLanding={selectLanding}
+                    onSelectRepo={selectRepo}
+                    onSelectWorktree={setSelectedWorktreeId}
+                    pending={projectActions.pending}
+                    prunePreview={dialogs.prunePreview}
+                    repoMarks={signals.byRepo}
+                    repos={repos}
+                    selectedRepo={selectedRepo}
+                    selectedRepoId={selectedRepoId}
+                    selectedWorktreeId={selectedWorktreeId}
+                    stats={signals.stats}
+                    storeNotice={projectActions.storeNotice}
+                    worktreeMarks={signals.byWorktree}
+                    worktreeOverlaps={signals.overlaps}
+                    worktreeRoot={worktreeRoot}
+                    worktrees={repoWorktrees}
+                  />
+                }
               />,
               navSlot,
             )}

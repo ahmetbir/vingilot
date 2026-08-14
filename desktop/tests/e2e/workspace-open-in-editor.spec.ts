@@ -311,8 +311,11 @@ async function openHatchWorkspace(
 const NO_EDITOR_SENTENCE =
   "no editor command was found. Vingilot looks for cursor, code and zed — on PATH and in the usual install locations.";
 
-/** The Files pane, opened the way he opens it. */
+/** The Files pane, opened the way he opens it — plus the Deck sidebar's
+ * Files accordion member, where the tree lives now (pane-nav-absorb plan). */
 async function openFilesPane(page: Page) {
+  await page.getByTestId("sidebar-accordion-header-files").click();
+  await expect(page.getByTestId("files-tree")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("files");
@@ -320,25 +323,15 @@ async function openFilesPane(page: Page) {
   await expect(page.getByTestId("pane-files")).toBeVisible();
 }
 
-/** Open a file through the tree and put the tree away, which is the whole
- * gesture at this width — the drawer sits over the viewer, so a header the
- * spec means to read has to be uncovered first. */
+/** Open a file through the sidebar's tree. No drawer to manage any more —
+ * the tree is always on screen while the Files accordion member is open, and
+ * the viewer has the pane whole (pane-nav-absorb plan). */
 async function openFromTree(page: Page, path: string) {
-  // The drawer starts open on an empty viewer and is put away by the previous
-  // call, so this reopens it when there was one — the second file in a test is
-  // picked from a tree the first file's gesture closed.
-  if ((await page.getByTestId("files-tree-drawer").count()) === 0) {
-    await page.getByTestId("files-tree-toggle").click();
-  }
-  await expect(page.getByTestId("files-tree-drawer")).toBeVisible();
-  // `src` is a toggle, so expanding one that is already open would close it —
-  // the state survives the drawer being put away and brought back.
+  // `src` is a toggle, so expanding one that is already open would close it.
   if ((await page.getByTestId(`files-row-${path}`).count()) === 0) {
     await page.getByTestId("files-row-src").click();
   }
   await page.getByTestId(`files-row-${path}`).click();
-  await page.getByTestId("files-tree-toggle").click();
-  await expect(page.getByTestId("files-tree-drawer")).toHaveCount(0);
   await expect(page.getByTestId("files-viewer-path")).toBeVisible();
 }
 

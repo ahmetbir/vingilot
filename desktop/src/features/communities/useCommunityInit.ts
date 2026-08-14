@@ -31,6 +31,7 @@ import { resetAgentObserverStore } from "@/features/agents/observerRelayStore";
 import { resetAvatarPresentations } from "@/features/profile/avatarPresentationStore";
 import { resetAvatarProfileSync } from "@/features/profile/avatarProfileSync";
 import { resetFileTargets } from "@/features/runs/lib/filesTarget";
+import { resetHistoryTargets } from "@/features/runs/lib/historyTarget";
 import { resetWorkspaceLandings } from "@/features/runs/lib/workspaceLanding";
 import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
@@ -73,6 +74,10 @@ function resetCommunityState({
   // the module-level rule this file's header states, applied to the fork's
   // Files pane (vingilot/docs/plans/2026-08-12-files-pane-design.md, §6).
   resetFileTargets();
+  // The History pane's own target store, same rule: a patch pick names a
+  // worktree, and one filed against the community just left must not still be
+  // waiting (vingilot/docs/plans/2026-08-14-pane-nav-absorb.md, §3.1).
+  resetHistoryTargets();
   // Same argument, one surface out: a pending workspace landing names a PROJECT
   // id, filed by the palette on a chat route and consumed when /workspace next
   // mounts (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md, Task 2). An id

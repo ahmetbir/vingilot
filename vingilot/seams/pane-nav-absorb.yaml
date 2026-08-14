@@ -1,0 +1,192 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: pane nav-halves absorbed into the sidebar
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: the Files and History panes' list halves move into
+# the Deck sidebar's contextual region as members of a single-open accordion
+# (vingilot/docs/plans/2026-08-14-pane-nav-absorb.md), plus the owner's
+# amendment adding a fourth member — Chats, the existing channel/DM lists,
+# reached from the Deck ("deckten geri channellari ve dmleri gormek icin
+# agents'a ya da inboxa basmak gerekiyo"). Four members: Worktrees (the
+# existing WorkspaceNav portal payload, unchanged), Files (the tree that lived
+# inside FilesPane), History (the status+commit lists that lived inside
+# HistoryPane), Chats (AppSidebar's own channel fragment, portalled). Exactly
+# one member is expanded at a time; collapsed members shrink to a sticky
+# ~32px header, never unmount.
+#
+# Deliberately NOT touched, recorded as decisions:
+# - desktop/src/features/runs/lib/diffLayout.ts — not edited. It lost two of
+#   its three diffListPlacement callers (FilesPane, HistoryPane) and keeps the
+#   third (WorktreeDiffPanel) plus every caller of the unrelated 695px
+#   split-render threshold. diffListPlacement is now a one-consumer function
+#   with generality knobs tuned for three panes; consolidating that is a
+#   separate, later decision (plan §3.2, §8) — said here so the drift is a
+#   registry fact rather than an unremarked smell.
+# - desktop/src/shared/lib/sidebarNavSlot.ts — mechanism unchanged: still one
+#   unnamed slot carrying exactly one payload (now SidebarDeckSections, the
+#   accordion, instead of bare WorkspaceNav). It did not become a keyed
+#   registry; the Chats amendment got its own module instead (two mechanisms
+#   with one payload each, not one with two).
+# - The History pane's window-level j/k listener is DELETED, not moved: the
+#   sidebar list's scoped onKeyDown is the keystroke's single owner (plan
+#   §3.3); the pane has no rows left to walk.
+
+seams:
+  - path: "desktop/src/features/sidebar/ui/SidebarAccordionSection.tsx"
+    reason: "New, fork-owned: the generic single-open accordion-section primitive (plan §2.4) — sticky ~32px header, aria-expanded/aria-controls, controlled openId/onOpenChange held by the parent, body hidden-not-unmounted so member state survives a collapse. Deliberately NOT a genericized SidebarSection: that component is hard-typed to Channel[] and the whole channel list depends on it; two consumers is not the third strike. resolveAccordionOpen (exported, unit-tested) keeps exactly one member open, always."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the Deck sidebar keeps an accordion contextual region."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/sidebar/ui/SidebarAccordionSection.test.mjs"
+    reason: "New: the single-open rule's DOM-less unit test — one open member under a shared openId, clicking the open header is a no-op (never zero open). The DOM half (collapsed body stays mounted, tree state survives) is sidebar-deck-accordion.spec.ts's."
+    owner: "vingilot/runs"
+    removable_when: "With SidebarAccordionSection.tsx."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/sidebar/ui/SidebarContextualPane.tsx"
+    reason: "Widened (existing entry in single-sidebar.yaml): gains SidebarChatsHome, the fork component that renders AppSidebar's channel/DM fragment inline for channel views and portals it into the Chats accordion member's slot for the workspace view — the owner's amendment, kept here so AppSidebar.tsx's own edit stays three lines. The workspace branch itself is unchanged: still the one slot element sidebarNavSlot registers."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the fork keeps a contextual sidebar model upstream does not have."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/shared/lib/sidebarChatsSlot.ts"
+    reason: "New, fork-owned: the Chats member's slot module — sidebarNavSlot.ts's idiom with the roles reversed (the accordion registers the element, AppSidebar portals its existing channel fragment in). A second module rather than a key on sidebarNavSlot: two mechanisms with one payload each. Holds a DOM element, not community-scoped data — no resetCommunityState entry needed, the ref callback is the lifecycle."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the Deck sidebar carries a Chats member."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/sidebar/ui/AppSidebar.tsx"
+    reason: "Widens the existing AppSidebar.tsx seam a second time, sanctioned by the owner's amendment where the base plan's 'does not touch AppSidebar.tsx' could not have: the channel-content condition gains '|| selectedView === workspace' and the existing fragment is wrapped in SidebarChatsHome (portal={!showsChannelContent}) — the fragment itself, its forty-odd props and every dialog are untouched, one owner, zero forks. File stays under the 1000-line ratchet."
+    owner: "vingilot/runs"
+    removable_when: "Never fully, while the fork keeps a contextual model upstream doesn't have."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/ui/SidebarDeckSections.tsx"
+    reason: "New, fork-owned (inside the desktop/src/features/runs/** blanket seam; entry for the decision): the ONE element RunsScreen portals through sidebarNavSlot — the four-member accordion, openId state (Worktrees default open), Files/History bodies keyed by the selected checkout so scope follows a worktree switch live even while Worktrees is collapsed (plan §8's riskiest sequence, e2e-pinned), Chats slot with a peer-empty loading sentence. Empty members are sentences, never blanks."
+    owner: "vingilot/runs"
+    removable_when: "With the accordion model."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/ui/SidebarFilesTree.tsx"
+    reason: "New, fork-owned (blanket seam; decision entry): FilesPane's tree half, moved not re-derived — resolveFileTreeKey, lazy readTree, role=tree/aria-activedescendant and the files-tree/files-row-* testids verbatim. Row activation fires the same onPaneAct show-file act Search and Diff already fire (grep-confirmed one act shape). Selection mirrors the pane's file-opened report; no second answer to 'which file is open' exists."
+    owner: "vingilot/runs"
+    removable_when: "With the accordion model."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/ui/SidebarHistoryList.tsx"
+    reason: "New, fork-owned (blanket seam; decision entry): HistoryPane's status+commit lists, moved together as ONE member (the shared-PatchView rule holds, unmoved). Row picks file lib/historyTarget.ts then showPane('history') — show-file's two moves. j/k/Enter are a scoped onKeyDown on this element, the keystroke's SINGLE owner; status reads are stamped with a generation the pane's HEAD-diff cache is keyed by."
+    owner: "vingilot/runs"
+    removable_when: "With the accordion model."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/lib/historyTarget.ts"
+    reason: "New, fork-owned (blanket seam; decision entry): filesTarget.ts's shape for History — request-not-state, bump for repeats, pending/take for a pane that mounts after the pick, historyShouldLand refusing other checkouts, statusGeneration carrying the old 'Reread retires the HEAD-diff cache' invariant across the component split. resetHistoryTargets registered in resetCommunityState beside resetFileTargets."
+    owner: "vingilot/runs"
+    removable_when: "With the sidebar-hosted History list."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/ui/FilesPane.tsx"
+    reason: "Shrinks (blanket seam; decision entry): honest deletion of the tree, the drawer, its toggle, drawerOpen, and the diffListPlacement call — no flag, no dead branch. 503→~160 lines. The pane is FileViewer at full width plus the filesTarget door and the file-opened report; fileParentDir/DirState re-exports kept for their outside callers."
+    owner: "vingilot/runs"
+    removable_when: "n/a — the shrink is the record."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/ui/HistoryPane.tsx"
+    reason: "Shrinks (blanket seam; decision entry): honest deletion of the status/commit lists, paging, the window-level j/k listener and the historyLayout list-vs-patch division — the pane is the shared Patch box at full width, fed by historyTarget, superseded-answer counter and never-cache-a-refusal rules unchanged. 452→~200 lines. historyLayout and its unit test deleted from historyModel with the division they laid out."
+    owner: "vingilot/runs"
+    removable_when: "n/a — the shrink is the record."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/communities/useCommunityInit.ts"
+    reason: "Widened (existing entry in vingilot/seams.yaml): one line — resetHistoryTargets() beside resetFileTargets(), the module-level-store rule this repo's own CLAUDE.md mandates for community-scoped data."
+    owner: "vingilot/runs"
+    removable_when: "With historyTarget.ts."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/sidebar-deck-accordion.spec.ts"
+    reason: "New: this plan's red-proof spec — six tests, ALL proven red against the pre-move build (log: pnb-red-proof.log; every test failed for exactly the pre-move reasons: no accordion headers, drawer inside pane-files, no Chats member). Pins: single-open with four members and no-op on the open header; pane-files carries no tree/drawer/toggle; tree state survives collapse and pane switch; Files scope follows a ⌘K worktree switch made while Worktrees is collapsed (plan §8); one j moves exactly one cursor (plan §3.3); Chats holds stream-list/dm-list and channel-general navigates."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the accordion needs a regression spec."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/playwright.config.ts"
+    reason: "Widened (existing entry): one testMatch line for sidebar-deck-accordion.spec.ts in the smoke project."
+    owner: "vingilot/runs"
+    removable_when: "With the spec."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/workspace-files.spec.ts"
+    reason: "Updated to the tree's new mount point: openFilesPane opens the sidebar's Files accordion member (drawer assertion deleted with the drawer); closeTree/openTree helpers deleted; openFromTree is one click. Every files-row-*/files-tree/files-footer testid unchanged — the vocabulary moved with the component. Assertion-level changes reported in the task log."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the Files island needs its spec."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/workspace-history.spec.ts"
+    reason: "Updated: the j/k focus assertion reads history-list (the sidebar list, the keystroke's one owner) instead of pane-history; the mutating-verb scan and the nested-control/checkbox scans cover pane-history AND history-list so the rule cannot leak back in via the sidebar copy (plan §5). Line 640's split-toggle test and workspace-diff-fits.spec.ts unmodified — the 695px threshold is untouched."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the History island needs its spec."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/workspace-history.fixtures.ts"
+    reason: "Updated: openHistoryPane opens the sidebar History member before the pane; controlNames scans both surfaces (see spec entry)."
+    owner: "vingilot/runs"
+    removable_when: "With the spec."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/markdown-preview.spec.ts"
+    reason: "Helper adaptation only: the drawer dance replaced by opening the sidebar Files member; assertions unchanged."
+    owner: "vingilot/runs"
+    removable_when: "With the contextual accordion."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/workspace-open-in-editor.spec.ts"
+    reason: "Helper adaptation only: same drawer-to-sidebar change; assertions unchanged."
+    owner: "vingilot/runs"
+    removable_when: "With the contextual accordion."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/workspace-places.spec.ts"
+    reason: "Helper adaptation only: openFileFromTree opens the sidebar Files member when the tree is not on screen; assertions unchanged."
+    owner: "vingilot/runs"
+    removable_when: "With the contextual accordion."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/workspace-find.spec.ts"
+    reason: "Helper adaptation only (this spec is known red residue, task #24 — not repaired here, kept honest): openFile goes through the sidebar member instead of the deleted drawer."
+    owner: "vingilot/runs"
+    removable_when: "With the contextual accordion."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/polish-shots.spec.ts"
+    reason: "Screenshot spec adaptation: the files-tree and history-list shots are taken off app-sidebar now (that is where the surfaces live); the drawer choreography deleted with the drawer."
+    owner: "vingilot/runs"
+    removable_when: "With the contextual accordion."
+    status: "permanent"
+    added: "2026-08-14"

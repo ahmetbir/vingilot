@@ -28,10 +28,39 @@
 //   like "nothing there" (plan §1.4, §4). Building real trees for these four
 //   is explicitly not this component's job.
 
+import type * as React from "react";
+import { createPortal } from "react-dom";
+
 import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
+import { useSidebarChatsSlot } from "@/shared/lib/sidebarChatsSlot";
 import { setSidebarNavSlot } from "@/shared/lib/sidebarNavSlot";
 
 type SelectedView = AppSidebarProps["selectedView"];
+
+/** Where `AppSidebar`'s channel/DM lists render: inline for the channel-shaped
+ * views, or portalled into the Deck accordion's Chats member for the
+ * workspace view — the owner's amendment to the pane-nav-absorb plan
+ * (*"deckten geri channellari ve dmleri gormek icin agents'a ya da inboxa
+ * basmak gerekiyo"*). The fragment is `AppSidebar`'s own, fully wired; only
+ * the DOM moves, which is `sidebarNavSlot.ts`'s idiom with the roles
+ * reversed (see `shared/lib/sidebarChatsSlot.ts`). This component lives here
+ * rather than in `AppSidebar.tsx` so that file's edit stays three lines — it
+ * has no headroom against the 1000-line ratchet. */
+export function SidebarChatsHome({
+  children,
+  portal,
+}: {
+  children: React.ReactNode;
+  portal: boolean;
+}) {
+  const slot = useSidebarChatsSlot();
+  if (!portal) return <>{children}</>;
+  // No accordion on screen yet (the workspace route is still mounting):
+  // render nothing rather than throw — the member's own loading sentence
+  // stands in.
+  if (slot === null) return null;
+  return createPortal(children, slot);
+}
 
 /** What each content-less view is called in its empty state's sentence — the
  * primary menu's own labels, so the sentence names the row the owner clicked. */

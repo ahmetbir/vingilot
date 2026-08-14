@@ -388,7 +388,11 @@ test("⇧⌘F arrives, and ⌘F is still upstream's find-in-this-channel", async
   // that is where the bar exists.
   // Reached by clicking the sidebar rather than by a `goto`, which is how the
   // rest of this repository's specs open a channel and what makes the screen
-  // under it a real mount rather than a route that has not resolved.
+  // under it a real mount rather than a route that has not resolved. On the
+  // workspace view the channel rows live inside the Deck accordion's Chats
+  // member (the pane-nav-absorb amendment), so open it first — the exact
+  // door the owner asked for.
+  await page.getByTestId("sidebar-accordion-header-chats").click();
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("message-input").first()).toBeVisible();
   await page.keyboard.press("ControlOrMeta+f");

@@ -42,7 +42,10 @@ import {
   SectionQuickAction,
 } from "@/features/sidebar/ui/CustomChannelSection";
 import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
-import { SidebarContextualPane } from "@/features/sidebar/ui/SidebarContextualPane";
+import {
+  SidebarChatsHome,
+  SidebarContextualPane,
+} from "@/features/sidebar/ui/SidebarContextualPane";
 import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
 import { HuddleProfileControl } from "@/features/huddle";
 import type {
@@ -536,8 +539,13 @@ export function AppSidebar({
                 <SidebarContextualPane selectedView={selectedView} />
               ) : null}
 
-              {!isLoading && showsChannelContent ? (
-                <>
+              {/* The channel/DM lists render inline for the channel views and
+               * are PORTALLED into the Deck accordion's Chats member for the
+               * workspace view (pane-nav-absorb amendment) — same fragment,
+               * same props, one owner; see SidebarChatsHome. */}
+              {!isLoading &&
+              (showsChannelContent || selectedView === "workspace") ? (
+                <SidebarChatsHome portal={!showsChannelContent}>
                   {starredChannels.length > 0 ? (
                     <ChannelGroupSection
                       hasUnread={starredChannels.some((c) =>
@@ -760,7 +768,7 @@ export function AppSidebar({
                     onMuteChannel={onMuteChannel}
                     onUnmuteChannel={onUnmuteChannel}
                   />
-                </>
+                </SidebarChatsHome>
               ) : null}
 
               {errorMessage && !relayConnectionCard.hasRelayUnreachableError ? (

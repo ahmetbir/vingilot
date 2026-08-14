@@ -475,13 +475,15 @@ test("nothing in the pane offers a mutating action", async ({ page }) => {
   // nested, so there is nowhere for a per-file act to be added without this
   // going red.
   const nested = page
-    .getByTestId("pane-history")
+    .locator('[data-testid="pane-history"], [data-testid="history-list"]')
     .locator("[role='option'] button, [role='option'] input");
   await expect(nested).toHaveCount(0);
 
   // And no checkbox anywhere, which is the other way staging is always offered.
   await expect(
-    page.getByTestId("pane-history").locator("input[type='checkbox']"),
+    page
+      .locator('[data-testid="pane-history"], [data-testid="history-list"]')
+      .locator("input[type='checkbox']"),
   ).toHaveCount(0);
 
   // Now the OTHER layout. At this width picking something swaps the list out
@@ -505,16 +507,18 @@ test("j and k walk the rows and Enter opens the one under the cursor", async ({
   await openHistoryPane(page);
   await expect(page.getByTestId("history-status-headline")).toBeVisible();
 
-  // **The pane has the keyboard, and this assertion is why it needed to.**
-  // Measured before it did: with the pane freshly opened from ⌘K,
-  // `document.activeElement` was `textarea.xterm-helper-textarea` — the
-  // terminal's hidden input, which xterm keeps focused for as long as it is
-  // mounted. `diffKeys.ts` refuses every letter typed into a field, correctly,
-  // so every `j` below went into the terminal and the cursor never moved.
+  // **The LIST has the keyboard, and this assertion is why it needed to.**
+  // Measured before the pane learned this trick: with the surface freshly
+  // opened, `document.activeElement` was `textarea.xterm-helper-textarea` —
+  // the terminal's hidden input. `diffKeys.ts` refuses every letter typed
+  // into a field, correctly, so every `j` below went into the terminal and
+  // the cursor never moved. With the rows in the sidebar the focus goes
+  // there, and the sidebar's scoped handler is the keystroke's ONE owner —
+  // the pane's old window listener is deleted, not duplicated (plan §3.3).
   const focused = await page.evaluate(
     () => document.activeElement?.getAttribute("data-testid") ?? "",
   );
-  expect(focused).toBe("pane-history");
+  expect(focused).toBe("history-list");
 
   await page.keyboard.press("j");
   await expect(
