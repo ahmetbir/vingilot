@@ -125,14 +125,14 @@ seams:
     added: "2026-08-01"
 
   - path: "desktop/package.json"
-    reason: "Adds a types field (ds-types/index.d.ts) so the design-sync converter can read each shared UI component's real prop types instead of falling back to an empty interface. Inert for the app itself: nothing imports buzz as a package. Also adds @xterm/xterm and @xterm/addon-fit (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 4) -- the plan's second and last named dependency, rendering the PTY's VT output in the Terminal tab; the alternative is writing a terminal emulator by hand."
+    reason: "Adds a types field (ds-types/index.d.ts) so the design-sync converter can read each shared UI component's real prop types instead of falling back to an empty interface. Inert for the app itself: nothing imports buzz as a package. Also adds @xterm/xterm and @xterm/addon-fit (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 4) -- the plan's second and last named dependency at the time, rendering the PTY's VT output in the Terminal tab; the alternative is writing a terminal emulator by hand. **Not the last one anymore**: @xterm/addon-search@^0.15.0 was added for terminal-scoped ⌘F (vingilot/seams/iterm-chords.yaml has the full reasoning -- that stale 'last named dependency' phrasing is exactly the kind of claim this task's own recon caught going out of date elsewhere in this codebase, so it is corrected here rather than left to repeat)."
     owner: "design-sync tooling (external design-publishing pipeline; not owned by Vingilot engineering)"
     removable_when: "Design-sync no longer needs a types entry point on the desktop package (e.g. it reads declarations from a fork-owned adapter instead), or the design-sync integration is retired."
     status: "temporary"
     added: "2026-08-01"
 
   - path: "pnpm-lock.yaml"
-    reason: "The pnpm workspace lockfile lives at the repo root (pnpm-workspace.yaml lists desktop/web/admin-web as members), not inside desktop/ -- so any dependency change to desktop/package.json necessarily regenerates this file too. Currently reflects @xterm/xterm and @xterm/addon-fit (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 4), the plan's second and last named dependency."
+    reason: "The pnpm workspace lockfile lives at the repo root (pnpm-workspace.yaml lists desktop/web/admin-web as members), not inside desktop/ -- so any dependency change to desktop/package.json necessarily regenerates this file too. Reflects @xterm/xterm and @xterm/addon-fit (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, Task 4), and now also @xterm/addon-search@0.15.0 (vingilot/seams/iterm-chords.yaml), the terminal's own ⌘F."
     owner: "vingilot/runs"
     removable_when: "Never, while any desktop/package.json dependency change is possible -- the lockfile is regenerated mechanically alongside it."
     status: "permanent"

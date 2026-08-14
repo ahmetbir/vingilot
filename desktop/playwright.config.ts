@@ -166,6 +166,8 @@ export default defineConfig({
         "**/terminal-drop.spec.ts",
         "**/buzz-term-wheel.spec.ts",
         "**/terminal-chrome.spec.ts",
+        "**/terminal-find.spec.ts",
+        "**/terminal-cmd-d.spec.ts",
         "**/diff-keeps-up.spec.ts",
         "**/workspace-diff-fits.spec.ts",
         "**/workspace-palette-over-thread.spec.ts",

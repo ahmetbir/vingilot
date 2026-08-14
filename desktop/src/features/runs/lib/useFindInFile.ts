@@ -20,17 +20,22 @@ import {
   matchLabel,
   stepMatch,
 } from "@/features/runs/lib/findInFile";
+import type { FindBarModel } from "@/features/runs/lib/findKeys";
 import {
   resolveFindBarKey,
   resolveFindKey,
 } from "@/features/runs/lib/findKeys";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
-/** What the bar draws itself from, and what the viewer paints from. */
-export type FindInFile = {
+/** What the bar draws itself from, and what the viewer paints from.
+ *
+ * Extends `FindBarModel` (`findKeys.ts`) rather than restating its fields —
+ * `matches.length` is `matchCount`, kept as a real array here (not just a
+ * count) because the viewer's own rendering needs the offsets `lines` is
+ * built from; the terminal's equivalent hook has no such array to keep. */
+export type FindInFile = FindBarModel & {
   /** True while the bar is on screen. */
   open: boolean;
-  query: string;
   /** Every match in the file, in the file's order. */
   matches: FindMatch[];
   /** The same set, per line, for the renderer (`indexLines`). `null` while the
@@ -40,16 +45,6 @@ export type FindInFile = {
   lines: FindLine[] | null;
   /** Which match is emphasised, clamped; `-1` when there is none. */
   current: number;
-  /** `"3/17"`, or the no-results sentence. */
-  label: string;
-  /** How many times the chord has been pressed — the field watches this so a
-   * second ⌘F re-selects what is already typed. */
-  opened: number;
-  setQuery: (query: string) => void;
-  walk: (direction: 1 | -1) => void;
-  close: () => void;
-  /** The keydown handler for the bar's own field (Enter / ⇧Enter / Escape). */
-  onFieldKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
 };
 
 /** Whether a ⌘F that arrived at the window belongs to this pane.
@@ -210,6 +205,7 @@ export function useFindInFile({
     current,
     label: matchLabel(matches.length, at),
     lines,
+    matchCount: matches.length,
     matches,
     onFieldKeyDown,
     open,

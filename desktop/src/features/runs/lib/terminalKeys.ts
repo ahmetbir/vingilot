@@ -13,6 +13,25 @@
 // Resolving a key is not deciding to act on it. Whether the terminal surface
 // is even showing is the caller's business — this module says what a chord
 // means, not whether now is the time for it.
+//
+// **⌘D and ⇧⌘D — iTerm's split-vertically and split-horizontally — are
+// deliberately unclaimed below, and that absence is a decision, not a gap
+// left for later.** Both pass the five-claimant audit clean: not in the muda
+// menu, not in `useAppShellKeyboardShortcuts.ts`, not in any global
+// (settings/zoom/reload/back-forward), not in any map in this island. The
+// reason they stay unbound anyway is `paneModel.ts`'s: there is exactly one
+// terminal side and one interchangeable slot on the other (`rightChoices()`
+// excludes the terminal "for the terminal it is not even possible — there is
+// one set of sessions"), so there is no pane model for a second, sibling
+// terminal to split into. The one thing ⌘D *could* honestly claim today —
+// aliasing it to `new-terminal-tab` — is refused on purpose: a split keeps
+// sibling context visible, a tab replaces the view, and binding the iTerm
+// split chord to the tab gesture would teach the owner's fingers a lie the
+// first time he actually wanted both terminals on screen at once. A real
+// split is its own task (a second pane-model layer nested inside the
+// terminal side, new attach lifecycle, new divider), sized separately. Left
+// here rather than only in a doc so a future edit that reaches for "d" sees
+// why nothing is there.
 
 export type TerminalKeyAction =
   | { type: "switch-worktree"; index: number }

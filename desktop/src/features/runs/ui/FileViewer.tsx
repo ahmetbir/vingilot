@@ -139,6 +139,14 @@ export function FileViewer({
   );
 }
 
+/** Said in the field's own title, which is where he is when the question comes
+ * up. **Smart case is a rule he cannot see the effect of** — a lower-case query
+ * matching a capital looks like a bug until you know the rule — and the plan asks
+ * for it in a title rather than as a third control, because a case toggle is one
+ * more thing to get into the wrong position. */
+const SMART_CASE_TITLE =
+  "Find in this file. Smart case: matches either case until you type a capital letter, then it matches exactly. Enter for the next match, ⇧Enter for the previous, Esc to close.";
+
 /** The amber wash `badge.tsx`'s warning variant already speaks and the Search
  * pane already uses for a hit — the one hue every editor uses for a find match,
  * so this is the app's existing vocabulary rather than a new colour.
@@ -580,7 +588,14 @@ function FileBody({
                 </pre>
               )}
             </section>
-            {find.open ? <FindBar find={find} /> : null}
+            {find.open ? (
+              <FindBar
+                ariaLabel="find in this file"
+                find={find}
+                hint={SMART_CASE_TITLE}
+                testIdPrefix="files-find"
+              />
+            ) : null}
           </>
         )}
       </div>

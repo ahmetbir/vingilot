@@ -17,11 +17,27 @@
 //   upstream's bubble listener on the same node. When it does not claim, it does
 //   nothing, and upstream's handler runs exactly as it did before.
 //
-// That is why the notes pane, the plan pane, the team thread's composer, the
-// palette's field and xterm's textarea all keep ⌘F untouched: none of them is
-// inside `pane-files`. The terminal is the one that is a deliberate omission
-// rather than a consequence — walking a terminal's scrollback needs
-// `@xterm/addon-search`, whose cost is written into the plan under Task 1.
+// That is why the notes pane, the plan pane, the team thread's composer and
+// the palette's field keep ⌘F untouched: none of them is inside `pane-files`.
+//
+// **xterm's textarea was the one deliberate omission here, and it is closed.**
+// `lib/useTerminalFind.ts` is the identical pattern this header already
+// describes — a capture-phase window listener, `stopPropagation` before
+// upstream's bubble handler ever sees the event — keyed off "the terminal
+// pane has focus" instead of "a file is open", walking `@xterm/addon-search`'s
+// own match set instead of a string search over `file.text`. The two
+// listeners coexist because each checks its own pane's ownership before
+// claiming anything: a ⌘F over the Files pane still opens this bar, a ⌘F over
+// the terminal opens that one, and a ⌘F anywhere else — the notes pane, the
+// plan pane, the team thread's composer, the palette's field — still reaches
+// upstream's find-in-this-channel exactly as it did before either existed.
+//
+// `resolveFindKey` and `resolveFindBarKey` below are reused verbatim by the
+// terminal's hook: they were already pane-agnostic pure functions, resolving
+// a keydown into a meaning with no reference to what "this pane" is. Only the
+// *ownership* check (which ⌘F becomes this pane's) is pane-specific, and each
+// pane's hook carries its own — `FindBarModel`, below, is the interface both
+// hooks answer so `ui/FindBar.tsx` can draw either one without knowing which.
 //
 // **Deliberately not in `cheatsheet.ts`'s `KEY_MAPS`.** Every map listed there is
 // answered by the *screen*, so the sheet can print its chord as a fact. This one
@@ -31,6 +47,8 @@
 // nothing loses him a discovery. The bar states its own rule in the field's title
 // instead, which is where he is when the question comes up. Written down here so
 // the absence reads as a decision rather than an oversight.
+
+import type * as React from "react";
 
 import type { KeyInput } from "./terminalKeys.ts";
 
@@ -84,4 +102,30 @@ export function resolveFindBarKey(input: KeyInput): FindBarAction | null {
   // walk that fired on them would fire on a chord some other surface may want.
   if (input.primaryModifier || input.altKey === true) return null;
   return input.shiftKey === true ? { type: "previous" } : { type: "next" };
+}
+
+/** Everything `ui/FindBar.tsx` actually reads off a find state, and nothing
+ * more. Files' `useFindInFile` and the terminal's `useTerminalFind` each
+ * return a superset of this (their own `open`, and whatever they need to
+ * decide what to render inside the pane), but the bar itself is drawn from
+ * exactly these fields — which is what lets one component draw both bars
+ * without importing either hook.
+ *
+ * `matchCount` rather than `matches: unknown[]`: the bar only ever reads a
+ * count (to grey the walk buttons), and a terminal search has no array of
+ * matches to hand over — `@xterm/addon-search` reports a count and an index,
+ * not offsets. A count is the honest shape for both. */
+export interface FindBarModel {
+  query: string;
+  matchCount: number;
+  /** `"3/17"`, or the no-results sentence — already formatted, so the bar
+   * never has to know how a pane counts. */
+  label: string;
+  /** How many times the chord has been pressed. The field watches this so a
+   * second ⌘F re-selects what is already typed. */
+  opened: number;
+  setQuery: (query: string) => void;
+  walk: (direction: 1 | -1) => void;
+  close: () => void;
+  onFieldKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
 }

@@ -89,6 +89,7 @@
 import "@xterm/xterm/css/xterm.css";
 
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { Terminal as XTerm } from "@xterm/xterm";
 import * as React from "react";
 
@@ -115,13 +116,21 @@ import {
   translucent,
   usableColor,
 } from "@/features/runs/lib/terminalPalette";
+import { useTerminalFind } from "@/features/runs/lib/useTerminalFind";
 import {
   linesBehind,
   scrollbackNotice,
 } from "@/features/runs/lib/terminalScrollback";
 import { shellEscapePaths } from "@/features/runs/lib/shellEscape";
 import { useNativeFileDrop } from "@/features/runs/lib/useNativeFileDrop";
+import { FindBar } from "@/features/runs/ui/FindBar";
 import { wheelOwnerProps } from "@/shared/lib/wheelOwner";
+
+/** Said in the field's own title — the terminal's answer to `FileViewer.tsx`'s
+ * `SMART_CASE_TITLE`, same rule, same three keys. Smart case applies here too:
+ * `useTerminalFind.ts` computes it the same way `findInFile.ts` does. */
+const TERMINAL_FIND_HINT =
+  "Find in this terminal's scrollback. Smart case: matches either case until you type a capital letter, then it matches exactly. Enter for the next match, ⇧Enter for the previous, Esc to close.";
 
 interface TerminalProps {
   /** The PTY session id: `<worktree binding id>#<tab ordinal>` (mod.rs: "same
@@ -235,6 +244,13 @@ export function Terminal({
    * the pane without reaching into the element xterm owns. */
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const termRef = React.useRef<XTerm | null>(null);
+  const focusTerminal = React.useCallback(() => termRef.current?.focus(), []);
+  // ⌘F over this terminal's own scrollback (`lib/useTerminalFind.ts`'s
+  // header). `rootRef` is the ownership boundary — the same box the drop
+  // affordance above is drawn over — and `active` gates it to whichever one
+  // of this worktree's mounted terminals is actually shown, exactly as
+  // `focusToken`'s own effect below does.
+  const termFind = useTerminalFind({ active, focusTerminal, paneRef: rootRef });
   /** The element the app's colours are read off. Outside the xterm host on
    * purpose — that element belongs to xterm, and this one exists to be
    * restyled several times a second while a theme is being picked. */
@@ -300,9 +316,30 @@ export function Terminal({
     }
     if (applied !== null) markPalette();
 
-    const term = new XTerm({ cursorBlink: true, theme: applied ?? undefined });
+    const term = new XTerm({
+      // Required for `SearchAddon`'s match decorations: `registerDecoration`
+      // is xterm 5.x's proposed (not-yet-stable) API, and the addon throws
+      // "You must set the allowProposedApi option to true" on every
+      // `findNext`/`findPrevious` call without this — silently, from xterm's
+      // own internals, past any try/catch this file has. Scoped to the whole
+      // terminal rather than to search alone because there is no narrower
+      // knob: `allowProposedApi` is a constructor option, not per-addon.
+      allowProposedApi: true,
+      cursorBlink: true,
+      theme: applied ?? undefined,
+    });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Loaded for every attachment, active or not — the same choice already
+    // made for `fit` above, and for the same reason: the terminal for a
+    // worktree the owner is not looking at costs no shell (the header's
+    // "opened by a measurement" rule), but it is still one `loadAddon` call
+    // cheaper than a second code path that adds the addon only when a
+    // terminal becomes active. `useTerminalFind`'s own listener is what
+    // actually gates the feature on `active`; this just wires the addon in.
+    const search = new SearchAddon({ highlightLimit: 1000 });
+    term.loadAddon(search);
+    const detachFind = termFind.attach(search);
     term.open(container);
     termRef.current = term;
 
@@ -504,6 +541,7 @@ export function Terminal({
       if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
       resizeObserver.disconnect();
       themeObserver?.disconnect();
+      detachFind();
       term.dispose();
       termRef.current = null;
       // A reattachment replays the session's screen and lands at the bottom of
@@ -515,7 +553,9 @@ export function Terminal({
     // session's lifetime is fixed at spawn. It never changes for a given
     // `sessionId` — a scratch id and a tab id cannot name each other
     // (`lib/scratchTerminal.ts`) — so this dependency never actually fires.
-  }, [sessionId, cwd, ephemeral]);
+    // `termFind.attach` is stable (`useCallback`, no deps) for the same reason
+    // `focusTerminal` above it is, so adding it costs this effect nothing.
+  }, [sessionId, cwd, ephemeral, termFind.attach]);
 
   // Being shown is what measures this terminal, and a measurement is the only
   // thing that opens its session — so for a terminal that mounted hidden this
@@ -610,6 +650,14 @@ export function Terminal({
               {notice.label}
             </button>
           )}
+          {termFind.open ? (
+            <FindBar
+              ariaLabel="find in this terminal's scrollback"
+              find={termFind}
+              hint={TERMINAL_FIND_HINT}
+              testIdPrefix="terminal-find"
+            />
+          ) : null}
         </>
       )}
     </div>

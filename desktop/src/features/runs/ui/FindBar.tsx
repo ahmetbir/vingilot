@@ -10,20 +10,20 @@
 // flush, so the border reads as a floating panel and not as a torn header.
 //
 // **It holds no state and decides nothing.** The match set, the walk, the label
-// and the keys are `findInFile.ts` and `findKeys.ts`, reached through
-// `useFindInFile`. What is here is the arrangement.
+// and the keys are owned by whichever pane's hook is passed in
+// (`findInFile.ts`/`useFindInFile.ts` for Files, `useTerminalFind.ts` for the
+// terminal) — both answer `findKeys.ts`'s `FindBarModel`, which is the whole of
+// what this component reads. What is here is the arrangement.
+//
+// **Two panes, one component — `testIdPrefix` and `ariaLabel` are the only
+// per-pane knobs.** Files' bar is `files-find*` (unchanged, so
+// `workspace-find.spec.ts` did not have to move) and the terminal's is
+// `terminal-find*`; a fixed prefix would have put two elements answering the
+// same testid on screen the day a spec opened both bars at once.
 
 import * as React from "react";
 
-import type { FindInFile } from "@/features/runs/lib/useFindInFile";
-
-/** Said in the field's own title, which is where he is when the question comes
- * up. **Smart case is a rule he cannot see the effect of** — a lower-case query
- * matching a capital looks like a bug until you know the rule — and the plan asks
- * for it in a title rather than as a third control, because a case toggle is one
- * more thing to get into the wrong position. */
-const SMART_CASE_TITLE =
-  "Find in this file. Smart case: matches either case until you type a capital letter, then it matches exactly. Enter for the next match, ⇧Enter for the previous, Esc to close.";
+import type { FindBarModel } from "@/features/runs/lib/findKeys";
 
 /** The walk controls and the close, drawn as the island draws a small control:
  * `text-xs`, hover on the ground, focus visible as an inset ring so nothing
@@ -31,7 +31,21 @@ const SMART_CASE_TITLE =
 const STEP_CLASS =
   "rounded-sm px-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-40 disabled:hover:bg-transparent";
 
-export function FindBar({ find }: { find: FindInFile }) {
+interface FindBarProps {
+  find: FindBarModel;
+  /** The field's own title — where he reads the rule, since there is no
+   * second control to put it on (see the header on `SMART_CASE_TITLE`-style
+   * hints in each hook's own module). */
+  hint: string;
+  /** `aria-label` on the field, e.g. "find in this file" / "find in this
+   * terminal's scrollback". */
+  ariaLabel: string;
+  /** Prefixes every `data-testid` below: `${testIdPrefix}`,
+   * `${testIdPrefix}-input`, `-count`, `-previous`, `-next`, `-close`. */
+  testIdPrefix: string;
+}
+
+export function FindBar({ ariaLabel, find, hint, testIdPrefix }: FindBarProps) {
   const field = React.useRef<HTMLInputElement | null>(null);
 
   // Every ⌘F puts the caret in the field and selects what is already there —
@@ -51,18 +65,18 @@ export function FindBar({ find }: { find: FindInFile }) {
   return (
     <div
       className="absolute right-1 top-1 z-20 flex items-center gap-1 rounded-md border border-border/60 bg-background px-1.5 py-1 shadow-lg"
-      data-testid="files-find"
+      data-testid={testIdPrefix}
     >
       <input
-        aria-label="find in this file"
+        aria-label={ariaLabel}
         className="w-32 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-        data-testid="files-find-input"
+        data-testid={`${testIdPrefix}-input`}
         onChange={(event) => find.setQuery(event.target.value)}
         onKeyDown={find.onFieldKeyDown}
         placeholder="find"
         ref={field}
         spellCheck={false}
-        title={SMART_CASE_TITLE}
+        title={hint}
         type="text"
         value={find.query}
       />
@@ -73,15 +87,15 @@ export function FindBar({ find }: { find: FindInFile }) {
           nobody ran. */}
       <span
         className="min-w-10 shrink-0 text-right text-2xs tabular-nums text-muted-foreground"
-        data-testid="files-find-count"
+        data-testid={`${testIdPrefix}-count`}
       >
         {empty ? "" : find.label}
       </span>
       <button
         aria-label="previous match"
         className={STEP_CLASS}
-        data-testid="files-find-previous"
-        disabled={find.matches.length === 0}
+        data-testid={`${testIdPrefix}-previous`}
+        disabled={find.matchCount === 0}
         onClick={() => find.walk(-1)}
         title="previous match (⇧Enter)"
         type="button"
@@ -91,8 +105,8 @@ export function FindBar({ find }: { find: FindInFile }) {
       <button
         aria-label="next match"
         className={STEP_CLASS}
-        data-testid="files-find-next"
-        disabled={find.matches.length === 0}
+        data-testid={`${testIdPrefix}-next`}
+        disabled={find.matchCount === 0}
         onClick={() => find.walk(1)}
         title="next match (Enter)"
         type="button"
@@ -102,7 +116,7 @@ export function FindBar({ find }: { find: FindInFile }) {
       <button
         aria-label="close find"
         className={STEP_CLASS}
-        data-testid="files-find-close"
+        data-testid={`${testIdPrefix}-close`}
         onClick={find.close}
         title="close (Esc)"
         type="button"

@@ -1,0 +1,69 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: iTerm-style terminal chords
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: `vingilot/finding-things`'s iTerm-chords recon and
+# this pass's v1 scope off it — terminal-scoped ⌘F
+# (`@xterm/addon-search`-backed, `lib/useTerminalFind.ts`) and a documented,
+# tested decision to leave ⌘D/⇧⌘D unbound rather than alias either to
+# `new-terminal-tab` (`lib/terminalKeys.ts`'s header has the reasoning). ⌘V
+# and ⌘H needed no code — both already work structurally (native paste
+# through the WKWebView's focused element, AppKit's own Hide) — so neither
+# appears below.
+#
+# WHERE THE WORK LIVES, AND WHY MOST OF IT NEEDS NO ENTRY: everything but the
+# two items below is under desktop/src/features/runs/** (`lib/useTerminalFind.ts`,
+# `lib/findKeys.ts`'s new `FindBarModel`, `ui/FindBar.tsx`'s two-pane
+# parameterisation, `ui/Terminal.tsx`'s wiring, `lib/terminalKeys.ts`'s
+# ⌘D/⇧⌘D decision, both files' `.test.mjs`) and `desktop/tests/e2e/**`
+# (the two new specs, declared below) — the Runs island seams.yaml already
+# covers with its `desktop/src/features/runs/**` glob.
+#
+# `desktop/package.json` and `pnpm-lock.yaml` are ALREADY declared seams
+# (design-sync's types field / the earlier terminal dependencies); their
+# reasons were AMENDED in place to record @xterm/addon-search@0.15.0 rather
+# than duplicated here — the same choice `drag-and-drop.yaml` made for
+# tauri.conf.json. `desktop/playwright.config.ts` is likewise already declared
+# ("Never, while ... any future vingilot desktop e2e spec needs to run in
+# CI's smoke project" — that entry's own words already cover this addition),
+# so the two lines registering the specs below in its `smoke` testMatch need
+# no entry of their own either.
+#
+# WHY @xterm/addon-search@0.15.0 and not a newer or older one: 0.15.0 declares
+# `peerDependencies: "@xterm/xterm": "^5.0.0"`, satisfied by the 5.5.0 already
+# installed, and its published tarball is a normal, small (12KB) addon bundle.
+# 0.16.0 is a trap for this install — no peer range at all, no `files` field
+# in its package.json, and an 838KB unpacked tarball with the addon's whole
+# source tree instead of just its built output. 0.17.0 is beta-only. Measured
+# by reading each version's published package.json/tarball listing before
+# picking one, not by installing the newest tag and hoping.
+#
+# `allowProposedApi: true` on the XTerm constructor (`ui/Terminal.tsx`) is not
+# a separate seam — it is a one-line option on the SAME upstream-owned
+# component this file's seams.yaml entry (desktop/src/features/runs/**)
+# already covers, required because `SearchAddon`'s match decorations call
+# xterm 5.x's `registerDecoration`, still a proposed (not yet stable) API that
+# throws without this flag. Found the hard way: the addon's own
+# `onDidChangeResults` never fired without it, which is exactly why this pass
+# RED-proved the ⌘F spec before trusting the count — see the evidence log.
+# ------------------------------------------------------------------------------
+
+seams:
+  - path: "desktop/tests/e2e/terminal-find.spec.ts"
+    reason: "The browser proof of terminal-scoped ⌘F: a real xterm, a real @xterm/addon-search instance, real fed pty bytes for it to scan (no parallel string search to disagree with it, unlike the Files pane's findInFile.ts). Three readings -- the chord opens THIS pane's bar (not the Files pane's, not upstream's find-in-channel) and reports a real match count including a smart-case fold across a capitalised fixture line; Escape closes the bar and hands the keyboard back to the shell, proved by a keystroke afterward actually reaching pty_write rather than by a focus assertion alone; and a ⌘F pressed after focus has left the terminal opens nothing, which is lib/useTerminalFind.ts's stricter-than-Files ownership rule (no 'nothing focused' fallback, argued in that file's header). RED-proved per the standing instruction: with the bar's render deliberately disabled, both positive-reading tests failed exactly where the bar should have appeared (shasum a934938... of that failing run is in the evidence log); restored and re-run, both pass (shasum 8e07215...). Lives at the upstream-owned desktop/tests/e2e/ path for the same reason every other fork spec does: that is where playwright.config.ts's testDir points, and a spec cannot be moved under vingilot/ without moving the whole test runner."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the terminal pane ships its own ⌘F; it shrinks to nothing only if upstream grows a test root under vingilot/."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/terminal-cmd-d.spec.ts"
+    reason: "The browser proof of a deliberate absence, not a feature: lib/terminalKeys.ts's header states that ⌘D/⇧⌘D pass the five-claimant audit clean but stay unbound because there is no pane model for a second, sibling terminal to split into (lib/paneModel.ts), and the one thing ⌘D could honestly bind to today -- aliasing it to new-terminal-tab -- is refused because a split keeps sibling context visible while a tab replaces the view. A spec for an absence has to prove the right thing: not merely that nothing crashes, but that the tab strip genuinely does not react (no second tab, the one tab still the active one) after both chords. Without this, a future edit reaching for a free-looking 'd' could quietly wire it to new-terminal-tab -- exactly the alias the header calls a lie -- and the five-claimant audit alone would not catch it, since ⌘D passes that audit either way. Lives at the upstream-owned desktop/tests/e2e/ path for the same reason terminal-find.spec.ts does."
+    owner: "vingilot/runs"
+    removable_when: "Never, while ⌘D/⇧⌘D stay deliberately unbound on the terminal; replaced (not merely removed) the day a real split pane model gives them an honest meaning."
+    status: "permanent"
+    added: "2026-08-14"

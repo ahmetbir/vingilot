@@ -256,3 +256,19 @@ test("multi-character non-digit keys never crash digit parsing", () => {
   assert.equal(resolveKey({ key: "F1", primaryModifier: true }), null);
   assert.equal(resolveKey({ key: "", primaryModifier: true }), null);
 });
+
+test("primary+d and shift+primary+d are deliberately unclaimed — iTerm's split has no pane model to bind to", () => {
+  // Free in every claimant checked (this map included) — see the header on
+  // why they stay unbound here regardless: aliasing ⌘D to new-terminal-tab
+  // would teach a lie a real split does not tell.
+  assert.equal(resolveKey({ key: "d", primaryModifier: true }), null);
+  assert.equal(resolveKey({ key: "D", primaryModifier: true }), null);
+  assert.equal(
+    resolveKey({ key: "D", primaryModifier: true, shiftKey: true }),
+    null,
+  );
+  assert.equal(
+    resolveKey({ key: "d", primaryModifier: true, shiftKey: true }),
+    null,
+  );
+});
