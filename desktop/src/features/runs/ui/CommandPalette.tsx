@@ -16,7 +16,8 @@
 // a blocked row, which is kept clickable on purpose. In each of those, focus
 // is off the field, so a handler on the field answered for nothing — Esc fell
 // through to the terminal's own window listener instead of closing this, and
-// ⇧⌘B rearranged the columns underneath an open palette.
+// a sidebar toggle rearranged the columns underneath an open palette (⇧⌘B
+// itself is retired — the workspace tree lives in the app sidebar now).
 //
 // Capture on `window` is what puts this ahead of the chords the surfaces
 // underneath bind (`lib/useColumns.ts`, `ui/WorkSurface.tsx`,

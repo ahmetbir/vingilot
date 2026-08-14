@@ -363,13 +363,13 @@ type SectionId = (typeof SECTIONS)[number]["id"];
  * gains an action, arrives here as a missing key rather than as a wrong line.
  */
 const WHAT: Record<string, { section: SectionId; what: string }> = {
+  // One column row only: ⇧⌘B is retired with the second sidebar it used to
+  // hide (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2), and the
+  // sheet is generated, so its row left when `columnKeys.ts` stopped
+  // answering the chord.
   "column:toggle-column:column=sidebar": {
     section: "columns",
-    what: "show or hide the app's own sidebar",
-  },
-  "column:toggle-column:column=nav": {
-    section: "columns",
-    what: "show or hide the projects and their worktrees",
+    what: "show or hide the app's own sidebar — the workspace nav lives inside it",
   },
   "deck:move-card": {
     section: "deck",

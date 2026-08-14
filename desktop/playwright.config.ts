@@ -148,6 +148,7 @@ export default defineConfig({
         "**/workspace-no-overlays.spec.ts",
         "**/workspace-columns.spec.ts",
         "**/workspace-one-column.spec.ts",
+        "**/sidebar-contextual.spec.ts",
         "**/workspace-triage.spec.ts",
         "**/workspace-overlap.spec.ts",
         "**/workspace-hook-liveness.spec.ts",

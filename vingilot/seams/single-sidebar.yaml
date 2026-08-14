@@ -1,0 +1,89 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the single sidebar
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: one sidebar, contextual by view
+# (vingilot/docs/plans/2026-08-14-single-sidebar.md). The app sidebar's
+# scrollable region becomes contextual on selectedView — channel-shaped views
+# (home/channel/messages) keep the channel/DM list, the workspace view shows
+# the projects+worktrees tree that used to be a second sidebar column inside
+# RunsScreen, and agents/pulse/workflows/projects get a named empty state
+# instead of the channel list bleeding through. The mechanism is a portal: the
+# sidebar registers a slot element, RunsScreen renders WorkspaceNav into it,
+# and every piece of workspace state keeps its owner. With the second column
+# gone, its chord (⇧⌘B), its palette row (action:toggle-nav), its cheatsheet
+# line, its rail (worktree-column-rail / nav-rail-*) and its per-project
+# stored collapse flag (columnLayout's `nav`) are retired — the flag's stored
+# values are discarded, not migrated, the same safe-direction reasoning the
+# one-column design's v1→v2 discard recorded. All of that retirement happened
+# inside the fork's own island (desktop/src/features/runs/**, already a
+# blanket seam in vingilot/seams.yaml) and is recorded here as a decision so a
+# future merge or plan that wants ⇧⌘B back knows it is reclaiming a freed
+# chord, not filling a gap.
+#
+# Two upstream-owned sidebar files are touched, both already carrying seam
+# entries in vingilot/seams.yaml from the workspace island's first landing;
+# the entries below widen those seams with this plan's edits rather than
+# replacing them.
+
+seams:
+  - path: "desktop/src/features/sidebar/ui/SidebarContextualPane.tsx"
+    reason: "New, fork-owned: the sidebar's contextual region — the selectedView switch the single-sidebar model needs, kept out of AppSidebar.tsx so the upstream file's edit stays a dozen gating lines (it has no headroom against the 1000-line ratchet). Two branches: the workspace view renders an empty slot element registered with shared/lib/sidebarNavSlot.ts (RunsScreen portals the real tree into it), and agents/pulse/workflows/projects render a named 'No sidebar detail … yet' empty state — before this file those four views showed the channel list, a wrong answer standing in for none. Precedent for a fork file in this exact directory: CommunityRail.tsx."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the fork keeps a contextual sidebar model upstream does not have."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/shared/lib/sidebarNavSlot.ts"
+    reason: "New, fork-owned: the one hand-off point between the sidebar and the workspace screen — a module-level slot element with a useSyncExternalStore reader. Chosen over lifting selectedRepoId/selectedWorktreeId (the plan's default mechanism, 'or equivalent'): a portal moves only the DOM, so WorkspaceNav's ~30 props of live state, the idempotent selectRepo guard and the auto-select effect's ordering — the plan's own named riskiest hazard — all stay in RunsScreen's hands, untouched. Lives in shared/ because the two consumers are in two different feature islands (sidebar and runs) under no common fork-owned provider."
+    owner: "vingilot/runs"
+    removable_when: "Never, while WorkspaceNav renders inside the app sidebar but is owned by RunsScreen."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/sidebar/ui/AppSidebar.tsx"
+    reason: "Widens the existing AppSidebar.tsx seam (vingilot/seams.yaml, 2026-08-03) with the single-sidebar gating edit: a showsChannelContent flag (home|channel|messages), the existing channel/DM scroll content and its loading skeleton gated behind it, and SidebarContextualPane mounted for every other view. A dozen lines in the one file the fork must keep re-mergeable — the switch itself lives in the fork-owned component, not here. Note the deliberate widening of the plan's literal condition: home keeps the channel list too, because home is the Inbox every channel is reached from and gating it away would strand channel navigation (and most of the e2e suite) on the default view. File is at 915 of the 1000-line ratchet after the edit."
+    owner: "vingilot/runs"
+    removable_when: "Never fully, while the fork keeps a contextual model upstream doesn't have; shrinks to nothing only if upstream grows its own per-view sidebar regions."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/sidebar/ui/AppSidebarPinnedHeader.tsx"
+    reason: "Widens the existing AppSidebarPinnedHeader.tsx seam (vingilot/seams.yaml, 2026-08-03) with the Deck rename — the owner's call, recorded in the plan's §1.2: the fork's workspace entry was labelled 'Projects', two rows under upstream's own Projects entry (relabelled 'Repos' by the earlier seam), and two menu items readable as Projects one row apart was a collision. Label and tooltip strings only: the selectedView 'workspace' member, the /workspace route, onSelectWorkspace, data-testid open-workspace-view and the SquareTerminal icon are all unchanged, so the rename is reversible by editing two words. RunsScreen's pre-existing DeckPane (the project-less landing) is a separate 'Deck' this rename deliberately does not merge with."
+    owner: "vingilot/runs"
+    removable_when: "Never, while a /workspace route exists in Buzz desktop."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/sidebar-contextual.spec.ts"
+    reason: "The single-sidebar rework's red-proven e2e spec: the channel list leaves the DOM on non-channel views and a NAMED placeholder stands in its place (presence asserted, not only absence — an empty div must not pass); the workspace tree renders inside app-sidebar with no second copy beside the work surface, and selection made in it still drives the surface; ⇧⌘B collapses nothing and leaves no rail while ⌘B still moves the one sidebar. Proven red against the pre-rework build (3 of 4 tests failing for exactly the pre-rework reasons) before the gating landed. Lives at the upstream-owned desktop/tests/e2e/ path because that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the contextual sidebar needs a regression spec."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/active-turn-resilience.spec.ts"
+    reason: "One navigation added to an existing spec: it read the store-driven working badges off the sidebar's channel list while standing on the Agents view, and since the single-sidebar rework that view's sidebar shows its contextual empty state instead of the channel list. The spec now clicks back to the Inbox (a client-side navigation — a reload would drop the seeded store and the mocked clock) before reading the same badges. Same store, same assertions, same liveness-gap subject; only the surface the badges are read from moved, exactly as it did for the real owner."
+    owner: "vingilot/runs"
+    removable_when: "With the contextual sidebar, or if the Agents view ever grows channel rows of its own."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/channels.spec.ts"
+    reason: "The same one-navigation adaptation as active-turn-resilience.spec.ts, in upstream's own channels spec: its managed-bot-removal test clicked a sidebar channel row while standing on the Agents view, and since the single-sidebar rework that view's sidebar shows its contextual empty state instead of the channel list. The test now clicks back to the Inbox before opening the second channel's members sidebar. Six added lines, no assertion changed."
+    owner: "vingilot/runs"
+    removable_when: "With the contextual sidebar, or if the Agents view ever grows channel rows of its own."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/lib/columnKeys.ts"
+    reason: "DECISION RECORD (the file itself is inside the desktop/src/features/runs/** blanket seam; this entry exists so the retirement is a registry fact, the way home-harbor.yaml records a deleted workflow): ⇧⌘B is retired, not reassigned. resolveColumnKey refuses shiftKey instead of answering 'nav'; the CollapsibleColumn union is 'sidebar' alone; columnLayout discards stored nav flags rather than migrating them; the action:toggle-nav palette row, its cheatsheet line and WorkspaceNav's rail are deleted with it. A future upstream merge or fork plan that binds ⇧⌘B is reclaiming a freed chord — a new decision, not a conflict with this one. The narrowing this bought, stated: the rail's refusal mark and per-project attention dots at 36px are gone; whatever the tree has to say is on screen whenever the sidebar is, and off-canvas when the owner hides the whole sidebar with ⌘B."
+    owner: "vingilot/runs"
+    removable_when: "Superseded if a later recorded decision gives ⇧⌘B a new meaning."
+    status: "permanent"
+    added: "2026-08-14"

@@ -42,6 +42,7 @@ import {
   SectionQuickAction,
 } from "@/features/sidebar/ui/CustomChannelSection";
 import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
+import { SidebarContextualPane } from "@/features/sidebar/ui/SidebarContextualPane";
 import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
 import { HuddleProfileControl } from "@/features/huddle";
 import type {
@@ -435,6 +436,13 @@ export function AppSidebar({
     openCreateDialog("stream");
   }, [onCreateChannelOpenChange, openCreateDialog]);
 
+  // Which views the scrollable region answers with the channel/DM list; the
+  // rest are SidebarContextualPane's (vingilot single-sidebar plan, §1.1).
+  const showsChannelContent =
+    selectedView === "home" ||
+    selectedView === "channel" ||
+    selectedView === "messages";
+
   const handleCreateChannelInSection = React.useCallback(
     (sectionId: string) => {
       onBrowseChannels?.((channelId) => assignChannel(channelId, sectionId));
@@ -515,11 +523,20 @@ export function AppSidebar({
                 selectedView={selectedView}
               />
 
-              {isLoading ? (
+              {/* The contextual region (vingilot single-sidebar plan): the
+               * channel/DM list answers the channel-shaped views — home is the
+               * Inbox every channel is reached from — and every other view
+               * gets its own content via SidebarContextualPane instead of the
+               * channel list bleeding through underneath it. */}
+              {isLoading && showsChannelContent ? (
                 <SidebarLoadingContent shape={sidebarLoadingShape} />
               ) : null}
 
-              {!isLoading ? (
+              {!showsChannelContent ? (
+                <SidebarContextualPane selectedView={selectedView} />
+              ) : null}
+
+              {!isLoading && showsChannelContent ? (
                 <>
                   {starredChannels.length > 0 ? (
                     <ChannelGroupSection

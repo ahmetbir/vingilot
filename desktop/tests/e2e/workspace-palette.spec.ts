@@ -155,15 +155,18 @@ test.describe("one key to go anywhere and do anything", () => {
     await openWorkspace(page);
     await page.getByTestId("projects-nav-repo-repo-left").click();
     await expect(page.getByTestId("worktree-column")).toBeVisible();
+    const sidebar = page.locator("[data-side][data-collapsible]").first();
+    await expect(sidebar).toHaveAttribute("data-state", "expanded");
 
-    // ⇧⌘B hides the workspace nav — and with it the disclosed worktrees —
-    // when nothing is in front of it. That is workspace-columns.spec.ts's
-    // subject, and it is what makes this test able to fail rather than able to
-    // pass.
+    // ⌘B hides the app sidebar — and with it the workspace nav, which lives
+    // inside it now — when nothing is in front of it. That is
+    // workspace-columns.spec.ts's subject, and it is what makes this test able
+    // to fail rather than able to pass. (⇧⌘B, the probe this test used while
+    // the nav was its own column, is retired — single-sidebar plan, Task 2.)
     await openPalette(page);
-    await page.keyboard.press("ControlOrMeta+Shift+b");
+    await page.keyboard.press("ControlOrMeta+b");
     await expect(page.getByTestId("palette")).toBeVisible();
-    await expect(page.getByTestId("worktree-column")).toBeVisible();
+    await expect(sidebar).toHaveAttribute("data-state", "expanded");
 
     // Including with focus off the field — the case a handler bound to the
     // field could not see, and the one that rearranged the columns behind an
@@ -176,16 +179,16 @@ test.describe("one key to go anywhere and do anything", () => {
     await expect(
       page.getByTestId("palette-row-action:prune-worktrees"),
     ).toBeFocused();
-    await page.keyboard.press("ControlOrMeta+Shift+b");
+    await page.keyboard.press("ControlOrMeta+b");
     await expect(page.getByTestId("palette")).toBeVisible();
-    await expect(page.getByTestId("worktree-column")).toBeVisible();
+    await expect(sidebar).toHaveAttribute("data-state", "expanded");
 
-    // The column still answers to the chord once the palette is out of the
+    // The sidebar still answers to the chord once the palette is out of the
     // way, so what was proved above is deference and not deadness.
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("palette")).toBeHidden();
-    await page.keyboard.press("ControlOrMeta+Shift+b");
-    await expect(page.getByTestId("worktree-column")).toBeHidden();
+    await page.keyboard.press("ControlOrMeta+b");
+    await expect(sidebar).toHaveAttribute("data-state", "collapsed");
   });
 
   test("an empty query is the workspace, not an empty box", async ({
@@ -299,20 +302,21 @@ test.describe("one key to go anywhere and do anything", () => {
     );
   });
 
-  test("an action the palette can reach really runs — the nav hides", async ({
+  test("an action the palette can reach really runs — the sidebar hides", async ({
     page,
   }) => {
     await openWorkspace(page);
     await page.getByTestId("projects-nav-repo-repo-left").click();
     await expect(page.getByTestId("worktree-column")).toBeVisible();
+    const sidebar = page.locator("[data-side][data-collapsible]").first();
+    await expect(sidebar).toHaveAttribute("data-state", "expanded");
 
     await openPalette(page);
-    await page.getByTestId("palette-input").fill("hide the projects");
+    await page.getByTestId("palette-input").fill("hide the sidebar");
     await page.keyboard.press("Enter");
 
     await expect(page.getByTestId("palette")).toBeHidden();
-    await expect(page.getByTestId("worktree-column")).toBeHidden();
-    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
+    await expect(sidebar).toHaveAttribute("data-state", "collapsed");
   });
 
   test("an action opens the dialog the button opens — one dialog, two doors", async ({
@@ -358,18 +362,18 @@ test.describe("one key to go anywhere and do anything", () => {
     await openWorkspace(page);
     await page.getByTestId("projects-nav-repo-repo-left").click();
     await openPalette(page);
-    await page.getByTestId("palette-input").fill("hide the projects");
+    await page.getByTestId("palette-input").fill("hide the sidebar");
 
-    const row = page.getByTestId("palette-row-action:toggle-nav");
+    const row = page.getByTestId("palette-row-action:toggle-sidebar");
     await expect(row).toBeVisible();
-    // Three keys in three boxes. A `kbd` per key is what settings' own
-    // shortcut list draws, and it is what makes ⇧⌘B read as a chord rather
-    // than as a word at the end of a line.
-    await expect(row.locator("kbd")).toHaveText(["⇧", "⌘", "B"]);
+    // One key per box. A `kbd` per key is what settings' own shortcut list
+    // draws, and it is what makes ⌘B read as a chord rather than as a word at
+    // the end of a line.
+    await expect(row.locator("kbd")).toHaveText(["⌘", "B"]);
     // And the line under the label is a sentence about what moves, which is
     // what the chord used to be sitting in place of.
     await expect(row).toContainText(
-      "the projects, and the open one's worktrees",
+      "the app's own sidebar, left of the workspace",
     );
   });
 
@@ -400,24 +404,20 @@ test.describe("one key to go anywhere and do anything", () => {
     await expect(row.locator("kbd")).toHaveCount(3);
   });
 
-  test("the nav's toggle is reachable from the Deck, where there is no project", async ({
+  test("the retired nav toggle is not a row — gone, not blocked", async ({
     page,
   }) => {
-    // The row `hasWorktreeColumn` used to block. It is the palette half of the
-    // §4.1 decision: the nav is on screen on the landing view too, so the
-    // toggle is runnable there, with its chord printed.
+    // `action:toggle-nav` (⇧⌘B) left with the second sidebar it used to hide
+    // (single-sidebar plan, Task 2). A blocked row would be a sentence about a
+    // thing that still exists; the row must simply not be offered.
     await openWorkspace(page);
     await expect(page.getByTestId("projects-nav")).toBeVisible();
     await openPalette(page);
     await page.getByTestId("palette-input").fill("hide the projects");
-    const row = page.getByTestId("palette-row-action:toggle-nav");
-    await expect(row).not.toHaveAttribute("data-blocked", "true");
-    await expect(row.locator("kbd")).toHaveText(["⇧", "⌘", "B"]);
-
-    await row.click();
-    await expect(page.getByTestId("palette")).toBeHidden();
-    await expect(page.getByTestId("projects-nav")).toBeHidden();
-    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
+    await expect(page.getByTestId("palette")).toBeVisible();
+    await expect(page.getByTestId("palette-row-action:toggle-nav")).toHaveCount(
+      0,
+    );
   });
 
   test("the cursor, the mouse and neither are three different paints", async ({

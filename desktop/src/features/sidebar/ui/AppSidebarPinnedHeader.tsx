@@ -190,15 +190,20 @@ export function AppSidebarPrimaryMenu({
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
+          {/* "Deck", not "Projects": upstream's Repos entry two rows up owns
+           * the Projects name, and two menu items readable as "Projects" one
+           * row apart was the collision the owner flagged (vingilot
+           * single-sidebar plan, §1.2). Label only — the view, route, test id
+           * and handlers keep their `workspace` names. */}
           <SidebarMenuButton
             data-testid="open-workspace-view"
             isActive={selectedView === "workspace"}
             onClick={onSelectWorkspace}
-            tooltip="Projects"
+            tooltip="Deck"
             type="button"
           >
             <SquareTerminal className="h-4 w-4" />
-            <SidebarMenuLabel>Projects</SidebarMenuLabel>
+            <SidebarMenuLabel>Deck</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <FeatureGate feature="workflows">

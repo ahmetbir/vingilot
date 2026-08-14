@@ -151,10 +151,17 @@ test("selecting a commit shows its patch, drawn by the shared renderer", async (
 
   const box = page.getByTestId("history-patch-src/read.rs");
   await expect(box).toBeVisible();
-  // At this width the patch is under its own column floor, so it wraps rather
-  // than scrolling sideways — `patchWrapsAt`, the Diff pane's own decision,
-  // reached through the same module.
-  await expect(box).toHaveAttribute("data-wrapped", "true");
+  // The wrap decision is `patchWrapsAt`, the Diff pane's own rule reached
+  // through the same module: wrapped exactly when the box is under the 467px
+  // patch floor. Asserted against the measured box rather than as a literal,
+  // because the pane's width has moved twice now (the one-column merge, then
+  // the single-sidebar rework, which widened it past the floor here) and the
+  // claim is the shared rule, not a particular window's answer to it.
+  const boxWidth = Math.round((await box.boundingBox())?.width ?? 0);
+  await expect(box).toHaveAttribute(
+    "data-wrapped",
+    boxWidth < 467 ? "true" : "false",
+  );
   await expect(box).toContainText("+is here now");
   await expect(box).toContainText("-was here");
 
@@ -212,7 +219,13 @@ test("the status lists render, and clicking a file shows its diff", async ({
   await expect(page.getByTestId("history-patch-title")).toHaveText("src/a.rs");
   const box = page.getByTestId("history-patch-body");
   await expect(box).toContainText("+new working line");
-  await expect(box).toHaveAttribute("data-wrapped", "true");
+  // Same self-checking read as the commit-patch test above: wrapped exactly
+  // when the measured box is under the shared 467px floor.
+  const bodyWidth = Math.round((await box.boundingBox())?.width ?? 0);
+  await expect(box).toHaveAttribute(
+    "data-wrapped",
+    bodyWidth < 467 ? "true" : "false",
+  );
 
   // And what that patch IS is said rather than implied: against HEAD, which is
   // staged and unstaged together, because git's two columns are two reads and

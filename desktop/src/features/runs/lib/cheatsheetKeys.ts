@@ -31,7 +31,7 @@
 //   upstream's own shortcut registry (shared/lib/keyboard-shortcuts.ts, what
 //   settings prints) lists no chord on this key either.
 // - **This island's own maps**: ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→, ⇧⌥⌘←→, ⌥⌘T
-//   (terminalKeys), ⌘B / ⇧⌘B (columnKeys), ⌥⌘B / ⇧⌥⌘B (paneKeys), ⌘K
+//   (terminalKeys), ⌘B (columnKeys; ⇧⌘B retired), ⌥⌘B / ⇧⌥⌘B (paneKeys), ⌘K
 //   (paletteKeys), `j`/`k`/↵ (diffKeys). None is on this key.
 //
 // **⇧ is tolerated rather than ignored, and that is about the owner's own

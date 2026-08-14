@@ -29,11 +29,25 @@
 //               → less the same 8px divider and the same 752px floor
 //               → **Diff pane 435px**
 //
-// Nothing below was repaired for that; every assertion still reads true,
-// which is the point worth recording. 435 is still under `PATCH_MIN_PX`, so
-// the list still yields and the patch still wraps — the decision this spec
-// exists for is unchanged by 192px, and would have needed another 32 before it
-// was. What did move is written into the two comments that quote a number.
+// At that step nothing below needed repair: 435 was still under
+// `PATCH_MIN_PX`, so the list still yielded and the patch still wrapped.
+//
+// **Re-measured again after the single-sidebar rework**
+// (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2). The workspace
+// nav moved inside the app sidebar, its whole 224px landed here, and this
+// time the regime DID move:
+//
+//   window 1728 → sidebar 300 (nav inside it)
+//               → work surface 1419
+//               → **Diff pane 564px**
+//
+// Not all of it lands in this pane: the divider's default ratio gives the
+// terminal more than its 752px floor once the surface can afford to, so the
+// pane measures **564px**. That clears `PATCH_MIN_PX` (467) — the patch is a
+// grid again, unwrapped — and stays under `LIST_LEAVES_BELOW_PX` (643) and
+// `SPLIT_MIN_PX` (695), so the list is still a drawer and the split-refusal
+// test's subject is unchanged. The geometry and legibility tests below assert
+// that regime.
 //
 // So there are two constraints and only one of them is wrong. `MIN_LEFT_PX` is
 // the terminal's 80 columns and outranks everything on that surface for a
@@ -97,6 +111,12 @@ const MIN_LEFT_PX = 752;
 
 /** `PATCH_MIN_PX` in `lib/diffLayout.ts`, written out for the same reason. */
 const PATCH_MIN_PX = 467;
+
+/** `LIST_MIN_PX` and `LIST_PREFERRED_PX` in `lib/diffLayout.ts`, written out
+ * for the same reason: the geometry test asserts the list stands beside the
+ * patch at a *yielded* width, and these are the two ends of that claim. */
+const LIST_MIN_PX = 176;
+const LIST_PREFERRED_PX = 288;
 
 /** `SPLIT_MIN_PX` in `lib/diffLayout.ts` — two columns of 38 with their gutters,
  * their trailing padding, the divider and the scroller's `px-4`. Written out
@@ -270,9 +290,17 @@ async function widths(page: Page) {
   });
 }
 
-test("on a 16-inch MacBook Pro the patch has the pane, and the list is a gesture away", async ({
+test("on a 16-inch MacBook Pro the patch clears its floor, and the list is a gesture away", async ({
   page,
 }) => {
+  // The single-sidebar rework moved the workspace nav into the app sidebar
+  // and the ~224px it was spending beside the surface landed in this split —
+  // but not all of it in this pane: the divider's default ratio gives the
+  // terminal more than its 752px floor once the surface can afford to, so the
+  // pane is 564px measured at 1728×1117 (it was 435 when the terminal sat
+  // pinned on its floor). 564 clears `PATCH_MIN_PX` (467) — the patch is a
+  // grid again, unwrapped — and is still under `LIST_LEAVES_BELOW_PX`
+  // (467 + 176 = 643), so the list is still a drawer over it, not beside it.
   await openDiffPane(page, SIXTEEN_INCH);
   const laid = await widths(page);
 
@@ -281,13 +309,15 @@ test("on a 16-inch MacBook Pro the patch has the pane, and the list is a gesture
   expect(laid.terminal).not.toBeNull();
   expect(laid.terminal as number).toBeGreaterThanOrEqual(MIN_LEFT_PX);
 
-  // The pane that leaves, at this window, on this machine.
+  // The pane that leaves, at this window, on this machine: above the patch's
+  // floor now, not yet enough for the list to stand beside it.
   expect(laid.pane).not.toBeNull();
   const pane = laid.pane as number;
-  expect(pane).toBeLessThan(PATCH_MIN_PX);
+  expect(pane).toBeGreaterThanOrEqual(PATCH_MIN_PX);
+  expect(pane).toBeLessThan(LIST_MIN_PX + PATCH_MIN_PX);
 
-  // The list is not standing in it. Before the fix it was here at 288px — 45px
-  // wider than the pane — and nothing could take that width back from it.
+  // The list is not standing in it. Before the fix it was here at 288px and
+  // nothing could take that width back from it.
   await expect(page.getByTestId("worktree-diff-files")).toHaveCount(0);
 
   // What the owner came for: the patch has the pane, less its own padding.
@@ -373,24 +403,25 @@ async function legibility(page: Page) {
   });
 }
 
-test("at his width the patch line is whole and every row names its file", async ({
+test("at his width the patch is a grid at its floor and every row names its file", async ({
   page,
 }) => {
   await openDiffPane(page, SIXTEEN_INCH);
 
-  // The patch has the pane and is *still* under its own floor — 435px against
-  // a `PATCH_MIN_PX` of 467, where before the nav columns merged it was 243 —
-  // so it wraps instead of running off the side. This is the reading the
-  // previous version of this file did not take: it asserted the pane was below
-  // `PATCH_MIN_PX` and stopped there.
+  // The patch clears its floor now — 564px against `PATCH_MIN_PX`'s 467,
+  // where it was 435 before the single-sidebar rework and 243 before the nav
+  // columns merged — so it does NOT wrap: above the floor the grid is worth
+  // more than the wrap (`diffLayout.ts`, `patchWrapsAt`), and the scroller is
+  // what handles the lines longer than the box. That scroller is the designed
+  // behaviour above the floor, which is why the old "not one line is cut off"
+  // reading left with the wrap: content inside a scroller is the pane
+  // working.
   const before = await legibility(page);
-  expect(before.wrapped).toBe("true");
+  expect(before.wrapped).toBe("false");
   expect(before.lines.length).toBeGreaterThan(0);
-  // Not one line of the patch is cut off at the right edge of its own box.
-  expect(before.lines.filter((line) => line.overflow > 1)).toEqual([]);
-  // And the fixture's 76-column source line is one of the lines on screen —
-  // asserted by content, so a build that rendered an empty patch could not
-  // satisfy the sentence above by having nothing to overflow.
+  // The fixture's 76-column source line is on screen — asserted by content,
+  // so a build that rendered an empty patch could not pass by having nothing
+  // to draw.
   expect(before.lines.map((line) => line.text)).toContain(PATCH_LINE.trim());
 
   // The header names the open file. Before: "desktop/src/feat…".

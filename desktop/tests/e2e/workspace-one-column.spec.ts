@@ -1,71 +1,51 @@
-// One column where there were two, measured at the width the complaint was
-// made about (vingilot/docs/plans/2026-08-11-one-column-and-loose-ends.md,
-// Task 1, last checkbox; the design is
-// vingilot/docs/plans/2026-08-11-one-column-design.md, §5).
+// One sidebar where there were two, measured at the width the complaint was
+// made about (vingilot/docs/plans/2026-08-11-one-column-and-loose-ends.md
+// began this; vingilot/docs/plans/2026-08-14-single-sidebar.md finished it).
 //
 // > *"bizim çok yer kaplayan 2 hatta 3 sidebar'ımız var."*
 //
 // **The viewport is the test.** 1728×1117 is the 16-inch MacBook Pro's default
-// logical resolution — the machine the chrome was too wide on — and the whole
-// reason "it looks roomier" is not an acceptable answer is that a quarter of
-// that window going to navigation is invisible unless something reads the
-// boxes. Before this change, measured here and recorded in
-// `workspace-diff-fits.spec.ts`:
+// logical resolution — the machine the chrome was too wide on. The history of
+// this row, each step measured here or in `workspace-diff-fits.spec.ts`:
 //
-//   window 1728 → sidebar 300 + projects nav 192 + worktree column 224
-//               → work surface 1003
+//   three columns: sidebar 300 + projects nav 192 + worktree column 224
+//                → work surface 1003
+//   one column:    sidebar 300 + workspace nav 224 → work surface 1195
 //
-// After, and this is the claim:
+// After the single-sidebar rework, and this is the claim now:
 //
-//   window 1728 → sidebar 300 + workspace nav 224
-//               → work surface 1195
+//   window 1728 → sidebar 300 (the nav lives INSIDE it)
+//               → work surface 1419
 //
-// The merged column is `w-56`, exactly the width the worktree column had, so
-// the whole 192px of the old `ProjectsNav` is the work surface's. That is a
-// sentence a test can hold: **the surface gains 192px** and there are **two**
-// boxes in that row rather than three.
+// The workspace nav is no longer a member of this row at all — it is the app
+// sidebar's contextual content, so the row right of the sidebar holds the
+// work surface and nothing else. That is a sentence a test can hold: **one
+// box in the row**, **the nav inside the sidebar's own element**, and the
+// sums self-checking — the sidebar plus the row plus the shell's own 9px is
+// the window. A second nav column reappearing beside the surface takes width
+// from the surface without changing the sidebar, so only the sum sees it.
 //
-// Three readings, and the third is the one that keeps working when the numbers
-// move. The nav's own width pins the class. The surface's floor pins the gain.
-// And the sums are self-checking: the row the nav lives in is the nav plus the
-// work surface and nothing else, and the sidebar plus that row plus the shell's
-// own 9px is the window. A third column reappearing takes width from the
-// surface without changing the nav or the sidebar, so only a sum sees it — and
-// there are two of them because it could come back inside the row or beside it.
-// Measured here, not assumed: sidebar 300 | 1px divider | nav 224 | surface
-// 1195 | 8px inset = 1728.
-//
-// The tests after the geometry are not about width. They are the behaviours the
-// merge replaced rather than moved, each of which is invisible to a unit test
-// (there is no DOM in the unit suite) and invisible to a reader:
+// The tests after the geometry are not about width. They are the behaviours
+// the merges replaced rather than moved, each of which is invisible to a unit
+// test (there is no DOM in the unit suite) and invisible to a reader:
 //
 // - **A branch filter does not follow the owner into another project**, and
 //   neither does the quiet-rows fold. The old column reset both with a
-//   `setState` during the render that brought the new project in; the merged
-//   nav does the same thing one component higher up. Two tests, not one,
-//   because the reset is two lines and only the first was guarded.
-// - **…and ⇧⌘B does not destroy it either.** This is the other half of the same
-//   guarantee and the half that was lost: the first merge left `query` and
-//   `expanded` inside `WorktreeDisclosure`, which is rendered only in the
-//   expanded branch, so collapsing the column unmounted them. `WorktreeColumn`
-//   was itself the component that chose between rail and column, so the
-//   two-column build kept both across a collapse. The two halves are asserted
-//   next to each other on purpose — a fix for either one that breaks the other
-//   is the shape this defect had.
+//   `setState` during the render that brought the new project in; the nav
+//   does the same thing one component higher up. Two tests, not one, because
+//   the reset is two lines and only the first was guarded.
+// - **…and ⌘B does not destroy them either.** The sidebar the nav lives in
+//   collapses off-canvas rather than unmounting, and the filter/fold state is
+//   held in `WorkspaceNav` above the disclosure; both survive the round trip.
+//   (⇧⌘B, which used to be this guarantee's subject, is retired — the rail it
+//   collapsed to is gone with the second sidebar, and with it the rail's
+//   refusal mark and per-project dots: whatever the tree has to say is on
+//   screen whenever the sidebar is, and hidden only when the owner hides the
+//   whole sidebar.)
 // - **Clicking the project row you are standing in does nothing.** `ProjectRow`
-//   and the design both say so in words; the merge put that row directly above
-//   the worktree list, and `selectRepo` was clearing `selectedWorktreeId`
-//   unconditionally, so the click silently moved the owner off the worktree he
-//   had open onto the project's primary checkout.
-// - **A rail is not allowed to imply that nothing is wrong.** Every panel that
-//   reports project state lives in the expanded branch, and `ProjectsNav` had no
-//   collapse before this merge, so ⇧⌘B invented a state in which "the project
-//   list could not be read" is on screen nowhere at all — a rail showing a bare
-//   `0` and no dots. That is "nothing there" standing in for "no answer". Two
-//   tests here as well, because the refusal family has three members and the
-//   third one — a worktree action's, whose panel is a level deeper still and
-//   whose prune door the palette leaves open while the nav is a rail — was the
-//   one the mark first skipped.
+//   and the design both say so in words; `selectRepo` clearing
+//   `selectedWorktreeId` unconditionally once moved the owner off the worktree
+//   he had open onto the project's primary checkout.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -80,18 +60,11 @@ const COORDINATOR_ORIGIN = "http://127.0.0.1:7117";
  * `workspace-diff-fits.spec.ts` runs at, for the same reason. */
 const SIXTEEN_INCH = { height: 1117, width: 1728 };
 
-/** `w-56` on the merged column, written out rather than imported so that this
- * spec fails if the width moves instead of silently re-deriving it. */
-const NAV_PX = 224;
-
-/** `w-9` on the collapsed rail. */
-const RAIL_PX = 36;
-
-/** What the work surface must have at his width. A floor rather than the exact
- * 1195 it measures, because 1728 − 300 − 224 = 1204 and the app shell keeps the
- * difference (below); what is under test is the ~192px gain over the 1003 this
- * used to be, not a pixel. */
-const SURFACE_FLOOR = 1190;
+/** What the work surface must have at his width. A floor rather than the
+ * exact number it measures, because the app shell keeps a few pixels for
+ * itself (below); what is under test is the ~224px gain over the 1195 the
+ * one-column build had — the whole nav column is the surface's now. */
+const SURFACE_FLOOR = 1410;
 
 /** What the app shell keeps for itself, measured rather than assumed: a 1px
  * divider between upstream's sidebar and the workspace, and an 8px inset on the
@@ -343,70 +316,66 @@ async function openWorkspaceWithGit(page: Page) {
 }
 
 /** Laid-out widths, read off the boxes rather than off the classes, plus the
- * two structural readings that say the row holds one nav and not two.
+ * structural readings that say the nav is the sidebar's contextual content
+ * and not a column of the work surface's row.
  *
- * `siblings` is the direct child count of the row the nav is in — the nav and
- * the box the work surface lives in, and nothing else. Upstream's sidebar is
- * not in that row (it is a sibling of `runs-screen`), which is why it is
- * measured by its own wrapper: `data-collapsible` is written nowhere else in
- * the app, while `data-side`/`data-state` alone would also match an open Radix
- * popover. */
+ * `rowSiblings` is the direct child count of the row right of upstream's
+ * sidebar — the box the work surface lives in, and nothing else. The sidebar
+ * is measured by its own wrapper: `data-collapsible` is written nowhere else
+ * in the app, while `data-side`/`data-state` alone would also match an open
+ * Radix popover. */
 async function layout(page: Page) {
   return page.evaluate(() => {
     const width = (element: Element | null) =>
       element === null
         ? null
         : Math.round(element.getBoundingClientRect().width);
-    const nav =
-      document.querySelector('[data-testid="projects-nav"]') ??
-      document.querySelector('[data-testid="worktree-column-rail"]');
+    const nav = document.querySelector('[data-testid="projects-nav"]');
     const disclosed = document.querySelector('[data-testid="worktree-column"]');
+    const sidebarElement = document.querySelector(
+      "[data-side][data-collapsible]",
+    );
+    const runsRow = document.querySelector(
+      '[data-testid="runs-screen"]',
+    )?.firstElementChild;
     return {
-      // Is the disclosed subtree inside the one column, or beside it? This is
-      // the merge, in the one reading that cannot be satisfied by two columns
-      // that happen to add up.
+      // Is the disclosed subtree inside the one nav, and the nav inside the
+      // one sidebar? This is the single-sidebar model, in the two readings
+      // that cannot be satisfied by columns that happen to add up.
       disclosedInsideNav:
         nav !== null && disclosed !== null && nav.contains(disclosed),
-      nav: width(nav),
       navCount: document.querySelectorAll('[data-testid="projects-nav"]')
         .length,
-      // The row the nav is in — everything right of upstream's sidebar. Its
-      // width is the budget the nav and the surface divide between them.
-      row: width(nav?.parentElement ?? null),
-      sidebar: width(document.querySelector("[data-side][data-collapsible]")),
-      siblings: nav?.parentElement?.children.length ?? null,
+      navInsideSidebar:
+        nav !== null && sidebarElement !== null && sidebarElement.contains(nav),
+      row: width(runsRow ?? null),
+      rowSiblings: runsRow?.children.length ?? null,
+      sidebar: width(sidebarElement),
       surface: width(document.querySelector('[data-testid="work-surface"]')),
       window: window.innerWidth,
     };
   });
 }
 
-/** The two closing readings, shared by the two geometry tests below.
- *
- * The first is the self-check the design asked for: whatever the numbers are,
- * the row the nav lives in is the nav plus the work surface and nothing else. A
- * third column reappearing there takes width from the surface without changing
- * the row, so only this sees it — and nobody has to remember a magic number for
- * it to keep seeing it.
- *
- * The second closes the window: sidebar + row + the shell's own 9px is 1728, so
- * a column appearing *beside* the sidebar rather than inside the row cannot
- * hide either. */
+/** The closing readings: whatever the numbers are, the row right of the
+ * sidebar is the work surface and nothing else, and the sidebar plus that row
+ * plus the shell's own 9px is the window. A nav column reappearing beside the
+ * surface takes width from it without changing the sidebar, so only the sum
+ * sees it. */
 function expectTheWindowIsAccountedFor(laid: {
-  nav: number | null;
   row: number | null;
   sidebar: number | null;
   surface: number | null;
   window: number;
 }) {
-  expect(laid.row).toBe((laid.nav as number) + (laid.surface as number));
+  expect(laid.row).toBe(laid.surface as number);
   expect(laid.window).toBe(SIXTEEN_INCH.width);
   expect(
     (laid.sidebar as number) + (laid.row as number) + SHELL_CHROME_PX,
   ).toBe(SIXTEEN_INCH.width);
 }
 
-test("at his width the nav is one column, and the work surface has what the second one took", async ({
+test("at his width the nav is inside the one sidebar, and the work surface has the whole row", async ({
   page,
 }) => {
   await openWorkspace(page);
@@ -416,61 +385,29 @@ test("at his width the nav is one column, and the work surface has what the seco
 
   const laid = await layout(page);
 
-  // One nav element, and the worktrees are inside it rather than beside it.
+  // One nav element, inside the sidebar, with the worktrees inside it.
   expect(laid.navCount).toBe(1);
+  expect(laid.navInsideSidebar).toBe(true);
   expect(laid.disclosedInsideNav).toBe(true);
-  // Two boxes in the row: the nav, and the box the work surface is in. Three
-  // was the defect.
-  expect(laid.siblings).toBe(2);
+  // One box in the row: the work surface's. Two was the second sidebar.
+  expect(laid.rowSiblings).toBe(1);
 
-  // The width the class says, at the size the owner runs.
-  expect(laid.nav).toBe(NAV_PX);
-
-  // The gain, as a floor. It was 1003.
+  // The gain, as a floor. It was 1003 with three columns, 1195 with two.
   expect(laid.surface).not.toBeNull();
   expect(laid.surface as number).toBeGreaterThanOrEqual(SURFACE_FLOOR);
 
   expectTheWindowIsAccountedFor(laid);
 });
 
-test("collapsed, the nav is a rail and the surface takes the difference", async ({
-  page,
-}) => {
-  await openWorkspace(page);
-  await page.getByTestId(`projects-nav-repo-${REPOS[0].id}`).click();
-  await expect(page.getByTestId("work-surface")).toBeVisible();
-  const open = await layout(page);
-
-  await page.keyboard.press("Shift+ControlOrMeta+b");
-  await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-  const railed = await layout(page);
-
-  expect(railed.nav).toBe(RAIL_PX);
-  // Exactly what the column gave up, and the sum still holds — the rail is a
-  // narrower member of the same row, not a layer over the surface.
-  expect((railed.surface as number) - (open.surface as number)).toBe(
-    NAV_PX - RAIL_PX,
-  );
-  expectTheWindowIsAccountedFor(railed);
-
-  // The way back is on screen, and it restores the column to its width.
-  const expand = page.getByTestId("worktree-column-expand");
-  await expect(expand).toBeVisible();
-  await expand.click();
-  await expect(page.getByTestId("projects-nav")).toBeVisible();
-  expect((await layout(page)).nav).toBe(NAV_PX);
-});
-
 test("a branch filter does not follow the owner into another project", async ({
   page,
 }) => {
-  // The mechanism, as it actually is: `WorkspaceNav` holds `query`, because it
-  // is the one component that renders in both the rail state and the column
-  // state and a filter must not be destroyed by ⇧⌘B (the test below is that
-  // half). Being held that high, unmounting cannot be what clears it on a
-  // project switch — the reset is the render-phase `scope` check keyed on
-  // `selectedRepoId`, `WorktreeColumn`'s three lines moved rather than
-  // reinvented.
+  // The mechanism, as it actually is: `WorkspaceNav` holds `query`, above the
+  // disclosure that draws it, so re-renders of the tree cannot destroy it (the
+  // test below is the collapse half). Being held that high, unmounting cannot
+  // be what clears it on a project switch — the reset is the render-phase
+  // `scope` check keyed on `selectedRepoId`, `WorktreeColumn`'s three lines
+  // moved rather than reinvented.
   //
   // Proved red: delete `setQuery("")` from that block in `WorkspaceNav.tsx` and
   // the `worktree-row-main:repo-other` read below comes back count 0, because
@@ -503,17 +440,14 @@ test("a branch filter does not follow the owner into another project", async ({
   await expect(page.getByTestId("worktree-row-wt-wide-4")).toBeVisible();
 });
 
-test("⇧⌘B hides the branch filter and the quiet-rows fold; it does not destroy them", async ({
+test("⌘B hides the branch filter and the quiet-rows fold; it does not destroy them", async ({
   page,
 }) => {
-  // The regression the merge introduced against the column it replaced, in the
-  // exact gesture the owner makes: ⇧⌘B is how he gets the width back for a
-  // minute, and a filter he typed must still be there when the column is.
-  //
-  // `HEAD:desktop/src/features/runs/ui/WorktreeColumn.tsx` held `query` and
-  // `expanded` on the component that rendered *both* the rail and the column,
-  // so a collapse swapped the subtree and kept the state. Put either back inside
-  // `WorktreeDisclosure` and this goes red on the line that names it.
+  // The collapse half of the guarantee, on the collapse that exists now: ⌘B
+  // hides the whole sidebar (off-canvas), and a filter the owner typed must
+  // still be there — text and effect — when the sidebar is back. ⇧⌘B, the old
+  // subject of this test, is retired with the rail
+  // (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2).
   await openWorkspaceWithGit(page);
   await page.getByTestId(`projects-nav-repo-${GIT_REPO.id}`).click();
 
@@ -538,15 +472,17 @@ test("⇧⌘B hides the branch filter and the quiet-rows fold; it does not destr
   await expect(page.getByTestId(`worktree-row-${TASK_IDS[3]}`)).toBeVisible();
   await expect(page.getByTestId(`worktree-row-${TASK_IDS[4]}`)).toHaveCount(0);
 
-  // The round trip. Twice, because a single toggle can be passed by a component
-  // that happens to be re-created with the same values.
-  await page.keyboard.press("Shift+ControlOrMeta+b");
-  await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-  await page.getByTestId("worktree-column-expand").click();
-  await expect(page.getByTestId("projects-nav")).toBeVisible();
-  await page.keyboard.press("Shift+ControlOrMeta+b");
-  await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-  await page.getByTestId("worktree-column-expand").click();
+  // The round trip. Twice, because a single toggle can be passed by a
+  // component that happens to be re-created with the same values.
+  const sidebarElement = page.locator("[data-side][data-collapsible]").first();
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect(sidebarElement).toHaveAttribute("data-state", "collapsed");
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect(sidebarElement).toHaveAttribute("data-state", "expanded");
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect(sidebarElement).toHaveAttribute("data-state", "collapsed");
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect(sidebarElement).toHaveAttribute("data-state", "expanded");
 
   // The filter survived, text and effect.
   await expect(page.getByTestId("worktree-filter")).toHaveValue("spike-3");
@@ -643,24 +579,21 @@ test("clicking the project row you are already standing in leaves your worktree 
   expect(await selected()).toEqual(["worktree-row-wt-wide-3"]);
 });
 
-test("the rail keeps answering which project needs me", async ({ page }) => {
-  // The claim this guards is the file header's own, and it is the reason ⇧⌘B is
-  // allowed to exist at all: "collapsing the nav must not destroy the answer to
-  // 'which project needs me'". Nothing held it. Every rail dot could be blanked
-  // — `<AttentionDot mark={NO_MARK} />`, or the whole `AttentionDot` deleted
-  // from the rail's button — and the entire suite stayed green, because every
-  // other rail test asserts the *buttons* (they are the way to switch project)
-  // and none of them asserts what the buttons carry.
-  //
+test("the tree keeps answering which project needs me, from inside the sidebar", async ({
+  page,
+}) => {
   // The signal is deliberately in the project the owner is NOT in. A drill-in
-  // view hides that; a tree does not, and a 36px rail must not either.
+  // view hides that; a tree does not — and the tree living inside the app
+  // sidebar must not either. (The 36px rail this test used to extend this
+  // claim to is retired with ⇧⌘B; when the owner hides the sidebar he hides
+  // all of it, dots included, and that is his gesture rather than a state the
+  // chrome invented.)
   await openWorkspace(page);
   await page.getByTestId(`projects-nav-repo-${REPOS[0].id}`).click();
   await expect(page.getByTestId("worktree-column")).toBeVisible();
 
-  // Expanded first, so what the rail has to preserve is measured rather than
-  // assumed: the row of the project with the blocked run says needs-you, in a
-  // dot and in words.
+  // The row of the project with the blocked run says needs-you, in a dot and
+  // in words — and it is the sidebar's own subtree saying it.
   const expandedRow = page.getByTestId(`projects-nav-repo-${REPOS[1].id}`);
   await expect(expandedRow.locator("[data-attention]")).toHaveAttribute(
     "data-attention",
@@ -668,135 +601,22 @@ test("the rail keeps answering which project needs me", async ({ page }) => {
   );
   const words = (await expandedRow.getAttribute("title")) ?? "";
   expect(words).toContain("needs you");
-
-  await page.keyboard.press("Shift+ControlOrMeta+b");
-  await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-
-  // Same state, same words, 36px wide.
-  const railDot = page.getByTestId(`nav-rail-repo-${REPOS[1].id}`);
-  await expect(railDot.locator("[data-attention]")).toHaveAttribute(
-    "data-attention",
-    "needs-you",
-  );
-  // The sentence is the accessible name, because a dot in a rail has no room
-  // for a label and `aria-hidden` is on the dot itself.
-  await expect(railDot).toHaveAttribute(
-    "aria-label",
-    new RegExp(`${REPOS[1].name}.*needs you`),
-  );
-
-  // And the project the owner IS in keeps its own dot rather than losing it to
-  // the selection highlight — the rail speaks for every project or it is a
-  // worse answer than the column it replaced.
-  await expect(
-    page
-      .getByTestId(`nav-rail-repo-${REPOS[0].id}`)
-      .locator("[data-attention]"),
-  ).toHaveCount(1);
+  expect(
+    await page
+      .locator("[data-side][data-collapsible]")
+      .first()
+      .getByTestId(`projects-nav-repo-${REPOS[1].id}`)
+      .count(),
+  ).toBe(1);
 });
 
-test("collapsed, the rail still says the project list could not be read", async ({
-  page,
-}) => {
-  // There is no Tauri host in this bundle, so `projects_load` rejects and the
-  // store notice is the true sentence about this machine: the list on screen is
-  // the coordinator's, not its own. That makes it the cheapest real refusal to
-  // collapse the nav on top of.
-  await openWorkspace(page);
-  const notice = page.getByTestId("projects-nav-store-notice");
-  await expect(notice).toBeVisible();
-  const sentence = ((await notice.textContent()) ?? "").trim();
-  expect(sentence.length).toBeGreaterThan(0);
-
-  await page.keyboard.press("Shift+ControlOrMeta+b");
-  await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-  // The panel itself is gone with the column — that part is fine, it is text in
-  // a 36px rail. What is not fine is the rail implying there is nothing to say
-  // while it draws a bare project count.
-  await expect(page.getByTestId("projects-nav-store-notice")).toHaveCount(0);
-
-  const mark = page.getByTestId("nav-rail-refusal");
-  await expect(mark).toBeVisible();
-  // The sentence *is* the accessible name. A mark that only says a mark exists
-  // is one more thing to go and look up.
-  await expect(mark).toHaveAttribute("aria-label", sentence);
-
-  // And it is the way back to the words.
-  await mark.click();
-  await expect(page.getByTestId("projects-nav-store-notice")).toHaveText(
-    sentence,
-  );
-
-  // The refusal an *action* raises rides the same mark, and it is the one that
-  // matters most: `action:add-project` is reachable from the palette while the
-  // nav is a rail, so before the mark existed its refusal was raised into a
-  // component that was not on screen at all.
-  await page.getByTestId("projects-nav-add").click();
-  await expect(page.getByTestId("projects-nav-error")).toContainText(
-    "cannot add a project",
-  );
-  await page.keyboard.press("Shift+ControlOrMeta+b");
-  await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-  await expect(page.getByTestId("nav-rail-refusal")).toHaveAttribute(
-    "aria-label",
-    /cannot add a project/,
-  );
-});
-
-test("collapsed, the rail says a worktree action was refused too", async ({
-  page,
-}) => {
-  // The third member of the refusal family, and the one the mark skipped when
-  // it was first added. `actions.refusal` is not a project notice: its only
-  // panel is `worktree-column-refusal`, which lives inside `WorktreeDisclosure`
-  // — a level *further* inside the subtree ⇧⌘B unmounts than the notices are.
-  // And `paletteSources.ts` blocks `action:prune-worktrees` on
-  // `project === null || prunable === 0` and on nothing about the collapse, so
-  // the gesture below is one the owner can make, today, with the nav a rail.
-  //
-  // Proved red: drop `actions.refusal?.message` from `railRefusal` in
-  // `WorkspaceNav.tsx` and the mark keeps saying only the store notice while
-  // git's refusal is on screen nowhere at all.
-  await openWorkspace(page);
-  await page.getByTestId(`projects-nav-repo-${REPOS[0].id}`).click();
-  await expect(page.getByTestId("worktree-column")).toBeVisible();
-
-  const mark = page.getByTestId("nav-rail-refusal");
-  await page.keyboard.press("Shift+ControlOrMeta+b");
-  await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-  // What the mark says before the prune: the store notice, and nothing else.
-  const storeOnly = (await mark.getAttribute("aria-label")) ?? "";
-  expect(storeOnly.length).toBeGreaterThan(0);
-
-  // The door, exactly as it is reachable: ⌘K, with the column already a rail.
-  await page.keyboard.press("ControlOrMeta+k");
-  await expect(page.getByTestId("palette")).toBeVisible();
-  await page.getByTestId("palette-input").fill("prune");
-  const row = page.getByTestId("palette-row-action:prune-worktrees");
-  await expect(row).toBeVisible();
-  await expect(row).not.toHaveAttribute("data-blocked", "true");
-  await page.keyboard.press("Enter");
-  // It ran rather than being refused by the palette: a blocked row leaves the
-  // palette open, which is `workspace-palette.spec.ts`'s own reading of it.
-  await expect(page.getByTestId("palette")).toBeHidden();
-
-  // There is no host for `worktree_prune_preview` in this bundle, so git
-  // refused and `openPrune` opened no dialog — `RunsScreen` says in a comment
-  // that the refusal "is already on screen", and the mark is what makes that
-  // sentence true while the nav is a rail.
-  await expect(mark).not.toHaveAttribute("aria-label", storeOnly);
-
-  // And the mark is still the way to the words, for this refusal as for the
-  // other two: it opens the column onto the panel the sentence is written in.
-  await mark.click();
-  const panel = page.getByTestId("worktree-column-refusal");
-  await expect(panel).toBeVisible();
-  const sentence = (
-    (await panel.locator("p").first().textContent()) ?? ""
-  ).trim();
-  expect(sentence.length).toBeGreaterThan(0);
-
-  await page.keyboard.press("Shift+ControlOrMeta+b");
-  await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-  expect((await mark.getAttribute("aria-label")) ?? "").toContain(sentence);
-});
+// The two rail-refusal tests that used to close this file are retired with
+// the rail itself (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2):
+// there is no collapsed state of the nav that keeps a project list on screen
+// any more, so every refusal panel — the store notice, the add/remove error,
+// the worktree-action refusal — renders in the one expanded branch, which is
+// on screen whenever the sidebar is. The narrowing this buys, stated rather
+// than hidden: a refusal raised while the owner has hidden the WHOLE sidebar
+// (⌘B) is off-canvas with it until he brings the sidebar back. That is the
+// sidebar-wide trade the owner's single-sidebar ask made, not a hole this
+// spec forgot.

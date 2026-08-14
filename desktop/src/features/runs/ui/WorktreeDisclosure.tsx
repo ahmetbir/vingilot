@@ -23,7 +23,9 @@
 //
 // **`worktree-column` is this section's test id**, not the column's. 22 e2e
 // references keep meaning what they said: it is visible exactly when a project
-// is open and the nav is not a rail, it is what ⇧⌘B hides, and it holds the
+// is open and the nav is not a rail, it is what a sidebar collapse hides (⇧⌘B
+// retired 2026-08-14; the tree lives in the app sidebar's contextual pane
+// now), and it holds the
 // `worktree-row-*` buttons.
 //
 // It is also where worktrees are opened and closed
@@ -36,7 +38,7 @@
 // directory, and it shows git's own dry run before it does anything.
 //
 // **`query` and `expanded` are props, not state, and that is deliberate.**
-// This component is rendered only inside the selected project's row, so ⇧⌘B
+// This component is rendered only inside the selected project's row, so a collapse
 // unmounts it — and a filter the owner typed must not be destroyed by hiding
 // the column, which is the one thing the two-column build got right that the
 // first merge lost. `WorkspaceNav` holds both (it renders in the rail state
@@ -95,7 +97,7 @@ interface WorktreeDisclosureProps {
   onOpenPrune: () => void;
   /** Opens `WorkspaceNav`'s remove-worktree confirm. */
   onRemoveWorktree: (target: RemovableWorktree) => void;
-  /** True while the quiet-rows fold is open. Held by `WorkspaceNav` so ⇧⌘B
+  /** True while the quiet-rows fold is open. Held by `WorkspaceNav` so a collapse
    * does not destroy it — see the header. */
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;

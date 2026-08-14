@@ -228,11 +228,14 @@ test("the scope earns its length once, and is put away for good after that", asy
   await expect(scope).toHaveCount(0);
   const shut = await heights(page);
   expect(shut.header as number).toBeLessThan(120);
-  // Measured 184 on the merged-nav build, where it was over 280 when the
-  // sentence had a 243px column to wrap in. The header gives back what it was
-  // holding either way; how much it was holding is the pane's width's business.
+  // Measured 184 on the merged-nav build (over 280 when the sentence had a
+  // 243px column to wrap in), and 144 after the single-sidebar rework widened
+  // the pane again — each step wraps the sentence in fewer lines, so it holds
+  // less and gives back less. The header gives back what it was holding
+  // either way; how much it was holding is the pane's width's business, which
+  // is why the floor sits under the measurement rather than on it.
   expect((shut.thread as number) - (open.thread as number)).toBeGreaterThan(
-    150,
+    120,
   );
 
   // The collapsed state says nothing *about* the scope — no summary stands in

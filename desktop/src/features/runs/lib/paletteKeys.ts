@@ -22,7 +22,7 @@
 // - **Upstream's composer** (features/messages/lib/useRichTextEditor.ts:546),
 //   which claims ⌘K at the element level for the link editor. It is on the
 //   channel screens, never on /workspace.
-// - **This island's own maps**: ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→, ⌘B, ⇧⌘B, ⌥⌘B,
+// - **This island's own maps**: ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→, ⌘B, ⌥⌘B,
 //   ⇧⌥⌘B. None is ⌘K.
 //
 // **Taking it rather than extending it or picking a third key.** The search
@@ -96,7 +96,7 @@
 //   ⇧⌘A. Neither ⌘P nor ⇧⌘P. Its other maps — `useSettingsShortcuts` (⌘,),
 //   `useWebviewZoomShortcuts` (⌘± ⌘0), `useReloadShortcut` (⌘R),
 //   `useBackForwardControls` (⌘[ ⌘]) — hold no P either.
-// - **This island's own maps**: ⌘1…9, ⌘`, ⌘T, ⌥⌘T, ⇧⌘W, ⌥⌘←→, ⌘B, ⇧⌘B, ⌥⌘B,
+// - **This island's own maps**: ⌘1…9, ⌘`, ⌘T, ⌥⌘T, ⇧⌘W, ⌥⌘←→, ⌘B, ⌥⌘B,
 //   ⇧⌥⌘B, ⌘K, ⌘/, ⇧⌘F, ⇧⌘M, ⌃⇥. None is on P.
 // - **The empirical half cannot be run from here** — that needs the app
 //   launched, which agents do not do. What stands in for it is `preventDefault`

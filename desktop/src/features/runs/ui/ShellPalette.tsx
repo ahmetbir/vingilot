@@ -102,7 +102,6 @@ function ShellPaletteHost() {
 
   const context: PaletteContext = {
     channels,
-    navCollapsed: false,
     openFile: null,
     paneChoices: [],
     prunable: 0,

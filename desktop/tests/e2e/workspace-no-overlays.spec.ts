@@ -169,6 +169,14 @@ async function auditSurface(page: Page): Promise<string[]> {
       for (let y = box.top + 4; y < box.bottom - 4; y += step) {
         const top = document.elementFromPoint(x, y);
         if (top === null || surface.contains(top)) continue;
+        // Upstream's own sidebar rail (`data-sidebar="rail"`, shared/ui/
+        // sidebar.tsx) straddles the sidebar's right border by design — a
+        // 16px hover strip translated half over whatever stands beside it,
+        // the same affordance every screen in the app lives with. Since the
+        // single-sidebar rework removed the nav column that used to absorb
+        // that half, the surface's left edge is the rail's neighbor now; the
+        // rail is the app's own chrome, not a foreign element.
+        if (top.closest('[data-sidebar="rail"]') !== null) continue;
         problems.push(
           `hit test at ${Math.round(x)},${Math.round(y)} landed on ${describe(top)}`,
         );

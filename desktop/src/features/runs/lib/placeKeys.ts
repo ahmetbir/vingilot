@@ -54,7 +54,7 @@
 //   other ⌃ chords in the app, both with ⌘ and both on arrows), ⌘F
 //   (useChannelFind), plain Escape (useMarkAsReadShortcuts).
 // - **This island's own maps**: ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→, ⌥⌘T, ⌘K, ⌘/, ⌘B,
-//   ⇧⌘B, ⌥⌘B, ⇧⌥⌘B, ⇧⌘F, ⌘F. None is ⇥ with ⌃.
+//   ⌥⌘B, ⇧⌥⌘B, ⇧⌘F, ⌘F. None is ⇥ with ⌃.
 // - **xterm, which is the one claimant that is not a map but a grab.**
 //   @xterm/xterm 5.5.0's `common/input/Keyboard.ts` case 9 does not look at
 //   `ctrlKey` at all: ⌃⇥ resolves to `C0.HT` with `cancel: true`, so a terminal

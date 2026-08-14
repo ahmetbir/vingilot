@@ -29,8 +29,8 @@
 // - **The app's other global maps**: ⌘, / ⌘±/⌘0 / ⌘R / ⌘[ ⌘] ⌃⌘←→ / ⌘F /
 //   Escape. None is ⇧⌘M.
 // - **This island's own maps**: ⇧⌘W and ⇧⌘F are the island's other ⇧⌘ chords
-//   (`terminalKeys.ts`, `searchKeys.ts`); ⇧⌘B (`columnKeys.ts`) is the third.
-//   None is on M.
+//   (`terminalKeys.ts`, `searchKeys.ts`; ⇧⌘B was the third until the
+//   single-sidebar rework retired it). None is on M.
 //
 // ⌥ is refused below the way ⇧ was refused before, and for the sharper reason
 // now: ⌥⌘M *is* somebody's — the OS's — and a map that also answered to it

@@ -27,7 +27,8 @@
 //   arrow pair, not a letter), Escape (`useMarkAsReadShortcuts.ts`). None is
 //   ⌃⌘D.
 // - **This island's own maps**: ⌘1…9/⌘\`/⌘T/⇧⌘W/⌥⌘←→/⌥⌘T
-//   (`terminalKeys.ts`), ⌘K (`paletteKeys.ts`), ⌘B/⇧⌘B (`columnKeys.ts`),
+//   (`terminalKeys.ts`), ⌘K (`paletteKeys.ts`), ⌘B (`columnKeys.ts` — ⇧⌘B
+//   retired 2026-08-14, currently unclaimed),
 //   ⌥⌘B/⇧⌥⌘B (`paneKeys.ts`), ⇧⌘M (`scratchMarkdownKeys.ts`), ⇧⌘F
 //   (`searchKeys.ts`). None reads Control, so none can already answer to
 //   ⌃⌘D.

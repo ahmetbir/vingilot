@@ -163,11 +163,6 @@ export interface PaletteContext {
   /** How many of the open project's worktrees git reports as prunable. */
   prunable: number;
   sidebarCollapsed: boolean;
-  /** True while the workspace nav is collapsed to its rail. There is no
-   * `hasNav` beside it: the nav holds the project list, so it is on screen on
-   * every view of this screen including the Deck, and a row blocked on a
-   * condition that cannot occur is a sentence nobody can ever read. */
-  navCollapsed: boolean;
   /** Which side has the work surface to itself, or `null` for the split. */
   solo: "left" | "right" | null;
   /** The worktree-relative path the Files viewer currently has open, or `null`.
@@ -492,15 +487,6 @@ export const actionSource: PaletteSource = (ctx, query) => {
       id: "action:toggle-sidebar",
       kind: "action",
       label: ctx.sidebarCollapsed ? "Show the sidebar" : "Hide the sidebar",
-    },
-    {
-      blocked: null,
-      chord: "⇧⌘B",
-      command: { type: "toggle-nav" },
-      detail: "the projects, and the open one's worktrees",
-      id: "action:toggle-nav",
-      kind: "action",
-      label: ctx.navCollapsed ? "Show the projects" : "Hide the projects",
     },
     {
       blocked:

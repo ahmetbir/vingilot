@@ -8,7 +8,7 @@
 // (`lib/useWorktreeSignals.ts` derives `ordered` for the open project alone),
 // so a second disclosure would draw rows that look identical to real ones and
 // answer fewer questions. Clicking the row you are already standing in is a
-// no-op rather than a collapse — the gesture that hides worktrees is ⇧⌘B,
+// no-op rather than a collapse — the gesture that hides worktrees is the
 // which hides the whole nav, and the gesture that shortens the list is the
 // quiet-rows fold inside the disclosure. The no-op is enforced where the state
 // is, by the `id === selectedRepoId` guard in `RunsScreen.selectRepo`, and not
@@ -28,7 +28,7 @@
 // selection to another project re-renders this row with `disclosure === null`
 // and mounts a fresh one under the row that now owns it — so anything held
 // *inside* the disclosure dies on a project switch, which is right, and also on
-// a ⇧⌘B collapse, which is not. `query` and `expanded` therefore live in
+// a sidebar collapse, which is not. `query` and `expanded` therefore live in
 // `WorkspaceNav`, above the rail/column branch, with the render-phase reset
 // that clears them on a project switch. This row is a mount point for the
 // disclosure and nothing more.

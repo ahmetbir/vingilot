@@ -98,7 +98,6 @@ export type PaletteCommand =
   | { type: "remove-project" }
   | { type: "prune-worktrees" }
   | { type: "toggle-sidebar" }
-  | { type: "toggle-nav" }
   | { type: "toggle-solo"; side: "left" | "right" }
   /** Put the Captain in front of one crew member with this worktree already
    * named (vingilot/docs/plans/2026-08-12-the-crew.md, Task 3). The persona id

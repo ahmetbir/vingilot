@@ -1,12 +1,21 @@
-// Which of the workspace's columns are collapsed, per project.
+// Which of the workspace's chrome is collapsed, per project.
 //
 // Per project, not per app: the owner works in one project with the chrome
-// out of the way and in another with the workspace nav open, and coming back
-// to either should look like how he left it
+// out of the way and in another with the sidebar open, and coming back to
+// either should look like how he left it
 // (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 6). The
-// project-less landing view is a key like any other, `LANDING_KEY` — it holds
-// the same nav (the project list, with nothing disclosed) and the same
-// sidebar.
+// project-less landing view is a key like any other, `LANDING_KEY`.
+//
+// **The `nav` flag is retired and its stored values are discarded, not
+// migrated** (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2). The
+// workspace nav lives inside the app sidebar now, so there is no second
+// column for a flag to hide; a stored `nav: true` from an older build reads
+// as nothing here, and the nav starts expanded — the same safe direction the
+// v1→v2 discard below chose. The storage key stays `.v2` on purpose: the
+// record's shape only narrowed, so an older build reading a newer layout
+// finds a well-formed record whose `nav` is absent (expanded — safe), and a
+// newer build reading an older one keeps the `sidebar` preference the owner
+// actually still has.
 //
 // The sidebar's collapsed flag is recorded here even though upstream's
 // `SidebarProvider` owns the live state: that provider writes a
@@ -23,20 +32,14 @@
 // Storage is `localStorage`, injectable so plain `node --test` (no DOM) can
 // pass an in-memory shim — the same arrangement `terminalTabStore.ts` uses.
 
-/** The columns this app can collapse. The right pane is deliberately absent:
- * it does not exist yet (it is Task 4's pane host), and a column that cannot
- * be shown cannot be hidden.
- *
- * `nav` is the workspace's one navigation column — the projects and, under the
- * open one, its worktrees (`ui/WorkspaceNav.tsx`). It was `worktrees` while
- * that was a second column beside the project list; the flag now hides both,
- * which is why the stored key below is a new one rather than a migration. */
-export type CollapsibleColumn = "sidebar" | "nav";
+/** The chrome this app can collapse: the app sidebar, and nothing else. The
+ * history of this union — `worktrees`, then `nav` — is in the header; each
+ * member left when the column it hid did. */
+export type CollapsibleColumn = "sidebar";
 
 /** `true` means collapsed. */
 export interface ColumnState {
   sidebar: boolean;
-  nav: boolean;
 }
 
 export type ColumnLayout = Record<string, ColumnState>;
@@ -60,7 +63,7 @@ export const LANDING_KEY = "@landing";
  * everything expanded. */
 const LAYOUT_KEY = "vingilot-columns.v2";
 
-const ALL_EXPANDED: ColumnState = { nav: false, sidebar: false };
+const ALL_EXPANDED: ColumnState = { sidebar: false };
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -125,7 +128,6 @@ function readState(value: unknown): ColumnState | null {
   }
   const record = value as Record<string, unknown>;
   return {
-    nav: record.nav === true,
     sidebar: record.sidebar === true,
   };
 }
@@ -150,7 +152,7 @@ export function parseColumnLayout(raw: string | null): ColumnLayout {
   for (const [key, value] of Object.entries(parsed)) {
     if (key === "") continue;
     const state = readState(value);
-    if (state === null || (!state.sidebar && !state.nav)) continue;
+    if (state === null || !state.sidebar) continue;
     layout[key] = state;
   }
   return layout;

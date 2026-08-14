@@ -1,9 +1,15 @@
-// Pure keyboard-resolution for collapsing the workspace's columns, on the
-// bindings the owner's hands already know from VS Code: ⌘B hides the sidebar,
-// ⇧⌘B hides the workspace nav — the projects and, under the open one, its
-// worktrees (`ui/WorkspaceNav.tsx`). Same shape as `terminalKeys.ts` — a
-// `resolveKey`-style function so the map is unit-testable without React or a
-// real keyboard, and the caller decides whether now is the time for it.
+// Pure keyboard-resolution for collapsing the workspace's chrome, on the
+// binding the owner's hands already know from VS Code: ⌘B hides the sidebar.
+// Same shape as `terminalKeys.ts` — a `resolveKey`-style function so the map
+// is unit-testable without React or a real keyboard, and the caller decides
+// whether now is the time for it.
+//
+// **⇧⌘B is retired, not free** (vingilot/docs/plans/2026-08-14-single-sidebar.md,
+// Task 2). It used to hide the workspace nav as a second sidebar; that nav
+// renders inside the app sidebar now, which ⌘B already moves. The chord is
+// refused below rather than folded onto ⌘B, because a ⌘B that also fired on
+// ⇧⌘B would be a second spelling to unlearn if the chord is ever given a new
+// meaning — reclaiming it is a new decision, not this map's.
 //
 // **Every chord here was checked against four claimants before being taken**
 // (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 6):
@@ -56,12 +62,14 @@ export function resolveColumnKey(input: KeyInput): ColumnKeyAction | null {
   if (!input.primaryModifier) return null;
   // ⌥ held is ⌥⌘B, which is `paneKeys.ts`'s — see above.
   if (input.altKey === true) return null;
-  // Matched case-insensitively: macOS reports ⇧⌘B as "B" and ⌘B as "b", but a
-  // stuck caps lock reports "B" for the unshifted chord too, and losing the
-  // sidebar toggle to caps lock would be a bug nobody would think to look for.
+  // ⇧ held is the retired ⇧⌘B — refused, not folded onto ⌘B. See the header.
+  if (input.shiftKey === true) return null;
+  // Matched case-insensitively: macOS reports ⌘B as "b", but a stuck caps
+  // lock reports "B" for the unshifted chord too, and losing the sidebar
+  // toggle to caps lock would be a bug nobody would think to look for.
   if (input.key.toLowerCase() !== "b") return null;
   return {
-    column: input.shiftKey === true ? "nav" : "sidebar",
+    column: "sidebar",
     type: "toggle-column",
   };
 }

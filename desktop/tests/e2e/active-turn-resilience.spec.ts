@@ -120,10 +120,15 @@ test.describe("active turn badge resilience", () => {
     const paulPanel = await openAgentProfile(page, AGENT_PAUL);
     await expect(paulPanel).toBeVisible();
 
-    // The profile panel surfaces active turns via the live-activity embed only
-    // where an agent session can open (channel surfaces). In the Agents view
-    // the store-driven working state shows as sidebar channel badges — the
-    // same activeAgentTurnsStore this test exercises.
+    // The store-driven working state shows as sidebar channel badges — the
+    // same activeAgentTurnsStore this test exercises. Since the single-sidebar
+    // rework (vingilot/docs/plans/2026-08-14-single-sidebar.md) the Agents
+    // view's sidebar shows its contextual empty state, not the channel list,
+    // so the badges are read from the Inbox view — a client-side navigation,
+    // because a reload would drop the seeded store and the mocked clock.
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Inbox" }).click();
+    await expect(page.getByTestId("stream-list")).toBeVisible();
     const generalBadge = page.getByTestId("channel-working-general");
     const engineeringBadge = page.getByTestId("channel-working-engineering");
     await expect(generalBadge).toBeVisible({ timeout: 5_000 });

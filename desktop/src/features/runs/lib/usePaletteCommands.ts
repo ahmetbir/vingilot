@@ -69,7 +69,6 @@ export interface PaletteHandlers {
   /** Where an ask would run, or `null`. */
   selectedWorktreeCwd: string | null;
   showPane: (pane: string) => void;
-  toggleNav: () => void;
   toggleSidebar: () => void;
   toggleSolo: (side: "left" | "right") => void;
 }
@@ -158,9 +157,6 @@ export function usePaletteCommands(
         return;
       case "toggle-sidebar":
         on.toggleSidebar();
-        return;
-      case "toggle-nav":
-        on.toggleNav();
         return;
       case "toggle-solo":
         on.toggleSolo(command.side);

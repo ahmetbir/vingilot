@@ -1,9 +1,12 @@
-// The Projects screen: two columns per the layout contract
-// (vingilot/docs/plans/2026-08-06-projects-and-terminal.md, narrowed from
-// three by vingilot/docs/plans/2026-08-11-one-column-design.md) — WorkspaceNav
-// (the projects, and under the open one its worktrees, live state) and
-// WorkSurface (the terminal, and whichever pane the owner has put beside it).
-// A persistent ProjectStatusBar names where the owner is.
+// The Projects screen. Its own row holds one thing now: WorkSurface (the
+// terminal, and whichever pane the owner has put beside it). WorkspaceNav —
+// the projects, and under the open one its worktrees — is still this screen's
+// (every prop is live state held here), but it renders inside the app
+// sidebar's contextual slot via a portal
+// (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2; the column
+// history is 2026-08-06-projects-and-terminal.md, narrowed by
+// 2026-08-11-one-column-design.md). A persistent ProjectStatusBar names where
+// the owner is.
 // The project-less landing view is the old Deck (composer + lanes),
 // unchanged — nothing is deleted, it just stops being the front door.
 //
@@ -18,7 +21,7 @@
 //
 // It is also where the collapsible chrome is bound (`lib/useColumns.ts`),
 // for the same reason: the flag is per project and must outlive both the
-// column it hides and any switch between projects. The pane arrangement
+// sidebar it hides and any switch between projects. The pane arrangement
 // (`lib/usePanes.ts`) is held here on the same argument, one key finer — per
 // worktree rather than per project.
 //
@@ -39,7 +42,9 @@
 // where am I — is the status bar's job, and the status bar is always there.
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 
+import { useSidebarNavSlot } from "@/shared/lib/sidebarNavSlot";
 import {
   getWorkspace,
   listRuns,
@@ -261,10 +266,17 @@ export function RunsScreen() {
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId) ?? null;
 
-  // Which columns are out of the way, and the ⌘B / ⇧⌘B that put them there.
+  // Whether the app sidebar is out of the way, and the ⌘B that put it there.
   // Keyed by project rather than held here, so it survives both a project
-  // switch and a restart (`lib/useColumns.ts`).
+  // switch and a restart (`lib/useColumns.ts`). ⇧⌘B and the nav's own flag
+  // are retired: the workspace nav lives inside that same sidebar now
+  // (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2).
   const columns = useColumns({ projectId: selectedRepoId });
+
+  // Where the sidebar wants the workspace nav (`shared/lib/sidebarNavSlot.ts`):
+  // only the tree's DOM is portalled out — every prop and the selection
+  // ordering (the auto-select effect above) stay this screen's.
+  const navSlot = useSidebarNavSlot();
 
   // The terminal-tab layout, seeded from and mirrored back into storage
   // (lib/terminalTabStore.ts): this component unmounts on any route change
@@ -609,7 +621,6 @@ export function RunsScreen() {
   const paletteContext: PaletteContext = {
     channels: workspacePalette.channels,
     crew: crewReach.rows,
-    navCollapsed: columns.navCollapsed,
     // The file the viewer reported, and only while that report is still a
     // reading of the pane on screen — the same `openedFile` the place switcher
     // reads, not a second answer to "which file is open".
@@ -668,7 +679,6 @@ export function RunsScreen() {
     selectedRepo,
     selectedWorktreeCwd,
     showPane: (pane) => showPane(pane as PaneId),
-    toggleNav: columns.toggleNav,
     toggleSidebar: columns.toggleSidebar,
     toggleSolo: panes.toggleSolo,
   });
@@ -803,40 +813,46 @@ export function RunsScreen() {
       data-testid="runs-screen"
     >
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <WorkspaceNav
-          actions={worktreeActions}
-          collapsed={columns.navCollapsed}
-          confirming={dialogs.removingProject}
-          coordinatorNotice={projectActions.coordinatorNotice}
-          creating={dialogs.creatingWorktree}
-          error={projectActions.error}
-          importNotice={projectActions.importNotice}
-          onAddProject={projectActions.addProject}
-          onConfirmingChange={dialogs.setRemovingProject}
-          onCreatingChange={dialogs.setCreatingWorktree}
-          onDismissError={projectActions.dismissError}
-          onDismissImportNotice={projectActions.dismissImportNotice}
-          onOpenPrune={dialogs.openPrune}
-          onPrunePreviewChange={dialogs.setPrunePreview}
-          onRemoveProject={projectActions.removeProject}
-          onSelectLanding={selectLanding}
-          onSelectRepo={selectRepo}
-          onSelectWorktree={setSelectedWorktreeId}
-          onToggleCollapsed={columns.toggleNav}
-          pending={projectActions.pending}
-          prunePreview={dialogs.prunePreview}
-          repoMarks={signals.byRepo}
-          repos={repos}
-          selectedRepo={selectedRepo}
-          selectedRepoId={selectedRepoId}
-          selectedWorktreeId={selectedWorktreeId}
-          stats={signals.stats}
-          storeNotice={projectActions.storeNotice}
-          worktreeMarks={signals.byWorktree}
-          worktreeOverlaps={signals.overlaps}
-          worktreeRoot={worktreeRoot}
-          worktrees={repoWorktrees}
-        />
+        {/* The workspace nav, portalled into the app sidebar's contextual
+         * slot rather than rendered into this row — the single-sidebar
+         * rework's one move. Every prop stays this screen's live state. */}
+        {navSlot === null
+          ? null
+          : createPortal(
+              <WorkspaceNav
+                actions={worktreeActions}
+                confirming={dialogs.removingProject}
+                coordinatorNotice={projectActions.coordinatorNotice}
+                creating={dialogs.creatingWorktree}
+                error={projectActions.error}
+                importNotice={projectActions.importNotice}
+                onAddProject={projectActions.addProject}
+                onConfirmingChange={dialogs.setRemovingProject}
+                onCreatingChange={dialogs.setCreatingWorktree}
+                onDismissError={projectActions.dismissError}
+                onDismissImportNotice={projectActions.dismissImportNotice}
+                onOpenPrune={dialogs.openPrune}
+                onPrunePreviewChange={dialogs.setPrunePreview}
+                onRemoveProject={projectActions.removeProject}
+                onSelectLanding={selectLanding}
+                onSelectRepo={selectRepo}
+                onSelectWorktree={setSelectedWorktreeId}
+                pending={projectActions.pending}
+                prunePreview={dialogs.prunePreview}
+                repoMarks={signals.byRepo}
+                repos={repos}
+                selectedRepo={selectedRepo}
+                selectedRepoId={selectedRepoId}
+                selectedWorktreeId={selectedWorktreeId}
+                stats={signals.stats}
+                storeNotice={projectActions.storeNotice}
+                worktreeMarks={signals.byWorktree}
+                worktreeOverlaps={signals.overlaps}
+                worktreeRoot={worktreeRoot}
+                worktrees={repoWorktrees}
+              />,
+              navSlot,
+            )}
 
         {/* Everything right of the project nav, in a box the palette can be
          * centred in. The palette is positioned rather than portalled for

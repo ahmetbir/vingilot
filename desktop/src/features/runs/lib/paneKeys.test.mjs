@@ -78,16 +78,15 @@ test("no other map in this island claims the pane chord", () => {
   assert.equal(resolveKey(held), null);
 });
 
-test("the pane host does not shadow the column chords", () => {
+test("the pane host does not shadow the column chord", () => {
   assert.deepEqual(resolveColumnKey(chord()), {
     column: "sidebar",
     type: "toggle-column",
   });
   assert.equal(resolvePaneKey(chord()), null);
-  assert.deepEqual(resolveColumnKey(chord({ shiftKey: true })), {
-    column: "nav",
-    type: "toggle-column",
-  });
+  // ⇧⌘B is retired (single-sidebar rework) — neither map answers it, so the
+  // chord is genuinely unbound rather than contested.
+  assert.equal(resolveColumnKey(chord({ shiftKey: true })), null);
   assert.equal(resolvePaneKey(chord({ shiftKey: true })), null);
 });
 

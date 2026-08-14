@@ -53,7 +53,6 @@ const PANES = [
 
 function ctx(overrides = {}) {
   return {
-    navCollapsed: false,
     openFile: null,
     paneChoices: PANES,
     prunable: 0,
@@ -221,18 +220,19 @@ test("the scratch shell is refused rather than opened somewhere arbitrary", () =
   );
 });
 
-// Replaces "the worktree column cannot be toggled where there is not one".
-// That row was blocked on the landing view because the column it hid held one
-// project's worktrees; the merged nav holds the project list, so it is on
-// screen there too and the condition it was guarding cannot occur
-// (vingilot/docs/plans/2026-08-11-one-column-design.md, §7.4).
-test("the nav toggle is never blocked — the landing view has a nav too", () => {
+// The nav toggle row (`action:toggle-nav`, ⇧⌘B) is retired with the second
+// sidebar it used to hide (vingilot/docs/plans/2026-08-14-single-sidebar.md,
+// Task 2): the workspace nav renders inside the app sidebar now, which
+// `action:toggle-sidebar` already moves. A retired row must be gone, not
+// blocked — a blocked row is a sentence about a thing that still exists.
+test("the retired nav toggle is not a row at all", () => {
   const landing = ctx({ selectedRepoId: null, selectedWorktreeId: null });
-  assert.equal(
-    row(actionSource(landing, ""), "action:toggle-nav").blocked,
-    null,
-  );
-  assert.equal(row(actionSource(ctx(), ""), "action:toggle-nav").blocked, null);
+  for (const context of [landing, ctx()]) {
+    assert.equal(
+      actionSource(context, "").some((r) => r.id === "action:toggle-nav"),
+      false,
+    );
+  }
 });
 
 test("a toggle's label says which way it is about to go", () => {
@@ -246,15 +246,6 @@ test("a toggle's label says which way it is about to go", () => {
   assert.equal(
     row(actionSource(ctx(), ""), "action:toggle-sidebar").label,
     "Hide the sidebar",
-  );
-  assert.equal(
-    row(actionSource(ctx({ navCollapsed: true }), ""), "action:toggle-nav")
-      .label,
-    "Show the projects",
-  );
-  assert.equal(
-    row(actionSource(ctx(), ""), "action:toggle-nav").label,
-    "Hide the projects",
   );
   assert.equal(
     row(actionSource(ctx({ solo: "left" }), ""), "action:solo-left").label,
@@ -271,7 +262,6 @@ test("an action carries the chord that already does it, in its own field", () =>
   assert.equal(row(actions, "action:new-terminal-tab").chord, "⌘T");
   assert.equal(row(actions, "action:scratch-terminal").chord, "⌥⌘T");
   assert.equal(row(actions, "action:toggle-sidebar").chord, "⌘B");
-  assert.equal(row(actions, "action:toggle-nav").chord, "⇧⌘B");
   assert.equal(row(actions, "action:solo-left").chord, "⌥⌘B");
   assert.equal(row(actions, "action:solo-right").chord, "⇧⌥⌘B");
   // An action nothing is bound to says nothing rather than borrowing one.

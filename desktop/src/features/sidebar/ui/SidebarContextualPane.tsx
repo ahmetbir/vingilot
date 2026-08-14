@@ -1,0 +1,74 @@
+// The sidebar's contextual region — what the lower half of the one sidebar
+// shows when the view is not about channels
+// (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 1).
+//
+// VS Code's model, which is the owner's ask: a fixed top (search + the primary
+// menu, `AppSidebarPinnedHeader.tsx`) and one contextual tree under it that
+// changes with where he is. `AppSidebar` itself keeps the channel/DM list for
+// the views that are about channels (home, channel, messages) and mounts this
+// component for every other view; this component owns the switch.
+//
+// Fork-owned, new — the same arrangement `CommunityRail.tsx` already has in
+// this directory: a fork file beside upstream's sidebar files, so the gating
+// edit inside `AppSidebar.tsx` stays a dozen lines (that file has no headroom
+// against the 1000-line ratchet and is upstream's own growth surface).
+//
+// Two branches:
+//
+// - **workspace** — an empty slot element, registered with
+//   `shared/lib/sidebarNavSlot.ts`. The tree itself (`WorkspaceNav`) is
+//   portalled in by `RunsScreen`, which owns all of its state; see the slot
+//   module's header for why the DOM moves and the state does not.
+//
+// - **agents / pulse / workflows / projects** — a named empty state. These
+//   views have no sidebar-shaped content yet, and before this component they
+//   showed the channel list instead — not "nothing", a wrong answer standing
+//   in for one. "No sidebar detail … yet" is strictly more honest, and it is a
+//   sentence rather than an empty box because an empty read must never look
+//   like "nothing there" (plan §1.4, §4). Building real trees for these four
+//   is explicitly not this component's job.
+
+import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
+import { setSidebarNavSlot } from "@/shared/lib/sidebarNavSlot";
+
+type SelectedView = AppSidebarProps["selectedView"];
+
+/** What each content-less view is called in its empty state's sentence — the
+ * primary menu's own labels, so the sentence names the row the owner clicked. */
+const EMPTY_VIEW_LABELS: Partial<Record<SelectedView, string>> = {
+  agents: "Agents",
+  projects: "Repos",
+  pulse: "Pulse",
+  workflows: "Workflows",
+};
+
+export function SidebarContextualPane({
+  selectedView,
+}: {
+  selectedView: SelectedView;
+}) {
+  if (selectedView === "workspace") {
+    return (
+      <div
+        className="flex w-full flex-col"
+        data-testid="sidebar-workspace-slot"
+        ref={setSidebarNavSlot}
+      />
+    );
+  }
+
+  const label = EMPTY_VIEW_LABELS[selectedView];
+  // The channel views are AppSidebar's own branch, not this component's; a
+  // view this component has no answer for renders nothing rather than a
+  // sentence about a view it cannot name.
+  if (label === undefined) return null;
+
+  return (
+    <p
+      className="select-none px-4 py-3 text-sm text-muted-foreground/80"
+      data-testid="sidebar-contextual-empty"
+    >
+      No sidebar detail for {label} yet.
+    </p>
+  );
+}

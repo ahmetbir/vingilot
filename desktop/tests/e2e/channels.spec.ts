@@ -4600,6 +4600,13 @@ test("removing a multi-channel managed bot preserves its record after removal fr
       baselineRemoves,
   ).toBe(1);
 
+  // Back to the Inbox first: since the single-sidebar rework
+  // (vingilot/docs/plans/2026-08-14-single-sidebar.md) the Agents view's
+  // sidebar shows its contextual empty state, not the channel list, so the
+  // channel row `openMembersSidebar` clicks lives on the channel-shaped views.
+  await page.getByRole("button", { name: "Inbox" }).click();
+  await expect(page.getByTestId("stream-list")).toBeVisible();
+
   await openMembersSidebar(page, secondChannelName);
   await openMemberMenu(page, agentPubkey);
   await page.getByTestId(`sidebar-remove-member-${agentPubkey}`).click();

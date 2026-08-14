@@ -1,7 +1,10 @@
 // The collapsible chrome, proved against a real render
-// (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 6).
+// (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 6; narrowed by
+// vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2 — the workspace
+// nav lives inside the app sidebar now, so ⌘B is the one collapse and ⇧⌘B is
+// retired; sidebar-contextual.spec.ts holds the retirement itself).
 //
-// `columnKeys.test.mjs` already says what each chord *means*. What only a
+// `columnKeys.test.mjs` already says what the chord *means*. What only a
 // browser can say is whether the chord ever arrives: a key equivalent claimed
 // by the native menu never reaches the webview at all, and a handler bound to
 // a provider the screen is not inside would silently do nothing. Both failures
@@ -9,10 +12,9 @@
 // unit test, which is why ⌘B is asserted here against upstream's own sidebar
 // element rather than against a flag this island owns.
 //
-// It also holds the two promises that make hiding a column safe at all: every
-// collapsed column has a visible way back, and what was hidden stays hidden
-// across a reload — per project, so a second project is not made to inherit
-// the first one's chrome.
+// It also holds the promise that makes hiding chrome safe at all: what was
+// hidden stays hidden across a reload — per project, so a second project is
+// not made to inherit the first one's chrome.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -106,51 +108,25 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     await expect(sidebar(page)).toHaveAttribute("data-state", "expanded");
   });
 
-  test("shift+primary+B hides the whole nav, and the rail brings it back", async ({
+  test("primary+B takes the workspace nav with the sidebar it lives in", async ({
     page,
   }) => {
+    // The single-sidebar claim, from the chord's side: the nav has no collapse
+    // of its own any more — it is contextual content of the one sidebar, so
+    // ⌘B is what puts it out of the way and brings it back
+    // (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2).
     await openWorkspace(page);
     await page.getByTestId("projects-nav-repo-repo-left").click();
     await expect(page.getByTestId("worktree-column")).toBeVisible();
 
-    await page.keyboard.press("Shift+ControlOrMeta+b");
-    await expect(page.getByTestId("worktree-column")).toBeHidden();
-    // Half a collapse is no longer a thing that exists: the project list goes
-    // with the worktrees, because they are one column now
-    // (vingilot/docs/plans/2026-08-11-one-column-design.md, §4.1).
-    await expect(page.getByTestId("projects-nav")).toBeHidden();
+    await page.keyboard.press("ControlOrMeta+b");
+    await expect(sidebar(page)).toHaveAttribute("data-state", "collapsed");
+    // Off-canvas, not unmounted: the tree keeps its state for the way back.
+    await expect(page.getByTestId("projects-nav")).toHaveCount(1);
 
-    // The way back is on screen, not only on the keyboard.
-    const expand = page.getByTestId("worktree-column-expand");
-    await expect(expand).toBeVisible();
-    await expand.click();
+    await page.keyboard.press("ControlOrMeta+b");
+    await expect(sidebar(page)).toHaveAttribute("data-state", "expanded");
     await expect(page.getByTestId("worktree-column")).toBeVisible();
-    await expect(page.getByTestId("projects-nav")).toBeVisible();
-  });
-
-  test("shift+primary+B is bound on the Deck too, where no project is open", async ({
-    page,
-  }) => {
-    // The chord used to fall through here: `hasWorktreeColumn` was false with
-    // no project open, because the column it hid held one project's worktrees
-    // and there was none. The merged nav holds the project list itself, so it
-    // is on screen on the landing view as well and the guard was guarding a
-    // condition that can no longer occur
-    // (vingilot/docs/plans/2026-08-11-one-column-design.md, §4.1). Restore the
-    // guard and this is red on the first assertion after the press.
-    await openWorkspace(page);
-    await expect(page.getByTestId("projects-nav-landing")).toBeVisible();
-    await expect(page.getByTestId("projects-nav")).toBeVisible();
-    // Nothing is disclosed here — that is what makes the old guard's premise
-    // true and its conclusion wrong.
-    await expect(page.getByTestId("worktree-column")).toHaveCount(0);
-
-    await page.keyboard.press("Shift+ControlOrMeta+b");
-    await expect(page.getByTestId("projects-nav")).toBeHidden();
-    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-    // And the rail is the way back from here as well.
-    await page.getByTestId("worktree-column-expand").click();
-    await expect(page.getByTestId("projects-nav")).toBeVisible();
   });
 
   test("alt+primary+B hides the right pane and leaves the sidebar alone", async ({
@@ -268,89 +244,6 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     const left = await page.getByTestId("pane-left").boundingBox();
     const columns = Math.floor(((left?.width ?? 0) - 32) / 9);
     expect(columns).toBeGreaterThanOrEqual(80);
-  });
-
-  test("a collapsed column comes back collapsed, and only for its own project", async ({
-    page,
-  }) => {
-    await openWorkspace(page);
-    await page.getByTestId("projects-nav-repo-repo-left").click();
-    await page.keyboard.press("Shift+ControlOrMeta+b");
-    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-
-    // The other project never asked for this. Reached from the rail, because
-    // the collapsed nav is the only nav on screen — which is also the reason
-    // the rail carries a button per project: a collapse that stranded the owner
-    // in one project would be the trap the rail exists to prevent.
-    await page.getByTestId("nav-rail-repo-repo-right").click();
-    await expect(page.getByTestId("projects-nav")).toBeVisible();
-    await expect(page.getByTestId("worktree-column")).toBeVisible();
-
-    // See the note in the sidebar test: the reload must not outrun the write.
-    await expect
-      .poll(() =>
-        page.evaluate(() => window.localStorage.getItem("vingilot-columns.v2")),
-      )
-      .toContain("repo-left");
-    await page.reload();
-    await expect(page.getByTestId("runs-screen")).toBeVisible();
-    await page.getByTestId("projects-nav-repo-repo-left").click();
-    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-    await page.getByTestId("nav-rail-repo-repo-right").click();
-    await expect(page.getByTestId("worktree-column")).toBeVisible();
-  });
-
-  test("a rail dot obeys the project's own collapse, and the selected project's dot opens the column", async ({
-    page,
-  }) => {
-    // The reading the test above cannot make. It clicks `repo-right`'s dot while
-    // `repo-left` is a rail and asserts the column comes back — but `repo-right`
-    // has no stored flag, so the column would come back under *either* rule
-    // (obey the flag, or force it open) and the assertion does not distinguish
-    // them. The distinguishing case is a second project that was collapsed on
-    // purpose, and the design doc said the wrong thing about it until the code
-    // was read: §2.5 and §6.3 promised "click selects the project **and expands
-    // the column**" for every dot.
-    //
-    // What is implemented, and now asserted, is narrower and better: entering
-    // another project from the rail does not overwrite the collapse the owner
-    // asked for *in that project*. The visible answer to the click is the work
-    // surface changing; the column is that project's own remembered state.
-    await openWorkspace(page);
-
-    // Collapse both, each in its own project, which is how the flag is keyed.
-    await page.getByTestId("projects-nav-repo-repo-right").click();
-    await page.keyboard.press("Shift+ControlOrMeta+b");
-    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-    await page.getByTestId("nav-rail-repo-repo-left").click();
-    await expect(page.getByTestId("projects-nav")).toBeVisible();
-    await page.keyboard.press("Shift+ControlOrMeta+b");
-    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-
-    // Now the case: from `repo-left`'s rail, into `repo-right`, which is
-    // collapsed. The selection moves — the pill follows it — and the column
-    // stays a rail, because that is what `repo-right` was left as.
-    await page.getByTestId("nav-rail-repo-repo-right").click();
-    // `classList.contains`, not a class regex: every unselected dot carries
-    // `hover:bg-muted/60`, which `/bg-muted/` matches — it did, and reported the
-    // pill on both dots at once.
-    await expect
-      .poll(() =>
-        page.evaluate(() =>
-          [...document.querySelectorAll('[data-testid^="nav-rail-repo-"]')]
-            .filter((element) => element.classList.contains("bg-muted"))
-            .map((element) => element.getAttribute("data-testid")),
-        ),
-      )
-      .toEqual(["nav-rail-repo-repo-right"]);
-    await expect(page.getByTestId("projects-nav")).toHaveCount(0);
-    await expect(page.getByTestId("worktree-column-rail")).toBeVisible();
-
-    // And the dot of the project you are already in is not a dead button: with
-    // `selectRepo` idempotent it has nothing to select, so it opens the column.
-    await page.getByTestId("nav-rail-repo-repo-right").click();
-    await expect(page.getByTestId("projects-nav")).toBeVisible();
-    await expect(page.getByTestId("worktree-column")).toBeVisible();
   });
 
   test("a sidebar hidden inside a project is hidden again on the way back in", async ({

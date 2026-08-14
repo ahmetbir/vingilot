@@ -1,12 +1,14 @@
-// The workspace's collapsible chrome, wired: ⌘B hides the sidebar, ⇧⌘B hides
-// the workspace nav, and both come back the way the owner left them, per
-// project (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 6).
+// The workspace's collapsible chrome, wired: ⌘B hides the app sidebar, and it
+// comes back the way the owner left it, per project
+// (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 6).
 //
-// ⇧⌘B is bound on every view of this screen, the Deck included. It used to
-// fall through when no project was open, because the column it hid held one
-// project's worktrees and there was none; the merged nav holds the project
-// list itself and is on screen everywhere
-// (vingilot/docs/plans/2026-08-11-one-column-design.md, §4.1).
+// ⇧⌘B is retired (vingilot/docs/plans/2026-08-14-single-sidebar.md, Task 2).
+// It used to hide the workspace nav as a second, independently-collapsible
+// column; that nav renders inside the app sidebar's contextual slot now, so
+// there is nothing left for the chord to collapse that ⌘B does not already
+// move. The per-project nav flag it drove was discarded, not migrated —
+// `columnLayout.ts` reads only the sidebar flag and starting expanded is the
+// safe direction, the same reasoning that module's v1→v2 discard recorded.
 //
 // Every decision here is somebody else's: what a chord means is
 // `columnKeys.ts`, what is collapsed and how it is stored is
@@ -37,7 +39,6 @@ import {
   LANDING_KEY,
   columnsFor,
   readColumnLayout,
-  toggleColumn,
   withColumn,
   writeColumnLayout,
 } from "@/features/runs/lib/columnLayout";
@@ -45,11 +46,6 @@ import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 
 export interface Columns {
-  /** True while the workspace nav — the projects, and the open one's
-   * worktrees — is collapsed to its rail. The rail is what makes the shortcut
-   * safe to have; see `ui/WorkspaceNav.tsx`. */
-  navCollapsed: boolean;
-  toggleNav: () => void;
   /** Upstream's sidebar, as this hook sees it right now. `false` outside a
    * `SidebarProvider`, where there is no sidebar to be collapsed — read as
    * "not collapsed", which is what a surface labelling the toggle should say
@@ -123,10 +119,6 @@ export function useColumns({ projectId }: ColumnsOptions): Columns {
     setLayout((prev) => withColumn(prev, layoutKey, "sidebar", !sidebarOpen));
   }, [sidebarOpen, layoutKey]);
 
-  const toggleNav = React.useCallback(() => {
-    setLayout((prev) => toggleColumn(prev, layoutKey, "nav"));
-  }, [layoutKey]);
-
   // Stable across renders, and reads the provider out of the ref for the same
   // reason the effects above do: the context object is rebuilt whenever the
   // sidebar moves at all.
@@ -144,25 +136,18 @@ export function useColumns({ projectId }: ColumnsOptions): Columns {
         shiftKey: event.shiftKey,
       });
       if (action === null) return;
-      if (action.column === "sidebar") {
-        const bar = latest.current.sidebar;
-        if (bar === null) return;
-        event.preventDefault();
-        bar.toggleSidebar();
-        return;
-      }
+      const bar = latest.current.sidebar;
+      if (bar === null) return;
       event.preventDefault();
-      toggleNav();
+      bar.toggleSidebar();
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleNav]);
+  }, []);
 
   return {
-    navCollapsed: columnsFor(layout, layoutKey).nav,
     sidebarCollapsed: sidebarOpen === null ? false : !sidebarOpen,
-    toggleNav,
     toggleSidebar,
   };
 }
