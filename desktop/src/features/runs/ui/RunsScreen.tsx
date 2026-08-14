@@ -223,7 +223,7 @@ export function RunsScreen() {
   const { rootSettled, terminalBacking, worktreeRoot } = useMachineFacts();
   // Where a ⌘K channel row goes — upstream's own navigation, the same call
   // their switcher makes (ADR-001: host their list, do not re-route it).
-  const { goChannel } = useAppNavigation();
+  const { goChannel, goSettings } = useAppNavigation();
 
   const [selectedRepoId, setSelectedRepoId] = React.useState<string | null>(
     null,
@@ -982,6 +982,8 @@ export function RunsScreen() {
         onEngageStop={() => void engageStop()}
         controlPlane={controlPlane}
         onReleaseStop={releaseStop}
+        onShowControlPlane={() => void goSettings("home-harbor")}
+        onShowHistory={() => showPane("history")}
         repo={selectedRepo}
         run={ownerRun}
         scratchOpen={scratch.session !== null}

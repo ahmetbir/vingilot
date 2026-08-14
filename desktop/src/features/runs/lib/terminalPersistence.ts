@@ -8,8 +8,16 @@
 // app and do not survive a reboot, and someone who read only the first half
 // finds that out by losing everything after a restart they did not choose.
 //
-// So the boundary is in the visible label, not only in the hover text: the
-// label is what gets read.
+// So the boundary is in the visible label, not only in the hover text — on
+// surfaces with room for a sentence (the scratch shell's own footer). The
+// status bar is not one of those: it is a glance surface, and a sentence
+// there dissolves into the `·`-separated run around it. The bar shows the
+// `short` — a word that names the backing and claims nothing — and carries
+// the label and detail together in its tooltip. The rule that keeps this
+// honest: **a short may state a fact but never half a promise.** "tmux" is a
+// fact; "persistent" without "not a reboot" is the drift the label was
+// written to prevent, so the persistence claim itself never appears in a
+// short at all.
 //
 // **Two claims live here, and they must not be readable as each other.**
 // `persistenceCopy` is about **the worktree's terminals** — the tabs in the
@@ -24,7 +32,11 @@
 import type { PtyBacking } from "@/features/runs/lib/ptyClient";
 
 export interface PersistenceCopy {
-  /** One line for the status bar. Carries the claim and its limit together. */
+  /** The status bar's glance form: a word or two naming the backing, never
+   * the persistence claim itself (header's rule). */
+  short: string;
+  /** One line carrying the claim and its limit together, for surfaces with
+   * room for a sentence — the scratch footer, and the bar's tooltip. */
   label: string;
   /** The same thing said in full, for the title/tooltip. */
   detail: string;
@@ -35,12 +47,14 @@ const TMUX: PersistenceCopy = {
     "Each of this worktree's terminal tabs runs inside a tmux session, so it keeps running after you quit the app and is still there when you open it again. It does not survive a reboot, a tmux kill-server, or a crash — the same limits as any other tmux session on this machine. The scratch shell is not one of these and keeps nothing.",
   label:
     "worktree terminals: persistent (tmux) — survive quitting the app, not a reboot",
+  short: "tmux",
 };
 
 const APP_PROCESS: PersistenceCopy = {
   detail:
     "tmux was not found, so each of this worktree's terminal tabs is a plain shell this app owns. Quitting the app ends it and nothing is kept. Install tmux to keep them running across restarts.",
   label: "worktree terminals: this session only — they end when the app quits",
+  short: "session-only",
 };
 
 /** What the scratch shell is, said in its own sentence.
@@ -67,6 +81,7 @@ export const SCRATCH_PERSISTENCE: PersistenceCopy = {
     "The scratch shell is not one of this worktree's terminals. It has no tab in the strip, no tmux session behind it, and nothing about it is written down. It ends when you close it, when you go to another worktree or project, when you leave this screen, and when you quit the app — and whatever it is running at the time ends with it, unasked: a tail, a build, a long test run. Anything that has to outlive that belongs in one of this worktree's terminal tabs, which is what the line beside this one is about.",
   label:
     "scratch shell: nothing is kept — closing it or leaving ends it, and what it is running",
+  short: "scratch: not kept",
 };
 
 /** The copy for a backing, or `null` when the backing is not known yet.

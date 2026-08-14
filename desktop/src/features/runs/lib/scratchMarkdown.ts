@@ -52,6 +52,9 @@ export const SCRATCH_MARKDOWN_PATH = "~/.vingilot/scratch.md";
 export const SCRATCH_MARKDOWN_PRIVACY: PersistenceCopy = {
   detail: `The scratch buffer is one file on this machine, ${SCRATCH_MARKDOWN_PATH}, written a moment after you stop typing and read back when you open it. There is one of it — not one per worktree or project — because the point of a scratch is that it follows you. It survives closing this buffer, leaving the project and quitting the app, and it is ordinary markdown, so your own editor can have it. It is never sent anywhere: not to the relay, not to a channel, not to an agent. Nothing else in this app reads it.`,
   label: `scratch markdown: kept in ${SCRATCH_MARKDOWN_PATH} on this machine — never sent anywhere`,
+  // The glance form, per terminalPersistence.ts's rule: a fact, never half a
+  // promise. "kept on this machine" is this copy's whole claim in four words.
+  short: "kept on this machine",
 };
 
 /** The empty buffer's own line, in the editor rather than as an empty state: a

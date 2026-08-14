@@ -4,6 +4,7 @@ import { getCachedSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { ChannelScreen } from "@/features/channels/ui/ChannelScreen";
+import { ChatStatusBar } from "@/features/channels/ui/ChatStatusBar";
 import { HuddleStartingView } from "@/features/huddle/components/HuddleStartingView";
 import { huddleWindowChannelId } from "@/features/huddle/lib/huddleWindow";
 import {
@@ -201,21 +202,28 @@ export function ChannelRouteScreen({
   }
 
   return (
-    <ChannelScreen
-      activeChannel={activeChannel}
-      autoSendDraftKey={autoSendDraftKey}
-      currentIdentity={identityQuery.data}
-      currentProfile={profileQuery.data}
-      onCloseForumPost={() => {
-        void closeForumPost(channelId);
-      }}
-      onSelectForumPost={(postId) => {
-        void goForumPost(channelId, postId);
-      }}
-      selectedForumPostId={selectedPostId}
-      targetForumReplyId={targetReplyId}
-      targetMessageEvents={targetMessageEvents}
-      targetMessageId={targetMessageId}
-    />
+    // The wrapper exists for the statusline: ChannelScreen keeps its flex-1
+    // and fills everything above the bar, exactly as it filled the surface
+    // before. The huddle-transcript window is a dedicated reading surface —
+    // it gets no bar, the same way it gets no sidebar.
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <ChannelScreen
+        activeChannel={activeChannel}
+        autoSendDraftKey={autoSendDraftKey}
+        currentIdentity={identityQuery.data}
+        currentProfile={profileQuery.data}
+        onCloseForumPost={() => {
+          void closeForumPost(channelId);
+        }}
+        onSelectForumPost={(postId) => {
+          void goForumPost(channelId, postId);
+        }}
+        selectedForumPostId={selectedPostId}
+        targetForumReplyId={targetReplyId}
+        targetMessageEvents={targetMessageEvents}
+        targetMessageId={targetMessageId}
+      />
+      {isHuddleTranscript ? null : <ChatStatusBar />}
+    </div>
   );
 }

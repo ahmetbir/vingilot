@@ -1,0 +1,99 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the bottom bar becomes a useful statusline
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: the VS Code statusline model applied to the fork's
+# two ambient surfaces. The existing Deck/workspace bar (ProjectStatusBar)
+# keeps its shape and honesty rules; its persistence plates shrink to glance
+# words (the sentence rides the tooltip) and two of its facts become doors —
+# branch/diff opens History, the control-plane word opens Settings' Home-harbor
+# card. The chat views gain a sibling bar (ChatStatusBar) with the two facts a
+# channel actually has: the community's name and the relay connection word,
+# the word being a reconnect button exactly when clicking can do something.
+#
+# Deliberately NOT done, recorded as decisions:
+# - No app-wide single footer covering both Deck and chat facts: the two prop
+#   surfaces share nothing, and one bar would be null-heavy branches for facts
+#   the current screen cannot have (ProjectStatusBar's header ties its shape
+#   to RunsScreen's state on purpose).
+# - No harbor status on the Deck bar: harborStatus() is polled only inside the
+#   Settings card today, and a bar fact must come from an existing store — a
+#   new polling loop was the recon's explicit out-of-scope line.
+# - No update-available segment: useUpdater is already surfaced by
+#   SidebarUpdateCard/UpdateIndicator; a second visible surface for the same
+#   fact needs an owner decision on which one survives.
+# - The community name is a fact, not a door: opening CommunitySwitcher from
+#   the footer would need a new open-request mechanism (the switcher is a
+#   sidebar dropdown), and the click actions of this plan reuse existing acts
+#   only.
+# - The huddle-transcript window gets no chat bar, the same way it gets no
+#   sidebar.
+
+seams:
+  - path: "desktop/src/features/runs/lib/terminalPersistence.ts"
+    reason: "Widened (inside the desktop/src/features/runs/** blanket seam; entry for the decision): PersistenceCopy gains `short` — the status bar's glance form. The honesty rule moves with it: a short may state a fact (the backing's name, 'session-only', 'scratch: not kept') but never half a promise — the persistence claim itself is forbidden in shorts and lives in label+detail, which the bar now carries together in its tooltip. label stays live: the scratch footer prints it verbatim and the bar's tooltip leads with it."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the status bar is a glance surface."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/ui/ProjectStatusBar.tsx"
+    reason: "Widened (blanket seam; decision entry): plates render copy.short with label+detail as tooltip; the branch/diff segment becomes a door into showPane('history') (the same act the sidebar History member fires) and the control-plane word a door into goSettings('home-harbor') — both real buttons on the quiet hover ramp, padding cancelled by margin so a fact becoming a door does not move. STOP unchanged; the honest-absence rules (no worktree → no branch door) unchanged."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the Deck keeps a statusline."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/runs/ui/RunsScreen.tsx"
+    reason: "Widened (blanket seam; decision entry): two props to ProjectStatusBar (onShowHistory → showPane('history'), onShowControlPlane → goSettings('home-harbor')) and goSettings joins the existing useAppNavigation destructure. 996 lines — still under the 1000 ratchet, unbumped."
+    owner: "vingilot/runs"
+    removable_when: "With the doors."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/channels/lib/relayStatus.ts"
+    reason: "New, fork-owned: the chat bar's word-per-ConnectionState contract, kept deliberately in controlPlaneStatus's vocabulary ('not answering' means the same thing on both bars). canReconnect is the honest-click rule: connected is a fact not a control, in-flight states never offer a second reconnect. Pure function of useRelayConnection's state — no polling, unit-tested in relayStatus.test.mjs."
+    owner: "vingilot/runs"
+    removable_when: "With ChatStatusBar."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/channels/lib/relayStatus.test.mjs"
+    reason: "New: the contract's DOM-less unit test — a distinct glance word per state, no degraded word readable as connected, canReconnect exactly on the recoverable states, recoverable tooltips saying what a click does."
+    owner: "vingilot/runs"
+    removable_when: "With relayStatus.ts."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/channels/ui/ChatStatusBar.tsx"
+    reason: "New, fork-owned: the chat views' statusline — ProjectStatusBar's sibling, not a genericization of it (the two prop surfaces share nothing). Left: activeCommunity.name from the useCommunities context, absent when null. Right: relayStatus word, a button only when canReconnect, firing useReconnectRelay — the same singleton-backed act the sidebar relay card fires, so two surfaces cannot race two reconnects. Same footer recipe as ProjectStatusBar so the two bars read as one system; the word exists in every state so the bar never jumps."
+    owner: "vingilot/runs"
+    removable_when: "Never, while chat views keep a statusline."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/app/routes/ChannelRouteScreen.tsx"
+    reason: "Widened: the one mount point — a flex-col wrapper puts ChatStatusBar under ChannelScreen for channel and forum-post routes alike; the huddle-transcript window is excluded (it gets no bar, the way it gets no sidebar). ChannelScreen itself untouched."
+    owner: "vingilot/runs"
+    removable_when: "With ChatStatusBar."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/statusline.spec.ts"
+    reason: "New: this plan's red-proof spec — five tests, ALL proven red against the pre-change build (log: sl-red-e2e.log; workspace tests failed on the missing testids/long plate text, chat tests on chat-status-bar not existing). Pins: the plate shows the glance word and the tooltip keeps both halves of the boundary; branch/diff is a door into pane-history and absent with no project; the control-plane word opens settings-home-harbor; the chat bar names the community and the relay word; a stalled relay becomes a reconnect button (through useRelayConnection's 2s debounce) and recovers to a plain word."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the statuslines need a regression spec."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/playwright.config.ts"
+    reason: "Widened (existing entry): one testMatch line for statusline.spec.ts in the smoke project."
+    owner: "vingilot/runs"
+    removable_when: "With the spec."
+    status: "permanent"
+    added: "2026-08-14"

@@ -111,6 +111,45 @@ test("the scratch copy says the command running in it goes too", () => {
   assert.match(SCRATCH_PERSISTENCE.detail, /unasked/);
 });
 
+test("the bar's short form names the backing and claims nothing else", () => {
+  // The status bar is a glance surface: the full claim and its boundary live
+  // in the tooltip (`detail`) and on surfaces with room (`label`). The short
+  // form may name the backing — a fact — but must not carry half a promise:
+  // "persistent" without "not a reboot" is exactly the drift the long label
+  // was written to prevent, so the short is forbidden the claim entirely.
+  const tmux = persistenceCopy("tmux");
+  assert.ok(tmux);
+  assert.match(tmux.short, /tmux/);
+  assert.doesNotMatch(tmux.short, /persistent|survive/i);
+});
+
+test("the fallback short carries its own limit, because it is the limit", () => {
+  // "session-only" is not a trimmed promise — it IS the boundary. A short
+  // that read "shell" or "plain" would hide the one fact worth glancing at.
+  const direct = persistenceCopy("app-process");
+  assert.ok(direct);
+  assert.match(direct.short, /session/);
+  assert.doesNotMatch(direct.short, /tmux|persistent/i);
+});
+
+test("the scratch short names its subject and cannot cover the worktree claim", () => {
+  assert.match(SCRATCH_PERSISTENCE.short, /^scratch/);
+  assert.doesNotMatch(SCRATCH_PERSISTENCE.short, /worktree/i);
+  assert.doesNotMatch(SCRATCH_PERSISTENCE.short, /persistent|survive/i);
+  assert.notEqual(SCRATCH_PERSISTENCE.short, persistenceCopy("tmux").short);
+  assert.notEqual(
+    SCRATCH_PERSISTENCE.short,
+    persistenceCopy("app-process").short,
+  );
+});
+
+test("the two backing shorts never read the same", () => {
+  const tmux = persistenceCopy("tmux");
+  const direct = persistenceCopy("app-process");
+  assert.ok(tmux && direct);
+  assert.notEqual(tmux.short, direct.short);
+});
+
 test("the scratch copy disclaims the line it sits beside", () => {
   // The two are rendered side by side, and the failure this guards is a reader
   // taking one line as covering both shells.

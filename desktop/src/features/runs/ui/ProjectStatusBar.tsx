@@ -21,6 +21,15 @@
 // run has the same backing. What it may say is `lib/terminalPersistence.ts`'s
 // decision, not this component's.
 //
+// Two of the facts are also doors, VS Code's model: clicking a status item
+// opens the surface that explains it. The branch/diff segment opens the
+// History pane (`showPane("history")` — the same act the sidebar's History
+// member fires), and the control-plane word opens Settings' Home-harbor card,
+// which is where `harborStart/Stop` live and therefore the one place the word
+// can be acted on. Both are real buttons with the quiet hover ramp, and both
+// exist only while their fact does — a door on a fact that is not there would
+// be a click that goes nowhere.
+//
 // STOP is here for the same reason, and it is the only control on this bar.
 // It pauses every live run in the *workspace*, and no single screen owns that
 // scope: the Deck lists the workspace's runs, and so does the work surface's
@@ -73,14 +82,19 @@ interface ProjectStatusBarProps {
   stopEngaged: boolean;
   onEngageStop: () => void;
   onReleaseStop: () => void;
+  /** Opens the History pane — the surface that explains the branch/diff fact. */
+  onShowHistory: () => void;
+  /** Opens Settings' Home-harbor card — where the control-plane word is acted on. */
+  onShowControlPlane: () => void;
 }
 
 /** The persistence claims, as one readable unit.
  *
- * Both are long sentences, and they sit in a `·`-separated run beside the
- * reachability reading — where a sentence with a colon and two dashes in it
+ * The plate shows the copy's `short` — a glance word — and carries the label
+ * and detail together in its tooltip: a sentence in the `·`-separated run
  * dissolves into the punctuation around it and stops being read as a claim
- * about anything in particular. A plate is enough to make it one object.
+ * about anything in particular. Which words a short may use is
+ * `terminalPersistence.ts`'s rule, not this component's.
  *
  * **The plate's colour is the claim's weight.** tmux — terminals that survive
  * the app — is the quiet muted plate: nothing to warn about. A backing whose
@@ -96,10 +110,19 @@ const QUIET_PLATE = "rounded bg-muted/60 px-1.5";
 const WARNING_PLATE =
   "rounded bg-amber-500/15 px-1.5 text-amber-600 dark:text-amber-400";
 
+/** The doors' hover ramp — the app's quiet one (the escape-hatch dismiss,
+ * the scratch close), horizontal padding only for the bar-height reason the
+ * plates give. The negative margin cancels the padding at rest, so a fact
+ * that becomes a door does not move. */
+const DOOR =
+  "-mx-1 rounded-sm px-1 transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
+
 export function ProjectStatusBar({
   controlPlane,
   onEngageStop,
   onReleaseStop,
+  onShowControlPlane,
+  onShowHistory,
   repo,
   run,
   scratchOpen,
@@ -139,14 +162,24 @@ export function ProjectStatusBar({
             {summary !== null ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span>{summary.label}</span>
-                <span aria-hidden="true">·</span>
-                <span>
-                  {worktree?.owner_run_status ?? "clean"}
-                  {summary.diff !== null
-                    ? ` · +${summary.diff.added} −${summary.diff.removed}`
-                    : ""}
-                </span>
+                {/* The branch and the diff are one door: History is the
+                 * surface that explains both. */}
+                <button
+                  className={`flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap ${DOOR}`}
+                  data-testid="statusbar-history"
+                  onClick={onShowHistory}
+                  title="Open History"
+                  type="button"
+                >
+                  <span>{summary.label}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    {worktree?.owner_run_status ?? "clean"}
+                    {summary.diff !== null
+                      ? ` · +${summary.diff.added} −${summary.diff.removed}`
+                      : ""}
+                  </span>
+                </button>
               </>
             ) : null}
             {wc !== null ? (
@@ -182,9 +215,9 @@ export function ProjectStatusBar({
               className={WARNING_PLATE}
               data-backing="scratch"
               data-testid="scratch-persistence"
-              title={SCRATCH_PERSISTENCE.detail}
+              title={`${SCRATCH_PERSISTENCE.label}\n\n${SCRATCH_PERSISTENCE.detail}`}
             >
-              {SCRATCH_PERSISTENCE.label}
+              {SCRATCH_PERSISTENCE.short}
             </span>
             <span aria-hidden="true">·</span>
           </>
@@ -197,14 +230,22 @@ export function ProjectStatusBar({
               }
               data-backing={terminalBacking}
               data-testid="terminal-persistence"
-              title={persistence.detail}
+              title={`${persistence.label}\n\n${persistence.detail}`}
             >
-              {persistence.label}
+              {persistence.short}
             </span>
             <span aria-hidden="true">·</span>
           </>
         ) : null}
-        <span>{controlPlaneStatus(controlPlane)}</span>
+        <button
+          className={DOOR}
+          data-testid="statusbar-control-plane"
+          onClick={onShowControlPlane}
+          title="Open the Home harbor settings"
+          type="button"
+        >
+          {controlPlaneStatus(controlPlane)}
+        </button>
         <StopAllButton
           engaged={stopEngaged}
           onEngage={onEngageStop}
