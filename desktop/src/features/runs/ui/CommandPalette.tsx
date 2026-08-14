@@ -71,6 +71,15 @@ import {
 } from "lucide-react";
 
 import type { Ask } from "@/features/runs/lib/askMode";
+import { foldDictationSegment } from "@/features/dictation/lib/dictationFold";
+import {
+  type Dictation,
+  useDictation,
+} from "@/features/dictation/lib/useDictation";
+import {
+  DictationButton,
+  DictationStatusRow,
+} from "@/features/dictation/ui/DictationButton";
 import type { PaletteHint } from "@/features/runs/lib/paletteDoors";
 import { resolvePaletteListKey } from "@/features/runs/lib/paletteKeys";
 import type {
@@ -245,6 +254,29 @@ export function CommandPalette({ palette }: { palette: Palette }) {
     view,
   } = palette;
 
+  // ── Dictation into the ask box ──────────────────────────────────────
+  // Button only, deliberately no chord here: this surface already claims
+  // most of the keyboard in a capture-phase `window` listener while open
+  // (this file's header), and a second global chord fighting for the same
+  // keys inside a modal is a worse trade than one click — see
+  // `dictationKeys.ts`'s header, which binds ⌃⌘D to the message composer
+  // instead. Query includes its leading `?`; folding onto the whole string
+  // (not just the question) keeps this the same "append to what's typed"
+  // behavior the composer's fold has.
+  const queryRef = React.useRef(query);
+  queryRef.current = query;
+  const appendDictationSegment = React.useCallback(
+    (text: string) => setQuery(foldDictationSegment(queryRef.current, text)),
+    [setQuery],
+  );
+  const dictation = useDictation({ onSegment: appendDictationSegment });
+  const dictationStop = dictation.stop;
+  React.useEffect(() => {
+    if ((!open || ask === null) && dictation.status !== "idle") {
+      dictationStop();
+    }
+  }, [open, ask, dictation.status, dictationStop]);
+
   React.useEffect(() => {
     if (!open) return;
     returnTo.current = document.activeElement;
@@ -328,7 +360,7 @@ export function CommandPalette({ palette }: { palette: Palette }) {
         />
 
         {ask !== null ? (
-          <AskPanel ask={ask} />
+          <AskPanel ask={ask} dictation={dictation} />
         ) : view.rows.length === 0 ? (
           <p
             className="px-3 py-4 text-sm text-muted-foreground"
@@ -414,13 +446,17 @@ function HintRow({ hints }: { hints: readonly PaletteHint[] }) {
  * — a sentence about scope assembled in a component is a sentence no test can
  * hold to, and the whole risk of this mode is a nice surface implying the model
  * was handed more than a path. */
-function AskPanel({ ask }: { ask: Ask }) {
+function AskPanel({ ask, dictation }: { ask: Ask; dictation: Dictation }) {
   return (
     <div className="flex flex-col gap-2 px-3 py-3" data-testid="palette-ask">
-      {/* One eyebrow appearance in this overlay — see `PaletteHeading`. */}
-      <p className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        asked with
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        {/* One eyebrow appearance in this overlay — see `PaletteHeading`. */}
+        <p className="text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          asked with
+        </p>
+        <DictationButton dictation={dictation} />
+      </div>
+      <DictationStatusRow dictation={dictation} />
       {ask.sent.length > 0 ? (
         <ul className="flex flex-col gap-0.5" data-testid="palette-ask-sent">
           {ask.sent.map((line) => (

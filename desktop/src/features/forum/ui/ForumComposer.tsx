@@ -509,6 +509,10 @@ export function ForumComposer({
 
             <MessageComposerToolbar
               composerDisabled={disabled ?? false}
+              // Forum posts aren't one of Task 3's two named fold targets
+              // (DM/channel/team-thread composer, Ask box) — no dictation
+              // wiring here yet.
+              dictation={null}
               editor={richText.editor}
               extraActions={
                 onCancel || (onSecondarySubmit && secondarySubmitLabel) ? (

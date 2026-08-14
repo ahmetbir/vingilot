@@ -47,11 +47,21 @@ export type AudioWorkletHandle = {
  * @param audioTrack - Mic track from LiveKit
  * @param initialMode - Whether the push-to-talk shortcut is enabled.
  * @param initiallyManuallyUnmuted - Initial state of the clickable mic control.
+ * @param pushCommand - Which Tauri command receives each PCM batch. Defaults
+ *   to the huddle's `push_audio_pcm`; the standalone dictation feature
+ *   (composer + Ask box mic button, outside any huddle) passes
+ *   `push_dictation_audio_pcm` instead so its audio reaches dictation's own
+ *   process-global `Mutex`-guarded slot (`dictation.rs`'s `DICTATION_STATE`
+ *   — deliberately not `AppState`, since that struct is already at the
+ *   desktop file-size ratchet's ceiling; see that module's header) rather
+ *   than a huddle's — see `dictation.rs`'s module header for why that's a
+ *   separate command rather than a mode flag on this one.
  */
 export async function setupAudioWorklet(
   audioTrack: MediaStreamTrack,
   initialMode: "push_to_talk" | "voice_activity" = "voice_activity",
   initiallyManuallyUnmuted = true,
+  pushCommand = "push_audio_pcm",
 ): Promise<AudioWorkletHandle> {
   const audioContext = new AudioContext({ sampleRate: 48000 });
 
@@ -96,7 +106,7 @@ export async function setupAudioWorklet(
     // Create a zero-copy Uint8Array view over the same underlying buffer.
     // Rust reinterprets the bytes as f32 on the other side.
     invokeRawBinary(
-      "push_audio_pcm",
+      pushCommand,
       new Uint8Array(float32.buffer, float32.byteOffset, float32.byteLength),
     ).catch(() => {
       /* silently drop — Rust handles backpressure */

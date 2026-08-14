@@ -5,6 +5,11 @@ import { ALargeSmall, ArrowUp, AtSign, Paperclip, X } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import {
+  DictationButton,
+  DictationStatusRow,
+} from "@/features/dictation/ui/DictationButton";
+import type { Dictation } from "@/features/dictation/lib/useDictation";
 import { ComposerEmojiPicker } from "./ComposerEmojiPicker";
 import { FormattingToolbar } from "./FormattingToolbar";
 import { SelectionFormattingTray } from "./SelectionFormattingTray";
@@ -19,6 +24,7 @@ const presenceSpring = {
 export const MessageComposerToolbar = React.memo(
   function MessageComposerToolbar({
     composerDisabled,
+    dictation,
     editor,
     extraActions,
     formattingDisabled,
@@ -36,6 +42,10 @@ export const MessageComposerToolbar = React.memo(
     sendDisabled,
   }: {
     composerDisabled: boolean;
+    /** `null` when this composer surface doesn't wire up dictation (kept
+     * optional at the toolbar boundary rather than making every caller thread
+     * a hook it may not use). */
+    dictation: Dictation | null;
     editor: Editor | null;
     extraActions?: React.ReactNode;
     formattingDisabled: boolean;
@@ -54,6 +64,11 @@ export const MessageComposerToolbar = React.memo(
   }) {
     return (
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        {dictation ? (
+          <div className="w-full">
+            <DictationStatusRow dictation={dictation} />
+          </div>
+        ) : null}
         <SelectionFormattingTray
           disabled={formattingDisabled}
           editor={editor}
@@ -192,6 +207,12 @@ export const MessageComposerToolbar = React.memo(
                   </TooltipTrigger>
                   <TooltipContent>Attach file</TooltipContent>
                 </Tooltip>
+                {dictation ? (
+                  <DictationButton
+                    dictation={dictation}
+                    disabled={composerDisabled}
+                  />
+                ) : null}
                 <ComposerEmojiPicker
                   disabled={composerDisabled}
                   onClose={() => editor?.commands.focus()}

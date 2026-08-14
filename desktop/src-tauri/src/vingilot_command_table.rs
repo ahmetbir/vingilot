@@ -328,6 +328,12 @@ macro_rules! table {
             download_voice_models,
             get_model_status,
             set_tts_enabled,
+            // Dictation (vingilot/docs/plans/2026-08-13-voice.md, Task 3):
+            // standalone mic-to-draft pipeline, deliberately outside
+            // HuddleState — see dictation.rs's module header.
+            dictation::start_dictation,
+            dictation::stop_dictation,
+            dictation::push_dictation_audio_pcm,
             huddle::tts_settings::get_tts_settings,
             huddle::tts_settings::list_voice_registry,
             huddle::tts_settings::set_pocket_voice,

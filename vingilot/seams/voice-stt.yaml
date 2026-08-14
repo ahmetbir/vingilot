@@ -1,0 +1,124 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: composer dictation (Task 3, voice plan)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: Task 3 of vingilot/docs/plans/2026-08-13-voice.md —
+# mic-to-draft dictation in the message composer (DM/channel/team-thread) and
+# the workspace's Ask box. Task 2 (TTS) was dropped by the owner before this
+# landed (see that plan's Rescope note) and touches nothing here.
+#
+# TWO PATHS THIS TASK TOUCHES ARE ALREADY COVERED AND GET NO NEW ENTRY, the
+# way iterm-chords.yaml handled already-declared paths: `desktop/playwright
+# .config.ts` (vingilot/seams.yaml's own entry already covers registering a
+# new spec in the `smoke` project's testMatch), and
+# `desktop/src/features/runs/ui/CommandPalette.tsx` (vingilot/seams.yaml's
+# blanket `desktop/src/features/runs/**` entry — "the Runs island... is a new
+# fork-owned directory... additive only" — already covers the Ask-box mic
+# button added there).
+#
+# The Rust half needed no lib.rs/app_state.rs growth: `dictation.rs` reuses
+# `huddle::stt::SttPipeline` verbatim but owns its one running pipeline from a
+# process-global `static Mutex`, mirroring `huddle::models`'
+# `GLOBAL_MODEL_MANAGER` singleton, specifically so this feature costs
+# `app_state.rs` zero lines rather than pushing it further over the file-size
+# ratchet it (like `MessageComposer.tsx`, see that path's entry below) was
+# already past. The three new commands register in
+# `vingilot_command_table.rs` — the file `home-harbor.yaml` already split out
+# of `lib.rs` for exactly this headroom reason.
+
+seams:
+  - path: "desktop/src-tauri/src/dictation.rs"
+    reason: "New, fork-owned: the standalone dictation pipeline (vingilot/docs/plans/2026-08-13-voice.md, Task 3) — start_dictation/stop_dictation/push_dictation_audio_pcm, reusing huddle::stt::SttPipeline verbatim from a process-global static Mutex<DictationState> (mirrors huddle::models' GLOBAL_MODEL_MANAGER singleton) rather than an AppState field, so the desktop file-size ratchet's already-full app_state.rs gains no lines. Every finished utterance is forwarded as a `dictation-transcript` Tauri event — never a relay POST — because the huddle path's only text sink (huddle::pipeline::spawn_transcription_task) posts a kind:9 message every huddle member can read, and a dictation draft must never leave the machine, let alone leak into a channel. On-device only, stated in the module's own header per the plan's standing privacy constraint."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the composer/Ask-box mic button ships. Replaceable only if a future refactor merges dictation into huddle's own STT slot without reintroducing the relay-leak risk this file was written to avoid."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/dictation/**"
+    reason: "New, fork-owned frontend island for Task 3: dictationFold.ts (pure append-only fold, no partial — the recognizer is non-streaming, so there is nothing to replace, only append), dictationKeys.ts (the ⌃⌘D chord resolver and its five-claimant audit), useDictation.ts (mic lifecycle, model-download offer, idle auto-stop timed from the last real transcript event rather than a raw-audio timer), useComposerDictation.ts (the composer-specific wiring, split out specifically to keep MessageComposer.tsx's own footprint minimal — see that path's entry below), and DictationButton.tsx (the shared mic button + listening/downloading/error status row used by both the composer and the Ask box). Additive only: a new directory inside the upstream desktop/src/features tree, mirroring how desktop/src/features/runs/** is already declared as an island for the same structural reason."
+    owner: "vingilot/runs"
+    removable_when: "Never, while composer/Ask-box dictation ships."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src-tauri/src/lib.rs"
+    reason: "One line: `mod dictation;`. No command registration here — that lives in vingilot_command_table.rs (see its own entry, already declared by home-harbor.yaml), which is the whole reason that split exists: lib.rs has no headroom to spend on a new island's commands."
+    owner: "vingilot/runs"
+    removable_when: "Never, while dictation.rs exists as a module."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src-tauri/src/vingilot_command_table.rs"
+    reason: "Three new entries — dictation::start_dictation, dictation::stop_dictation, dictation::push_dictation_audio_pcm — registered the same module-qualified way vingilot_harbor's and vingilot_worktree's commands already are in this table, needing no `use` import in lib.rs. Already declared by home-harbor.yaml for the split itself; this entry records the dictation-specific reason for touching it again."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the three dictation commands exist."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/huddle/lib/audioWorklet.ts"
+    reason: "One new optional parameter, `pushCommand`, defaulting to \"push_audio_pcm\" so the huddle's own single call site (HuddleContext.tsx) is byte-for-byte unchanged. Dictation's mic wiring (useDictation.ts) passes \"push_dictation_audio_pcm\" instead, reusing the exact same AudioWorklet batching/PCM-framing code rather than forking a second copy of it for a second Tauri command name — the alternative the plan's Task 1 recon explicitly flagged as the thing NOT to do (\"do NOT build a second getUserMedia wiring\")."
+    owner: "vingilot/runs"
+    removable_when: "Never, while dictation reuses this worklet rather than a forked copy."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/messages/ui/MessageComposer.tsx"
+    reason: "Already declared by drag-and-drop.yaml for an unrelated reason; this entry is the dictation-specific one. Wiring is the smallest this file could carry: one useComposerDictation(...) call, one dictation.stop() at the top of submitMessage (synchronous, not isSending-reactive — a Playwright RED-proof showed the reactive version misses a fast/mocked send within one React batch), one dependency-array entry, one dictation={dictation} prop into ComposerDockToolbar. Landing the dictation wiring pushed this file to 1028 lines against the desktop file-size ratchet's grandfathered 1014-line baseline (a verifier finding, not a silent violation) — the honest fix, splitting this file the way vingilot_command_table.rs split lib.rs at its own ratchet ceiling, is what actually landed: the submit path (edit-save branch, normal-send branch, the form's onSubmit) moved out to useComposerSubmit.ts (see that path's entry), landing this file at 919 lines, under the pre-dictation baseline."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the composer's mic button ships here."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/messages/ui/useComposerSubmit.ts"
+    reason: "New file: the submit path split out of MessageComposer.tsx (edit-save branch via submitMessageEdit, the normal-send branch via useMentionSendFlow, and the form's handleSubmit wrapper) verbatim, to bring that file back under the desktop file-size ratchet's grandfathered baseline after landing dictation pushed it over (see MessageComposer.tsx's entry above). Options-object shaped, matching this directory's existing wide submit-adjacent hook (useMentionSendFlow.ts) rather than a positional signature a ~30-argument call would make unreadable either way. No behavior change — every closure, ref, and dependency array is unchanged, only relocated."
+    owner: "vingilot/runs"
+    removable_when: "Never, while MessageComposer.tsx needs to stay at or under the ratchet's baseline."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/messages/ui/MessageComposerToolbar.tsx"
+    reason: "New `dictation: Dictation | null` prop and the mic button + status row rendered beside the paperclip button. `| null` rather than making every caller wire a hook it may not use: ForumComposer.tsx (a third caller of this toolbar, outside Task 3's two named surfaces) passes null explicitly rather than silently inheriting dictation it was never asked to carry. The status row was placed here rather than in MessageComposer.tsx specifically for ratchet headroom — see that file's entry."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the composer's mic button ships."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/messages/ui/ComposerDockToolbar.tsx"
+    reason: "No new code — this file's props type is `ComponentProps<typeof MessageComposerToolbar>`, so it picked up the new `dictation` prop requirement automatically. Declared anyway because it is a touched, upstream-owned path with no existing seam entry of its own."
+    owner: "vingilot/runs"
+    removable_when: "Never, while it passes props through to MessageComposerToolbar."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/features/forum/ui/ForumComposer.tsx"
+    reason: "Already declared by drag-and-drop.yaml for an unrelated reason; this entry is the dictation-specific one. One line, `dictation={null}`, required by MessageComposerToolbar's new prop (see that path's entry) — forum posts are not one of Task 3's two named fold targets (DM/channel/team-thread composer, Ask box), stated explicitly rather than left as an implicit gap."
+    owner: "vingilot/runs"
+    removable_when: "Never, while MessageComposerToolbar requires this prop and forum posts stay out of dictation's scope."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/src/testing/e2eBridge.ts"
+    reason: "Already declared twice (home-harbor.yaml, the-crew.yaml) for unrelated reasons; this entry is the dictation-specific one. Adds mock cases for start_dictation/stop_dictation/push_dictation_audio_pcm (no real pipeline in a mocked bridge — specs drive a transcript via the existing generic __BUZZ_E2E_EMIT_TAURI_EVENT__ helper, the same one huddle-transcription.spec.ts already uses for ptt-state), a download_voice_models case shared with huddle (flips the mock STT status to \"ready\" so a spec proving the absent-model download offer doesn't wait out useDictation's real 3-minute poll timeout), and two new optional E2eConfig.mock fields (dictationSttModelStatus, dictationStartError)."
+    owner: "vingilot/runs"
+    removable_when: "Never, while dictation needs mocking for E2E specs."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/composer-dictation.spec.ts"
+    reason: "The browser proof of dictation: a fake getUserMedia (same shape huddle-transcription.spec.ts's installFakeHuddleMicrophone uses) satisfies mic acquisition for real, and the pipeline itself is mocked — the mic button toggles real UI state, finished utterances (driven via __BUZZ_E2E_EMIT_TAURI_EVENT__) fold into the composer with correct spacing and no partial-replace case (there is none — dictationFold.test.mjs's header explains why), Esc stops, sending stops, and an absent model offers the download flow instead of failing silently. RED-proven on the send-stops case specifically, because that is the one that caught a real design bug: an earlier isSending-reactive auto-stop missed a fast/mocked send entirely (disabling MessageComposer.tsx's synchronous dictation.stop() reproduced the exact failure this spec now guards; restoring it fixed it; the spec file's sha256 was identical across both runs, evidence it wasn't rewritten to fit). Registered in playwright.config.ts's smoke project (already a declared seam)."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the composer ships a mic button."
+    status: "permanent"
+    added: "2026-08-14"
+
+  - path: "desktop/tests/e2e/dictation-transcript-scoping.spec.ts"
+    reason: "A verifier finding's RED-proof: dictation.rs's one process-global pipeline broadcasts dictation-transcript to every listener, and every mounted useDictation instance registered one — CommandPalette.tsx calls useDictation before its `if (!open) return null`, so its listener is live for as long as RunsScreen has the palette mounted, regardless of open state. This spec starts dictation in a channel pane's dock composer (via the workspace's team-thread pane, the same hosted-composer-next-to-the-palette setup workspace-palette-over-thread.spec.ts already uses), opens the palette, emits one transcript, and asserts it folds only into the composer that called start() — the palette's idle instance must not also fold it. Removing useDictation.ts's `status !== \"listening\"` guard turns this red, proving it actually exercises the fix rather than passing by construction. Registered in playwright.config.ts's smoke project (already a declared seam)."
+    owner: "vingilot/runs"
+    removable_when: "Never, while more than one useDictation instance can be mounted at once."
+    status: "permanent"
+    added: "2026-08-14"

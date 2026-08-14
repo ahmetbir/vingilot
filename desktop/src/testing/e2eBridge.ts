@@ -219,6 +219,11 @@ type E2eConfig = {
     };
     /** Native picker boundary result for Pocket voice import tests. */
     pocketVoiceImportResult?: "success" | "cancel" | "invalid";
+    /** `get_model_status`'s `stt` field, read by dictation's model-download
+     * offer (default "ready" — a spec sets "not_downloaded" to exercise it). */
+    dictationSttModelStatus?: "ready" | "not_downloaded";
+    /** When set, `start_dictation` rejects with this message. */
+    dictationStartError?: string;
     /** Home harbor (`vingilot_harbor`) command responses. See MockBridgeOptions. */
     harbor?: MockHarbor;
     /** Advertised HEAD for the first mock project without adding that branch. */
@@ -10891,7 +10896,39 @@ export function maybeInstallE2eTauriMocks() {
         return;
       }
       case "get_model_status":
-        return { stt: "ready", tts: "ready" };
+        return {
+          stt: activeConfig?.mock?.dictationSttModelStatus ?? "ready",
+          tts: "ready",
+        };
+      case "download_voice_models": {
+        // No real download in a mocked bridge — flips the mock STT status
+        // straight to "ready" so a spec proving the "absent model → offer the
+        // download flow" path doesn't need to wait out `useDictation`'s real
+        // 3-minute poll timeout.
+        const mock = activeConfig?.mock;
+        if (mock?.dictationSttModelStatus === "not_downloaded") {
+          mock.dictationSttModelStatus = "ready";
+        }
+        return null;
+      }
+      // Dictation (vingilot/docs/plans/2026-08-13-voice.md, Task 3): the
+      // standalone mic-to-draft pipeline, kept deliberately separate from
+      // huddle's STT commands (`dictation.rs`'s module header). No real
+      // pipeline runs in a mocked bridge — a spec drives a transcript by
+      // calling the existing `__BUZZ_E2E_EMIT_TAURI_EVENT__` generic helper
+      // with `"dictation-transcript"`, the same way it would fire from Rust.
+      case "start_dictation": {
+        const error = activeConfig?.mock?.dictationStartError;
+        if (error) throw new Error(error);
+        return null;
+      }
+      case "stop_dictation":
+        return null;
+      case "push_dictation_audio_pcm":
+        // Raw-binary command — accept and discard, same as the real
+        // pipeline does when idle. Nothing here produces a transcript; specs
+        // emit one directly (see the case comment above).
+        return null;
       case "get_tts_settings":
         return (
           activeConfig?.mock?.ttsSettings ?? {
