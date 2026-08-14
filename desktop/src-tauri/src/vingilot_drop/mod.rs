@@ -128,9 +128,11 @@ mod tests {
         let dir = temp_dir();
         let path = dir.path().join("small.bin");
         std::fs::write(&path, b"abc").expect("write the fixture");
-        // Sanity: three bytes is under the real cap and reads whole.
+        // Sanity: three bytes is under the real cap and reads whole. The cap
+        // itself is checked in a const block — it is a compile-time fact, and
+        // clippy rightly refuses a runtime assert on one.
+        const { assert!(MAX_DROP_BYTES > 3, "the cap must be past a tiny fixture") };
         assert_eq!(read_dropped(&path).expect("reads"), b"abc".to_vec());
-        assert!(MAX_DROP_BYTES > 3, "the cap must be past a tiny fixture");
     }
 
     #[test]
