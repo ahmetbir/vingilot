@@ -14,6 +14,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
+import { VINGILOT_FORCE_DARK } from "@/shared/theme/vingilotShell";
 import { waitForAnimations } from "../helpers/animations";
 
 const SHOTS = "test-results/restart-diff-screenshots";
@@ -296,7 +297,12 @@ test.describe("restart-diff screenshots", () => {
     await expect(restartAction).toHaveCSS("width", "72px");
     await expect(restartAction).toHaveCSS("height", "36px");
     await expect(agentCard.getByTestId("restart-diff-badge")).toHaveCount(0);
-    await expect(page.locator("html")).toHaveClass(/light/);
+    // An unseeded boot renders the light default — unless the Vingilot
+    // dark-only shell is pinned, in which case it renders dark and the
+    // dark:text-amber-400 branch is the one whose contrast matters here.
+    await expect(page.locator("html")).toHaveClass(
+      VINGILOT_FORCE_DARK ? /dark/ : /light/,
+    );
     expect(await renderedTextContrast(restartAction)).toBeGreaterThanOrEqual(
       WCAG_AA_NORMAL_TEXT_CONTRAST,
     );

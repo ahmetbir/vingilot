@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
+import { VINGILOT_FORCE_DARK } from "@/shared/theme/vingilotShell";
 
 const SHOTS = "test-results/buzz-theme";
 const THEME_STORAGE_KEY = "buzz-theme";
@@ -14,7 +15,7 @@ const THEME_STORAGE_KEY = "buzz-theme";
  * migration) either revives them with the force-dark switch off or retires
  * them with the old chrome.
  */
-const VINGILOT_FORCED_DARK_SHELL = true;
+const VINGILOT_FORCED_DARK_SHELL = VINGILOT_FORCE_DARK;
 const FORCED_DARK_REASON =
   "Vingilot P0 force-dark: light/theme-switch paths are unreachable (plan decision 1; e2e migration lands in P7)";
 const GLASS_BACKGROUND_STORAGE_KEY = "buzz-glass-background";
@@ -1030,9 +1031,16 @@ test("settings content uses the same inset surface as the main app", async ({
 });
 
 test("appearance hides accent picker under Buzz", async ({ page }) => {
-  await seedTheme(page, "buzz");
+  // "light" was only ever a vehicle here — the assertion is about Buzz
+  // themes hiding the picker, which holds identically under the forced-dark
+  // shell (P0 changed resolveEffectiveAccent for exactly these themes, so
+  // this coverage must keep running, not skip).
+  await seedTheme(page, VINGILOT_FORCED_DARK_SHELL ? "buzz-dark" : "buzz");
   await installMockBridge(page);
-  const panel = await openAppearance(page, "light");
+  const panel = await openAppearance(
+    page,
+    VINGILOT_FORCED_DARK_SHELL ? "dark" : "light",
+  );
   // The accent picker is hidden while a Buzz theme is active. Its neutral
   // swatch testid must not be present.
   await expect(page.getByTestId("accent-color-neutral")).toHaveCount(0);
@@ -1040,7 +1048,9 @@ test("appearance hides accent picker under Buzz", async ({ page }) => {
 });
 
 test("glass background keeps the content panel solid", async ({ page }) => {
-  await seedTheme(page, "buzz");
+  // Glass is theme-agnostic; "light" was only a vehicle. Under the forced-
+  // dark shell the identical toggle/opacity mechanics run against buzz-dark.
+  await seedTheme(page, VINGILOT_FORCED_DARK_SHELL ? "buzz-dark" : "buzz");
   await page.addInitScript(() => {
     (window as typeof window & { isTauri?: boolean }).isTauri = true;
     Object.defineProperty(navigator, "platform", {
@@ -1049,7 +1059,10 @@ test("glass background keeps the content panel solid", async ({ page }) => {
     });
   });
   await installMockBridge(page);
-  const panel = await openAppearance(page, "light");
+  const panel = await openAppearance(
+    page,
+    VINGILOT_FORCED_DARK_SHELL ? "dark" : "light",
+  );
 
   const toggle = page.getByTestId("glass-background-toggle");
   const opacitySlider = page.getByTestId("glass-opacity-slider");
@@ -1077,9 +1090,15 @@ test("glass background keeps the content panel solid", async ({ page }) => {
   await expect(opacitySlider).toHaveClass(/buzz-avatar-framing-slider/);
   await expect(opacitySlider).toHaveAttribute("aria-valuenow", "65");
   await expect(opacitySlider).toHaveCSS("height", "32px");
+  // The three-way color-mode control doesn't exist under the forced-dark
+  // shell (a static chip replaces it) — its radius rows drop out with it.
   const matchingRadiusControls = [
-    page.getByTestId("appearance-color-mode-control"),
-    page.getByTestId("appearance-color-mode-indicator"),
+    ...(VINGILOT_FORCED_DARK_SHELL
+      ? []
+      : [
+          page.getByTestId("appearance-color-mode-control"),
+          page.getByTestId("appearance-color-mode-indicator"),
+        ]),
     page.getByTestId("theme-style-trigger"),
     page.getByTestId("link-preview-style-trigger"),
     page.getByTestId("thread-layout-trigger"),
@@ -1229,9 +1248,15 @@ test("accent picker reveals/hides when toggling Buzz", async ({ page }) => {
   // Buzz tile — the picker should animate out and unmount. Reselecting a
   // non-Buzz tile brings it back. Asserts the presence toggle (the motion
   // wrapper) works end to end.
-  await seedTheme(page, "github-light");
+  // Under the forced-dark shell the same toggle runs against the dark pair:
+  // github-dark ↔ buzz-dark. The picker-presence mechanics are identical.
+  const nonBuzz = VINGILOT_FORCED_DARK_SHELL ? "github-dark" : "github-light";
+  const buzzTile = VINGILOT_FORCED_DARK_SHELL
+    ? "theme-option-buzz-dark"
+    : "theme-option-buzz";
+  await seedTheme(page, nonBuzz);
   await installMockBridge(page);
-  await openAppearance(page, "light");
+  await openAppearance(page, VINGILOT_FORCED_DARK_SHELL ? "dark" : "light");
   await expect(page.getByTestId("accent-color-neutral")).toBeVisible();
   const nonBuzzSettingOrder = await page
     .getByTestId("appearance-theme-card")
@@ -1248,7 +1273,7 @@ test("accent picker reveals/hides when toggling Buzz", async ({ page }) => {
 
   // Switch to Buzz — picker should leave (allow the exit animation to settle).
   await page.getByTestId("theme-style-trigger").click();
-  await page.getByTestId("theme-option-buzz").click();
+  await page.getByTestId(buzzTile).click();
   await expect(page.getByTestId("theme-style-trigger")).toHaveAttribute(
     "aria-expanded",
     "true",
@@ -1256,7 +1281,7 @@ test("accent picker reveals/hides when toggling Buzz", async ({ page }) => {
   await expect(page.getByTestId("accent-color-neutral")).toHaveCount(0);
 
   // Back to a non-Buzz theme — picker returns.
-  await page.getByTestId("theme-option-github-light").click();
+  await page.getByTestId(`theme-option-${nonBuzz}`).click();
   await expect(page.getByTestId("accent-color-neutral")).toBeVisible();
   await expect(page.getByTestId("theme-style-trigger")).toHaveAttribute(
     "aria-expanded",

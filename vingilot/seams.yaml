@@ -50,7 +50,8 @@
 # The registry is this file plus every vingilot/seams/*.yaml fragment. A
 # fragment is an ordinary seam file — same format, same parser, no
 # schema_version of its own — and they are globbed, so adding one needs no
-# change to any script. There is one today: vingilot/seams/brand-sweep.yaml.
+# change to any script (the redesign phases add one per phase, e.g.
+# vingilot/seams/brand-sweep.yaml, vingilot/seams/redesign-p0.yaml).
 #
 # Split rather than grow: the house rule is 1000 lines per file, ratcheted, and
 # check-seams.sh refuses a registry file over that ceiling (the desktop

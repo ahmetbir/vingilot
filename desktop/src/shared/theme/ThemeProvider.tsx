@@ -31,6 +31,7 @@ import {
   persistVingilotAppearance,
   readVingilotAppearance,
 } from "./vingilot-appearance";
+import { VINGILOT_FORCE_DARK } from "./vingilotShell";
 
 /**
  * Vingilot redesign P0: the shell is dark-first and dark-only — but the
@@ -39,14 +40,13 @@ import {
  * theme's pair, not to Buzz Dark unconditionally: picking Gruvbox still
  * gives you Gruvbox, just never its light half. Light themes without a dark
  * pair fall back to Buzz Dark. Follow-system and the light halves stay
- * compiled (and stored preferences untouched) but unreachable while this
- * flag is set. VETO POINT (plan decision 1): flips on the owner's word only.
+ * compiled (and stored preferences untouched) but unreachable while the
+ * flag is set. The flag itself lives in vingilotShell.ts so the adapted e2e
+ * specs read the same truth instead of a stale copy.
  */
-const VINGILOT_FORCE_DARK = true;
 
-/** The same truth, exported for UI that must not offer unreachable choices
- * (Settings' Color mode row reduces to Dark; the gallery lists dark themes
- * only). Reads better at call sites than the internal flag name. */
+/** Re-exported for UI that must not offer unreachable choices (Settings'
+ * Color mode row reduces to Dark; the gallery lists dark themes only). */
 export const VINGILOT_DARK_ONLY_SHELL = VINGILOT_FORCE_DARK;
 
 /** The dark theme actually applied for a selection under the forced-dark
@@ -687,13 +687,11 @@ export function ThemeProvider({
   // changes. applyTheme already applies the (Buzz-neutral-aware) accent in the
   // same synchronous batch as the theme vars — the flicker fix — so this effect
   // is idempotent on theme changes and simply covers accent-only changes.
-  useEffect(() => {
-    applyAccentColor(resolveEffectiveAccent(effectiveTheme, accentColor));
-  }, [accentColor, effectiveTheme]);
-
-  // Keep the Vingilot wash/accent attributes and the accent-derived inline
-  // vars in sync with the appearance state. `resolveEffectiveAccent` reads
-  // the persisted accent, so the setter writes storage before state.
+  // One effect owns the accent-derived inline vars AND the Vingilot
+  // wash/accent root attributes — the pre-P0 accent-only effect was strictly
+  // subsumed by this dependency set and running both meant applyAccentColor
+  // fired twice per change. `resolveEffectiveAccent` reads the persisted
+  // accent, so the setter below writes storage before state.
   useEffect(() => {
     applyVingilotAppearanceAttributes(vingilotAppearance);
     applyAccentColor(resolveEffectiveAccent(effectiveTheme, accentColor));
@@ -701,13 +699,12 @@ export function ThemeProvider({
 
   const setVingilotAppearance = useCallback(
     (next: Partial<VingilotAppearance>) => {
-      setVingilotAppearanceState((prev) => {
-        const merged = { ...prev, ...next };
-        // Storage first: the attribute/accent effect and the module-level
-        // resolveEffectiveAccent both read the persisted value.
-        persistVingilotAppearance(merged);
-        return merged;
-      });
+      // Persist outside the updater (an updater must be pure — StrictMode
+      // double-invokes it), and before setState so the effect above and the
+      // module-level resolveEffectiveAccent read the new value.
+      const merged = { ...readVingilotAppearance(), ...next };
+      persistVingilotAppearance(merged);
+      setVingilotAppearanceState(merged);
     },
     [],
   );

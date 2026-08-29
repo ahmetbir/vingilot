@@ -391,17 +391,24 @@ export interface ThemeInfo {
  * Vingilot redesign P0 shell palette (mockup `vingilot/design/mockup/`).
  * Buzz Dark no longer reads GitHub Dark's editor colors for its base
  * surfaces: the whole shadcn var set is derived from the mockup's content
- * surface (`--content` #1a1a1a), ink (`--ink` #e8e8ec) and a solid
- * approximation of the muted ink (`--mut` = white at 40% over #1a1a1a).
+ * surface (`--content` #1a1a1a), ink (`--ink` #e8e8ec) and a muted ink.
  * Feeding these seeds through the existing `createThemeVars` pipeline keeps
  * every derived token (borders, popovers, hover surfaces, sidebar chrome)
  * internally consistent without touching any component. Git decoration and
  * terminal palette colors still come from the GitHub Dark base theme.
+ *
+ * The muted seed deviates from the mockup ON PURPOSE: the mockup's `--mut`
+ * (white at 40% over #1a1a1a ≈ #767676) measures 2.5:1 once Settings'
+ * `text-muted-foreground/70` compounds on it — below even the WCAG large-
+ * text floor (P0 verify, MAJOR 4). #8f939b keeps the same cool quietness at
+ * ~4.9:1 full strength, so muted text passes AA wherever it renders at full
+ * opacity; the /70 subcopy site is pulled up to full strength in
+ * vingilot-tokens.css for the same reason.
  */
 const VINGILOT_DARK_SHELL = {
   bg: "#1a1a1a",
   fg: "#e8e8ec",
-  comment: "#767676",
+  comment: "#8f939b",
 } as const;
 
 export function extractThemeInfo(

@@ -4,8 +4,8 @@
  * The redesigned shell is dark-only; the user-facing appearance choice is a
  * sidebar *wash* (the window's gradient ground) and an *accent*. Both are
  * applied as data attributes on the document root — the CSS token layer in
- * `shared/styles/globals/theme.css` maps each value onto the gradient and
- * accent custom properties. The accent additionally feeds the shadcn
+ * `shared/styles/globals/vingilot-tokens.css` maps each value onto the
+ * gradient and accent custom properties. The accent additionally feeds the shadcn
  * `--primary` family through `ThemeProvider`'s existing accent pipeline.
  *
  * Persistence follows the app's exclusive convention for UI preferences:
@@ -44,8 +44,11 @@ export const DEFAULT_VINGILOT_ACCENT: VingilotAccent = "ember";
  * Accent base colors from the mockup (`vingilot/design/mockup/vingilot.js`).
  * The hex feeds `applyAccentColor`, which derives the `--primary` family and
  * a contrast-safe foreground; the soft/text variants are stylesheet-owned
- * (`--vingilot-accent-soft` / `--vingilot-accent-text` in theme.css) and
- * switch on the `data-vingilot-accent` root attribute.
+ * (`--vingilot-accent-soft` / `--vingilot-accent-text` in
+ * vingilot-tokens.css) and switch on the `data-vingilot-accent` root
+ * attribute. The hex values here and there are the same table by hand —
+ * nothing links them mechanically yet; P1's tray, the first consumer of the
+ * CSS half, should either single-source them or add a parity test.
  */
 export const VINGILOT_ACCENT_HEX: Record<VingilotAccent, string> = {
   ember: "#e0a35f",

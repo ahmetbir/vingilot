@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
+import { VINGILOT_FORCE_DARK } from "@/shared/theme/vingilotShell";
 
 /**
  * The cold-boot gate's mark, read in the built bundle.
@@ -219,7 +220,7 @@ test("the boot gate's mark is sailing, and the frames really change", async ({
  * force-dark switch (P7 e2e migration owns the revival). The mark asset
  * itself is untouched — owner: logos stay.
  */
-const VINGILOT_FORCED_DARK_SHELL = true;
+const VINGILOT_FORCED_DARK_SHELL = VINGILOT_FORCE_DARK;
 
 test("the mark is painted in the theme's ink, on both themes", async ({
   page,

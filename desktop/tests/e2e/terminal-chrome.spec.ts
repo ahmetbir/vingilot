@@ -419,6 +419,13 @@ test("the terminal's palette follows a theme change", async ({ page }) => {
     root.style.setProperty("--foreground", "300 100% 50%");
     root.style.setProperty("--primary", "60 100% 50%");
     root.style.setProperty("--background", "120 100% 25%");
+    // Under buzz-dark (the Vingilot shell's default) the content surface
+    // re-declares --background from --buzz-content-dark on a descendant
+    // (theme.css [data-buzz-content-surface]), and a descendant declaration
+    // beats any inherited root value — inline or not. Redirect the seed the
+    // scoped rule reads too, or the pane keeps #1a1a1a and this test would
+    // be asserting against the wrong cascade, not against the terminal.
+    root.style.setProperty("--buzz-content-dark", "120 100% 25%");
   });
 
   const foreground = await appColor(page, "text-foreground", "color");

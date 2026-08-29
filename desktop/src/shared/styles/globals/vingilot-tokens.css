@@ -15,6 +15,18 @@
  * declarations win over Tailwind's layers without `!important`.
  * ============================================================================
  */
+/*
+ * Settings subcopy renders `text-muted-foreground/70` — with the dark
+ * shell's muted ink that compounds to 2.5:1 on #1a1a1a, under the WCAG
+ * large-text floor (P0 verify, MAJOR 4). The mockup never applies --mut at
+ * 70%, so full strength is the faithful reading, and full-strength muted
+ * (#8f939b seed) measures ~4.9:1. Unlayered on purpose: it must win over
+ * the Tailwind utility.
+ */
+[data-settings-subcopy] {
+  color: hsl(var(--muted-foreground));
+}
+
 :root {
   /* Surfaces + ink (mockup: --content/--content2/--term/--ink/--mut/--bor) */
   --vingilot-content: #1a1a1a;

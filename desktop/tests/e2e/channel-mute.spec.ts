@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { TEST_IDENTITIES, installMockBridge } from "../helpers/bridge";
+import { VINGILOT_FORCE_DARK } from "@/shared/theme/vingilotShell";
 
 const MOCK_PUBKEY = "deadbeef".repeat(8);
 const ENGINEERING_CHANNEL_ID = "1c7e1c02-87bb-5e88-b2da-5a7a9432d0c9";
@@ -79,12 +80,19 @@ test.describe("channel muting", () => {
     await page.getByTestId("channel-random").click();
     await expect(page.getByTestId("chat-title")).toHaveText("random");
 
+    // An unseeded boot used to render the light default (opacity-50); under
+    // the Vingilot dark-only shell it renders dark, where SidebarSection's
+    // `dark:opacity-45` applies — the same value 02b asserts explicitly.
+    const dimmed = VINGILOT_FORCE_DARK ? "0.45" : "0.5";
     const engRow = page.getByTestId("channel-engineering");
     const engLabel = engRow.locator("[data-sidebar-row-label]");
     await expect(engRow).toBeVisible();
     await expect(engRow).toHaveCSS("opacity", "1");
-    await expect(engLabel).toHaveCSS("opacity", "0.5");
-    await expect(engRow.locator("svg.lucide-hash")).toHaveCSS("opacity", "0.5");
+    await expect(engLabel).toHaveCSS("opacity", dimmed);
+    await expect(engRow.locator("svg.lucide-hash")).toHaveCSS(
+      "opacity",
+      dimmed,
+    );
     await expect(engRow.locator("svg.lucide-bell-off")).toHaveCount(1);
   });
 
