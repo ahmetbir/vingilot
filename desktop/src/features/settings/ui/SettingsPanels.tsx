@@ -35,7 +35,11 @@ import { LocalArchiveSettingsCard } from "@/features/local-archive/ui/LocalArchi
 import { cn } from "@/shared/lib/cn";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { Badge } from "@/shared/ui/badge";
-import { isBuzzTheme, useTheme } from "@/shared/theme/ThemeProvider";
+import {
+  VINGILOT_DARK_ONLY_SHELL,
+  isBuzzTheme,
+  useTheme,
+} from "@/shared/theme/ThemeProvider";
 import {
   LIGHT_THEMES,
   SYNTAX_THEMES,
@@ -457,7 +461,12 @@ function ThemeSettingsCard() {
       ? "dark"
       : "light";
 
-  const [selectedMode, setSelectedMode] = useState<AppearanceMode>(activeMode);
+  // Vingilot dark-only shell (plan decision 1): the mode is pinned to dark —
+  // the gallery then lists exactly the reachable themes (dark variants), and
+  // the System/Light choices never render as dead buttons.
+  const [selectedMode, setSelectedMode] = useState<AppearanceMode>(
+    VINGILOT_DARK_ONLY_SHELL ? "dark" : activeMode,
+  );
   const [themeStyleExpanded, setThemeStyleExpanded] = useState(false);
 
   const getVars = (name: SyntaxThemeName) =>
@@ -676,42 +685,54 @@ function ThemeSettingsCard() {
                 className="text-sm font-normal text-muted-foreground/70"
                 data-settings-subcopy
               >
-                Follow your system or choose a light or dark appearance.
+                {VINGILOT_DARK_ONLY_SHELL
+                  ? "Vingilot is dark. Pick any dark theme style below."
+                  : "Follow your system or choose a light or dark appearance."}
               </p>
             </div>
-            <fieldset
-              className="relative isolate grid h-8 w-[15rem] shrink-0 grid-cols-3 overflow-hidden rounded-md bg-muted/45 p-0.5"
-              data-testid="appearance-color-mode-control"
-            >
-              <legend className="sr-only">Color mode</legend>
-              <div
-                aria-hidden="true"
-                className="absolute bottom-0.5 left-0.5 top-0.5 z-0 rounded-md bg-background shadow-sm transition-transform duration-[250ms] ease-out motion-reduce:transition-none"
-                data-testid="appearance-color-mode-indicator"
-                style={{
-                  transform: `translateX(${APPEARANCE_MODE_OPTIONS.findIndex((option) => option.mode === selectedMode) * 100}%)`,
-                  width: "calc((100% - 4px) / 3)",
-                }}
-              />
-              {APPEARANCE_MODE_OPTIONS.map(({ mode, label, Icon }) => (
-                <button
-                  aria-pressed={selectedMode === mode}
-                  className={cn(
-                    "relative z-10 flex h-full items-center justify-center gap-1.5 rounded-md bg-transparent px-2.5 text-xs font-medium transition-colors duration-[250ms] ease-out focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-                    selectedMode === mode
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  data-testid={`appearance-mode-${mode}`}
-                  key={mode}
-                  onClick={() => handleModeSelect(mode)}
-                  type="button"
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              ))}
-            </fieldset>
+            {VINGILOT_DARK_ONLY_SHELL ? (
+              <span
+                className="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-muted/45 px-3 text-xs font-medium text-foreground"
+                data-testid="appearance-color-mode-dark-only"
+              >
+                <Moon className="h-3.5 w-3.5" />
+                Dark
+              </span>
+            ) : (
+              <fieldset
+                className="relative isolate grid h-8 w-[15rem] shrink-0 grid-cols-3 overflow-hidden rounded-md bg-muted/45 p-0.5"
+                data-testid="appearance-color-mode-control"
+              >
+                <legend className="sr-only">Color mode</legend>
+                <div
+                  aria-hidden="true"
+                  className="absolute bottom-0.5 left-0.5 top-0.5 z-0 rounded-md bg-background shadow-sm transition-transform duration-[250ms] ease-out motion-reduce:transition-none"
+                  data-testid="appearance-color-mode-indicator"
+                  style={{
+                    transform: `translateX(${APPEARANCE_MODE_OPTIONS.findIndex((option) => option.mode === selectedMode) * 100}%)`,
+                    width: "calc((100% - 4px) / 3)",
+                  }}
+                />
+                {APPEARANCE_MODE_OPTIONS.map(({ mode, label, Icon }) => (
+                  <button
+                    aria-pressed={selectedMode === mode}
+                    className={cn(
+                      "relative z-10 flex h-full items-center justify-center gap-1.5 rounded-md bg-transparent px-2.5 text-xs font-medium transition-colors duration-[250ms] ease-out focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+                      selectedMode === mode
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    data-testid={`appearance-mode-${mode}`}
+                    key={mode}
+                    onClick={() => handleModeSelect(mode)}
+                    type="button"
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </button>
+                ))}
+              </fieldset>
+            )}
           </SettingsOptionRow>
 
           <SettingsOptionRow data-testid="theme-style-row">

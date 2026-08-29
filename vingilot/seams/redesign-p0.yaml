@@ -1,0 +1,67 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P0 (foundation)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: phase P0 of the 2026-08-29 redesign
+# (vingilot/docs/plans/2026-08-29-redesign.md) — the token foundation only.
+# One class of change: the dark-only Vingilot shell palette (mockup
+# vingilot/design/mockup/) mapped onto the existing shadcn/Buzz token
+# machinery, the five selectable washes and accents, the force-dark switch,
+# and wash/accent persistence. Explicitly NOT covered: any layout or chrome
+# replacement (P1+), terminal font/DOM changes (P2 owns the terminal), and
+# the boot mark / brand assets (owner: logos stay).
+
+seams:
+  - path: "desktop/src/shared/styles/globals/theme.css"
+    reason: "Two changes, both color-plumbing, no layout: (1) the static .dark shadcn block is remapped from Catppuccin Macchiato to the Vingilot dark-shell palette (#1a1a1a content / #e8e8ec ink / ember #e0a35f primary) as a pre-JS first-paint fallback — at runtime ThemeProvider inline-writes the same palette, derived from the same seeds, so the block only covers the frames before JS lands; the Catppuccin light block above it is deliberately untouched and dormant under the forced dark shell. Tokens with no mockup analogue (destructive, chart-*, huddle-*) keep their existing dark values. (2) body font-family single-sourced through --vingilot-font-sans (same Inter stack, no visual change). The new Vingilot token layer itself lives in the fork-owned sibling vingilot-tokens.css — this file was already one line under the 1000-line ratchet's ceiling headroom and may not grow by a hundred lines."
+    owner: "vingilot/redesign"
+    removable_when: "P7 sweep may consolidate; removable only if upstream grows a themeable token layer the fork can fill without editing this file."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/styles/globals/vingilot-tokens.css"
+    reason: "New, fork-owned: the unlayered Vingilot P0 token layer. --vingilot-content/content2/term/ink/mut/bor, --vingilot-accent/-text/-soft, --vingilot-font-sans/-mono, four wash overrides (graphite/slate/ember/ink) keyed on data-vingilot-wash that retarget the existing --buzz-gradient-dark-top/bottom pair (the default buzz wash IS that pair — byte-identical to the mockup), and four accent overrides keyed on data-vingilot-accent. A separate file rather than a theme.css section because the ratchet forbids theme.css growing past 1000 lines, and because the layer is wholly fork vocabulary with no upstream lines to interleave with."
+    owner: "vingilot/redesign"
+    removable_when: "Never, while the redesign ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/styles/globals.css"
+    reason: "One line: imports the fork-owned vingilot-tokens.css after theme.css so the token layer rides the same global stylesheet pipeline (import order is cosmetic — both files' :root rules are unlayered and non-overlapping)."
+    owner: "vingilot/redesign"
+    removable_when: "With vingilot-tokens.css."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/theme/ThemeProvider.tsx"
+    reason: "The force-dark switch and the appearance persistence home. VINGILOT_FORCE_DARK pins the resolved effectiveTheme to the DARK member of the selected theme's pair (resolveVingilotDarkTheme: dark themes pass through, light themes land on their dark pair, unpaired lights fall to buzz-dark) — the owner kept the Theme style gallery alive on 2026-08-29 ('bunlari kullanalim ama ya'), so only the light halves and follow-system are unreachable, not the other dark themes. Also: resolveEffectiveAccent returns the persisted Vingilot accent hex for Buzz themes (ember default on --primary), stale LIGHT-theme FOUC caches are skipped, {wash, accent} state persists via the module's localStorage-key-per-concern pattern (vingilotAppearance + setVingilotAppearance on the context for the P1 tray), and VINGILOT_DARK_ONLY_SHELL is exported for UI that must not offer unreachable choices."
+    owner: "vingilot/redesign"
+    removable_when: "When the owner asks for light mode back (force-dark reverts to the compiled paths) or upstream exposes a pluggable appearance store."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/settings/ui/SettingsPanels.tsx"
+    reason: "Honest UI reduction under the dark-only shell (owner, 2026-08-29, on the Theme settings screenshot: the Color mode row 'gecersiz olmus'). When VINGILOT_DARK_ONLY_SHELL: the System/Light/Dark segmented control renders as a single static Dark chip with matching subcopy (no dead buttons), and selectedMode is pinned to 'dark' so the existing mode-branching gallery lists exactly the reachable themes — the dark variants. The gallery, glass, prominent-tab, and (non-Buzz) accent picker all keep working unchanged; handleModeSelect stays compiled but unreachable."
+    owner: "vingilot/redesign"
+    removable_when: "With the force-dark switch, or when P7 replaces this settings card wholesale."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/theme/theme-loader.ts"
+    reason: "The palette seed swap. extractThemeInfo special-cases buzz-dark to return the Vingilot shell seeds (bg #1a1a1a, fg #e8e8ec, comment #767676 — the mockup's --content/--ink and a solid composite of --mut over the content surface) instead of GitHub Dark's editor colors, so the existing createThemeVars pipeline derives every inline-written shadcn token (borders, popovers, hover surfaces, sidebar chrome, huddle vars) consistently with zero component edits. Git decoration colors and the terminal palette still come from the GitHub Dark base theme."
+    owner: "vingilot/redesign"
+    removable_when: "If a first-class 'vingilot' theme entry replaces the buzz-dark alias in a later phase."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/theme/vingilot-appearance.ts"
+    reason: "New, fork-owned: the wash/accent vocabulary in one shy module — the five washes and five accents from the mockup's setSide/setAccent tables, the accent hex map that feeds applyAccentColor, throw-safe read/persist over the vingilot-wash / vingilot-accent localStorage keys, and the root-attribute stamper (data-vingilot-wash / data-vingilot-accent) the CSS token layer keys on. Kept beside ThemeProvider rather than inside it so the 732-line provider grows minimally and the P1 tray imports types from here."
+    owner: "vingilot/redesign"
+    removable_when: "Never, while the redesign ships; contents may migrate into a successor appearance provider in P1+."
+    status: "permanent"
+    added: "2026-08-29"

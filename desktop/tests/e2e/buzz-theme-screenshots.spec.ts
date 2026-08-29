@@ -5,6 +5,18 @@ import { installMockBridge } from "../helpers/bridge";
 
 const SHOTS = "test-results/buzz-theme";
 const THEME_STORAGE_KEY = "buzz-theme";
+
+/**
+ * Vingilot redesign P0 (plan decision 1, 2026-08-29-redesign.md): the shell
+ * is pinned to Buzz Dark — light mode, theme switching, follow-system, and
+ * the non-Buzz accent picker are compiled but unreachable. Specs that assert
+ * those behaviors are skipped behind this flag rather than deleted; P7 (e2e
+ * migration) either revives them with the force-dark switch off or retires
+ * them with the old chrome.
+ */
+const VINGILOT_FORCED_DARK_SHELL = true;
+const FORCED_DARK_REASON =
+  "Vingilot P0 force-dark: light/theme-switch paths are unreachable (plan decision 1; e2e migration lands in P7)";
 const GLASS_BACKGROUND_STORAGE_KEY = "buzz-glass-background";
 const GLASS_OPACITY_STORAGE_KEY = "buzz-glass-opacity";
 const PROMINENT_ACTIVE_TAB_STORAGE_KEY = "buzz-prominent-active-tab";
@@ -384,6 +396,7 @@ async function emitNativeThemeChange(page: Page, theme: "light" | "dark") {
 }
 
 test("buzz light sidebar gradient", async ({ page }) => {
+  test.skip(VINGILOT_FORCED_DARK_SHELL, FORCED_DARK_REASON);
   await seedTheme(page, "buzz");
   await installMockBridge(page);
   await openChannel(page);
@@ -469,10 +482,41 @@ async function openAppearance(page: Page, mode: "system" | "light" | "dark") {
   await page.getByTestId("settings-nav-appearance").click();
   const panel = page.getByTestId("settings-theme");
   await expect(panel).toBeVisible({ timeout: 10_000 });
-  await page.getByTestId(`appearance-mode-${mode}`).click();
+  if (VINGILOT_FORCED_DARK_SHELL) {
+    // The segmented control is a static Dark chip now: light/system callers
+    // are asserting unreachable behavior (runtime skip), and dark callers
+    // have nothing to click — the mode is already pinned.
+    test.skip(mode !== "dark", FORCED_DARK_REASON);
+  } else {
+    await page.getByTestId(`appearance-mode-${mode}`).click();
+  }
   await waitForAnimations(page);
   return panel;
 }
+
+test("color mode reduces to a single dark chip under the Vingilot shell", async ({
+  page,
+}) => {
+  test.skip(!VINGILOT_FORCED_DARK_SHELL, "only meaningful under forced dark");
+  await seedTheme(page, "buzz-dark");
+  await installMockBridge(page);
+  const panel = await openAppearance(page, "dark");
+  // The three-way System/Light/Dark control must not render — not even
+  // disabled: a dead button is a lie about what the shell can do.
+  await expect(panel.getByTestId("appearance-color-mode-control")).toHaveCount(
+    0,
+  );
+  await expect(page.getByTestId("appearance-mode-light")).toHaveCount(0);
+  await expect(page.getByTestId("appearance-mode-system")).toHaveCount(0);
+  const chip = panel.getByTestId("appearance-color-mode-dark-only");
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveText(/Dark/);
+  // The Theme style gallery stays alive (owner: "bunlari kullanalim ama ya")
+  // and, with the mode pinned, lists dark tiles.
+  await panel.getByTestId("theme-style-trigger").click();
+  await waitForAnimations(page);
+  await expect(panel.getByTestId("theme-style-options")).toBeVisible();
+});
 
 test("appearance groups theme and preferences into labeled rows", async ({
   page,
@@ -638,6 +682,7 @@ test("appearance picker — dark tab (Buzz Dark)", async ({ page }) => {
 });
 
 test("settings nav uses Buzz active pill + hover (light)", async ({ page }) => {
+  test.skip(VINGILOT_FORCED_DARK_SHELL, FORCED_DARK_REASON);
   await seedTheme(page, "buzz");
   await installMockBridge(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -752,6 +797,9 @@ test("prominent active tab is opt-in and switches selection surfaces", async ({
 test("prominent channel and direct-message rows share one flat active state", async ({
   page,
 }) => {
+  // Asserts buzz-LIGHT's 0.82-white active surface; the dark equivalent
+  // belongs to P7's e2e migration alongside the new chrome.
+  test.skip(VINGILOT_FORCED_DARK_SHELL, FORCED_DARK_REASON);
   await seedTheme(page, "buzz");
   await page.addInitScript(
     ({ key }) => window.localStorage.setItem(key, "true"),
@@ -805,6 +853,10 @@ for (const { activeSurface, hoverSurface, mode, theme } of [
   test(`non-prominent ${theme} selection matches production`, async ({
     page,
   }) => {
+    test.skip(
+      VINGILOT_FORCED_DARK_SHELL && mode !== "dark",
+      FORCED_DARK_REASON,
+    );
     await seedTheme(page, theme);
     await page.addInitScript(
       ({ key }) => window.localStorage.setItem(key, "false"),

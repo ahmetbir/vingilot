@@ -66,20 +66,27 @@
   }
 
   .dark {
-    /* Catppuccin Macchiato (mauve accent) */
+    /*
+     * Vingilot redesign P0 dark shell (mockup vingilot/design/mockup/).
+     * Static fallback for the pre-JS first paint only: at runtime
+     * ThemeProvider derives the same palette from the Buzz Dark seeds
+     * (#1a1a1a / #e8e8ec / #767676) via createThemeVars and inline-writes
+     * it on :root, which wins over this block. The old Catppuccin
+     * Macchiato values survive only in the (dormant) light block above.
+     */
     --radius: 0.625rem;
-    --background: 232 23.4% 18.43%;
-    --foreground: 227 68.25% 87.65%;
-    --card: 232 23.4% 18.43%;
-    --card-foreground: 227 68.25% 87.65%;
-    --popover: 232 23.4% 18.43%;
-    --popover-foreground: 227 68.25% 87.65%;
-    --primary: 267 82.69% 79.61%;
-    --primary-foreground: 232 23.4% 18.43%;
-    --secondary: 230 18.8% 26.08%;
-    --secondary-foreground: 227 68.25% 87.65%;
-    --muted: 230 18.8% 26.08%;
-    --muted-foreground: 228 39.22% 80%;
+    --background: 0 0% 10.2%;
+    --foreground: 240 9.5% 91.8%;
+    --card: 0 0% 10.2%;
+    --card-foreground: 240 9.5% 91.8%;
+    --popover: 0 0% 13.7%;
+    --popover-foreground: 240 9.5% 91.8%;
+    --primary: 31.6 67.5% 62.5%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 15.7%;
+    --secondary-foreground: 240 9.5% 91.8%;
+    --muted: 0 0% 15.7%;
+    --muted-foreground: 0 0% 46.3%;
     --huddle-drawer-surface: 230 18.8% 26.08%;
     --huddle-control-surface: 231 15.61% 33.92%;
     --huddle-control-hover-surface: 231 15.61% 38%;
@@ -90,29 +97,29 @@
     --huddle-popover-border: 231 15.61% 38%;
     --huddle-tooltip-surface: 231 15.61% 33.92%;
     --huddle-tooltip-foreground: 227 68.25% 87.65%;
-    --accent: 230 18.8% 26.08%;
-    --accent-foreground: 227 68.25% 87.65%;
+    --accent: 0 0% 15.7%;
+    --accent-foreground: 240 9.5% 91.8%;
     --destructive: 351 73.91% 72.94%;
-    --destructive-foreground: 232 23.4% 18.43%;
-    --border: 231 15.61% 33.92%;
-    --input: 231 15.61% 33.92%;
-    --ring: 227 68.25% 87.65%;
+    --destructive-foreground: 0 0% 10.2%;
+    --border: 0 0% 22.4%;
+    --input: 0 0% 22.4%;
+    --ring: 240 9.5% 91.8%;
     --chart-1: 333 20.78% 38.04%;
     --chart-2: 193 19.61% 38.04%;
     --chart-3: 224 26.67% 41.18%;
     --chart-4: 30 8.24% 42.35%;
     --chart-5: 139 10.98% 38.82%;
-    --sidebar: 234 22.75% 17.25%;
-    --sidebar-background: 234 22.75% 17.25%;
-    --sidebar-foreground: 227 68.25% 87.65%;
-    --sidebar-primary: 267 82.69% 79.61%;
-    --sidebar-primary-foreground: 232 23.4% 18.43%;
+    --sidebar: 0 0% 5.5%;
+    --sidebar-background: 0 0% 5.5%;
+    --sidebar-foreground: 240 9.5% 91.8%;
+    --sidebar-primary: 31.6 67.5% 62.5%;
+    --sidebar-primary-foreground: 0 0% 0%;
     --sidebar-active: var(--sidebar-primary);
     --sidebar-active-foreground: var(--sidebar-primary-foreground);
-    --sidebar-accent: 232 23.4% 18.43%;
-    --sidebar-accent-foreground: 227 68.25% 87.65%;
-    --sidebar-border: 231 15.61% 33.92%;
-    --sidebar-ring: 231 15.61% 33.92%;
+    --sidebar-accent: 0 0% 10.2%;
+    --sidebar-accent-foreground: 240 9.5% 91.8%;
+    --sidebar-border: 0 0% 22.4%;
+    --sidebar-ring: 0 0% 22.4%;
   }
 
   * {
@@ -152,7 +159,15 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: "Inter Variable", Inter, "Avenir Next", "Segoe UI", sans-serif;
+    /* Vingilot P0: same Inter stack, single-sourced as a token below. */
+    font-family: var(
+      --vingilot-font-sans,
+      "Inter Variable",
+      Inter,
+      "Avenir Next",
+      "Segoe UI",
+      sans-serif
+    );
   }
 
   /*

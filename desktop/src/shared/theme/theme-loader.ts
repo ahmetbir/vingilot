@@ -387,14 +387,34 @@ export interface ThemeInfo {
   terminalPalette: TerminalPalette;
 }
 
+/**
+ * Vingilot redesign P0 shell palette (mockup `vingilot/design/mockup/`).
+ * Buzz Dark no longer reads GitHub Dark's editor colors for its base
+ * surfaces: the whole shadcn var set is derived from the mockup's content
+ * surface (`--content` #1a1a1a), ink (`--ink` #e8e8ec) and a solid
+ * approximation of the muted ink (`--mut` = white at 40% over #1a1a1a).
+ * Feeding these seeds through the existing `createThemeVars` pipeline keeps
+ * every derived token (borders, popovers, hover surfaces, sidebar chrome)
+ * internally consistent without touching any component. Git decoration and
+ * terminal palette colors still come from the GitHub Dark base theme.
+ */
+const VINGILOT_DARK_SHELL = {
+  bg: "#1a1a1a",
+  fg: "#e8e8ec",
+  comment: "#767676",
+} as const;
+
 export function extractThemeInfo(
   themeName: string,
   theme: ThemeRegistrationRaw,
 ): ThemeInfo {
-  const bg =
-    (theme.colors?.["editor.background"] as string | undefined) || "#1e1e1e";
-  const fg =
-    (theme.colors?.["editor.foreground"] as string | undefined) || "#d4d4d4";
+  const isVingilotShell = themeName === BUZZ_DARK_THEME_NAME;
+  const bg = isVingilotShell
+    ? VINGILOT_DARK_SHELL.bg
+    : (theme.colors?.["editor.background"] as string | undefined) || "#1e1e1e";
+  const fg = isVingilotShell
+    ? VINGILOT_DARK_SHELL.fg
+    : (theme.colors?.["editor.foreground"] as string | undefined) || "#d4d4d4";
   const gitColors = extractGitColors(
     theme.colors as Record<string, string> | undefined,
   );
@@ -402,10 +422,12 @@ export function extractThemeInfo(
     name: themeName,
     bg,
     fg,
-    comment: extractCommentColor(
-      theme.settings as ReadonlyArray<ThemeSetting> | undefined,
-      fg,
-    ),
+    comment: isVingilotShell
+      ? VINGILOT_DARK_SHELL.comment
+      : extractCommentColor(
+          theme.settings as ReadonlyArray<ThemeSetting> | undefined,
+          fg,
+        ),
     ...gitColors,
     terminalPalette: extractTerminalPalette(theme),
   };

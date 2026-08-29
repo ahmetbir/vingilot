@@ -1,0 +1,94 @@
+/*
+ * ============================================================================
+ * Vingilot redesign P0 token layer (fork-owned file).
+ *
+ * The redesign palette from vingilot/design/mockup/vingilot.css, exposed as
+ * fork-owned custom properties. These are stylesheet-owned (never
+ * inline-written by ThemeProvider), so `data-vingilot-wash` /
+ * `data-vingilot-accent` root attributes can switch them reliably. The wash
+ * feeds the existing Buzz gradient machinery (theme.css) by overriding
+ * `--buzz-gradient-dark-*`; the accent's base hex additionally reaches the
+ * shadcn `--primary` family through ThemeProvider's accent pipeline. Wash and
+ * accent names live in shared/theme/vingilot-appearance.ts.
+ *
+ * Deliberately unlayered, like theme.css's gradient rules: unlayered
+ * declarations win over Tailwind's layers without `!important`.
+ * ============================================================================
+ */
+:root {
+  /* Surfaces + ink (mockup: --content/--content2/--term/--ink/--mut/--bor) */
+  --vingilot-content: #1a1a1a;
+  --vingilot-content2: #232323;
+  --vingilot-term: #101014;
+  --vingilot-ink: #e8e8ec;
+  --vingilot-mut: rgba(255, 255, 255, 0.4);
+  --vingilot-bor: rgba(255, 255, 255, 0.07);
+
+  /* Accent — ember default (mockup: --accent/--accent-text/--accent-soft) */
+  --vingilot-accent: #e0a35f;
+  --vingilot-accent-text: #eebc80;
+  --vingilot-accent-soft: rgba(224, 163, 95, 0.14);
+
+  /* Font stacks. UI = Inter, mono = JetBrains Mono, both bundled via
+   * fontsource (loaded in main.tsx). xterm's rendered glyphs deliberately do
+   * NOT consume these — paneModel's CELL_PX measurement depends on xterm's
+   * stock stack (see Terminal.tsx). */
+  --vingilot-font-sans:
+    "Inter Variable", Inter, "Avenir Next", "Segoe UI", sans-serif;
+  --vingilot-font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/*
+ * Sidebar washes (mockup setSide table). "buzz" is the default pair already
+ * carried by --buzz-gradient-dark-top/bottom in theme.css; the other four
+ * override that pair so every existing gradient consumer (underlay, dark
+ * layer, glass color-mix, mobile sidebar) follows for free.
+ */
+:root[data-vingilot-wash="graphite"] {
+  --buzz-gradient-dark-top: #2c2c30;
+  --buzz-gradient-dark-bottom: #1a1a1e;
+}
+
+:root[data-vingilot-wash="slate"] {
+  --buzz-gradient-dark-top: #2a3240;
+  --buzz-gradient-dark-bottom: #10151d;
+}
+
+:root[data-vingilot-wash="ember"] {
+  --buzz-gradient-dark-top: #4a2e16;
+  --buzz-gradient-dark-bottom: #140e0a;
+}
+
+:root[data-vingilot-wash="ink"] {
+  --buzz-gradient-dark-top: #161616;
+  --buzz-gradient-dark-bottom: #161616;
+}
+
+/*
+ * Accents (mockup setAccent table). Ember is the :root default above. The
+ * soft tint is the accent at 14% alpha (the mockup's hex+'24' suffix).
+ */
+:root[data-vingilot-accent="orange"] {
+  --vingilot-accent: #ff6b35;
+  --vingilot-accent-text: #ff9c6e;
+  --vingilot-accent-soft: rgba(255, 107, 53, 0.14);
+}
+
+:root[data-vingilot-accent="mauve"] {
+  --vingilot-accent: #c6a0f6;
+  --vingilot-accent-text: #d6bcf9;
+  --vingilot-accent-soft: rgba(198, 160, 246, 0.14);
+}
+
+:root[data-vingilot-accent="teal"] {
+  --vingilot-accent: #7fb2c9;
+  --vingilot-accent-text: #a3cbdc;
+  --vingilot-accent-soft: rgba(127, 178, 201, 0.14);
+}
+
+:root[data-vingilot-accent="green"] {
+  --vingilot-accent: #8fb97c;
+  --vingilot-accent-text: #aacd9a;
+  --vingilot-accent-soft: rgba(143, 185, 124, 0.14);
+}

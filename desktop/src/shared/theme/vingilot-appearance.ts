@@ -1,0 +1,100 @@
+/**
+ * Vingilot redesign P0 — appearance preference (wash + accent).
+ *
+ * The redesigned shell is dark-only; the user-facing appearance choice is a
+ * sidebar *wash* (the window's gradient ground) and an *accent*. Both are
+ * applied as data attributes on the document root — the CSS token layer in
+ * `shared/styles/globals/theme.css` maps each value onto the gradient and
+ * accent custom properties. The accent additionally feeds the shadcn
+ * `--primary` family through `ThemeProvider`'s existing accent pipeline.
+ *
+ * Persistence follows the app's exclusive convention for UI preferences:
+ * raw localStorage through the throw-safe wrapper, one key per concern.
+ * No picker UI exists yet (P1 ships the Appearance tray); the typed setter
+ * lives on the theme context for the tray to call.
+ */
+
+import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
+
+export const VINGILOT_WASH_STORAGE_KEY = "vingilot-wash";
+export const VINGILOT_ACCENT_STORAGE_KEY = "vingilot-accent";
+
+export const VINGILOT_WASHES = [
+  "buzz",
+  "graphite",
+  "slate",
+  "ember",
+  "ink",
+] as const;
+export type VingilotWash = (typeof VINGILOT_WASHES)[number];
+
+export const VINGILOT_ACCENTS = [
+  "ember",
+  "orange",
+  "mauve",
+  "teal",
+  "green",
+] as const;
+export type VingilotAccent = (typeof VINGILOT_ACCENTS)[number];
+
+export const DEFAULT_VINGILOT_WASH: VingilotWash = "buzz";
+export const DEFAULT_VINGILOT_ACCENT: VingilotAccent = "ember";
+
+/**
+ * Accent base colors from the mockup (`vingilot/design/mockup/vingilot.js`).
+ * The hex feeds `applyAccentColor`, which derives the `--primary` family and
+ * a contrast-safe foreground; the soft/text variants are stylesheet-owned
+ * (`--vingilot-accent-soft` / `--vingilot-accent-text` in theme.css) and
+ * switch on the `data-vingilot-accent` root attribute.
+ */
+export const VINGILOT_ACCENT_HEX: Record<VingilotAccent, string> = {
+  ember: "#e0a35f",
+  orange: "#ff6b35",
+  mauve: "#c6a0f6",
+  teal: "#7fb2c9",
+  green: "#8fb97c",
+};
+
+export type VingilotAppearance = {
+  wash: VingilotWash;
+  accent: VingilotAccent;
+};
+
+function isVingilotWash(value: string): value is VingilotWash {
+  return (VINGILOT_WASHES as readonly string[]).includes(value);
+}
+
+function isVingilotAccent(value: string): value is VingilotAccent {
+  return (VINGILOT_ACCENTS as readonly string[]).includes(value);
+}
+
+/** Read the stored appearance, falling back to the defaults (buzz + ember). */
+export function readVingilotAppearance(): VingilotAppearance {
+  const wash = getStorageItem(VINGILOT_WASH_STORAGE_KEY);
+  const accent = getStorageItem(VINGILOT_ACCENT_STORAGE_KEY);
+  return {
+    wash: wash !== null && isVingilotWash(wash) ? wash : DEFAULT_VINGILOT_WASH,
+    accent:
+      accent !== null && isVingilotAccent(accent)
+        ? accent
+        : DEFAULT_VINGILOT_ACCENT,
+  };
+}
+
+/** Persist both halves; best-effort (throw-safe) like every sibling key. */
+export function persistVingilotAppearance(appearance: VingilotAppearance) {
+  setStorageItem(VINGILOT_WASH_STORAGE_KEY, appearance.wash);
+  setStorageItem(VINGILOT_ACCENT_STORAGE_KEY, appearance.accent);
+}
+
+/**
+ * Stamp the root data attributes the CSS token layer keys on. Idempotent;
+ * called synchronously at provider init (pre-first-paint) and from the setter.
+ */
+export function applyVingilotAppearanceAttributes(
+  appearance: VingilotAppearance,
+) {
+  const root = document.documentElement;
+  root.setAttribute("data-vingilot-wash", appearance.wash);
+  root.setAttribute("data-vingilot-accent", appearance.accent);
+}

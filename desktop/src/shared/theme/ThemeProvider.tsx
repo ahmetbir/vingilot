@@ -14,14 +14,49 @@ import { isMacPlatform } from "@/shared/lib/platform";
 import { getStorageItem } from "@/shared/lib/safeStorage";
 import { createThemeVars, hexToHsl } from "./adaptive-theme";
 import {
+  BUZZ_DARK_THEME_NAME,
   SYNTAX_THEMES,
   type SyntaxThemeName,
   type ThemeInfo,
   extractThemeInfo,
   getThemePair,
+  isLightTheme,
   loadThemeData,
   resolveSystemTheme,
 } from "./theme-loader";
+import {
+  VINGILOT_ACCENT_HEX,
+  type VingilotAppearance,
+  applyVingilotAppearanceAttributes,
+  persistVingilotAppearance,
+  readVingilotAppearance,
+} from "./vingilot-appearance";
+
+/**
+ * Vingilot redesign P0: the shell is dark-first and dark-only — but the
+ * Theme style gallery stays alive (owner, 2026-08-29: "bunlari kullanalim
+ * ama ya"). The resolved theme is pinned to the DARK member of the selected
+ * theme's pair, not to Buzz Dark unconditionally: picking Gruvbox still
+ * gives you Gruvbox, just never its light half. Light themes without a dark
+ * pair fall back to Buzz Dark. Follow-system and the light halves stay
+ * compiled (and stored preferences untouched) but unreachable while this
+ * flag is set. VETO POINT (plan decision 1): flips on the owner's word only.
+ */
+const VINGILOT_FORCE_DARK = true;
+
+/** The same truth, exported for UI that must not offer unreachable choices
+ * (Settings' Color mode row reduces to Dark; the gallery lists dark themes
+ * only). Reads better at call sites than the internal flag name. */
+export const VINGILOT_DARK_ONLY_SHELL = VINGILOT_FORCE_DARK;
+
+/** The dark theme actually applied for a selection under the forced-dark
+ * shell — the selection itself if already dark, else its dark pair, else
+ * Buzz Dark. */
+function resolveVingilotDarkTheme(selected: string): SyntaxThemeName {
+  if (!isValidThemeName(selected)) return BUZZ_DARK_THEME_NAME;
+  if (!isLightTheme(selected)) return selected;
+  return getThemePair(selected) ?? BUZZ_DARK_THEME_NAME;
+}
 
 export const THEME_STORAGE_KEY = "buzz-theme";
 const CACHE_KEY = "buzz-theme-cache";
@@ -69,6 +104,8 @@ type ThemeContextValue = {
   prominentActiveTab: boolean;
   hasPair: boolean;
   terminalPalette: ThemeInfo["terminalPalette"] | null;
+  vingilotAppearance: VingilotAppearance;
+  setVingilotAppearance: (next: Partial<VingilotAppearance>) => void;
   setTheme: (name: string) => void;
   setAccentColor: (color: string) => void;
   setFollowSystem: (enabled: boolean) => void;
@@ -255,7 +292,16 @@ function resolveEffectiveAccent(
   themeName: string,
   accentColor: string,
 ): string {
-  return isBuzzTheme(themeName) ? NEUTRAL_ACCENT : accentColor;
+  // Vingilot redesign P0: under the dark-only shell the Buzz themes pin to
+  // the persisted Vingilot accent (ember default) instead of the neutral
+  // foreground, so `--primary` and friends carry the wash accent everywhere.
+  if (isBuzzTheme(themeName)) {
+    if (VINGILOT_FORCE_DARK) {
+      return VINGILOT_ACCENT_HEX[readVingilotAppearance().accent];
+    }
+    return NEUTRAL_ACCENT;
+  }
+  return accentColor;
 }
 
 /** Toggle the Buzz-specific gradient marker independently from glass. */
@@ -398,6 +444,11 @@ function applyCachedVars(): string | null {
     const cached = window.localStorage.getItem(CACHE_KEY);
     if (!cached) return null;
     const { themeName, vars, isDark } = JSON.parse(cached);
+    // Vingilot redesign P0: with the shell pinned dark, a cache written by a
+    // pre-redesign session under a LIGHT theme would flash its palette for
+    // the first frames before applyTheme lands. Any dark theme is reachable
+    // under the pin, so only light caches are stale by construction.
+    if (VINGILOT_FORCE_DARK && isLightTheme(themeName)) return null;
     const root = document.documentElement;
     for (const [key, value] of Object.entries(vars)) {
       root.style.setProperty(key, value as string);
@@ -527,8 +578,21 @@ export function ThemeProvider({
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
 
-  // Resolve the effective theme based on follow-system preference
+  // Vingilot redesign P0 appearance (wash + accent). Attributes are stamped
+  // synchronously in the initializer so the first paint already carries the
+  // persisted wash/accent, matching the applyCachedVars pre-render pattern.
+  const [vingilotAppearance, setVingilotAppearanceState] =
+    useState<VingilotAppearance>(() => {
+      const appearance = readVingilotAppearance();
+      applyVingilotAppearanceAttributes(appearance);
+      return appearance;
+    });
+
+  // Resolve the effective theme based on follow-system preference. The
+  // Vingilot dark-only shell short-circuits both the stored theme and the
+  // follow-system branch (see VINGILOT_FORCE_DARK).
   const effectiveTheme = (() => {
+    if (VINGILOT_FORCE_DARK) return resolveVingilotDarkTheme(selectedTheme);
     if (!followSystem || !isValidThemeName(selectedTheme)) return selectedTheme;
     return resolveSystemTheme(selectedTheme as SyntaxThemeName, systemIsDark);
   })();
@@ -627,6 +691,27 @@ export function ThemeProvider({
     applyAccentColor(resolveEffectiveAccent(effectiveTheme, accentColor));
   }, [accentColor, effectiveTheme]);
 
+  // Keep the Vingilot wash/accent attributes and the accent-derived inline
+  // vars in sync with the appearance state. `resolveEffectiveAccent` reads
+  // the persisted accent, so the setter writes storage before state.
+  useEffect(() => {
+    applyVingilotAppearanceAttributes(vingilotAppearance);
+    applyAccentColor(resolveEffectiveAccent(effectiveTheme, accentColor));
+  }, [vingilotAppearance, effectiveTheme, accentColor]);
+
+  const setVingilotAppearance = useCallback(
+    (next: Partial<VingilotAppearance>) => {
+      setVingilotAppearanceState((prev) => {
+        const merged = { ...prev, ...next };
+        // Storage first: the attribute/accent effect and the module-level
+        // resolveEffectiveAccent both read the persisted value.
+        persistVingilotAppearance(merged);
+        return merged;
+      });
+    },
+    [],
+  );
+
   const setTheme = useCallback((name: string) => {
     if (!isValidThemeName(name)) return;
     setSelectedTheme(name);
@@ -708,6 +793,8 @@ export function ThemeProvider({
     prominentActiveTab,
     hasPair,
     terminalPalette,
+    vingilotAppearance,
+    setVingilotAppearance,
     setTheme,
     setAccentColor,
     setFollowSystem,

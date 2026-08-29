@@ -29,11 +29,21 @@ const THEME_STORAGE_KEY = "buzz-theme";
 const SAIL_DURATION_MS = 2_333;
 const FRAME_MS = SAIL_DURATION_MS / 28;
 
-/** Boot the app with the splash held open, so the gate is on screen to read. */
+/** Boot the app with the splash held open, so the gate is on screen to read.
+ *
+ * A themed boot starts from an EMPTY origin storage, not merely a written
+ * theme key. Pages in one test share the context's localStorage, and a page
+ * that has already booted keeps writing to it: `CommunityThemeController`
+ * seeds the mock community's scoped preference from its own theme and echoes
+ * it back into `buzz-theme` (`applyAppearance`), so a second page that only
+ * set `buzz-theme=light` boots into the FIRST page's theme — measured, the
+ * light gate came up in houston's ink and the two-theme assertion below read
+ * the dark theme twice. The clear makes each themed boot read its own claim. */
 async function openBootGate(page: Page, theme?: "light" | "dark") {
   if (theme) {
     await page.addInitScript(
       ({ key, value }) => {
+        window.localStorage.clear();
         window.localStorage.setItem(key, value);
       },
       { key: THEME_STORAGE_KEY, value: theme },
@@ -201,6 +211,16 @@ test("the boot gate's mark is sailing, and the frames really change", async ({
   expect(next).not.toBe(early);
 });
 
+/**
+ * Vingilot redesign P0 (plan decision 1): the shell is pinned to dark — a
+ * `buzz-theme=light` boot now renders the dark gate, so the light half of the
+ * two-theme assertion measures the wrong ground by construction. The dark
+ * half keeps its full strength below; the light half returns with the
+ * force-dark switch (P7 e2e migration owns the revival). The mark asset
+ * itself is untouched — owner: logos stay.
+ */
+const VINGILOT_FORCED_DARK_SHELL = true;
+
 test("the mark is painted in the theme's ink, on both themes", async ({
   page,
   context,
@@ -209,16 +229,24 @@ test("the mark is painted in the theme's ink, on both themes", async ({
   await expectAShipIsDrawn(darkMark);
   const dark = await patches(darkMark);
 
+  // One asset, read against its ground: on the dark theme the ship is
+  // lighter than the grainient — the assertion a white-on-white or
+  // missing-ink bitmap fails outright.
+  expect(luminance(dark.middle)).toBeGreaterThan(luminance(dark.corner));
+
+  if (VINGILOT_FORCED_DARK_SHELL) return;
+
+  // The dark page has been read; close it before the light boot, or its
+  // community-theme sync keeps re-seeding the shared storage the light page
+  // is about to clear (the openBootGate comment says how that ends).
+  await page.close();
+
   const lightPage = await context.newPage();
   const lightMark = await openBootGate(lightPage, "light");
   await expectAShipIsDrawn(lightMark);
   const light = await patches(lightMark);
 
-  // One asset, two themes. The ship reads against its ground in opposite
-  // directions — lighter than the grainient on the dark theme, darker on the
-  // light one — which is the assertion a white bitmap fails outright, because
-  // white is lighter than both backgrounds.
-  expect(luminance(dark.middle)).toBeGreaterThan(luminance(dark.corner));
+  // Two themes, opposite directions: darker than the ground on the light one.
   expect(luminance(light.middle)).toBeLessThan(luminance(light.corner));
 
   // And the ink is a different colour, not merely a different contrast: the
