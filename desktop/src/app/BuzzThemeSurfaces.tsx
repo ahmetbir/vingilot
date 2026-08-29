@@ -35,7 +35,11 @@ export function ContentSurface({
       className={
         unframed
           ? "relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-          : "relative z-10 mb-2 ml-px mr-2 mt-px flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background shadow-content-edge"
+          : // Vingilot redesign P1: the stage card floats on the gradient
+            // ground with the mockup's ~10px gutters on every open side (the
+            // 44px top bar is the top gutter; the transparent sidebar's own
+            // padding meets the left one). rounded-xl == the mockup's 12px.
+            "relative z-10 mb-2.5 ml-2.5 mr-2.5 mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-background shadow-content-edge"
       }
       data-buzz-content-surface
       data-buzz-content-unframed={unframed ? true : undefined}

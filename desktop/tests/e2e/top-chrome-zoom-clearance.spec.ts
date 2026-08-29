@@ -42,15 +42,26 @@ async function firstNavButtonX(page: import("@playwright/test").Page) {
 
 // The chrome buttons are styled to visually match the fixed-size native
 // controls, so their box must not follow the rem text scale either. The
-// sidebar toggle is 28px square; the back/forward history buttons share the
-// height but are deliberately narrower (24px).
+// sidebar toggle / History / Copy-link buttons are 28px square; the
+// back/forward history buttons share the height but are deliberately
+// narrower (24px). The Appearance button pins only its height — its label is
+// rem text — and the centered search pill is rem-based on purpose (it sits
+// nowhere near the native controls), so neither is in the fixed-size table.
 const NAV_BUTTON_SIZE = 28;
 const HISTORY_BUTTON_WIDTH = 24;
+const FIXED_BUTTON_WIDTHS: Record<string, number> = {
+  "Copy link": NAV_BUTTON_SIZE,
+  "Go back": HISTORY_BUTTON_WIDTH,
+  "Go forward": HISTORY_BUTTON_WIDTH,
+  History: NAV_BUTTON_SIZE,
+  "Toggle Sidebar": NAV_BUTTON_SIZE,
+};
+const FIXED_HEIGHT_ONLY_LABELS = new Set(["Appearance"]);
 
 // The grabber/drag strip hosting the buttons must hold its height too —
 // otherwise Cmd+ balloons the bar around the fixed-size buttons and Cmd-
-// collapses it.
-const TOP_CHROME_BAR_HEIGHT = 40;
+// collapses it. 44px since redesign P1 (the mockup's `.top`).
+const TOP_CHROME_BAR_HEIGHT = 44;
 
 async function expectTopChromeFixedHeight(
   page: import("@playwright/test").Page,
@@ -68,17 +79,27 @@ async function expectNavButtonsFixedSize(
   const buttons = page.locator('[data-testid="app-top-chrome"] button');
   const count = await buttons.count();
   expect(count).toBeGreaterThan(0);
+  let fixedButtonsSeen = 0;
   for (let i = 0; i < count; i += 1) {
     const button = buttons.nth(i);
-    const label = await button.getAttribute("aria-label");
-    const isHistoryButton = label === "Go back" || label === "Go forward";
+    const label = (await button.getAttribute("aria-label")) ?? "";
+    const expectedWidth = FIXED_BUTTON_WIDTHS[label];
+    if (expectedWidth === undefined && !FIXED_HEIGHT_ONLY_LABELS.has(label)) {
+      continue; // rem-based on purpose (search pill)
+    }
     const box = await button.boundingBox();
     expect(box).not.toBeNull();
-    expect(box?.width ?? 0).toBe(
-      isHistoryButton ? HISTORY_BUTTON_WIDTH : NAV_BUTTON_SIZE,
-    );
+    if (expectedWidth !== undefined) {
+      expect(box?.width ?? 0).toBe(expectedWidth);
+    }
     expect(box?.height ?? 0).toBe(NAV_BUTTON_SIZE);
+    fixedButtonsSeen += 1;
   }
+  // Every fixed-px control must actually be on the bar — a rename that
+  // dropped a button out of the table would otherwise pass vacuously.
+  expect(fixedButtonsSeen).toBe(
+    Object.keys(FIXED_BUTTON_WIDTHS).length + FIXED_HEIGHT_ONLY_LABELS.size,
+  );
 }
 
 async function seedTextScale(

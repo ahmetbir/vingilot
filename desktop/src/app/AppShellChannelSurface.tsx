@@ -27,7 +27,10 @@ export function AppShellChannelSurface({
         ref={mainInsetRef}
         className={cn(
           "isolate z-0 min-h-0 min-w-0 overflow-hidden",
-          isHuddleRoom ? "bg-background" : "bg-sidebar",
+          // Vingilot redesign P1: transparent, so the window's gradient
+          // ground shows through the stage card's gutters (the card itself
+          // is `BuzzTheme.ContentSurface`). Huddle rooms keep their solid.
+          isHuddleRoom ? "bg-background" : "bg-transparent",
         )}
         data-buzz-content-surface={isHuddleRoom ? true : undefined}
         data-buzz-content-unframed={isHuddleRoom ? true : undefined}

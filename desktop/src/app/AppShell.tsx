@@ -748,9 +748,15 @@ export function AppShell() {
               <AppProfilePanelProvider>
                 {!settingsOpen && !isHuddleRoom ? (
                   <AppTopChrome
+                    activeChannelId={
+                      selectedView === "channel"
+                        ? (activeChannel?.id ?? null)
+                        : null
+                    }
                     canGoBack={canGoBack}
                     canGoForward={canGoForward}
                     hasCommunityRail={hasCommunityRail}
+                    isWorkspaceView={selectedView === "workspace"}
                     onGoBack={goBack}
                     onGoForward={goForward}
                   />

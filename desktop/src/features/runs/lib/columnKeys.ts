@@ -4,6 +4,12 @@
 // is unit-testable without React or a real keyboard, and the caller decides
 // whether now is the time for it.
 //
+// **Since redesign P1 the live ⌘B binding is the shell's**
+// (`app/useShellChords.ts`) — one sidebar, one app-wide owner. This map is no
+// longer bound by `useColumns.ts`; it stays because the scratch shields
+// (`scratchTerminal.ts`, `scratchMarkdownKeys.ts`) resolve against it to pass
+// the chord through untouched, and because it documents what ⌘B refuses.
+//
 // **⇧⌘B is retired, not free** (vingilot/docs/plans/2026-08-14-single-sidebar.md,
 // Task 2). It used to hide the workspace nav as a second sidebar; that nav
 // renders inside the app sidebar now, which ⌘B already moves. The chord is

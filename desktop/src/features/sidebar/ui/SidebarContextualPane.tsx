@@ -66,7 +66,7 @@ export function SidebarChatsHome({
  * primary menu's own labels, so the sentence names the row the owner clicked. */
 const EMPTY_VIEW_LABELS: Partial<Record<SelectedView, string>> = {
   agents: "Agents",
-  projects: "Repos",
+  projects: "Pull requests",
   pulse: "Pulse",
   workflows: "Workflows",
 };

@@ -58,6 +58,25 @@ export const VINGILOT_ACCENT_HEX: Record<VingilotAccent, string> = {
   green: "#8fb97c",
 };
 
+/**
+ * Wash gradient endpoints from the mockup's setSide table (`vingilot.js`).
+ * The live gradient is stylesheet-owned (vingilot-tokens.css overrides
+ * --buzz-gradient-dark-top/bottom per `data-vingilot-wash`); this map exists
+ * for surfaces that must *depict* a wash without applying it — the P1
+ * Appearance tray's swatches. Same hand-copied-parity caveat as the accent
+ * table above.
+ */
+export const VINGILOT_WASH_GRADIENTS: Record<
+  VingilotWash,
+  { top: string; bottom: string }
+> = {
+  buzz: { top: "#4a4616", bottom: "#0a1423" },
+  graphite: { top: "#2c2c30", bottom: "#1a1a1e" },
+  slate: { top: "#2a3240", bottom: "#10151d" },
+  ember: { top: "#4a2e16", bottom: "#140e0a" },
+  ink: { top: "#161616", bottom: "#161616" },
+};
+
 export type VingilotAppearance = {
   wash: VingilotWash;
   accent: VingilotAccent;

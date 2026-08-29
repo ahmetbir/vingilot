@@ -1,0 +1,215 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P1 (shell)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: phase P1 of the 2026-08-29 redesign
+# (vingilot/docs/plans/2026-08-29-redesign.md) — the shell relayout. One class
+# of change: the mockup's window anatomy (vingilot/design/mockup/) over the
+# existing machinery — a 44px top bar (search pill, History, Copy-link,
+# Appearance tray), the floating stage card on the gradient ground, the new
+# sidebar row order with live signals, the 196–340 resize clamp, and the
+# shell-owned ⌘B / ⌥⌘B / ⌘K chords. Explicitly NOT covered: the dock (P3),
+# the deck/terminal internals (P2), status bars (P4), and any removal of the
+# old chrome (P7 — the CommunityRail and light-theme paths stay compiled).
+
+seams:
+  - path: "desktop/src/app/AppTopChrome.tsx"
+    reason: "The old top chrome (sidebar toggle + back/forward on a solid bg-sidebar strip) becomes the Vingilot top bar: same file, same mount, same data-tauri-drag-region and global-back/global-forward testids, restyled transparent over the gradient ground at 44px, plus three additions wired to fork modules — a centered 'Search everything ⌘K' pill and a History button that post through the fork's paletteRequest mailbox, a Copy-link button calling the fork's copyShellLink, and an Appearance button hosting the fork's VingilotAppearanceTray. Also mounts useShellChords (the fork's app-wide ⌘B/⌥⌘B owner) because this is the one component rendered inside SidebarProvider on every screen. macOS traffic-light clearance px re-derived for the 44px bar (translate-y 3px→1px)."
+    owner: "vingilot/redesign"
+    removable_when: "P7 may replace the file wholesale; the seam stands while the redesign ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/app/AppShell.tsx"
+    reason: "Four lines of wiring for the new top bar: AppTopChrome now receives activeChannelId (the Copy-link target, null off channel views) and isWorkspaceView (so useShellChords refuses ⌥⌘B where WorkSurface's pane-solo owns it). No structural change — the shell's render tree, providers and routing are untouched."
+    owner: "vingilot/redesign"
+    removable_when: "With the AppTopChrome seam."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/app/BuzzThemeSurfaces.tsx"
+    reason: "ContentSurface — the existing floating-card primitive — is re-hosted as the mockup's stage card: margins re-tuned to the ~10px gutters (mb/ml/mr-2.5, mt-0 because the 44px top bar is the top gutter), radius rounded-2xl→rounded-xl (the mockup's 12px). Same element, same data-buzz-content-surface contract, same shadow; the unframed branch is untouched."
+    owner: "vingilot/redesign"
+    removable_when: "While the floating-card layout ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/app/AppShellChannelSurface.tsx"
+    reason: "One class: the channel surface wrapper drops bg-sidebar for bg-transparent so the window's gradient ground shows through the stage card's gutters. Huddle rooms keep their solid bg-background branch."
+    owner: "vingilot/redesign"
+    removable_when: "While the floating-card layout ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/app/useShellChords.ts"
+    reason: "New, fork-owned: the app-wide owner of ⌘B (toggle the one sidebar via SidebarProvider's own toggleSidebar) and ⌥⌘B (zen — refused while /workspace owns it as pane-solo, claimed-but-idle elsewhere until P3's dock exists). Carries the six-claimant chord audit in the terminalKeys.ts idiom; defers to TipTap Bold by honoring defaultPrevented. Lives beside AppShell because the chord's scope is the shell, not any feature island."
+    owner: "vingilot/redesign"
+    removable_when: "Never, while the redesign ships; P3 gives ⌥⌘B its dock meaning here."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/app/copyShellLink.ts"
+    reason: "New, fork-owned: the top bar's Copy-link action. Builds a buzz://message deep link through the channel's newest message (one bounded relay query + the message action bar's own buildMessageLink) because that is the only deep-link vocabulary the Rust handler answers today; a channel with no messages gets an honest toast, not an invented scheme."
+    owner: "vingilot/redesign"
+    removable_when: "When a first-class channel/worktree deep-link scheme exists (P3/P6)."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/app/VingilotAppearanceTray.tsx"
+    reason: "New, fork-owned: the Appearance popover under the top bar's button. Five wash + five accent swatches calling the theme context's setVingilotAppearance (live, P0's pipeline), and a Right/Drawer/Float 'Crew panel' segmented control that persists via vingilot-crew-position.ts but only stores — the dock that reads it is P3's, and the subline says so."
+    owner: "vingilot/redesign"
+    removable_when: "Never, while the redesign ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/theme/vingilot-crew-position.ts"
+    reason: "New, fork-owned: the persisted crew-panel position (right/drawer/float, localStorage key vingilot-crew-position in the module-key-per-concern idiom). Write-side only in P1; P3's dock is the reader."
+    owner: "vingilot/redesign"
+    removable_when: "With the dock decision."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/theme/vingilot-appearance.ts"
+    reason: "P1 addition to the P0 file: VINGILOT_WASH_GRADIENTS, the mockup's wash gradient endpoints as data, for surfaces that must depict a wash without applying it — the tray's swatches. The live gradient stays stylesheet-owned."
+    owner: "vingilot/redesign"
+    removable_when: "With the P0 entry for this file."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/styles/globals/vingilot-tokens.css"
+    reason: "P1 addition to the P0 token layer: one unlayered rule clearing bg-sidebar to transparent inside the desktop app sidebar (scoped by testid so the mobile sheet keeps its solid), so the sidebar rides the gradient ground like the mockup's .side. In CSS rather than shared/ui/sidebar.tsx because that file sits over the ratchet ceiling and the change is presentation-only."
+    owner: "vingilot/redesign"
+    removable_when: "With the P0 entry for this file."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/layout/chromeLayout.ts"
+    reason: "The top-chrome height constant 40px→44px (the mockup's .top) in the one place every consumer — the bar, the rail inset, the divider offsets — already reads it from."
+    owner: "vingilot/redesign"
+    removable_when: "While the 44px bar ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/shared/ui/sidebar.tsx"
+    reason: "Three constants: the resize clamp 220/420/300 → the mockup's 196/340/244 (min/max/default). The magnet/snap machinery is untouched — it magnetizes to SIDEBAR_WIDTH_DEFAULT, so it re-targets 244 by itself. Parameter tuning only; no new plumbing in this over-ratchet file."
+    owner: "vingilot/redesign"
+    removable_when: "While the mockup's sidebar geometry ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/sidebar/ui/AppSidebar.tsx"
+    reason: "Two P1 mounts, both fork components, portal contract untouched: SidebarProjectsSection above the chat lists on channel-shaped views (on /workspace the Deck accordion via SidebarContextualPane stays the projects surface — sidebarChatsSlot portal byte-compatible), and SidebarConnectionDot riding the profile card as the me-footer's relay dot. Relay/update cards and HuddleProfileControl keep working where they were."
+    owner: "vingilot/redesign"
+    removable_when: "P7 may replace the file; the seam stands while the redesign ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/sidebar/ui/AppSidebarPinnedHeader.tsx"
+    reason: "The mockup's nav row order and signals: Inbox (existing count badge), Agents (+ fork AgentsWorkingDot), Pull requests (upstream's gated Repos row, relabeled to what the mockup's stage calls it, + open-count badge from the fork's useOpenPullRequestCount — view/route/testid keep their names), Deck; the gated Pulse/Workflows rows move below, still compiled (removal is P7's). The PR row is its own child component so the work-items query mounts only inside its FeatureGate."
+    owner: "vingilot/redesign"
+    removable_when: "P7 may replace the file; the seam stands while the redesign ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/sidebar/ui/SidebarNavSignals.tsx"
+    reason: "New, fork-owned: the nav rows' live badges, read not derived — useOpenPullRequestCount over the projects feature's own queries (same cache entry the Projects screen uses), AgentsWorkingDot from the agent working signal store, SidebarConnectionDot from the shared debounced relay connection state."
+    owner: "vingilot/redesign"
+    removable_when: "Never, while the redesign ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/sidebar/ui/SidebarProjectsSection.tsx"
+    reason: "New, fork-owned: the sidebar's Projects section (project rows + worktree children + AttentionDot marks) for the channel-shaped views. Rows from the workspace's paletteWorld snapshot (ShellPalette's honesty contract), dots from attentionMark over the shared liveness poller, navigation via requestLanding + goWorkspace — all imported, nothing re-derived."
+    owner: "vingilot/redesign"
+    removable_when: "Never, while the redesign ships."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/sidebar/ui/CommunityRail.tsx"
+    reason: "Two tokens: bg-sidebar→bg-transparent (the rail rides the gradient ground) and the top-inset fallback 40px→44px tracking chromeLayout. The rail itself stays functional — removal is P7's call."
+    owner: "vingilot/redesign"
+    removable_when: "P7 sweep decides the rail's fate."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/runs/lib/columnKeys.ts"
+    reason: "Header comment only: records that the live ⌘B binding moved to the shell (useShellChords) and why the pure map stays — the scratch shields resolve against it and it documents what ⌘B refuses. No code change."
+    owner: "vingilot/redesign"
+    removable_when: "With the useShellChords seam."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/runs/lib/useColumns.ts"
+    reason: "The workspace-local ⌘B keydown listener is removed — the shell owns the chord now (useShellChords), and two listeners toggling one sidebar on one keydown would cancel each other. The hook keeps its per-project restore/record effects, which observe the same SidebarProvider state the shell chord moves."
+    owner: "vingilot/redesign"
+    removable_when: "With the useShellChords seam."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/runs/lib/paletteRequest.ts"
+    reason: "New, fork-owned: a one-slot mailbox (workspaceLanding.ts idiom) carrying the top bar's clicks to whichever palette host is mounted — a click is not a keydown, so the chord's claim-by-capture cannot carry it. No React, no DOM, no persistence."
+    owner: "vingilot/redesign"
+    removable_when: "Never, while the top bar's pill and History button ship."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/src/features/runs/lib/usePalette.ts"
+    reason: "One effect: consume paletteRequest posts (drain-on-mount so a click racing a route change still lands; refuse doors this host has no sources for, the chord's own rule). The ⌘K single-owner story is unchanged — this host's capture listener preventDefaults, upstream's bubble listener honors defaultPrevented, so exactly one palette fires everywhere."
+    owner: "vingilot/redesign"
+    removable_when: "With the paletteRequest seam."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/tests/e2e/top-chrome-zoom-clearance.spec.ts"
+    reason: "Upstream spec re-aimed at the 44px Vingilot bar: bar height 40→44, the fixed-size loop now names the fixed-px buttons (toggle/History/Copy link 28×28, back/forward 24×28, Appearance height-only — its label width is rem) instead of asserting every button is 28px, because the new search pill and Appearance label are deliberately rem-based while the traffic-light clearance stays px. Clearance and zoom assertions keep their teeth."
+    owner: "vingilot/redesign"
+    removable_when: "P7 e2e migration."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/tests/e2e/community-rail.spec.ts"
+    reason: "The 'clears the macOS traffic lights' pixel asserts re-derived for the new chrome: the stage card now starts at the 44px bar (mt-0), so the rail-button-to-card-top delta is the rail's own 7px padding rather than the old 6. Everything else in the spec (rail behavior, ordering, persistence) is untouched."
+    owner: "vingilot/redesign"
+    removable_when: "P7 sweep decides the rail's fate."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/tests/e2e/vingilot-shell.spec.ts"
+    reason: "New fork spec for the P1 shell: top bar anatomy (drag region, 44px, pill + History/Copy-link/Appearance, traffic-light clearance), tray wash/accent live-switch through the P0 pipeline, sidebar nav order + PR count + projects section with mock data, resizer clamps 196–340, and the chord contracts (⌘B single owner incl. composer defer, ⌥⌘B no-op outside /workspace, ⌘K one palette). Lives at the upstream-owned desktop/tests/e2e/ path because that is where playwright.config.ts's testDir points."
+    owner: "vingilot/redesign"
+    removable_when: "P7 e2e migration."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/tests/e2e/sidebar.spec.ts"
+    reason: "The resize numbers only: the default-width constant 300→244 and the magnet-drag arithmetic re-derived from it (244+64=308 where 300+64=364) — the P1 clamp change (shared/ui/sidebar.tsx) read back by the spec that proves resize persists and snaps. Every other test in the file is untouched."
+    owner: "vingilot/redesign"
+    removable_when: "P7 e2e migration."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/tests/e2e/buzz-theme-screenshots.spec.ts"
+    reason: "One number: the Settings screen's content-card top inset 41→45, because SettingsView reads its strip height from chromeLayout.ts (now 44px) while keeping its own pre-redesign card classes — Settings' own restyle is a later phase. The 1/8/8 insets and everything else in the spec keep their teeth."
+    owner: "vingilot/redesign"
+    removable_when: "The phase that redesigns Settings re-derives the numbers."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/playwright.config.ts"
+    reason: "One line: vingilot-shell.spec.ts registered in the smoke project's testMatch, the same registration every fork spec gets."
+    owner: "vingilot/redesign"
+    removable_when: "With the spec."
+    status: "permanent"
+    added: "2026-08-29"
+
+  - path: "desktop/tests/e2e/workspace-one-column.spec.ts"
+    reason: "P1 verify MAJOR 1: the closed-sum width assertion pins the shell chrome as a number, and the floating stage card's gutters changed it (1px divider + 8px inset = 9 → 10px + 10px = 20). Constant re-derived with its comment; the sum stays closed so a fourth thing appearing in the window still has to come out of one of the four."
+    owner: "vingilot/redesign"
+    removable_when: "P7 e2e migration replaces the spec alongside the old chrome."
+    status: "permanent"
+    added: "2026-08-29"

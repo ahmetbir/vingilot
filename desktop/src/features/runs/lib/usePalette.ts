@@ -65,6 +65,10 @@ import {
 } from "@/features/runs/lib/paletteDoors";
 import { resolvePaletteKey } from "@/features/runs/lib/paletteKeys";
 import {
+  subscribePaletteRequest,
+  takePaletteRequest,
+} from "@/features/runs/lib/paletteRequest";
+import {
   assembleView,
   moveCursor as moveCursorIn,
   type PaletteCommand,
@@ -310,6 +314,29 @@ export function usePalette({
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () =>
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, []);
+
+  // **The top bar's click, answered like the chord** (vingilot redesign P1).
+  // The search pill and the History button post through `paletteRequest.ts`;
+  // whichever host is mounted consumes it here. Unlike the chord, a click
+  // always *opens* — a pill is not a toggle — and a request posted before this
+  // host mounted is drained on mount so a click racing a route change still
+  // lands. Doors this host has no sources for are refused for the chord's own
+  // reason (an empty box teaches the owner not to press the key).
+  React.useEffect(() => {
+    function consume() {
+      const requested = takePaletteRequest();
+      if (requested === null) return;
+      if (sourceIdsForMode(requested, doorsOpen.current.offers).length === 0) {
+        return;
+      }
+      setDoor(requested);
+      setQueryState("");
+      setCursorState(0);
+      setOpen(true);
+    }
+    consume();
+    return subscribePaletteRequest(consume);
   }, []);
 
   return {

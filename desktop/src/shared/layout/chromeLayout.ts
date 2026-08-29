@@ -1,8 +1,9 @@
 // Fixed px on purpose: the top chrome strip hosts the fixed-size macOS
 // traffic lights and the px-pinned nav buttons (see `AppTopChrome`), so its
 // height must not follow the Cmd +/- rem text scale either. Deliberate
-// exception to the rem-first rule. 40px == the old 2.5rem at default zoom.
-export const TOP_CHROME_HEIGHT_DEFAULT = "40px";
+// exception to the rem-first rule. Vingilot redesign P1: 44px, the mockup's
+// `.top` bar height (vingilot/design/mockup/vingilot.css).
+export const TOP_CHROME_HEIGHT_DEFAULT = "44px";
 export const CHANNEL_CONTENT_TOP_PADDING_DEFAULT = "5.75rem";
 
 export const chromeCssVars = {
@@ -42,9 +43,9 @@ export const topChromeInset = {
 /** Tailwind class fragments for the global top chrome backdrop strip. */
 export const topChromeBackdrop = {
   /** Height matching the global top chrome search/drag strip. */
-  height: "h-(--buzz-top-chrome-height,40px)",
+  height: "h-(--buzz-top-chrome-height,44px)",
   /** `after:` pseudo-element offset aligned to the bottom of top chrome. */
-  dividerTop: "after:top-(--buzz-top-chrome-height,40px)",
+  dividerTop: "after:top-(--buzz-top-chrome-height,44px)",
 } as const;
 
 /** Tailwind class fragments for measured channel header chrome. */

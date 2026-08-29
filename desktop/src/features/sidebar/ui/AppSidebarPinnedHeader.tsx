@@ -8,6 +8,10 @@ import {
 } from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
+import {
+  AgentsWorkingDot,
+  useOpenPullRequestCount,
+} from "@/features/sidebar/ui/SidebarNavSignals";
 import { FeatureGate } from "@/shared/features";
 import type { Channel, SearchHit } from "@/shared/api/types";
 import {
@@ -140,34 +144,11 @@ export function AppSidebarPrimaryMenu({
             </SidebarMenuBadge>
           ) : null}
         </SidebarMenuItem>
-        <FeatureGate feature="pulse">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              data-testid="open-pulse-view"
-              isActive={selectedView === "pulse"}
-              onClick={onSelectPulse}
-              tooltip="Pulse"
-              type="button"
-            >
-              <Activity className="h-4 w-4" />
-              <SidebarMenuLabel>Pulse</SidebarMenuLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </FeatureGate>
-        <FeatureGate feature="projects">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              data-testid="open-projects-view"
-              isActive={selectedView === "projects"}
-              onClick={onSelectProjects}
-              tooltip="Repos"
-              type="button"
-            >
-              <FolderGit2 className="h-4 w-4" />
-              <SidebarMenuLabel>Repos</SidebarMenuLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </FeatureGate>
+        {/* Vingilot redesign P1 row order (mockup sidebar): Inbox above,
+         * then Agents (working dot), Pull requests (open count — upstream's
+         * Repos view renamed to what the mockup's stage calls it; the view,
+         * route and `open-projects-view` testid keep their names), Deck. The
+         * gated Pulse/Workflows rows survive below — removal is P7's. */}
         <SidebarMenuItem>
           <SidebarMenuButton
             className="data-[active=true]:font-normal"
@@ -187,8 +168,15 @@ export function AppSidebarPrimaryMenu({
             >
               Agents
             </SidebarMenuLabel>
+            <AgentsWorkingDot />
           </SidebarMenuButton>
         </SidebarMenuItem>
+        <FeatureGate feature="projects">
+          <PullRequestsMenuItem
+            isActive={selectedView === "projects"}
+            onSelect={onSelectProjects}
+          />
+        </FeatureGate>
         <SidebarMenuItem>
           {/* "Deck", not "Projects": upstream's Repos entry two rows up owns
            * the Projects name, and two menu items readable as "Projects" one
@@ -206,6 +194,20 @@ export function AppSidebarPrimaryMenu({
             <SidebarMenuLabel>Deck</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
+        <FeatureGate feature="pulse">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="open-pulse-view"
+              isActive={selectedView === "pulse"}
+              onClick={onSelectPulse}
+              tooltip="Pulse"
+              type="button"
+            >
+              <Activity className="h-4 w-4" />
+              <SidebarMenuLabel>Pulse</SidebarMenuLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </FeatureGate>
         <FeatureGate feature="workflows">
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -222,5 +224,40 @@ export function AppSidebarPrimaryMenu({
         </FeatureGate>
       </SidebarMenu>
     </SidebarHeader>
+  );
+}
+
+/** The Pull requests row — its own component so the work-items query mounts
+ * only when the projects feature gate is on (hooks cannot sit behind a
+ * conditional inside the menu above). Count badge in the mockup's green. */
+function PullRequestsMenuItem({
+  isActive,
+  onSelect,
+}: {
+  isActive: boolean;
+  onSelect: () => void;
+}) {
+  const openCount = useOpenPullRequestCount();
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        data-testid="open-projects-view"
+        isActive={isActive}
+        onClick={onSelect}
+        tooltip="Pull requests"
+        type="button"
+      >
+        <FolderGit2 className="h-4 w-4" />
+        <SidebarMenuLabel>Pull requests</SidebarMenuLabel>
+      </SidebarMenuButton>
+      {openCount > 0 ? (
+        <SidebarMenuBadge
+          className="right-2 rounded-full bg-emerald-500/15 px-1.5 text-2xs text-emerald-400 peer-data-[active=true]/menu-button:bg-sidebar-active-foreground/20 peer-data-[active=true]/menu-button:text-sidebar-active-foreground"
+          data-testid="sidebar-open-pr-count"
+        >
+          {Math.min(openCount, 99)}
+        </SidebarMenuBadge>
+      ) : null}
+    </SidebarMenuItem>
   );
 }

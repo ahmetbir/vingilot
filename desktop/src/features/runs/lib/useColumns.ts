@@ -33,7 +33,6 @@
 
 import * as React from "react";
 
-import { resolveColumnKey } from "@/features/runs/lib/columnKeys";
 import {
   type ColumnLayout,
   LANDING_KEY,
@@ -42,7 +41,6 @@ import {
   withColumn,
   writeColumnLayout,
 } from "@/features/runs/lib/columnLayout";
-import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 
 export interface Columns {
@@ -126,25 +124,12 @@ export function useColumns({ projectId }: ColumnsOptions): Columns {
     latest.current.sidebar?.toggleSidebar();
   }, []);
 
-  React.useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      const action = resolveColumnKey({
-        altKey: event.altKey,
-        key: event.key,
-        primaryModifier: hasPrimaryShortcutModifier(event),
-        repeat: event.repeat,
-        shiftKey: event.shiftKey,
-      });
-      if (action === null) return;
-      const bar = latest.current.sidebar;
-      if (bar === null) return;
-      event.preventDefault();
-      bar.toggleSidebar();
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  // The ⌘B keydown binding itself moved to the shell in redesign P1
+  // (`app/useShellChords.ts`): one sidebar since the v0.3.0 merge means one
+  // app-wide owner, and this hook keeps only what is workspace-shaped — the
+  // per-project restore/record above, which observes the same provider state
+  // the shell chord moves. `columnKeys.ts` stays as the pure map (the scratch
+  // shields still resolve against it).
 
   return {
     sidebarCollapsed: sidebarOpen === null ? false : !sidebarOpen,

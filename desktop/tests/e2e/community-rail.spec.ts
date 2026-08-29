@@ -978,8 +978,11 @@ test.describe("community rail", () => {
     expect(appSurfaceBox).not.toBeNull();
     expect(contentBox).not.toBeNull();
     expect(buttonBox?.y ?? 0).toBeGreaterThanOrEqual(32);
+    // Since redesign P1 the stage card starts flush under the 44px top bar
+    // (ContentSurface mt-0), so the first rail button sits its own 7px
+    // padding below the card's top edge.
     expect(
-      Math.abs((buttonBox?.y ?? 0) - (contentBox?.y ?? 0) - 6),
+      Math.abs((buttonBox?.y ?? 0) - (contentBox?.y ?? 0) - 7),
     ).toBeLessThan(0.5);
     expect(Math.abs((railBox?.y ?? 0) - (appSurfaceBox?.y ?? 0))).toBeLessThan(
       0.5,

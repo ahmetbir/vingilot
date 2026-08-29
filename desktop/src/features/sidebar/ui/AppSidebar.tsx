@@ -46,6 +46,8 @@ import {
   SidebarChatsHome,
   SidebarContextualPane,
 } from "@/features/sidebar/ui/SidebarContextualPane";
+import { SidebarConnectionDot } from "@/features/sidebar/ui/SidebarNavSignals";
+import { SidebarProjectsSection } from "@/features/sidebar/ui/SidebarProjectsSection";
 import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
 import { HuddleProfileControl } from "@/features/huddle";
 import type {
@@ -539,6 +541,13 @@ export function AppSidebar({
                 <SidebarContextualPane selectedView={selectedView} />
               ) : null}
 
+              {/* Vingilot redesign P1: Projects (with worktree children +
+               * attention dots) above the chat lists on the channel-shaped
+               * views; on /workspace the Deck accordion is that surface. */}
+              {!isLoading && showsChannelContent ? (
+                <SidebarProjectsSection />
+              ) : null}
+
               {/* The channel/DM lists render inline for the channel views and
                * are PORTALLED into the Deck accordion's Chats member for the
                * workspace view (pane-nav-absorb amendment) — same fragment,
@@ -819,7 +828,12 @@ export function AppSidebar({
               visible={isHuddleCompanionOpen}
             />
             <SidebarMenu>
-              <SidebarMenuItem>
+              {/* Vingilot P1 me-footer: the relay dot rides the profile card
+               * (mockup `.me .dot`), read from the shared connection state. */}
+              <SidebarMenuItem className="relative">
+                <div className="pointer-events-none absolute right-2.5 top-1/2 z-10 -translate-y-1/2">
+                  <SidebarConnectionDot />
+                </div>
                 <SidebarProfileCard
                   activeCommunity={activeCommunity}
                   isPresencePending={isPresencePending}

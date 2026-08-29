@@ -27,6 +27,18 @@
   color: hsl(var(--muted-foreground));
 }
 
+/*
+ * Redesign P1 — the sidebar rides the gradient ground. The mockup's `.side`
+ * has no background of its own; upstream's desktop sidebar paints bg-sidebar
+ * on its inner column. Cleared here (scoped to the desktop app sidebar via
+ * its testid, so the mobile sheet keeps its solid) rather than by editing
+ * shared/ui/sidebar.tsx, which sits over the 1000-line ratchet ceiling.
+ * Unlayered on purpose: it must win over the Tailwind utility.
+ */
+[data-testid="app-sidebar"] [data-sidebar="sidebar"] {
+  background-color: transparent;
+}
+
 :root {
   /* Surfaces + ink (mockup: --content/--content2/--term/--ink/--mut/--bor) */
   --vingilot-content: #1a1a1a;

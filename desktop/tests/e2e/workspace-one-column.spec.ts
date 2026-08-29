@@ -67,11 +67,12 @@ const SIXTEEN_INCH = { height: 1117, width: 1728 };
 const SURFACE_FLOOR = 1410;
 
 /** What the app shell keeps for itself, measured rather than assumed: a 1px
- * divider between upstream's sidebar and the workspace, and an 8px inset on the
- * right. It is asserted as a number because that is what makes the sum below
+ * gutters between upstream's sidebar and the floating stage card — the P1
+ * shell gives the card 10px on each side (BuzzThemeSurfaces ml-2.5/mr-2.5).
+ * It is asserted as a number because that is what makes the sum below
  * closed — a fourth thing appearing in the window has to come out of one of the
  * four, and this is the one nobody would think to check. */
-const SHELL_CHROME_PX = 9;
+const SHELL_CHROME_PX = 20;
 
 const REPOS = [
   { id: "repo-wide", name: "vingilot", path: "/tmp/vingilot-wide" },
