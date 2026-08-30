@@ -58,7 +58,29 @@ export function ptyClose(session: string): Promise<void> {
 export type PtyBacking = "app-process" | "tmux";
 
 export function ptyBacking(): Promise<PtyBacking> {
+  // Deliberately NOT cached here despite "one answer per app run": the e2e
+  // bridge swaps its pty mock in after first render, and a module-level
+  // cache freezes whichever answer came first — the copy-mode poll then
+  // never starts under the spec's tmux mock (found the hard way in P2's
+  // fix round). The call is one IPC round-trip; the backend side already
+  // probes tmux exactly once.
   return invoke("pty_backing");
+}
+
+/** Whether a session's pane is sitting in tmux copy-mode — where a wheel-up
+ * deliberately puts it, and where a typed key is swallowed rather than
+ * reaching the shell. Always `false` for a session outside tmux. The "back
+ * to live" affordance in `ui/Terminal.tsx` polls this; nothing else may. */
+export function ptyCopyMode(session: string): Promise<boolean> {
+  return invoke("pty_copy_mode", { session });
+}
+
+/** Leave copy-mode in one session — tmux's own `cancel`, the same act as the
+ * `q` the owner would otherwise have had to know. Harmless when the pane is
+ * not in copy-mode, because the button this backs can race the owner wheeling
+ * back to the bottom on his own. */
+export function ptyCopyModeExit(session: string): Promise<void> {
+  return invoke("pty_copy_mode_exit", { session });
 }
 
 /** Subscribes to one session's output. Returns the unlisten function —

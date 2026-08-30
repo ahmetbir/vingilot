@@ -354,11 +354,61 @@ export const actionSource: PaletteSource = (ctx, query) => {
           ? "no worktree is open, so there is nowhere to open a shell."
           : null,
       chord: "⌘T",
+      command: { type: "new-task" },
+      detail: "its own chip on the tasks strip, with a fresh shell of its own",
+      id: "action:new-task",
+      kind: "action",
+      label: "New task",
+    },
+    {
+      blocked:
+        ctx.selectedWorktreeId === null
+          ? "no worktree is open, so there is nowhere to open a shell."
+          : null,
+      // Chord-less since ⌘T moved up to the task: the tab bar's + is this
+      // row's button twin.
+      chord: null,
       command: { type: "new-terminal-tab" },
-      detail: "another shell in this worktree",
+      detail: "another shell inside the current task",
       id: "action:new-terminal-tab",
       kind: "action",
       label: "New terminal tab",
+    },
+    {
+      blocked:
+        ctx.selectedWorktreeId === null
+          ? "no worktree is open, so there is no terminal to split."
+          : null,
+      chord: "⌘D",
+      command: { direction: "right", type: "split-terminal" },
+      detail: "a second live shell beside this one, with a draggable divider",
+      id: "action:split-terminal-right",
+      kind: "action",
+      label: "Split terminal right",
+    },
+    {
+      blocked:
+        ctx.selectedWorktreeId === null
+          ? "no worktree is open, so there is no terminal to split."
+          : null,
+      chord: "⇧⌘D",
+      command: { direction: "down", type: "split-terminal" },
+      detail: "a second live shell below this one, with a draggable divider",
+      id: "action:split-terminal-down",
+      kind: "action",
+      label: "Split terminal down",
+    },
+    {
+      blocked:
+        ctx.selectedWorktreeId === null
+          ? "no worktree is open, so there is no split to close."
+          : null,
+      chord: null,
+      command: { type: "close-terminal-split" },
+      detail: "close the split half and end its shell — the tab stays",
+      id: "action:close-terminal-split",
+      kind: "action",
+      label: "Close terminal split",
     },
     {
       // The same rule the chord uses, asked once (`scratchTerminal.ts`) — two

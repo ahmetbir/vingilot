@@ -41,7 +41,7 @@ use tauri::test::{mock_app, MockRuntime};
 use tauri::{App, Listener, Manager, State};
 use tempfile::TempDir;
 
-use super::{open, pty_close, pty_write, tmux, PtySessions, PTY_OUTPUT_EVENT};
+use super::{copy_mode, open, pty_close, pty_write, tmux, PtySessions, PTY_OUTPUT_EVENT};
 
 /// Section 5 — the wheel — lives in `live/wheel.rs`. Split out because this
 /// file reached its 1000-line cap; a child module sees everything private

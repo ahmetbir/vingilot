@@ -58,3 +58,26 @@ export function scrollbackNotice(behind: number): ScrollbackNotice | null {
     label: `↓ ${lines} ${lines === 1 ? "line" : "lines"}`,
   };
 }
+
+/** The same affordance for the terminal whose scrollback is tmux's.
+ *
+ * Under tmux `linesBehind` stays 0 by design — the history never enters
+ * xterm's buffer — so the notice above never appears there, and the state
+ * that needs one is different: a wheel-up put the pane in **copy-mode**,
+ * where a typed key is swallowed by tmux rather than reaching the shell. To
+ * an owner who does not know tmux internals, "I scrolled up, then typed and
+ * nothing happened" reads as "scroll doesn't work" — the exact complaint
+ * this exists to answer. The pane cannot say how many lines it is behind
+ * (that number is tmux's), so the label says what clicking does instead.
+ *
+ * `behind` is 0 deliberately: this notice is not a count, and a test reading
+ * `data-lines-behind` can tell the two apart by it. */
+export function copyModeNotice(inCopyMode: boolean): ScrollbackNotice | null {
+  if (!inCopyMode) return null;
+  return {
+    behind: 0,
+    detail:
+      "Scrolled into tmux copy-mode — keys navigate the history here instead of reaching the shell. Back to the live screen.",
+    label: "↓ back to live",
+  };
+}

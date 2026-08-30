@@ -70,6 +70,16 @@ export type PaletteCommand =
    * would be the palette taking a name on the owner's behalf. */
   | { type: "plan-to-worktree" }
   | { type: "new-terminal-tab" }
+  /** A new task on the Deck's strip — its own chip, a fresh shell of its own
+   * (`taskStrip.ts`). The row above adds a tab INSIDE the current task; this
+   * one adds a task. ⌘T is this one's chord, per the mockup's own hint. */
+  | { type: "new-task" }
+  /** Split the active terminal — a second live shell beside (`right`) or
+   * below (`down`) it, iTerm's ⌘D/⇧⌘D (`terminalSplit.ts`). */
+  | { type: "split-terminal"; direction: "right" | "down" }
+  /** Close the active terminal's split half, really ending its shell. The
+   * way back that needs no chord — the half's own × is the other door. */
+  | { type: "close-terminal-split" }
   /** Open the scratch shell over the work surface. A different thing from the
    * row above it, and the reason both are here: one keeps everything, the
    * other keeps nothing (`scratchTerminal.ts`). */

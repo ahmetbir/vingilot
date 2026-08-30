@@ -31,6 +31,13 @@ export interface PaletteHandlers {
   ask: (cwd: string, question: string) => void;
   choosePane: (pane: string) => void;
   newTerminalTab: () => void;
+  /** A new task chip with a fresh shell (`taskStrip.ts`) — ⌘T's act. */
+  newTask: () => void;
+  /** Split the active terminal to the right or downward
+   * (`terminalSplit.ts`); the workspace resolves which session is active. */
+  splitTerminal: (direction: "right" | "down") => void;
+  /** Close the active terminal's split half. */
+  closeTerminalSplit: () => void;
   openCheatsheet: () => void;
   openLanding: () => void;
   openPlanWorktree: () => void;
@@ -125,6 +132,15 @@ export function usePaletteCommands(
         return;
       case "new-terminal-tab":
         on.newTerminalTab();
+        return;
+      case "new-task":
+        on.newTask();
+        return;
+      case "split-terminal":
+        on.splitTerminal(command.direction);
+        return;
+      case "close-terminal-split":
+        on.closeTerminalSplit();
         return;
       case "open-scratch-terminal":
         // Opens, never toggles: a row called "Scratch terminal" that closed one

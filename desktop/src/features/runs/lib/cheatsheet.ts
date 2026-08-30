@@ -487,9 +487,17 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
     section: "terminal",
     what: "move the tab itself along the strip",
   },
-  "terminal:new-terminal-tab": {
+  "terminal:new-task": {
     section: "terminal",
-    what: "another shell in this worktree, in a tab that stays",
+    what: "a new task on the Deck's strip — its own chip, its own set of terminal tabs. Another tab inside the current task is the tab bar's +",
+  },
+  "terminal:split-terminal:direction=down": {
+    section: "terminal",
+    what: "split this terminal down — a second live shell below it, with a draggable divider",
+  },
+  "terminal:split-terminal:direction=right": {
+    section: "terminal",
+    what: "split this terminal right — a second live shell beside it, with a draggable divider",
   },
   "terminal:open-scratch-terminal": {
     section: "terminal",

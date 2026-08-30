@@ -65,8 +65,20 @@ import {
 import type { ControlPlaneKind } from "@/features/runs/lib/reachability";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import type { ScratchSession } from "@/features/runs/lib/scratchTerminal";
+import {
+  stripView,
+  type TaskCommand,
+  taskOf,
+  type WorktreeTaskStrip,
+} from "@/features/runs/lib/taskStrip";
 import { resolveKey } from "@/features/runs/lib/terminalKeys";
 import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
+import {
+  type SplitDirection,
+  type SplitLayout,
+  splitOf,
+  splitSessionId,
+} from "@/features/runs/lib/terminalSplit";
 import type {
   TabCommand,
   WorktreeTabs,
@@ -78,7 +90,10 @@ import { PaneFrame } from "@/features/runs/ui/PaneFrame";
 import { PaneLabel, PanePicker } from "@/features/runs/ui/PanePicker";
 import { paneEntry } from "@/features/runs/ui/paneRegistry";
 import { ScratchTerminal } from "@/features/runs/ui/ScratchTerminal";
+import { TaskStrip } from "@/features/runs/ui/TaskStrip";
 import { Terminal } from "@/features/runs/ui/Terminal";
+import { TerminalAgentReadout } from "@/features/runs/ui/TerminalAgentReadout";
+import { TerminalSplitDivider } from "@/features/runs/ui/TerminalSplitDivider";
 import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
@@ -98,6 +113,18 @@ interface WorkSurfaceProps {
    * Owned by `RunsScreen` for the same reason `terminals` is. */
   tabs: WorktreeTabs | null;
   onTabCommand: (command: TabCommand) => void;
+  /** The selected worktree's task chips, reconciled against `tabs` by the
+   * owner of both (`RunsScreen`); `null` exactly when `tabs` is. */
+  tasks: WorktreeTaskStrip | null;
+  onTaskCommand: (command: TaskCommand) => void;
+  /** Every terminal split, keyed by primary session id — owned by
+   * `RunsScreen` for the reason the tab layout is. */
+  splits: SplitLayout;
+  /** Split the ACTIVE terminal. The workspace resolves which session that is;
+   * the screen owns the layout the split lands in. */
+  onSplit: (direction: SplitDirection) => void;
+  onCloseSplit: (primary: string) => void;
+  onSplitRatio: (primary: string, ratio: number) => void;
   runs: RunSummary[];
   controlPlane: ControlPlaneKind;
   /** The cadence the coordinator polls inside the panes run at — passed with
@@ -134,9 +161,13 @@ export function WorkSurface({
   controlPlane,
   documents,
   onCloseScratch,
+  onCloseSplit,
   onPaneAct,
   onSelectWorktree,
+  onSplit,
+  onSplitRatio,
   onTabCommand,
+  onTaskCommand,
   onToggleScratch,
   paneContext,
   panes,
@@ -144,7 +175,9 @@ export function WorkSurface({
   runs,
   scratch,
   selectedWorktreeId,
+  splits,
   tabs,
+  tasks,
   terminals,
   worktrees,
   workspaceId,
@@ -225,14 +258,25 @@ export function WorkSurface({
         setFocusToken((t) => t + 1);
         return;
       }
-      // ⌘T brings focus with it as well as adding a tab — a shell that opened
-      // somewhere the owner's keystrokes were not going would be a shell they
-      // have to go looking for.
-      if (action.type === "new-terminal-tab") {
+      // ⌘T brings focus with it as well as opening a task — a shell that
+      // opened somewhere the owner's keystrokes were not going would be a
+      // shell they have to go looking for. (⌘T means a new task now; the tab
+      // bar's + is the new-tab door. `terminalKeys.ts` says why.)
+      if (action.type === "new-task") {
         event.preventDefault();
         if (soloNow.current === "right") toggleSolo("right");
         setFocusToken((t) => t + 1);
-        onTabCommand({ type: "new" });
+        onTaskCommand({ type: "new-task" });
+        return;
+      }
+      // ⌘D/⇧⌘D split the active terminal — likewise put it on screen first,
+      // and put the keyboard in it, since the split half opens beside where
+      // the owner is about to look.
+      if (action.type === "split-terminal") {
+        event.preventDefault();
+        if (soloNow.current === "right") toggleSolo("right");
+        setFocusToken((t) => t + 1);
+        onSplit(action.direction);
         return;
       }
       // Before the tab guards below, because a scratch shell is not a tab and
@@ -295,7 +339,9 @@ export function WorkSurface({
   }, [
     worktrees,
     onSelectWorktree,
+    onSplit,
     onTabCommand,
+    onTaskCommand,
     onToggleScratch,
     toggleSolo,
     tabs,
@@ -338,15 +384,25 @@ export function WorkSurface({
   }, [solo]);
 
   return (
-    // `relative` is what the scratch shell is positioned against, and it costs
-    // the layout nothing: a relative box with no offsets occupies exactly the
-    // space it did. The overlay is absolute inside it, so the two panes below
-    // keep their measured width — which under tmux is the same thing as their
-    // shells keeping their geometry.
+    // `relative` costs the layout nothing: a relative box with no offsets
+    // occupies exactly the space it did. (The scratch shell now anchors one
+    // level deeper — the terminal pane's own body — so its tab bar stays
+    // reachable while the shell is open.)
     <div
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
       data-testid="work-surface"
     >
+      {/* The Deck's tasks strip (mockup `.tasks`): full width, above both
+       * panes — a task is about the worktree, not about one pane of it. */}
+      {tabs !== null && tasks !== null ? (
+        <TaskStrip
+          activeTaskId={taskOf(tasks, tabs.active)?.id ?? null}
+          onClose={(id) => onTaskCommand({ id, type: "close-task" })}
+          onNew={() => onTaskCommand({ type: "new-task" })}
+          onSelect={(id) => onTaskCommand({ id, type: "select-task" })}
+          strip={tasks}
+        />
+      ) : null}
       <div className="flex min-h-0 flex-1 overflow-hidden" ref={surfaceRef}>
         {solo === "right" ? (
           <PaneRail
@@ -358,6 +414,16 @@ export function WorkSurface({
         ) : null}
 
         <PaneFrame
+          action={
+            // The mockup `.tright`: what the worktree's terminal agent is
+            // doing, and for how long — empty when nothing is live.
+            selectedWorktreeId === null ? null : (
+              <TerminalAgentReadout
+                bindingId={selectedWorktreeId}
+                cwd={paneContext.cwd}
+              />
+            )
+          }
           availability={leftEntry.availability(paneContext)}
           chooser={<PaneLabel entry={leftEntry} />}
           entry={leftEntry}
@@ -365,9 +431,13 @@ export function WorkSurface({
             tabs === null ? null : (
               <TerminalTabStrip
                 onClose={(n) => onTabCommand({ n, type: "close" })}
+                onCloseScratch={onCloseScratch}
                 onNew={() => onTabCommand({ type: "new" })}
                 onSelect={(n) => onTabCommand({ n, type: "select" })}
-                tabs={tabs}
+                scratchOpen={scratch !== null}
+                // The active task's tabs only (mockup: each task owns its
+                // terminal set); the raw layout stays the model's business.
+                tabs={tasks === null ? tabs : stripView(tabs, tasks)}
               />
             )
           }
@@ -377,18 +447,89 @@ export function WorkSurface({
           share={solo === null ? ratio : 1}
           side="left"
         >
-          {terminals.map((terminal) => (
-            <Terminal
-              active={
-                selectedWorktreeId === terminal.bindingId &&
-                tabs?.active === terminal.n
-              }
-              cwd={terminal.cwd}
-              focusToken={focusToken}
-              key={terminal.sessionId}
-              sessionId={terminal.sessionId}
+          {terminals.map((terminal) => {
+            const activeTerminal =
+              selectedWorktreeId === terminal.bindingId &&
+              tabs?.active === terminal.n;
+            const split = splitOf(splits, terminal.sessionId);
+            return (
+              // The split host: one tab's box, one or two live shells in it.
+              // The primary Terminal's parent (the ratio box) exists in both
+              // states, so opening or closing a split never remounts the
+              // xterm that was already attached.
+              <div
+                className={`min-h-0 min-w-0 flex-1 ${
+                  activeTerminal ? "flex" : "hidden"
+                } ${split?.direction === "down" ? "flex-col" : ""}`}
+                data-split={split?.direction ?? "none"}
+                data-testid={`terminal-split-host-${terminal.sessionId}`}
+                key={terminal.sessionId}
+              >
+                <div
+                  className="flex min-h-0 min-w-0 basis-0"
+                  style={{ flexGrow: split === null ? 1 : split.ratio }}
+                >
+                  <Terminal
+                    active={activeTerminal}
+                    cwd={terminal.cwd}
+                    focusToken={focusToken}
+                    sessionId={terminal.sessionId}
+                  />
+                </div>
+                {split === null ? null : (
+                  <>
+                    <TerminalSplitDivider
+                      direction={split.direction}
+                      onRatio={(next) => onSplitRatio(terminal.sessionId, next)}
+                      ratio={split.ratio}
+                    />
+                    <div
+                      className="relative flex min-h-0 min-w-0 basis-0"
+                      style={{ flexGrow: 1 - split.ratio }}
+                    >
+                      <Terminal
+                        active={activeTerminal}
+                        cwd={terminal.cwd}
+                        // Never auto-focused: the keyboard stays where it
+                        // was, and the half is a click away.
+                        focusToken={0}
+                        sessionId={splitSessionId(terminal.sessionId)}
+                      />
+                      <button
+                        aria-label="close this split half and end its shell"
+                        // Full-strength resting state on purpose: with
+                        // opacity-60 the only affordance for closing a half
+                        // measured 2.5:1 on the term ground (P2 verify,
+                        // MAJOR 2) — a control may whisper, not vanish.
+                        className="absolute right-2 top-2 z-10 rounded-md border border-border/60 bg-popover px-1.5 py-0.5 text-xs text-foreground/75 shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        data-testid={`terminal-split-close-${terminal.sessionId}`}
+                        onClick={() => onCloseSplit(terminal.sessionId)}
+                        title="Close this split half — ends its shell; the tab stays"
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+          {scratch === null ? null : (
+            // Keyed by the session so a scratch opened somewhere else is a
+            // new xterm rather than the old one pointed at a new pty. Drawn
+            // over the terminal pane's BODY (PaneFrame's relative wrapper),
+            // below its header — so the tab bar, the scratch tab the strip
+            // mirrors, and that tab's ✕ stay reachable while the shell is
+            // open, the way the mockup's own scratch sits under `.tbar`.
+            // Nothing about the terminals underneath is touched either way:
+            // they stay mounted, laid out, and the size they were.
+            <ScratchTerminal
+              key={scratch.sessionId}
+              onClose={onCloseScratch}
+              scratch={scratch}
             />
-          ))}
+          )}
         </PaneFrame>
 
         {solo === null ? (
@@ -429,17 +570,6 @@ export function WorkSurface({
           />
         )}
       </div>
-      {scratch === null ? null : (
-        // Keyed by the session so a scratch opened somewhere else is a new
-        // xterm rather than the old one pointed at a new pty. Nothing about
-        // the terminals underneath is touched either way: they stay mounted,
-        // laid out, and the size they were.
-        <ScratchTerminal
-          key={scratch.sessionId}
-          onClose={onCloseScratch}
-          scratch={scratch}
-        />
-      )}
     </div>
   );
 }

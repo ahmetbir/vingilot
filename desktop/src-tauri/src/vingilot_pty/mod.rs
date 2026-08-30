@@ -45,6 +45,7 @@
 //! V1 trust model). Nothing here isolates or sandboxes the shell; UI copy
 //! that surfaces a worktree chip must say only where the shell starts.
 
+mod copy_mode;
 #[cfg(test)]
 mod live;
 mod query_filter;
@@ -452,6 +453,25 @@ pub fn sweep_orphaned_terminals() {
 #[tauri::command]
 pub fn pty_backing() -> Backing {
     tmux::backing(tmux::path())
+}
+
+/// Whether a session's pane is sitting in tmux copy-mode — where a wheel-up
+/// deliberately puts it, and where a typed key is swallowed rather than
+/// reaching the shell (`tmux.rs::pane_mode_args`). The UI polls this to show
+/// the same "back to live" affordance the non-tmux scrollback path already
+/// has. Always `false` for a session that never ran under tmux.
+#[tauri::command]
+pub fn pty_copy_mode(session: String) -> bool {
+    copy_mode::pane_in_mode(&session)
+}
+
+/// Put a session's pane back on the live screen — copy-mode's own `cancel`,
+/// the act behind the affordance above. Idempotent: a pane not in copy-mode,
+/// a missing session, or a machine with no tmux all mean there is nothing to
+/// leave, and none of them is an error the owner can act on.
+#[tauri::command]
+pub fn pty_copy_mode_exit(session: String) {
+    copy_mode::exit_copy_mode(&session);
 }
 
 /// Stream a session's pty output to the webview — recording it into the

@@ -55,25 +55,12 @@ import {
   worktreeCwd,
   worktreeSummary,
 } from "@/features/runs/lib/projects";
-import { ptyClose } from "@/features/runs/lib/ptyClient";
 import type { RunSummary } from "@/features/runs/lib/runModel";
 import {
   openTerminals,
   worktreeIndex,
 } from "@/features/runs/lib/terminalSessions";
-import {
-  readTabLayout,
-  writeTabLayout,
-} from "@/features/runs/lib/terminalTabStore";
-import {
-  applyTabCommand,
-  closeWorktrees,
-  dropWorktrees,
-  ensureWorktree,
-  type TabCommand,
-  type TabLayout,
-  worktreeTabs,
-} from "@/features/runs/lib/terminalTabs";
+import { useDeckLayers } from "@/features/runs/lib/useDeckLayers";
 import type {
   PaneContext,
   PaneFacts,
@@ -281,16 +268,13 @@ export function RunsScreen() {
   // ordering (the auto-select effect above) stay this screen's.
   const navSlot = useSidebarNavSlot();
 
-  // The terminal-tab layout, seeded from and mirrored back into storage
-  // (lib/terminalTabStore.ts): this component unmounts on any route change
-  // away from /workspace, and a layout that lived only here would be forgotten
-  // on the way out — along with any shell whose worktree disappears while the
-  // owner is elsewhere. The same write is what carries the strip across an app
-  // restart, to meet the tmux sessions that were already surviving one.
-  const [tabLayout, setTabLayout] = React.useState<TabLayout>(readTabLayout);
-  React.useEffect(() => {
-    writeTabLayout(tabLayout);
-  }, [tabLayout]);
+  // The Deck's three persisted layers — terminal tabs, task chips, splits —
+  // and every transition between them, including the one door to `pty_close`
+  // for tab-model closes (`lib/useDeckLayers.ts`; split out of this file at
+  // the 1000-line ratchet). Held here rather than in `WorkSurface` because
+  // that component unmounts on the way to the landing view.
+  const deck = useDeckLayers(selectedWorktreeId);
+  const { runTabCommand, runTaskCommand, selectedTabs, selectedTasks } = deck;
 
   // The owner just closed a worktree, so its checkout no longer exists: its
   // shells end with it rather than surviving until a poll notices. Selection
@@ -298,14 +282,10 @@ export function RunsScreen() {
   // checkout — the one row that is always there.
   const handleWorktreeRemoved = React.useCallback(
     (bindingId: string) => {
-      const { closed, layout } = closeWorktrees(tabLayout, [bindingId]);
-      if (closed.length > 0) {
-        setTabLayout(layout);
-        for (const sessionId of closed) void ptyClose(sessionId);
-      }
+      deck.closeWorktreesFor([bindingId]);
       setSelectedWorktreeId((prev) => (prev === bindingId ? null : prev));
     },
-    [tabLayout],
+    [deck.closeWorktreesFor],
   );
 
   const worktreeActions = useWorktreeActions({
@@ -381,8 +361,8 @@ export function RunsScreen() {
   // on its own.
   React.useEffect(() => {
     if (selectedWorktreeId === null) return;
-    setTabLayout((prev) => ensureWorktree(prev, selectedWorktreeId));
-  }, [selectedWorktreeId]);
+    deck.ensureSelected(selectedWorktreeId);
+  }, [selectedWorktreeId, deck.ensureSelected]);
 
   // The one event that means "really closed" for a whole strip at once: the
   // worktree is gone from the workspace, so no view can ever reattach and its
@@ -396,31 +376,20 @@ export function RunsScreen() {
   // a removed worktree, and `unlistedWorktrees` is what keeps the two apart.
   React.useEffect(() => {
     if (!worktreeActions.settled) return;
-    const live = [
+    deck.dropWorktreesTo([
       ...index.keys(),
-      ...unlistedWorktrees(Object.keys(tabLayout), worktreeActions.unreadable),
-    ];
-    const { closed, layout } = dropWorktrees(tabLayout, live);
-    if (closed.length === 0) return;
-    setTabLayout(layout);
-    for (const sessionId of closed) void ptyClose(sessionId);
-  }, [tabLayout, index, worktreeActions.settled, worktreeActions.unreadable]);
-
-  // The owner closed a tab. A worktree switch leaves a strip's shells running;
-  // this is a real close — the pty is killed and its tmux session ended.
-  const runTabCommand = React.useCallback(
-    (command: TabCommand) => {
-      if (selectedWorktreeId === null) return;
-      const { closed, layout } = applyTabCommand(
-        tabLayout,
-        selectedWorktreeId,
-        command,
-      );
-      setTabLayout(layout);
-      for (const sessionId of closed) void ptyClose(sessionId);
-    },
-    [tabLayout, selectedWorktreeId],
-  );
+      ...unlistedWorktrees(
+        Object.keys(deck.tabLayout),
+        worktreeActions.unreadable,
+      ),
+    ]);
+  }, [
+    deck.tabLayout,
+    deck.dropWorktreesTo,
+    index,
+    worktreeActions.settled,
+    worktreeActions.unreadable,
+  ]);
 
   // A project the owner just forgot. Its worktrees are unreachable now, so
   // their shells end with it rather than surviving until the next poll
@@ -433,27 +402,19 @@ export function RunsScreen() {
       const bindingIds = (grouped.byRepo[repoId] ?? []).map(
         (wt) => wt.binding_id,
       );
-      const { closed, layout } = closeWorktrees(tabLayout, bindingIds);
-      if (closed.length > 0) {
-        setTabLayout(layout);
-        for (const sessionId of closed) void ptyClose(sessionId);
-      }
+      deck.closeWorktreesFor(bindingIds);
       // Standing inside the project that just left: the landing view is the
       // only place left to be.
       if (selectedRepoId === repoId) selectLanding();
     },
-    [grouped, tabLayout, selectedRepoId, selectLanding],
+    [grouped, deck.closeWorktreesFor, selectedRepoId, selectLanding],
   );
   handleProjectRemovedRef.current = handleProjectRemoved;
 
   const terminals = React.useMemo(
-    () => openTerminals(tabLayout, index, worktreeRoot),
-    [tabLayout, index, worktreeRoot],
+    () => openTerminals(deck.tabLayout, index, worktreeRoot),
+    [deck.tabLayout, index, worktreeRoot],
   );
-  const selectedTabs =
-    selectedWorktreeId === null
-      ? null
-      : worktreeTabs(tabLayout, selectedWorktreeId);
 
   const selectedWorktree =
     repoWorktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
@@ -664,8 +625,11 @@ export function RunsScreen() {
       if (pane !== undefined) panes.choose(pane);
     },
     installShim: hatch.installShim,
+    newTask: () => runTaskCommand({ type: "new-task" }),
     newTerminalTab: () => runTabCommand({ type: "new" }),
     newWorktree: () => dialogs.setCreatingWorktree(true),
+    splitTerminal: deck.splitActiveTerminal,
+    closeTerminalSplit: deck.closeActiveSplit,
     openAppearance: () => void goSettings("appearance"),
     openMessageSearch: requestSearchOpen,
     openChannel: (channelId) => void goChannel(channelId),
@@ -903,9 +867,13 @@ export function RunsScreen() {
             <WorkSurface
               documents={documents}
               onCloseScratch={scratch.close}
+              onCloseSplit={deck.closeSplitHalf}
               onPaneAct={runPaneAct}
               onSelectWorktree={setSelectedWorktreeId}
+              onSplit={deck.splitActiveTerminal}
+              onSplitRatio={deck.changeSplitRatio}
               onTabCommand={runTabCommand}
+              onTaskCommand={runTaskCommand}
               onToggleScratch={scratch.toggle}
               paneContext={paneContext}
               panes={panes}
@@ -914,7 +882,9 @@ export function RunsScreen() {
               runs={runs}
               scratch={scratch.session}
               selectedWorktreeId={selectedWorktreeId}
+              splits={deck.splitLayout}
               tabs={selectedTabs}
+              tasks={selectedTasks}
               terminals={terminals}
               worktrees={repoWorktrees}
               workspaceId={WORKSPACE_ID}

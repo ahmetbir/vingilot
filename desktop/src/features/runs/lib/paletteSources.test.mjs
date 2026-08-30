@@ -260,7 +260,13 @@ test("a toggle's label says which way it is about to go", () => {
 
 test("an action carries the chord that already does it, in its own field", () => {
   const actions = actionSource(ctx(), "");
-  assert.equal(row(actions, "action:new-terminal-tab").chord, "⌘T");
+  // ⌘T belongs to the task now (redesign P2, `terminalKeys.ts`); the
+  // new-tab row keeps its door and loses the chord it no longer has.
+  assert.equal(row(actions, "action:new-task").chord, "⌘T");
+  assert.equal(row(actions, "action:new-terminal-tab").chord, null);
+  assert.equal(row(actions, "action:split-terminal-right").chord, "⌘D");
+  assert.equal(row(actions, "action:split-terminal-down").chord, "⇧⌘D");
+  assert.equal(row(actions, "action:close-terminal-split").chord, null);
   assert.equal(row(actions, "action:scratch-terminal").chord, "⌥⌘T");
   assert.equal(row(actions, "action:toggle-sidebar").chord, "⌘B");
   assert.equal(row(actions, "action:solo-left").chord, "⌥⌘B");
@@ -300,11 +306,16 @@ test("a worktree carries the digit that already selects it, up to nine", () => {
 test("a query filters every source through the same matcher", () => {
   const matched = paletteMatches(ctx(), "palette");
   // Two sources, one matcher: the `vingilot/palette` branch by its label, and
-  // the sidebar toggle because its detail line happens to carry the letters in
-  // order. The second is the subsequence matcher working, not a bug — what is
-  // under test is that every source went through it, and a match from two of
-  // them says that more plainly than a match from one.
-  assert.deepEqual(ids(matched), ["worktree:wt-1", "action:toggle-sidebar"]);
+  // two action rows because their prose happens to carry the letters in
+  // order ("cLose the sPlit hALf...The Tab..." and the sidebar toggle's
+  // detail). The extras are the subsequence matcher working, not a bug —
+  // what is under test is that every source went through it, and a match
+  // from two sources says that more plainly than a match from one.
+  assert.deepEqual(ids(matched), [
+    "worktree:wt-1",
+    "action:close-terminal-split",
+    "action:toggle-sidebar",
+  ]);
 });
 
 test("the union is produced in source order: where you can go, then what you can do", () => {

@@ -84,7 +84,7 @@ test("the scratch chord survives caps lock and macOS's option composition", () =
 });
 
 test("the scratch chord needs both modifiers and refuses shift", () => {
-  // ⌥T alone is a dagger the owner is typing; ⌘T is a terminal tab, which is
+  // ⌥T alone is a dagger the owner is typing; ⌘T is a new task, which is
   // the opposite of this; ⇧⌥⌘T is nobody's and was never checked for
   // claimants, so claiming it by ignoring shift would be taking it blind.
   assert.equal(
@@ -92,7 +92,7 @@ test("the scratch chord needs both modifiers and refuses shift", () => {
     null,
   );
   assert.deepEqual(resolveKey({ key: "t", primaryModifier: true }), {
-    type: "new-terminal-tab",
+    type: "new-task",
   });
   assert.equal(
     resolveKey({
@@ -117,9 +117,9 @@ test("a held-down scratch chord opens one shell, not thirty", () => {
   );
 });
 
-test("primary+t opens a new terminal tab", () => {
+test("primary+t opens a new task — the strip's own chord, per the mockup's hint", () => {
   assert.deepEqual(resolveKey({ key: "t", primaryModifier: true }), {
-    type: "new-terminal-tab",
+    type: "new-task",
   });
 });
 
@@ -141,7 +141,7 @@ test("primary+w is left to the macOS menu, which resolves it before we ever see 
 test("caps lock does not lose the tab chords", () => {
   // macOS reports "T" for ⌘T with caps lock on, and shift is still not held.
   assert.deepEqual(resolveKey({ key: "T", primaryModifier: true }), {
-    type: "new-terminal-tab",
+    type: "new-task",
   });
   // …and "w" for ⇧⌘W with caps lock on, where shift IS held.
   assert.deepEqual(
@@ -257,18 +257,30 @@ test("multi-character non-digit keys never crash digit parsing", () => {
   assert.equal(resolveKey({ key: "", primaryModifier: true }), null);
 });
 
-test("primary+d and shift+primary+d are deliberately unclaimed — iTerm's split has no pane model to bind to", () => {
-  // Free in every claimant checked (this map included) — see the header on
-  // why they stay unbound here regardless: aliasing ⌘D to new-terminal-tab
-  // would teach a lie a real split does not tell.
-  assert.equal(resolveKey({ key: "d", primaryModifier: true }), null);
-  assert.equal(resolveKey({ key: "D", primaryModifier: true }), null);
-  assert.equal(
+test("primary+d splits right and shift+primary+d splits down — iTerm's own vocabulary", () => {
+  // The chords stayed unbound until there was a split model to mean
+  // (`terminalSplit.ts`); the old refusal — never alias ⌘D to
+  // new-terminal-tab — holds by these resolving to a split, not a tab.
+  assert.deepEqual(resolveKey({ key: "d", primaryModifier: true }), {
+    direction: "right",
+    type: "split-terminal",
+  });
+  // Caps lock reports "D" for the unshifted chord.
+  assert.deepEqual(resolveKey({ key: "D", primaryModifier: true }), {
+    direction: "right",
+    type: "split-terminal",
+  });
+  assert.deepEqual(
     resolveKey({ key: "D", primaryModifier: true, shiftKey: true }),
-    null,
+    { direction: "down", type: "split-terminal" },
   );
-  assert.equal(
+  assert.deepEqual(
     resolveKey({ key: "d", primaryModifier: true, shiftKey: true }),
+    { direction: "down", type: "split-terminal" },
+  );
+  // ⌥ still refuses it — the alt arm owns its own short list.
+  assert.equal(
+    resolveKey({ altKey: true, key: "d", primaryModifier: true }),
     null,
   );
 });

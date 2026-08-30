@@ -104,14 +104,19 @@ export function PaneFrame({
         flexGrow: share,
       }}
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1">
+      {/* min-h 42px — the mockup `.tbar`'s height, worn by both panes so the
+       * two headers stay level (redesign P2). */}
+      <div className="flex min-h-[42px] shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1">
         {chooser}
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
           {header}
         </div>
         {action}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* `relative` so a surface drawn OVER this pane's body (the scratch
+       * shell) can anchor to exactly the body — leaving the header above it,
+       * with its tabs, reachable. It costs the layout nothing. */}
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {availability.status === "available" ? (
           children
         ) : (

@@ -1,0 +1,72 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P2 (deck view)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: phase P2 of the 2026-08-29 redesign
+# (vingilot/docs/plans/2026-08-29-redesign.md) — the Deck: the tasks strip
+# (mockup .tasks; a task = a named group of terminal tabs, taskStrip.ts's
+# header is the decision record), the re-skinned terminal tab bar (mockup
+# .tbar: 5px state dots, term-ground active tab, agent readout on the right,
+# the scratch mirrored as the amber tab), the terminal SPLIT (⌘D/⇧⌘D, a
+# second live pty per tab with a draggable divider, terminalSplit.ts), the
+# terminal ground moving to --vingilot-term (#101014) through the existing
+# colour probe, and the scroll fix (decision 4): tmux copy-mode surfaced to
+# the UI via two new pty commands and the jump-to-bottom affordance's tmux
+# variant. Most of the work lives under desktop/src/features/runs/** and
+# desktop/src-tauri/src/vingilot_pty/**, which the root registry already
+# declares whole; the entries here are the paths those globs do not cover.
+
+seams:
+  - path: "desktop/tests/e2e/deck-tasks.spec.ts"
+    reason: "New, fork-owned spec: the tasks strip's contract over the real key path — ⌘T opens a new task (own chip, own fresh shell, the tab bar showing only that task's set), the tab bar's + adds a tab inside the current task, a chip's ✕ really ends every session the task held (asserted on the recorded pty_close ids), and the scratch shell appears as the mockup's amber tab whose close leaves the kept-nothing toast."
+    owner: "vingilot/redesign"
+    removable_when: "With the tasks strip itself."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/terminal-scroll-live.spec.ts"
+    reason: "New, fork-owned spec: the P2 scroll fix from the owner's side of the glass. App-process backing: fed lines + a real wheel prove scrollback works, that new output never yanks a reading owner back to the bottom (the jump control's count grows by exactly the fed lines), and that stick-to-bottom resumes only once the owner is AT the bottom again. tmux backing: the pty_copy_mode poll grows the 'back to live' control within a tick and its click cancels copy-mode for exactly that session (the real-tmux half of the same claim is vingilot_pty/live/wheel.rs's new copy-mode test)."
+    owner: "vingilot/redesign"
+    removable_when: "With the copy-mode affordance."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/p2-shots.spec.ts"
+    reason: "New, fork-owned screenshot spec in polish-shots.spec.ts's discipline: the pictures the P2 pass is judged by (tasks strip over the tab bar, split right/down with the divider, scratch open with its amber tab), every capture gated on assertions that the seeded state reached the screen, nothing pinning a colour so the same spec can produce a 'before' set."
+    owner: "vingilot/redesign"
+    removable_when: "P7 may fold it into a consolidated shots suite."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/terminal-cmd-d.spec.ts"
+    reason: "Rewritten (declared by iterm-chords.yaml as the proof of ⌘D's deliberate absence): the absence became the split, so the spec now proves ⌘D/⇧⌘D open and turn a real second pty ('~half' reaching pty_open), the divider drags and clamps at 20%, closing the half ends exactly its session, and — the old spec's claim, kept as an assertion — the chords still open no tab."
+    owner: "vingilot/redesign"
+    removable_when: "With the split."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/playwright.config.ts"
+    reason: "Three lines (over pane-nav-absorb.yaml's existing declaration): the smoke project's testMatch gains deck-tasks.spec.ts, terminal-scroll-live.spec.ts and p2-shots.spec.ts."
+    owner: "vingilot/redesign"
+    removable_when: "With the specs it registers."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/terminal-chrome.spec.ts"
+    reason: "Re-aimed (over iterm-chords.yaml's declaration): the terminal's ground assertions read the vingilot-term-ground probe class (--vingilot-term, #101014 — the mockup's .term, one step darker than the stage) instead of bg-background, and the theme-change test moves --vingilot-term too so it keeps proving the ground follows a live token write."
+    owner: "vingilot/redesign"
+    removable_when: "While the term ground is the fork's."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/src-tauri/src/vingilot_pty/**"
+    reason: "P2 additions inside the already-declared pty island (root seams.yaml): tmux.rs gains pane_mode_args/pane_in_mode (tmux's #{pane_in_mode} behind an anchored target) and copy_mode_exit_args/exit_copy_mode (send-keys -X cancel — copy-mode's own cancel, never a typed 'q'), mod.rs registers them as pty_copy_mode/pty_copy_mode_exit, and live/wheel.rs proves both against a real tmux 3.6a alongside the existing wheel proofs. This is the backend half of decision 4's scroll fix: a wheel-up parks the pane in copy-mode where typed keys are swallowed, and the UI can now see and end that state."
+    owner: "vingilot/redesign"
+    removable_when: "With the copy-mode affordance."
+    status: "permanent"
+    added: "2026-08-30"

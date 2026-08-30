@@ -1,9 +1,12 @@
 // The scratch shell, over the work surface
 // (vingilot/docs/plans/2026-08-08-scratch-and-team-thread.md, Task 1).
 //
-// **It is drawn over the surface, not in it.** Absolutely positioned inside
-// the work surface's own box, so the two panes underneath keep the geometry
-// they already had. That is not a styling preference: under tmux the sole
+// **It is drawn over the terminal pane's body, not in it.** Absolutely
+// positioned inside the pane body's own box (PaneFrame's relative wrapper) —
+// below the pane header, so the tab strip and the scratch tab it mirrors
+// stay reachable (redesign P2; the mockup's scratch sits under `.tbar` the
+// same way) — and the terminals underneath keep the geometry they already
+// had. That is not a styling preference: under tmux the sole
 // attached client's size *is* the session's size, so a layout that squeezed
 // the persistent terminals to make room would reflow every one of the owner's
 // live shells and re-wrap their scrollback — the exact failure `terminalFit.ts`
@@ -127,7 +130,7 @@ export function ScratchTerminal({ onClose, scratch }: ScratchTerminalProps) {
 
   return (
     <div
-      className="absolute inset-0 z-20 flex flex-col p-6"
+      className="absolute inset-0 z-20 flex flex-col p-4"
       data-testid="scratch-terminal"
       ref={overlayRef}
     >

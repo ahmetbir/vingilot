@@ -1,8 +1,9 @@
 // Pure keyboard-resolution for the Projects/Terminal work surface (see
 // vingilot/docs/plans/2026-08-06-projects-and-terminal.md's layout contract):
 // ⌘1…9 switches worktrees (iTerm tab muscle memory), ⌘` focuses the
-// terminal, Esc leaves it, ⌘T/⇧⌘W/⌥⌘←→ work the worktree's own terminal
-// tabs, and ⌥⌘T opens the scratch shell that keeps none of that
+// terminal, Esc leaves it, ⌘T opens a new task on the Deck's strip,
+// ⇧⌘W/⌥⌘←→ work the active task's terminal tabs, ⌘D/⇧⌘D split the active
+// terminal, and ⌥⌘T opens the scratch shell that keeps none of that
 // (`scratchTerminal.ts`). A pure `resolveKey`-style function so the map is
 // unit-testable
 // without mounting React or a real keyboard event — the caller
@@ -14,34 +15,39 @@
 // is even showing is the caller's business — this module says what a chord
 // means, not whether now is the time for it.
 //
-// **⌘D and ⇧⌘D — iTerm's split-vertically and split-horizontally — are
-// deliberately unclaimed below, and that absence is a decision, not a gap
-// left for later.** Both pass the five-claimant audit clean: not in the muda
-// menu, not in `useAppShellKeyboardShortcuts.ts`, not in any global
-// (settings/zoom/reload/back-forward), not in any map in this island. The
-// reason they stay unbound anyway is `paneModel.ts`'s: there is exactly one
-// terminal side and one interchangeable slot on the other (`rightChoices()`
-// excludes the terminal "for the terminal it is not even possible — there is
-// one set of sessions"), so there is no pane model for a second, sibling
-// terminal to split into. The one thing ⌘D *could* honestly claim today —
-// aliasing it to `new-terminal-tab` — is refused on purpose: a split keeps
-// sibling context visible, a tab replaces the view, and binding the iTerm
-// split chord to the tab gesture would teach the owner's fingers a lie the
-// first time he actually wanted both terminals on screen at once. A real
-// split is its own task (a second pane-model layer nested inside the
-// terminal side, new attach lifecycle, new divider), sized separately. Left
-// here rather than only in a doc so a future edit that reaches for "d" sees
-// why nothing is there.
+// **⌘D and ⇧⌘D — iTerm's split-right and split-down — are claimed below**
+// (2026-08-29 redesign, P2; owner: "terminali ikiye bolmeli suruklemeli").
+// They were deliberately unclaimed for one release: the audit passed clean
+// but there was no model for a second, sibling terminal to split into. That
+// model now exists (`terminalSplit.ts` — one extra pty beside the active
+// tab's own, a draggable divider between them), so the chords mean what
+// iTerm's fingers expect. The refusal that stood in this header — never
+// alias ⌘D to `new-terminal-tab`, because a split keeps sibling context
+// visible and a tab replaces the view — still stands, and is now enforced by
+// the split being real: `terminal-cmd-d.spec.ts` asserts ⌘D changes no tab.
+//
+// Audit, re-run for the claim (the five claimants, plus the shell chords P1
+// added): the muda default menu binds ⌘D nowhere (its ⇧⌘ list is empty, its
+// plain-⌘ list is C/X/V/Z/Y/A/M/H/W/Q + ⌃⌘F and ⌥⌘H); upstream's
+// AppShell window handler claims ⇧⌘K/N/O/A and ⌘K only; the app's globals
+// are ⌘,/⌘±/⌘0/⌘R/⌘[]/⌃⌘←→/⌘F/Esc; `useShellChords` claims ⌘B and ⌥⌘B;
+// this island's own maps end at ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→, ⌥⌘T, ⌘K,
+// ⌘B/⇧⌘B, ⌥⌘B/⇧⌥⌘B. One near-claimant sits outside that grep scope and is
+// worth naming: `dictationKeys.ts` resolves "d" — but only under ⌃⌘, and
+// `hasPrimaryShortcutModifier` is `metaKey && !ctrlKey` on macOS, so ⌃⌘D
+// never reaches the split map (probed live by the P2 verify). Nothing else
+// resolves "d" with ⌘ held, shifted or not — grep re-run 2026-08-30.
 
 export type TerminalKeyAction =
   | { type: "switch-worktree"; index: number }
   | { type: "focus-terminal" }
   | { type: "leave-terminal" }
-  | { type: "new-terminal-tab" }
+  | { type: "new-task" }
   | { type: "close-terminal-tab" }
   | { type: "step-terminal-tab"; dir: -1 | 1 }
   | { type: "move-terminal-tab"; dir: -1 | 1 }
-  | { type: "open-scratch-terminal" };
+  | { type: "open-scratch-terminal" }
+  | { type: "split-terminal"; direction: "right" | "down" };
 
 /** Which way an arrow points, or `null` for a key that is not one. */
 function arrowDirection(key: string): -1 | 1 | null {
@@ -167,9 +173,11 @@ export function resolveKey(input: KeyInput): TerminalKeyAction | null {
   if (input.primaryModifier && input.shiftKey === true) {
     // Case-insensitive for the same reason ⌘T is below: ⇧ reports "W", caps
     // lock can report it for the unshifted chord too.
-    return input.key.toLowerCase() === "w"
-      ? { type: "close-terminal-tab" }
-      : null;
+    const shifted = input.key.toLowerCase();
+    if (shifted === "w") return { type: "close-terminal-tab" };
+    // ⇧⌘D — iTerm's split-horizontally: the new shell goes BELOW the old.
+    if (shifted === "d") return { direction: "down", type: "split-terminal" };
+    return null;
   }
 
   if (input.primaryModifier && !input.shiftKey) {
@@ -183,9 +191,19 @@ export function resolveKey(input: KeyInput): TerminalKeyAction | null {
     // Matched case-insensitively: macOS reports ⌘⇧T as "T" and ⌘T as "t", but
     // a stuck caps lock reports "T" for the unshifted chord too, and losing
     // ⌘T to caps lock would be a bug nobody would think to look for.
+    //
+    // ⌘T means a new TASK now (redesign P2, mockup `.taskr`'s own hint): a
+    // fresh chip on the tasks strip with a fresh shell in it. A new tab
+    // *inside* the current task is the strip's `+`, chord-less — the mockup
+    // gives the chord to the larger act and this map follows it.
     const letter = input.key.toLowerCase();
     if (letter === "t") {
-      return { type: "new-terminal-tab" };
+      return { type: "new-task" };
+    }
+    // ⌘D — iTerm's split-vertically: the new shell goes to the RIGHT of the
+    // old. The header carries the audit.
+    if (letter === "d") {
+      return { direction: "right", type: "split-terminal" };
     }
     return null;
   }

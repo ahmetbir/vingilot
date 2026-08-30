@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { linesBehind, scrollbackNotice } from "./terminalScrollback.ts";
+import {
+  copyModeNotice,
+  linesBehind,
+  scrollbackNotice,
+} from "./terminalScrollback.ts";
 
 test("a terminal showing the newest output is behind by nothing", () => {
   assert.equal(linesBehind(0, 0), 0);
@@ -61,4 +65,20 @@ test("the detail says what clicking it does, the label only says where you are",
   assert.ok(notice);
   assert.match(notice.detail, /jump to the newest output/i);
   assert.doesNotMatch(notice.label, /jump/i);
+});
+
+test("copy-mode gets the affordance the count-based notice cannot give it", () => {
+  // Under tmux `linesBehind` is 0 by design, so the counted notice never
+  // appears there. The copy-mode notice is the same control with a different
+  // sentence: no count (tmux owns that number), a label that says what
+  // clicking does bring back, and a detail naming why typed keys go nowhere.
+  const notice = copyModeNotice(true);
+  assert.ok(notice);
+  assert.equal(notice.behind, 0);
+  assert.match(notice.label, /back to live/i);
+  assert.match(notice.detail, /copy-mode/i);
+});
+
+test("a pane on the live screen earns no copy-mode notice", () => {
+  assert.equal(copyModeNotice(false), null);
 });

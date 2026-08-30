@@ -355,7 +355,14 @@ test("the terminal paints in the app's foreground, cursor and selection, not xte
   expect(painted.cursor, "the terminal's cursor is not the app's accent").toBe(
     await appColor(page, "text-primary", "color"),
   );
-  const surface = await appColor(page, "bg-background", "backgroundColor");
+  // The redesign's term ground (`--vingilot-term`, #101014), probed through
+  // the same class Terminal.tsx dresses its probe in — not the app's general
+  // background, which is one step lighter (the stage's #1a1a1a).
+  const surface = await appColor(
+    page,
+    "vingilot-term-ground",
+    "backgroundColor",
+  );
   expect(
     painted.cursorAccent,
     "the character under a block cursor is not drawn in the pane's own surface colour",
@@ -426,11 +433,19 @@ test("the terminal's palette follows a theme change", async ({ page }) => {
     // scoped rule reads too, or the pane keeps #1a1a1a and this test would
     // be asserting against the wrong cascade, not against the terminal.
     root.style.setProperty("--buzz-content-dark", "120 100% 25%");
+    // The terminal's own ground reads `--vingilot-term` first (redesign P2,
+    // vingilot-tokens.css) — a whole colour, not a triple. Move it too, so
+    // this test keeps proving the ground follows a live token write.
+    root.style.setProperty("--vingilot-term", "hsl(120, 100%, 25%)");
   });
 
   const foreground = await appColor(page, "text-foreground", "color");
   const cursor = await appColor(page, "text-primary", "color");
-  const cursorAccent = await appColor(page, "bg-background", "backgroundColor");
+  const cursorAccent = await appColor(
+    page,
+    "vingilot-term-ground",
+    "backgroundColor",
+  );
   const accent = await appColor(page, "bg-primary", "backgroundColor");
   expect(
     cursor,

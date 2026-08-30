@@ -39,6 +39,19 @@
   background-color: transparent;
 }
 
+/*
+ * Redesign P2 — the terminal's ground is the mockup's `.term` (#101014), a
+ * step darker than the stage it sits in. One class, consumed twice: the
+ * Terminal pane's own box wears it, and Terminal.tsx's colour probe dresses
+ * an element in it to hand xterm the same pixel value — the probe pattern
+ * that already keeps the terminal wearing the app's colours, now pointed at
+ * the term surface instead of the general background. The fallback keeps a
+ * theme that unsets the token honest rather than black.
+ */
+.vingilot-term-ground {
+  background-color: var(--vingilot-term, hsl(var(--background)));
+}
+
 :root {
   /* Surfaces + ink (mockup: --content/--content2/--term/--ink/--mut/--bor) */
   --vingilot-content: #1a1a1a;

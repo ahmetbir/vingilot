@@ -261,7 +261,7 @@ pub(crate) fn list_session_names() -> Vec<String> {
 /// resolving a target, and takes no `=` — verified on 3.6a, where
 /// `new-session -A -s vingilot_wt_1` beside a live `vingilot_wt_11` creates a
 /// second, separate session rather than attaching to the longer one.
-fn exact_target(session_id: &str) -> String {
+pub(crate) fn exact_target(session_id: &str) -> String {
     format!("={}:", session_name(session_id))
 }
 

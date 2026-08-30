@@ -22,6 +22,7 @@
 // exists to prevent.
 
 import * as React from "react";
+import { toast } from "sonner";
 
 import { ptyClose } from "@/features/runs/lib/ptyClient";
 import {
@@ -77,6 +78,16 @@ export function useScratchTerminal({
     (change: { closed: readonly string[]; scratch: Scratch }) => {
       setScratch(change.scratch);
       for (const sessionId of change.closed) void ptyClose(sessionId);
+      // The toast is the close's receipt (redesign P2, mockup scratch): the
+      // shell's whole promise is that closing keeps nothing, and a surface
+      // that vanishes silently reads as a crash rather than a kept promise.
+      // Only for a close that leaves nothing open — a scratch replaced by one
+      // on another worktree announces itself by being there.
+      if (change.closed.length > 0 && change.scratch === null) {
+        toast("Scratch shell closed", {
+          description: "Kept nothing — no tab, no history, no tmux session.",
+        });
+      }
     },
     [],
   );

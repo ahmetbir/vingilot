@@ -50,12 +50,21 @@ interface TerminalTabStripProps {
   onSelect: (n: number) => void;
   onClose: (n: number) => void;
   onNew: () => void;
+  /** True while the scratch shell is open over this surface. The mockup
+   * (`#tab-scratch`) draws the scratch as a tab that exists only while it is
+   * open: amber dot, always-visible ✕. This strip draws the same tab; the
+   * surface itself stays the overlay (`ScratchTerminal.tsx`), so the tab is
+   * a mirror with a close button, never a second owner of the session. */
+  scratchOpen?: boolean;
+  onCloseScratch?: () => void;
 }
 
 export function TerminalTabStrip({
   onClose,
+  onCloseScratch,
   onNew,
   onSelect,
+  scratchOpen = false,
   tabs,
 }: TerminalTabStripProps) {
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
@@ -103,9 +112,9 @@ export function TerminalTabStrip({
           const active = n === tabs.active;
           return (
             <div
-              className={`group flex shrink-0 items-center gap-1 rounded-md pl-2 pr-1 text-xs ring-1 ring-inset transition-colors ${
+              className={`group flex shrink-0 items-center gap-1 rounded-md pl-2.5 pr-1 text-xs ring-1 ring-inset transition-colors ${
                 active
-                  ? "bg-muted text-foreground ring-border"
+                  ? "bg-[var(--vingilot-term,hsl(var(--muted)))] text-foreground ring-border"
                   : "text-muted-foreground ring-transparent hover:bg-muted/50 hover:text-foreground"
               }`}
               data-active={active}
@@ -116,7 +125,7 @@ export function TerminalTabStrip({
                 aria-selected={active}
                 // Tabular figures so a strip that reaches double digits does
                 // not re-space itself as the ordinals grow.
-                className={`py-1 font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
+                className={`flex items-center gap-2 py-1.5 font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
                   active ? "font-semibold" : "font-normal"
                 }`}
                 data-testid={`terminal-tab-${n}`}
@@ -125,6 +134,16 @@ export function TerminalTabStrip({
                 title={`Terminal ${n}`}
                 type="button"
               >
+                {/* The mockup's 5px state dot: accent-lit with a glow on the
+                 * showing tab, quiet on the rest. */}
+                <span
+                  aria-hidden="true"
+                  className={`h-[5px] w-[5px] shrink-0 rounded-full transition-colors ${
+                    active
+                      ? "bg-[var(--vingilot-accent)] shadow-[0_0_6px_var(--vingilot-accent)]"
+                      : "bg-foreground/25"
+                  }`}
+                />
                 {n}
               </button>
               <button
@@ -140,13 +159,39 @@ export function TerminalTabStrip({
             </div>
           );
         })}
+        {scratchOpen ? (
+          <div
+            className="flex shrink-0 items-center gap-1 rounded-md bg-[var(--vingilot-term,hsl(var(--muted)))] pl-2.5 pr-1 text-xs text-foreground ring-1 ring-inset ring-border"
+            data-testid="terminal-tab-scratch"
+          >
+            <span className="flex items-center gap-2 py-1.5 font-mono">
+              {/* Amber, the mockup's own scratch colour — a shell that keeps
+               * nothing wears a different light than the tabs that stay. */}
+              <span
+                aria-hidden="true"
+                className="h-[5px] w-[5px] shrink-0 rounded-full bg-[#d4b36a] shadow-[0_0_6px_#d4b36a]"
+              />
+              scratch
+            </span>
+            <button
+              aria-label="close the scratch terminal"
+              className="rounded px-1 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              data-testid="terminal-tab-scratch-close"
+              onClick={onCloseScratch}
+              title="Close the scratch shell (⌥⌘T) — keeps nothing"
+              type="button"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
       </div>
       <button
         aria-label="new terminal tab"
         className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         data-testid="terminal-tab-new"
         onClick={onNew}
-        title="New terminal tab (⌘T)"
+        title="New terminal tab in this task — ⌘T opens a new task instead"
         type="button"
       >
         +

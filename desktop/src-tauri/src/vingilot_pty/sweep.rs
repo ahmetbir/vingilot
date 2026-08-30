@@ -58,13 +58,22 @@ pub(crate) enum Verdict {
 
 /// The worktree path a session id was opened on, if it names one.
 ///
-/// A session id is `<binding id>#<tab ordinal>`. The ordinal is split off the
-/// right and only when it is digits: a path may itself contain `#`, and
-/// `local:/tmp/a#b` is a directory, not tab `b`.
+/// A session id is `<binding id>#<tab ordinal>`, and since the terminal
+/// split (P2, `lib/terminalSplit.ts`) a tab's second pty is
+/// `<binding id>#<tab ordinal>~half`. The ordinal is split off the right and
+/// only when it is digits — optionally carrying the `~half` suffix: a path
+/// may itself contain `#`, and `local:/tmp/a#b` is a directory, not tab `b`.
+/// Without the suffix rule the half's ordinal read `2~half`, failed the
+/// digits check, the whole id fell through as a path that does not exist,
+/// and the sweeper killed every persisted split half at app start (P2
+/// verify, MAJOR 1) — the exact state `splitStore` promises survives.
 fn worktree_path(session_id: &str) -> Option<&str> {
     let binding = match session_id.rsplit_once('#') {
         Some((left, ordinal))
-            if !ordinal.is_empty() && ordinal.bytes().all(|b| b.is_ascii_digit()) =>
+            if {
+                let digits = ordinal.strip_suffix("~half").unwrap_or(ordinal);
+                !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+            } =>
         {
             left
         }
@@ -211,6 +220,19 @@ mod tests {
         // `#b` is not an ordinal, so the whole thing is the binding id.
         let name = name_for("local:/w/a#b");
         assert_eq!(verdict(&name, &only(&["/w/a#b", "/w"])), Verdict::Alive);
+    }
+
+    #[test]
+    fn a_split_half_lives_and_dies_with_its_worktree() {
+        // The P2 verify's MAJOR 1: `#2~half` must parse as tab 2's split
+        // half, not as a path named `/w/one#2~half` — which does not exist,
+        // reads as Orphan, and gets the owner's half killed on every launch.
+        let half = name_for("local:/w/one#2~half");
+        assert_eq!(verdict(&half, &only(&["/w/one", "/w"])), Verdict::Alive);
+        assert_eq!(verdict(&half, &only(&["/w"])), Verdict::Orphan);
+        // `~half` alone is not an ordinal; a path may end that way.
+        let odd = name_for("local:/w/a#~half");
+        assert_eq!(verdict(&odd, &only(&["/w/a#~half", "/w"])), Verdict::Alive);
     }
 
     #[test]

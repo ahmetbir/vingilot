@@ -250,3 +250,79 @@ fn a_session_that_predates_this_app_gets_the_wheel_when_a_terminal_attaches() {
     harness.close(&id);
     kill_test_tmux_server();
 }
+
+#[test]
+fn the_apps_own_copy_mode_query_and_cancel_are_what_the_button_claims() {
+    // The "back to live" affordance (`ui/Terminal.tsx`) is built on two
+    // commands: `pty_copy_mode`, which asks whether the pane is in copy-mode,
+    // and `pty_copy_mode_exit`, which leaves it. This proves both against a
+    // real tmux — the query answers false on a live screen, true once a wheel
+    // has scrolled the pane, and the cancel puts it back — and proves the
+    // cancel is harmless against a pane that is not in copy-mode, because the
+    // button can race the owner wheeling back down on his own.
+    let _live = live_lock();
+    isolated_tmux_socket();
+
+    if tmux::path().is_none() {
+        eprintln!(
+            "SKIPPED the_apps_own_copy_mode_query_and_cancel_are_what_the_button_claims: \
+             no tmux on this machine, so there is no copy-mode to leave."
+        );
+        return;
+    }
+
+    let mut repo = LiveRepo::new();
+    let worktree = repo.worktree("copymode");
+    let harness = Harness::new();
+    let id = live_id("copymode");
+    let marker = format!("VINGILOT-COPYMODE-{}", std::process::id());
+
+    harness.open(&id, &worktree);
+    harness.settle(&id);
+    harness.ask(
+        &id,
+        &format!("for i in $(seq 1 200); do echo {marker}-$i; done\n"),
+        &format!("{marker}-200"),
+    );
+
+    // A pane at the live screen: the query must say so, and the cancel must
+    // be a no-op rather than a typed key the shell can read.
+    assert!(
+        !copy_mode::pane_in_mode(&id),
+        "the query claims copy-mode before anything scrolled"
+    );
+    copy_mode::exit_copy_mode(&id);
+    assert!(
+        !copy_mode::pane_in_mode(&id),
+        "a cancel against a live pane changed its mode"
+    );
+
+    // A wheel-up scrolls the pane into copy-mode — the state the affordance
+    // exists for — and the app's query is what has to notice.
+    harness.write(&id, SGR_WHEEL_UP);
+    let deadline = Instant::now() + EXIT_WITHIN;
+    while !copy_mode::pane_in_mode(&id) {
+        assert!(
+            Instant::now() < deadline,
+            "the app's own query never saw the copy-mode a wheel-up starts: \
+             pane_in_mode={}",
+            ours_says(&id, "#{pane_in_mode}")
+        );
+        std::thread::sleep(POLL);
+    }
+
+    // And the app's cancel is the way back — the same act as the `q` the
+    // owner would otherwise have had to know.
+    copy_mode::exit_copy_mode(&id);
+    let deadline = Instant::now() + EXIT_WITHIN;
+    while copy_mode::pane_in_mode(&id) {
+        assert!(
+            Instant::now() < deadline,
+            "the app's cancel did not leave copy-mode"
+        );
+        std::thread::sleep(POLL);
+    }
+
+    harness.close(&id);
+    kill_test_tmux_server();
+}

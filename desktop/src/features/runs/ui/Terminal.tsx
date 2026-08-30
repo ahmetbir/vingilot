@@ -95,6 +95,9 @@ import * as React from "react";
 
 import {
   onPtyOutput,
+  ptyBacking,
+  ptyCopyMode,
+  ptyCopyModeExit,
   ptyOpen,
   ptyResize,
   ptyWrite,
@@ -118,6 +121,7 @@ import {
 } from "@/features/runs/lib/terminalPalette";
 import { useTerminalFind } from "@/features/runs/lib/useTerminalFind";
 import {
+  copyModeNotice,
   linesBehind,
   scrollbackNotice,
 } from "@/features/runs/lib/terminalScrollback";
@@ -201,7 +205,12 @@ function probeColor(
  * here, in the one spelling xterm reads back (`lib/terminalPalette.ts`), and
  * xterm composites it over the surface it was just given. */
 function terminalTheme(probe: HTMLElement): TerminalPalette {
-  const surface = probeColor(probe, "bg-background", "backgroundColor");
+  // The term ground, not the general background: the redesign gives the
+  // terminal the mockup's `.term` surface (#101014, `--vingilot-term`), one
+  // step darker than the stage. Probed through the same class the pane's own
+  // box wears (`vingilot-tokens.css`), so the xterm and the padding ring
+  // around it cannot disagree about what the ground is.
+  const surface = probeColor(probe, "vingilot-term-ground", "backgroundColor");
   const accent = probeColor(probe, "bg-primary", "backgroundColor");
   const theme: TerminalPalette = {
     background: surface ?? undefined,
@@ -268,6 +277,32 @@ export function Terminal({
    * sidebar reorder is pointer events and never reaches `onDragDropEvent`
    * (`lib/nativeDrop.ts`), so this stays dark while a row is dragged past. */
   const [isDropTarget, setIsDropTarget] = React.useState(false);
+  /** True while the pane sits in tmux copy-mode — where a wheel-up
+   * deliberately put it, and where typed keys go to tmux rather than the
+   * shell. Read by a poll below; drives the "back to live" notice. */
+  const [inCopyMode, setInCopyMode] = React.useState(false);
+  // Mirrors for the copy-mode poll's arm/disarm logic (the poll effect below):
+  // a wheel burst arms ~5 ticks of asking; consecutive "not in copy-mode"
+  // answers disarm. Refs, not state — the loop must read them without
+  // re-running the effect.
+  const inCopyModeRef = React.useRef(false);
+  const copyModeInterestRef = React.useRef(0);
+
+  // A wheel is the only way this app's panes enter tmux copy-mode, so it is
+  // what arms the poll. A NATIVE capture listener on the pane's own box, not
+  // a React synthetic: xterm owns the wheel on its viewport, and capture on
+  // this element fires before anything downstream can consume it.
+  React.useEffect(() => {
+    const root = rootRef.current;
+    if (root === null) return;
+    const arm = () => {
+      copyModeInterestRef.current = 5;
+    };
+    root.addEventListener("wheel", arm, { capture: true, passive: true });
+    return () => {
+      root.removeEventListener("wheel", arm, { capture: true });
+    };
+  }, []);
 
   // A dropped file inserts its shell-escaped absolute path at the cursor, iTerm
   // style — the same `pty_write` channel a keystroke uses, so it lands exactly
@@ -557,6 +592,68 @@ export function Terminal({
     // `focusTerminal` above it is, so adding it costs this effect nothing.
   }, [sessionId, cwd, ephemeral, termFind.attach]);
 
+  // **The half of the scroll story `linesBehind` cannot see.** Under tmux the
+  // wheel is an input and the history is tmux's, so `behind` stays 0 there by
+  // design — but a wheel-up really does move the view: it puts the pane in
+  // copy-mode, where the two ways back the owner is expected to know are
+  // wheeling to the bottom and `q`, and where a typed key is swallowed as a
+  // copy-mode command rather than reaching the shell. That swallowing is the
+  // owner's "scroll duzgun calismiyor" (2026-08-29 redesign, decision 4). So
+  // the pane is asked — `pty_copy_mode`, tmux's own `#{pane_in_mode}` — on a
+  // 1s poll gated three ways: only while shown (a hidden terminal polls
+  // nothing), only for a session tmux could be backing (`pty_backing` is one
+  // answer per app run; an ephemeral spawn is never tmux's), and stopped with
+  // the attachment. The answer drives the same corner control the non-tmux
+  // path already has, re-worded (`copyModeNotice`), whose click runs
+  // copy-mode's own cancel. The e2e half is terminal-scroll-live.spec.ts;
+  // the tmux half is proved against a real server in
+  // vingilot_pty/live/wheel.rs.
+  React.useEffect(() => {
+    if (!active || cwd === null || ephemeral) return;
+    let stopped = false;
+    let handle: number | null = null;
+    const tick = async () => {
+      // The IPC (a tmux process spawn per ask) runs only while a wheel has
+      // recently ARMED this pane or it is already known to be in copy-mode —
+      // an idle Deck spawns nothing (P2 verify, minor 2: the unarmed loop
+      // was 1 process/sec per active terminal, ×2 under a split). A wheel is
+      // the only way this app's panes enter copy-mode; each burst re-arms.
+      if (copyModeInterestRef.current === 0 && !inCopyModeRef.current) {
+        if (!stopped) handle = window.setTimeout(() => void tick(), 1_000);
+        return;
+      }
+      try {
+        const mode = await ptyCopyMode(sessionId);
+        if (!stopped) {
+          setInCopyMode(mode);
+          inCopyModeRef.current = mode;
+          if (mode) copyModeInterestRef.current = 5;
+          else if (copyModeInterestRef.current > 0)
+            copyModeInterestRef.current -= 1;
+        }
+      } catch {
+        // An unreachable backend reads as "not in copy-mode": the affordance
+        // simply does not appear, which is where it started.
+        if (!stopped) {
+          setInCopyMode(false);
+          inCopyModeRef.current = false;
+          copyModeInterestRef.current = 0;
+        }
+      }
+      if (!stopped) handle = window.setTimeout(() => void tick(), 1_000);
+    };
+    void ptyBacking()
+      .then((backing) => {
+        if (!stopped && backing === "tmux") void tick();
+      })
+      .catch(() => {});
+    return () => {
+      stopped = true;
+      if (handle !== null) window.clearTimeout(handle);
+      setInCopyMode(false);
+    };
+  }, [active, cwd, ephemeral, sessionId]);
+
   // Being shown is what measures this terminal, and a measurement is the only
   // thing that opens its session — so for a terminal that mounted hidden this
   // is the open, not merely a re-fit. For one already open it is still the
@@ -572,16 +669,37 @@ export function Terminal({
     termRef.current?.focus();
   }, [active, focusToken]);
 
-  const notice = scrollbackNotice(behind);
+  // One corner control, two backings: the counted notice where xterm owns the
+  // history, the copy-mode notice where tmux does. They cannot both be
+  // non-null — `behind` is 0 under tmux and `inCopyMode` false outside it.
+  const notice = scrollbackNotice(behind) ?? copyModeNotice(inCopyMode);
 
   return (
     // `relative` so the scrollback control below can be positioned against
     // this box. It costs the layout nothing, and being *out of flow* is the
     // point: a control that took a row would change the container's height,
     // which under tmux is the same thing as resizing the owner's live session.
+    // biome-ignore lint/a11y/noStaticElementInteractions: a drop target is not a control — the drag handlers add a second way in for pointer drags, and the keyboard path to the same act (typing into the shell) is the terminal itself
     <div
-      className={`relative min-h-0 min-w-0 flex-1 ${active ? "flex" : "hidden"}`}
+      className={`vingilot-term-ground relative min-h-0 min-w-0 flex-1 ${active ? "flex" : "hidden"}`}
       data-testid={`terminal-${sessionId}`}
+      // A text drag from inside the webview (selected chat text, a path in
+      // the Files pane) lands as keystrokes at the cursor — the HTML5 path,
+      // which a native Finder drag never takes (`nativeDrop.ts`'s header: the
+      // OS drag goes dark for the DOM). Each split half is its own target
+      // because each renders its own Terminal.
+      onDragOver={(event) => {
+        if (cwd !== null && event.dataTransfer.types.includes("text/plain")) {
+          event.preventDefault();
+        }
+      }}
+      onDrop={(event) => {
+        if (cwd === null) return;
+        const text = event.dataTransfer.getData("text/plain");
+        if (text === "") return;
+        event.preventDefault();
+        void ptyWrite(sessionId, text);
+      }}
       ref={rootRef}
     >
       {/* The drop affordance: a quiet ring in the app's accent, drawn over the
@@ -631,7 +749,16 @@ export function Terminal({
               className="absolute bottom-3 right-4 z-10 rounded-full border border-border/60 bg-popover px-2 py-1 text-2xs text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground"
               data-lines-behind={notice.behind}
               data-testid={`terminal-jump-to-bottom-${sessionId}`}
-              onClick={() => termRef.current?.scrollToBottom()}
+              onClick={() => {
+                if (behind > 0) {
+                  termRef.current?.scrollToBottom();
+                  return;
+                }
+                // The tmux case: copy-mode's own cancel, and an optimistic
+                // hide — the next poll re-shows it if tmux disagrees.
+                setInCopyMode(false);
+                void ptyCopyModeExit(sessionId);
+              }}
               // Moving the view must not take the keyboard with it. xterm holds
               // focus on a helper textarea of its own, and a mousedown anywhere
               // else moves focus off it — so the owner who clicked this would
