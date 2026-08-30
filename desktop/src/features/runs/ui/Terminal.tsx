@@ -106,6 +106,7 @@ import {
   acceptPtyChunk,
   initialPtyStreamState,
 } from "@/features/runs/lib/ptyStream";
+import { takeTerminalType } from "@/features/runs/lib/terminalType";
 import {
   resolveFit,
   resolveFitAction,
@@ -419,6 +420,12 @@ export function Terminal({
       }
       if (detached) return;
       phase = "open";
+      // Mail filed for this session before it existed — the dock's Start Dev
+      // and "New terminal here" (`lib/terminalType.ts`). Typed down the same
+      // channel the drop-paste above uses, after the open so it cannot race
+      // it; taken once, so a reattach never re-types a command.
+      const typed = takeTerminalType(sessionId);
+      if (typed !== null) void ptyWrite(sessionId, typed);
       // The container can have been resized while the open was in flight, and
       // nothing else is watching for that.
       remeasure();

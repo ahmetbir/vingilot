@@ -173,6 +173,7 @@ export default defineConfig({
         "**/terminal-cmd-d.spec.ts",
         "**/terminal-scroll-live.spec.ts",
         "**/deck-tasks.spec.ts",
+        "**/dock.spec.ts",
         "**/diff-keeps-up.spec.ts",
         "**/workspace-diff-fits.spec.ts",
         "**/workspace-palette-over-thread.spec.ts",

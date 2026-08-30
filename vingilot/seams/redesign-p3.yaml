@@ -1,0 +1,66 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P3 (the dock)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: phase P3 of the 2026-08-29 redesign
+# (vingilot/docs/plans/2026-08-29-redesign.md) — the mockup's dock
+# (Vingilot.html:202-325, built birebir per the P1.1 clarification): the
+# six-tab shell over the existing right-slot state (dockModel.ts is the
+# decision record — four tabs are faces of registry panes, Checks/Run are
+# dock-only, ⌘K's tab-less panes render body-only), the three positions
+# (right card 300-540 / bottom drawer 170-480 / float) read from the P1
+# crew-position store, ⌘\ float toggle + Esc dock-back + ⌥⌘B zen, and the
+# panels: Crew (TeamThreadPane re-hosted), Diff (WorktreeDiffPanel), Files
+# (tree + git letters + real-acts-only context menu + viewer), History
+# (linear graph + honest reflog refusal), Checks (honest empty), Run (Start
+# Dev typing the owner's own command into a fresh shell). Most of the work
+# lives under desktop/src/features/runs/**, which the root registry already
+# declares whole; the entries here are the paths those globs do not cover.
+
+seams:
+  - path: "desktop/tests/e2e/dock.spec.ts"
+    reason: "New, fork-owned spec: the dock's contract over the real key path and a recorded pty bridge — six tabs replacing the PanePicker chrome (asserted gone), panels real or honestly empty (Files' git letters from the mocked worktree_diff, Checks/Run/Reflog empty states, History rows from the mocked log), the three positions with ⌘\\ / Esc / ⌥⌘B, the right card's 300..540 resize clamp, and Start Dev / New-terminal-here proved on recorded pty_open/pty_write ids. Ends with the P3 screenshot set (test-results/p3-shots)."
+    owner: "vingilot/redesign"
+    removable_when: "With the dock itself."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/playwright.config.ts"
+    reason: "One line (over pane-nav-absorb.yaml's and redesign-p2.yaml's existing declarations): the smoke project's testMatch gains dock.spec.ts."
+    owner: "vingilot/redesign"
+    removable_when: "With the spec it registers."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/src/shared/theme/vingilot-dock-size.ts"
+    reason: "New, fork-owned: the dock's persisted --dockw/--dockh (the mockup's own globals, vingilot.js:83-85), in the localStorage-key-per-concern idiom beside vingilot-crew-position.ts — which P3 now reads (the P1 store's promised consumer): WorkSurface renders the position it names and the dock's .dctl buttons write it."
+    owner: "vingilot/redesign"
+    removable_when: "With the dock's resizable positions."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/statusline.spec.ts"
+    reason: "One assertion re-aimed (over statusline.yaml's declaration): the branch fact's click still lands in History, but History's surface is the dock's History tab now — the assertion reads dock-history + the lit dock tab instead of the retired pane-history frame."
+    owner: "vingilot/redesign"
+    removable_when: "With the dock."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/sidebar-deck-accordion.spec.ts"
+    reason: "Three assertions re-aimed (over pane-nav-absorb.yaml's declaration): the pane the sidebar's tree/list land into is the dock's Files/History panel now (dock-files / dock-history in place of the retired pane-files / pane-history frames). The claims themselves survive unchanged — the sidebar's tree never renders inside the panel, tree state survives a pane switch, and the sidebar list stays the keyboard's single owner."
+    owner: "vingilot/redesign"
+    removable_when: "With the dock."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/src/app/useShellChords.ts"
+    reason: "Header + one comment re-aimed (over redesign-p1's claim): ⌥⌘B's workspace half is no longer parked — the dock exists and pane-solo 'left' literally hides it in every position; outside the workspace the chord stays claimed-but-idle because the dock is a workspace surface. No behavior change in this file."
+    owner: "vingilot/redesign"
+    removable_when: "While the shell owns the chord."
+    status: "permanent"
+    added: "2026-08-30"

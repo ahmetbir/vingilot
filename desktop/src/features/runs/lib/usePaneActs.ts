@@ -26,6 +26,10 @@ export interface PaneActHandlers {
   /** Remember an opened file for ⌘K's recent rows. A second reader of the same
    * report, never a second report. */
   rememberOpenFile: (worktree: string, path: string) => void;
+  /** Open a fresh terminal tab and type `text` into it (P3 dock — Start Dev,
+   * "New terminal here"). The screen owns the strip and the session ids, so
+   * the mailbox filing lives with it, not here. */
+  runInNewTerminal: (text: string) => void;
   showFiles: () => void;
 }
 
@@ -40,6 +44,10 @@ export function usePaneActs(handlers: PaneActHandlers): (act: PaneAct) => void {
     const on = held.current;
     if (act.type === "plan-to-worktree") {
       on.openPlanWorktree();
+      return;
+    }
+    if (act.type === "run-in-new-terminal") {
+      on.runInNewTerminal(act.text);
       return;
     }
     // Not a request — a report. The Files pane is the only surface that knows

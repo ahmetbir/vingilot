@@ -60,6 +60,8 @@ import {
   openTerminals,
   worktreeIndex,
 } from "@/features/runs/lib/terminalSessions";
+import { sessionIdFor } from "@/features/runs/lib/terminalTabs";
+import { fileTerminalType } from "@/features/runs/lib/terminalType";
 import { useDeckLayers } from "@/features/runs/lib/useDeckLayers";
 import type {
   PaneContext,
@@ -660,6 +662,20 @@ export function RunsScreen() {
     openPlanWorktree: () => dialogs.setPlanningWorktree(true),
     rememberOpenFile: workspacePalette.rememberOpenFile,
     reportFile: setOpenedFile,
+    // The dock's "type this into a fresh shell" (Start Dev, New terminal
+    // here). The text is filed BEFORE the tab command for `filesTarget.ts`'s
+    // reason: the consumer (the new tab's Terminal, after its `pty_open`)
+    // reads whatever is pending, so the order is what makes it land. The
+    // session id is the strip's own next ordinal — the exact id the `new`
+    // command will mint (`terminalTabs.ts`'s `nextN`).
+    runInNewTerminal: (text) => {
+      if (selectedWorktreeId === null || selectedTabs === null) return;
+      fileTerminalType(
+        sessionIdFor(selectedWorktreeId, selectedTabs.nextN),
+        text,
+      );
+      runTabCommand({ type: "new" });
+    },
     showFiles: () => showPane("files"),
   });
 

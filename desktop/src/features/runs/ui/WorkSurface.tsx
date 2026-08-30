@@ -1,31 +1,39 @@
-// The selected worktree's work surface: **left pane, divider, right pane**
-// (vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 4).
+// The selected worktree's work surface: **the terminal, and the dock**
+// (redesign P3 — mockup `.dock`, Vingilot.html:202-325; the pane host it
+// grew out of is vingilot/docs/plans/2026-08-07-panes-and-polish.md, Task 4).
 //
 // The left pane is the terminal — iTerm's rule, that the terminal *is* the
-// work surface and not a drawer. The right pane is a slot, and what goes in it
-// is chosen from that pane's own header (`ui/PanePicker.tsx`) out of the pane
-// registry (`ui/paneRegistry.tsx`). The two sides are independent, and that
-// independence is the whole feature: the tab bar this replaces made reading a
-// diff cost the terminal.
+// work surface and not a drawer. Beside it (or under it, or floating over
+// it) sits the dock: the mockup's six-tab card (`ui/DockShell.tsx`), which
+// replaced the `PanePicker` dropdown as the face of the same right-slot
+// state — which pane is chosen is still `lib/paneModel.ts`'s, held per
+// worktree by `RunsScreen` (`lib/usePanes.ts`) and persisted. This component
+// renders that arrangement and owns only the dock's own three:
 //
-// Which pane, how wide, and whether the right slot is showing at all are
-// `lib/paneModel.ts`'s, held per worktree by `RunsScreen` (`lib/usePanes.ts`)
-// and persisted. This component renders that arrangement and owns no part of
-// it.
+// - **position** — right card / bottom drawer / float, the P1 crew-position
+//   store finally read (`vingilot-crew-position.ts`; per its header the
+//   "crew" name governs the whole dock, inherited from the mockup's own
+//   history). The `.dctl` buttons and ⌘\ write it.
+// - **size** — the mockup's `--dockw` (300-540, default 376) and `--dockh`
+//   (170-480, default 280), persisted app-wide (`vingilot-dock-size.ts`),
+//   clamped by `dockModel.ts` with the terminal's 80-column floor ranked
+//   above the dock's.
+// - **the Checks/Run overlay** (`DockExtra`) — the two dock-only tabs with
+//   no registry pane behind them, transient by design.
 //
 // It also owns the ⌘1…9 / ⌘` / Esc key map, the terminal-tab keys
-// ⌘T / ⇧⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`), and ⌥⌘B / ⇧⌥⌘B for the two solos
-// (`lib/paneKeys.ts`) — VS Code's secondary-sidebar chord and its mirror, left
-// unclaimed by `lib/columnKeys.ts` until there was a pane to bind them to.
+// ⌘T / ⇧⌘W / ⌥⌘←→ (`lib/terminalKeys.ts`), ⌥⌘B / ⇧⌥⌘B for the two solos
+// (`lib/paneKeys.ts` — ⌥⌘B is now literally the mockup's zen: hide the
+// dock), and ⌘\ for float↔right — the mockup's own binding (vingilot.js:50),
+// audited free: no key map in this app, and no Tauri menu accelerator,
+// resolves Backslash.
 //
 // **Either side can have the whole surface, and that is not a ratio.** The
-// four panes this host replaced a tab bar with were full-surface tabs; a right
-// pane whose ceiling is `1 - clampRatioAt(MIN_RATIO, w)` — 442px of 1195 —
-// takes that away with no gesture to get it back. So the layout has three
-// shapes rather than one collapse flag, and the floor that keeps the terminal
-// at 80 columns applies to the split and to nothing else: it is a rule about
-// *sharing* a surface, and it has no standing over a pane that is not sharing
-// one.
+// dock hidden (`solo: "left"`) is the terminal alone with the dock on its
+// rail; the dock maximised (`solo: "right"`) is the full-surface reading
+// layout. The 80-column floor is a rule about *sharing* a row, so it caps
+// the dock's width in the right position and has no standing over the
+// drawer's height or the float.
 //
 // **The terminals are rendered here and must never move.** It renders a
 // `<Terminal>` per open session (hidden, not torn down, when it is not the one
@@ -51,16 +59,21 @@
 import * as React from "react";
 
 import type { Worktree } from "@/features/runs/lib/projects";
+import {
+  clampDockHeight,
+  clampDockWidth,
+  DOCK_DEFAULT_H,
+  DOCK_DEFAULT_W,
+  type DockExtra,
+  dockFitsBeside,
+} from "@/features/runs/lib/dockModel";
 import { resolvePaneKey } from "@/features/runs/lib/paneKeys";
 import {
-  clampRatioAt,
-  effectiveSolo,
   LEFT_PANE,
   type PaneAct,
   type PaneContext,
   type PaneSide,
   type PaneState,
-  rightChoices,
 } from "@/features/runs/lib/paneModel";
 import type { ControlPlaneKind } from "@/features/runs/lib/reachability";
 import type { RunSummary } from "@/features/runs/lib/runModel";
@@ -85,9 +98,11 @@ import type {
 } from "@/features/runs/lib/terminalTabs";
 import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import type { Panes } from "@/features/runs/lib/usePanes";
-import { PaneDivider } from "@/features/runs/ui/PaneDivider";
+import { DockFloat } from "@/features/runs/ui/DockFloat";
+import { DockResizer } from "@/features/runs/ui/DockResizer";
+import { DockShell } from "@/features/runs/ui/DockShell";
 import { PaneFrame } from "@/features/runs/ui/PaneFrame";
-import { PaneLabel, PanePicker } from "@/features/runs/ui/PanePicker";
+import { PaneLabel } from "@/features/runs/ui/PanePicker";
 import { paneEntry } from "@/features/runs/ui/paneRegistry";
 import { ScratchTerminal } from "@/features/runs/ui/ScratchTerminal";
 import { TaskStrip } from "@/features/runs/ui/TaskStrip";
@@ -96,6 +111,17 @@ import { TerminalAgentReadout } from "@/features/runs/ui/TerminalAgentReadout";
 import { TerminalSplitDivider } from "@/features/runs/ui/TerminalSplitDivider";
 import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
+import {
+  persistVingilotCrewPosition,
+  readVingilotCrewPosition,
+  type VingilotCrewPosition,
+} from "@/shared/theme/vingilot-crew-position";
+import {
+  persistVingilotDockHeight,
+  persistVingilotDockWidth,
+  readVingilotDockHeight,
+  readVingilotDockWidth,
+} from "@/shared/theme/vingilot-dock-size";
 
 interface WorkSurfaceProps {
   workspaceId: string;
@@ -186,6 +212,50 @@ export function WorkSurface({
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const toggleSolo = panes.toggleSolo;
 
+  // The dock's own three (see the header): where it is, how big, and whether
+  // a dock-only panel (Checks/Run) is overlaying the slot's pane.
+  const [dockPosition, setDockPosition] = React.useState<VingilotCrewPosition>(
+    readVingilotCrewPosition,
+  );
+  const [dockWidth, setDockWidth] = React.useState(() =>
+    readVingilotDockWidth(DOCK_DEFAULT_W),
+  );
+  const [dockHeight, setDockHeight] = React.useState(() =>
+    readVingilotDockHeight(DOCK_DEFAULT_H),
+  );
+  // The Checks/Run overlay, stamped with the slot pane it was opened over: a
+  // pane chosen from anywhere (a tab, ⌘K, useShowPane) changes the stamp's
+  // referent and the overlay yields by construction — no effect watching for
+  // it, nothing to clear.
+  const [extraOver, setExtraOver] = React.useState<{
+    at: PaneState["right"];
+    extra: DockExtra;
+  } | null>(null);
+
+  const setPosition = React.useCallback((position: VingilotCrewPosition) => {
+    setDockPosition(position);
+    persistVingilotCrewPosition(position);
+  }, []);
+  const sizeDockWidth = React.useCallback((px: number, surface: number) => {
+    const clamped = clampDockWidth(px, surface);
+    setDockWidth(clamped);
+    persistVingilotDockWidth(clamped);
+  }, []);
+  const sizeDockHeight = React.useCallback((px: number) => {
+    const clamped = clampDockHeight(px);
+    setDockHeight(clamped);
+    persistVingilotDockHeight(clamped);
+  }, []);
+
+  const right = panes.state.right;
+  const dockExtra =
+    extraOver !== null && extraOver.at === right ? extraOver.extra : null;
+  const rightNow = React.useRef(right);
+  rightNow.current = right;
+  const setDockExtra = React.useCallback((extra: DockExtra | null) => {
+    setExtraOver(extra === null ? null : { at: rightNow.current, extra });
+  }, []);
+
   // The right pane's box, the divider, and the rail on each side that brings
   // the hidden pane back. All are read from effects, never during a render.
   const rightPaneRef = React.useRef<HTMLElement | null>(null);
@@ -193,11 +263,13 @@ export function WorkSurface({
   const leftRailRef = React.useRef<HTMLButtonElement | null>(null);
   const rightRailRef = React.useRef<HTMLButtonElement | null>(null);
 
-  // Read by the window key listener, held in a ref rather than closed over so
+  // Read by the window key listener, held in refs rather than closed over so
   // that listener is not rebound every time the layout moves — it is bound
   // over a component that renders a live terminal.
   const soloNow = React.useRef(panes.state.solo);
   soloNow.current = panes.state.solo;
+  const positionNow = React.useRef(dockPosition);
+  positionNow.current = dockPosition;
 
   // How wide the row the two panes share actually is, because the floors that
   // keep the terminal above 80 columns are in pixels and cannot be applied to
@@ -230,6 +302,20 @@ export function WorkSurface({
         repeat: event.repeat,
         shiftKey: event.shiftKey,
       };
+      // ⌘\ — float↔right, the mockup's own binding (vingilot.js:50). Before
+      // the pane map so nothing below can shadow it; `Esc docks back` is the
+      // float's own listener (`DockFloat.tsx`).
+      if (
+        input.primaryModifier &&
+        !input.altKey &&
+        input.key === "\\" &&
+        input.repeat !== true
+      ) {
+        event.preventDefault();
+        setPosition(positionNow.current === "float" ? "right" : "float");
+        return;
+      }
+
       const paneKey = resolvePaneKey(input);
       if (paneKey !== null) {
         event.preventDefault();
@@ -343,6 +429,7 @@ export function WorkSurface({
     onTabCommand,
     onTaskCommand,
     onToggleScratch,
+    setPosition,
     toggleSolo,
     tabs,
   ]);
@@ -351,21 +438,36 @@ export function WorkSurface({
     worktrees.find((wt) => wt.binding_id === selectedWorktreeId) ?? null;
   const leftEntry = paneEntry(LEFT_PANE);
   const layout: PaneState = panes.state;
-  // What the owner asked for, honoured as far as this surface can. The stored
-  // ratio stays his — a window too narrow to keep the terminal at 80 columns
-  // does not rewrite it, it only declines to draw it.
-  const ratio = clampRatioAt(layout.ratio, surfaceWidth);
 
-  // Read from the surface, not only from storage: a window too narrow to seat
-  // both floors renders the terminal alone with the right pane on its rail,
-  // rather than a split whose right half is zero pixels wide and off-screen.
-  const solo = effectiveSolo(layout.solo, surfaceWidth);
+  // Read from the surface, not only from storage: a window too narrow to
+  // seat the terminal's 80 columns beside a 300px dock renders the terminal
+  // alone with the dock on its rail — never a card squeezed off-screen. Only
+  // the right position shares the terminal's row, so only it can force this.
+  const solo: PaneSide | null =
+    layout.solo !== null
+      ? layout.solo
+      : dockPosition === "right" && !dockFitsBeside(surfaceWidth)
+        ? "left"
+        : null;
 
-  // Giving one side the surface unmounts or un-lays-out the control that did
-  // it — the divider, or a button in the header that just went away — and
-  // focus lands on `<body>`, which means a keyboard owner has to Tab from the
-  // top of the document to get anywhere. So focus follows the surface: to the
-  // rail that appeared on the way out, to the divider on the way back.
+  // The dock's drawn geometry. `solo === "right"` gives it the whole surface
+  // (the full-width reading layout the old maximise was); otherwise the
+  // stored size, clamped against today's surface.
+  const dockStyle: React.CSSProperties =
+    solo === "right"
+      ? { flexBasis: 0, flexGrow: 1 }
+      : dockPosition === "drawer"
+        ? { height: clampDockHeight(dockHeight) }
+        : { width: clampDockWidth(dockWidth, surfaceWidth) };
+
+  const dockDocked = dockPosition !== "float";
+  const dockHidden = solo === "left";
+
+  // Giving one side the surface unmounts the control that did it — a rail, a
+  // button that went away — and focus lands on `<body>`, which means a
+  // keyboard owner has to Tab from the top of the document to get anywhere.
+  // So focus follows the surface: to the rail that appeared on the way out,
+  // to the dock's resizer on the way back.
   //
   // Only when the act left focus nowhere. ⌥⌘B pressed while typing in the
   // terminal moves the panes too, and taking focus off the terminal then would
@@ -403,8 +505,13 @@ export function WorkSurface({
           strip={tasks}
         />
       ) : null}
-      <div className="flex min-h-0 flex-1 overflow-hidden" ref={surfaceRef}>
-        {solo === "right" ? (
+      <div
+        className={`flex min-h-0 flex-1 overflow-hidden ${
+          dockPosition === "drawer" ? "flex-col" : ""
+        }`}
+        ref={surfaceRef}
+      >
+        {solo === "right" && dockDocked ? (
           <PaneRail
             buttonRef={leftRailRef}
             onRestore={() => toggleSolo("right")}
@@ -442,9 +549,10 @@ export function WorkSurface({
             )
           }
           // Mounted, un-laid-out. Never unmounted: the xterm instances below
-          // are attached to live ptys.
-          hidden={solo === "right"}
-          share={solo === null ? ratio : 1}
+          // are attached to live ptys. A floating dock never takes the
+          // terminal's box — it draws OVER it.
+          hidden={solo === "right" && dockDocked}
+          share={1}
           side="left"
         >
           {terminals.map((terminal) => {
@@ -532,44 +640,79 @@ export function WorkSurface({
           )}
         </PaneFrame>
 
-        {solo === null ? (
-          <PaneDivider
-            focusRef={dividerRef}
-            onNudge={panes.nudgeRatio}
-            onRatio={panes.setRatio}
-            onReset={panes.resetRatio}
-            onSolo={toggleSolo}
-            ratio={ratio}
-            surfaceRef={surfaceRef}
-          />
+        {/* The dock's resize rail (mockup `.rz2`) — only while the dock is
+         * really sharing the surface in a docked position. */}
+        {solo === null && dockDocked ? (
+          dockPosition === "drawer" ? (
+            <DockResizer
+              axis="y"
+              focusRef={dividerRef}
+              onSize={sizeDockHeight}
+              size={clampDockHeight(dockHeight)}
+            />
+          ) : (
+            <DockResizer
+              axis="x"
+              focusRef={dividerRef}
+              onSize={(px) => sizeDockWidth(px, surfaceWidth)}
+              size={clampDockWidth(dockWidth, surfaceWidth)}
+            />
+          )
         ) : null}
 
-        {solo === "left" ? (
+        {dockHidden ? (
           <PaneRail
             buttonRef={rightRailRef}
             onRestore={() => toggleSolo("left")}
             side="right"
-            title={paneEntry(layout.right).title}
+            title="Dock"
           />
-        ) : (
-          <RightPane
+        ) : dockDocked ? (
+          <DockShell
             context={paneContext}
+            controlPlane={controlPlane}
             documents={documents}
+            extra={dockExtra}
             frameRef={rightPaneRef}
             onChoose={panes.choose}
+            onExtra={setDockExtra}
             onPaneAct={onPaneAct}
-            controlPlane={controlPlane}
-            onSolo={toggleSolo}
+            onPosition={setPosition}
             pollMs={pollMs}
+            position={dockPosition}
             right={layout.right}
             runs={runs}
-            share={solo === null ? 1 - ratio : 1}
-            solo={solo}
-            worktree={selectedWorktree}
+            style={dockStyle}
             workspaceId={workspaceId}
+            worktree={selectedWorktree}
           />
-        )}
+        ) : null}
       </div>
+      {/* The floating dock (mockup `.float`): over the surface, the terminal
+       * keeping its whole box underneath. Hidden by zen like the docked card
+       * — one meaning for ⌥⌘B, wherever the dock is. */}
+      {dockPosition === "float" && !dockHidden ? (
+        <DockFloat onDockBack={setPosition}>
+          <DockShell
+            context={paneContext}
+            controlPlane={controlPlane}
+            documents={documents}
+            extra={dockExtra}
+            frameRef={rightPaneRef}
+            onChoose={panes.choose}
+            onExtra={setDockExtra}
+            onPaneAct={onPaneAct}
+            onPosition={setPosition}
+            pollMs={pollMs}
+            position={dockPosition}
+            right={layout.right}
+            runs={runs}
+            variant="float"
+            workspaceId={workspaceId}
+            worktree={selectedWorktree}
+          />
+        </DockFloat>
+      ) : null}
     </div>
   );
 }
@@ -577,119 +720,11 @@ export function WorkSurface({
 const PANE_BUTTON_CLASS =
   "shrink-0 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground";
 
-function RightPane({
-  context,
-  controlPlane,
-  documents,
-  frameRef,
-  onChoose,
-  onPaneAct,
-  onSolo,
-  pollMs,
-  right,
-  runs,
-  share,
-  solo,
-  worktree,
-  workspaceId,
-}: {
-  context: PaneContext;
-  controlPlane: ControlPlaneKind;
-  documents: ProjectDocuments;
-  frameRef: React.RefObject<HTMLElement | null>;
-  onChoose: Panes["choose"];
-  onPaneAct: (act: PaneAct) => void;
-  onSolo: Panes["toggleSolo"];
-  pollMs: number;
-  right: PaneState["right"];
-  runs: RunSummary[];
-  share: number;
-  /** `"right"` while this pane has the whole surface, `null` in the split.
-   * Never `"left"` — the caller renders a rail instead of this component. */
-  solo: PaneSide | null;
-  worktree: Worktree | null;
-  workspaceId: string;
-}) {
-  const entry = paneEntry(right);
-  const availability = entry.availability(context);
-  const choices = rightChoices().map((id) => {
-    const choice = paneEntry(id);
-    return { availability: choice.availability(context), entry: choice };
-  });
-  const Pane = entry.component;
-  const maximised = solo === "right";
-
-  return (
-    <PaneFrame
-      action={
-        <>
-          {/* The gesture the four ported panes lost. `MIN_LEFT_PX` caps this
-              pane at 37% of the surface while it is sharing one; it is not
-              sharing one here, so the cap does not apply. */}
-          <button
-            aria-label={
-              maximised
-                ? "share the surface with the terminal again"
-                : "give this pane the whole surface"
-            }
-            aria-pressed={maximised}
-            className={PANE_BUTTON_CLASS}
-            data-testid="pane-right-maximize"
-            onClick={() => onSolo("right")}
-            title={
-              maximised
-                ? "Back to the split (⇧⌥⌘B)"
-                : "Give this pane the whole surface (⇧⌥⌘B)"
-            }
-            type="button"
-          >
-            {maximised ? "⤡" : "⤢"}
-          </button>
-          <button
-            aria-label="hide the right pane"
-            className={PANE_BUTTON_CLASS}
-            data-testid="pane-right-collapse"
-            onClick={() => onSolo("left")}
-            title="Hide the right pane (⌥⌘B)"
-            type="button"
-          >
-            ›
-          </button>
-        </>
-      }
-      availability={availability}
-      chooser={
-        <PanePicker choices={choices} current={entry} onChoose={onChoose} />
-      }
-      entry={entry}
-      frameRef={frameRef}
-      share={share}
-      side="right"
-    >
-      {Pane === null ? null : (
-        // Keyed by what the pane says it is a reading of, not by the worktree.
-        // The host cannot answer that for a pane it knows nothing about: Diff
-        // is a reading of one worktree and must be re-taken when it changes,
-        // Runs is a reading of the workspace and would lose a half-typed
-        // objective every time the owner pressed ⌘2.
-        <Pane
-          controlPlane={controlPlane}
-          cwd={context.cwd}
-          documents={documents}
-          key={`${right}:${entry.identity(context)}`}
-          onChoosePane={onChoose}
-          onPaneAct={onPaneAct}
-          ownerRunId={context.ownerRunId}
-          pollMs={pollMs}
-          projectPath={context.projectPath}
-          runs={runs}
-          worktree={worktree}
-          workspaceId={workspaceId}
-        />
-      )}
-    </PaneFrame>
-  );
-}
+// The RightPane component that stood here — `PaneFrame` chrome, the
+// `PanePicker` dropdown, the ⤢/› header buttons — was retired by the P3
+// dock (`ui/DockShell.tsx`), which is the same slot state wearing the
+// mockup's fixed tab strip. `PanePicker` itself stays compiled for now
+// (P7 sweep candidate); `PaneLabel` is still the terminal's header.
 
 /** A side that has no box, reduced to the way back. A hidden pane plus a
  * shortcut the owner has to remember is a trap — the same reason

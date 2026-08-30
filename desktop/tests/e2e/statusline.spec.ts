@@ -171,7 +171,13 @@ test.describe("workspace statusline", () => {
     await expect(branch).toContainText("feat/statusline");
 
     await branch.click();
-    await expect(page.getByTestId("pane-history")).toBeVisible();
+    // Since P3 the History surface is the dock's History tab — the same
+    // `showPane("history")` door, landing in the dock's own panel.
+    await expect(page.getByTestId("dock-history")).toBeVisible();
+    await expect(page.getByTestId("dock-tab-history")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   test("the control-plane word opens the Home-harbor card that explains it", async ({

@@ -31,14 +31,19 @@
 //    *meaning* this hook now hosts; the pure map stays where it was so the
 //    shields keep working unchanged.
 //
-// **⌥⌘B is zen** (mockup: hide the dock, terminal gets the whole surface).
-// Inside the workspace that semantic already exists as pane-solo, and
-// `WorkSurface.tsx` binds it — so while /workspace is the view this hook
-// REFUSES the chord (`zenOwnedByWorkspace`) rather than double-claiming it:
-// two listeners toggling on one keydown would cancel each other. Everywhere
-// else the chord is CLAIMED but a no-op until P3's dock exists — claimed, so
-// no later feature takes it by accident; a no-op, because there is no dock to
-// hide yet and pretending otherwise would be a dead gesture that looks broken.
+// **⌥⌘B is zen** (mockup: hide the dock, terminal gets the whole surface) —
+// and since P3 the dock EXISTS: `WorkSurface.tsx` binds the chord inside the
+// workspace, where pane-solo `"left"` now literally means "dock hidden, on
+// its rail" in every dock position (right card, drawer, float). While
+// /workspace is the view this hook therefore REFUSES the chord
+// (`zenOwnedByWorkspace`) rather than double-claiming it: two listeners
+// toggling on one keydown would cancel each other. Everywhere else it stays
+// CLAIMED but a no-op — the dock is a workspace surface (the mockup's model:
+// channels are chat-in-the-stage, the dock rides the Deck), so outside the
+// workspace there is still nothing to hide, and holding the claim keeps a
+// later feature from taking the chord by accident. (⌘\, the float toggle, is
+// likewise the workspace's own — WorkSurface.tsx's header carries its
+// claimant audit.)
 //
 // **⇧⌘B stays retired** (single-sidebar plan, Task 2) and is refused here for
 // `columnKeys.ts`'s reason: folding it onto ⌘B would be a second spelling to
@@ -75,8 +80,8 @@ export function useShellChords({
       if (key !== "b" && key !== "∫" && key !== "ı") return;
 
       if (event.altKey) {
-        // ⌥⌘B — zen. The workspace's pane-solo owns it there; here it is
-        // claimed-but-idle until P3's dock exists (see the header).
+        // ⌥⌘B — zen. The workspace's dock owns it there; elsewhere it is
+        // claimed-but-idle — the dock is a workspace surface (see the header).
         if (latest.current.zenOwnedByWorkspace) return;
         event.preventDefault();
         return;

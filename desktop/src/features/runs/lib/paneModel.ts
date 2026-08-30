@@ -106,6 +106,18 @@ export type PaneId = (typeof PANE_IDS)[number];
 export type PaneAct =
   | { type: "plan-to-worktree" }
   | {
+      /** Open a fresh terminal tab in the selected worktree and TYPE `text`
+       * into its shell — the P3 dock's Run panel (Start Dev) and the Files
+       * tree's "New terminal here" both end in this act. Typed, not executed:
+       * it goes down the same `pty_write` channel a keystroke or a dropped
+       * path uses (`terminalType.ts` holds it until the new tab's pty is
+       * open), so the owner sees the command land in his prompt and the
+       * shell is what runs it. The workspace owns the strip, so the pane
+       * asks. */
+      type: "run-in-new-terminal";
+      text: string;
+    }
+  | {
       type: "file-opened";
       /** The checkout's own directory, for `show-file`'s reason: two worktrees
        * of one project both have `src/main.rs`. */

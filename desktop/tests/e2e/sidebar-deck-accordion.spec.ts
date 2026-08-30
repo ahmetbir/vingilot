@@ -366,11 +366,12 @@ test("the Files pane owns no tree: the viewer has the pane, the tree has the sid
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByTestId("palette-input").fill("files");
   await page.getByTestId("palette-row-pane:files").click();
-  await expect(page.getByTestId("pane-files")).toBeVisible();
-
-  // And the pane carries no tree, no drawer, no toggle — the viewer is the
-  // whole pane. Red before the rework: the drawer rendered inside it.
-  const pane = page.getByTestId("pane-files");
+  // Since P3 the Files surface is the dock's Files tab. The dock's panel
+  // carries the mockup's own tree (dock-files-tree) — the SIDEBAR's tree
+  // (files-tree) still never renders inside it, and neither does the old
+  // drawer chrome this test was written against.
+  const pane = page.getByTestId("dock-files");
+  await expect(pane).toBeVisible();
   await expect(pane.getByTestId("files-tree")).toHaveCount(0);
   await expect(pane.getByTestId("files-tree-drawer")).toHaveCount(0);
   await expect(pane.getByTestId("files-tree-toggle")).toHaveCount(0);
@@ -405,7 +406,7 @@ test("tree state survives a collapse and a pane switch", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByTestId("palette-input").fill("history");
   await page.getByTestId("palette-row-pane:history").click();
-  await expect(page.getByTestId("pane-history")).toBeVisible();
+  await expect(page.getByTestId("dock-history")).toBeVisible();
   await expect(sidebar.getByTestId("files-row-src/greet.ts")).toBeVisible();
 });
 
@@ -448,7 +449,7 @@ test("one j, one owner: a keystroke moves exactly one cursor", async ({
   // Open a patch first, so the pane is mounted and would be racing for the
   // keystroke if a second listener survived there.
   await page.getByTestId(`history-commit-${COMMITS[0].hash}`).click();
-  await expect(page.getByTestId("pane-history")).toBeVisible();
+  await expect(page.getByTestId("dock-history")).toBeVisible();
   await expect(page.getByTestId("history-patch-title")).toContainText(
     "First fixture commit",
   );
