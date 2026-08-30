@@ -169,7 +169,9 @@ export function DockShell({
       // sweep); the float variant leaves the chrome to `DockFloat`.
       className={`isolate flex min-h-0 min-w-0 flex-col overflow-hidden ${
         variant === "card"
-          ? "m-1 shrink-0 rounded-xl border border-foreground/[.06] bg-background shadow-lg"
+          ? // The gutter is the surface's `gap` now (mockup `.card`), not a
+            // margin of this card's own — see WorkSurface's container.
+            "shrink-0 rounded-xl border border-foreground/[.06] bg-background shadow-lg"
           : "flex-1"
       }`}
       data-dock-position={position}

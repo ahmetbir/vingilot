@@ -72,6 +72,9 @@ interface PaneFrameProps {
    * Tailwind's preflight `[hidden] { display: none }` is emitted *before* the
    * utilities, so the `flex` on this element would win on source order, and
    * two display utilities in one class list is the same coin toss. */
+  /** Draw this frame as its own card on the gradient (mockup `.stage`) —
+   * the workspace does, where the dock is a sibling card beside it. */
+  card?: boolean;
   hidden?: boolean;
   /** This side's own box, for a caller that has to ask whether something is
    * inside it — the work surface's key map does, since the terminal's tab
@@ -88,6 +91,7 @@ export function PaneFrame({
   entry,
   frameRef,
   header,
+  card = false,
   hidden = false,
   share,
   side,
@@ -95,7 +99,14 @@ export function PaneFrame({
   return (
     <section
       aria-label={`${side} pane`}
-      className="isolate flex min-h-0 min-w-0 basis-0 flex-col overflow-hidden"
+      className={`isolate flex min-h-0 min-w-0 basis-0 flex-col overflow-hidden ${
+        card
+          ? // The mockup's `.stage`: this frame is its own card on the
+            // gradient, drawn exactly like the dock beside it so neither
+            // reads as the other's compartment (redesign P3.2).
+            "rounded-xl border border-foreground/[.06] bg-background shadow-lg"
+          : ""
+      }`}
       data-pane={entry.id}
       data-testid={`pane-${side}`}
       ref={frameRef}

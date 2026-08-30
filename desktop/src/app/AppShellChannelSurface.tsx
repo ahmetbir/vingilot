@@ -12,6 +12,10 @@ type AppShellChannelSurfaceProps = {
   isHuddleRoomStarting: boolean;
   mainInsetRef: React.RefObject<HTMLElement | null>;
   terminal?: React.ReactNode;
+  /** The route draws its own cards on the gradient (the workspace's stage +
+   * dock, mockup `.card`), so the single stage card stands down and only
+   * its gutters remain. */
+  ownCards?: boolean;
 };
 
 export function AppShellChannelSurface({
@@ -19,6 +23,7 @@ export function AppShellChannelSurface({
   isHuddleRoom,
   isHuddleRoomStarting,
   mainInsetRef,
+  ownCards = false,
   terminal,
 }: AppShellChannelSurfaceProps) {
   return (
@@ -39,7 +44,11 @@ export function AppShellChannelSurface({
         style={chromeCssVarDefaults as React.CSSProperties}
       >
         {isHuddleRoom && !isHuddleRoomStarting ? <HuddleRoomHeader /> : null}
-        <BuzzTheme.ContentSurface terminal={terminal} unframed={isHuddleRoom}>
+        <BuzzTheme.ContentSurface
+          ownCards={ownCards}
+          terminal={terminal}
+          unframed={isHuddleRoom}
+        >
           {isHuddleRoomStarting ? <HuddleStartingView /> : children}
         </BuzzTheme.ContentSurface>
       </SidebarInset>

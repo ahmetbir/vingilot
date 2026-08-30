@@ -22,10 +22,18 @@ export function GradientLayer() {
 
 export function ContentSurface({
   children,
+  ownCards = false,
   unframed = false,
   terminal,
 }: {
   children: ReactNode;
+  /** The route inside draws its OWN cards over the gradient — the
+   * workspace's stage and dock, which the mockup (`.card`) holds as
+   * siblings with the ground showing between them (redesign P3.2). The
+   * gutters stay (they are this element's margins); the card itself —
+   * background, border, radius, shadow, and the clip that would cut the
+   * children's own corners — steps aside. */
+  ownCards?: boolean;
   terminal?: ReactNode;
   /** Used by dedicated huddle windows, which should not resemble app cards. */
   unframed?: boolean;
@@ -39,9 +47,14 @@ export function ContentSurface({
             // ground with the mockup's ~10px gutters on every open side (the
             // 44px top bar is the top gutter; the transparent sidebar's own
             // padding meets the left one). rounded-xl == the mockup's 12px.
-            "relative z-10 mb-2.5 ml-2.5 mr-2.5 mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-background shadow-content-edge"
+            `relative z-10 mb-2.5 ml-2.5 mr-2.5 mt-0 flex min-h-0 flex-1 flex-col ${
+              ownCards
+                ? "overflow-visible"
+                : "overflow-hidden rounded-xl bg-background shadow-content-edge"
+            }`
       }
-      data-buzz-content-surface
+      data-buzz-content-surface={ownCards ? undefined : true}
+      data-vingilot-own-cards={ownCards ? true : undefined}
       data-buzz-content-unframed={unframed ? true : undefined}
     >
       <div className="buzz-content-primary flex min-h-0 flex-1 flex-col overflow-hidden">

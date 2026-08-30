@@ -82,7 +82,9 @@ export function DockResizer({
       aria-orientation={axis === "x" ? "vertical" : "horizontal"}
       aria-valuenow={Math.round(size)}
       className={`group relative z-10 shrink-0 rounded ${
-        axis === "x" ? "cursor-col-resize" : "cursor-row-resize"
+        // The mockup's `.rz2` sits INSIDE the card gap (`margin:0 -8px`), so
+        // the rail never widens the gutter it grips (redesign P3.2).
+        axis === "x" ? "-mx-2 cursor-col-resize" : "-my-2 cursor-row-resize"
       } ${dragging ? "bg-foreground/[.14]" : "hover:bg-foreground/[.14]"} focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring`}
       data-testid="dock-resizer"
       onKeyDown={onKeyDown}

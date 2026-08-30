@@ -505,8 +505,12 @@ export function WorkSurface({
           strip={tasks}
         />
       ) : null}
+      {/* The mockup's `.card` (vingilot.css): the stage and the dock are
+       * SIBLING cards with the window's gradient showing through a 10px gap,
+       * not one box split by a divider. `overflow-visible` so each card's
+       * own radius and shadow are not clipped by their container. */}
       <div
-        className={`flex min-h-0 flex-1 overflow-hidden ${
+        className={`flex min-h-0 flex-1 gap-2.5 overflow-visible ${
           dockPosition === "drawer" ? "flex-col" : ""
         }`}
         ref={surfaceRef}
@@ -521,6 +525,7 @@ export function WorkSurface({
         ) : null}
 
         <PaneFrame
+          card
           action={
             // The mockup `.tright`: what the worktree's terminal agent is
             // doing, and for how long — empty when nothing is live.

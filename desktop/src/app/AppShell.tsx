@@ -905,6 +905,11 @@ export function AppShell() {
                       isHuddleRoomStarting={isHuddleRoomStarting}
                       mainInsetRef={mainInsetRef}
                       terminal={<TerminalBootstrap {...terminalContext} />}
+                      // The workspace draws its own cards — the mockup's
+                      // `.card` holds the stage and the dock as siblings
+                      // with the gradient between them (redesign P3.2), so
+                      // the single stage card must step aside there.
+                      ownCards={selectedView === "workspace"}
                     >
                       <Outlet />
                     </AppShellChannelSurface>
