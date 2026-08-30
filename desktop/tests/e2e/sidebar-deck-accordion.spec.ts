@@ -1,28 +1,28 @@
-// The Deck sidebar's accordion — Worktrees, Files, History, Chats
-// (vingilot/docs/plans/2026-08-14-pane-nav-absorb.md, plus the owner's
-// amendment: *"deckten geri channellari ve dmleri gormek icin agents'a ya da
-// inboxa basmak gerekiyo. direk chatleri acabilecegim ya da deck sidebarini
-// kapatabilecegim bi buton yok henuz."*).
+// The Deck sidebar since P1.1 (owner veto 4): the mockup's `.side` anatomy
+// first — the Projects tree rendered directly (no "Worktrees" accordion
+// header), the channel/DM lists inline below it (no "Chats" header) — and
+// Files/History as a deeper two-member accordion BELOW that anatomy, both
+// collapsed on first paint.
 //
-// Each test here is a red-proof for one of the plan's own claims:
+// Each test here is a red-proof for one of the claims:
 //
-// 1. **Single-open accordion.** Four members, exactly one expanded at a time;
-//    opening one collapses whichever was open, and nothing outside the
-//    accordion moves. Red before the rework: no accordion headers existed.
+// 1. **First-screen anatomy.** Projects and the chat lists are on screen with
+//    no fold to open; the only accordion headers left are Files and History,
+//    both shut; opening one collapses the other. Red before P1.1: four
+//    headers, Worktrees open, chats behind a fold.
 // 2. **The Files pane owns no tree.** The tree lives in the sidebar; the pane
 //    is the viewer at full width, with no drawer and no toggle left in its
-//    DOM. Red before: the drawer and its toggle rendered inside `pane-files`.
+//    DOM.
 // 3. **Tree state survives a collapse and a pane switch.** The collapsed
 //    member's DOM is hidden, not unmounted, and the sidebar is a sibling of
 //    the Deck's panes — so expanded directories outlive both gestures.
-// 4. **Worktree scope follows while Files is open** (the plan's risk a): the
-//    Worktrees member is collapsed, the worktree changes by another route
-//    (⌘K), and the Files tree re-reads for the new checkout without the
-//    Worktrees member ever being reopened.
-// 5. **Exactly one owner per keystroke** (the plan's risk b): one `j` moves
-//    exactly one cursor, even with the History pane's patch on screen —
-//    the sidebar list is the only listener left.
-// 6. **The Chats member** holds the same channel/DM lists the Inbox shows,
+// 4. **Worktree scope follows while Files is open**: the worktree changes by
+//    another route (⌘K), and the Files tree re-reads for the new checkout
+//    with Files staying open.
+// 5. **Exactly one owner per keystroke**: one `j` moves exactly one cursor,
+//    even with the History pane's patch on screen — the sidebar list is the
+//    only listener left.
+// 6. **The inline chat lists** are the same channel/DM lists the Inbox shows,
 //    and a channel row navigates exactly as it does from there.
 
 import { expect, test } from "@playwright/test";
@@ -307,41 +307,48 @@ function header(page: Page, id: string) {
   return page.getByTestId(`sidebar-accordion-header-${id}`);
 }
 
-function body(page: Page, id: string) {
-  return page.getByTestId(`sidebar-accordion-body-${id}`);
-}
-
-test("the workspace sidebar is a single-open accordion of four members", async ({
+test("the workspace sidebar opens on the mockup anatomy, with Files/History folded below", async ({
   page,
 }) => {
   await openAccordionWorkspace(page);
 
-  // All four headers on screen, Worktrees open by default — nothing changes
-  // on first load.
-  for (const id of ["worktrees", "files", "history", "chats"]) {
+  // First screen: the Projects tree and the chat lists, with NO fold over
+  // either — the vetoed Worktrees/Chats accordion headers do not exist.
+  await expect(page.getByTestId("projects-nav")).toBeVisible();
+  await expect(page.getByTestId("stream-list")).toBeVisible();
+  await expect(page.getByTestId("dm-list")).toBeVisible();
+  await expect(header(page, "worktrees")).toHaveCount(0);
+  await expect(header(page, "chats")).toHaveCount(0);
+
+  // The Projects header carries the mockup's `+` affordance.
+  await expect(page.getByTestId("projects-nav-add")).toBeVisible();
+
+  // Files and History are the deeper accordion, both shut on first paint.
+  for (const id of ["files", "history"]) {
     await expect(header(page, id)).toBeVisible();
+    await expect(header(page, id)).toHaveAttribute("aria-expanded", "false");
   }
-  await expect(header(page, "worktrees")).toHaveAttribute(
+
+  // Opening History collapses Files — at most one member expanded, ever.
+  await header(page, "files").click();
+  await expect(header(page, "files")).toHaveAttribute("aria-expanded", "true");
+  await header(page, "history").click();
+  await expect(header(page, "history")).toHaveAttribute(
     "aria-expanded",
     "true",
   );
-  await expect(page.getByTestId("projects-nav")).toBeVisible();
-
-  // Opening Files collapses Worktrees — exactly one member expanded, ever.
-  await header(page, "files").click();
-  await expect(header(page, "files")).toHaveAttribute("aria-expanded", "true");
-  await expect(header(page, "worktrees")).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
+  await expect(header(page, "files")).toHaveAttribute("aria-expanded", "false");
   const expanded = page.locator(
     '[data-testid^="sidebar-accordion-header-"][aria-expanded="true"]',
   );
   await expect(expanded).toHaveCount(1);
 
   // Clicking the open member's header is a no-op: exactly one stays open.
-  await header(page, "files").click();
-  await expect(header(page, "files")).toHaveAttribute("aria-expanded", "true");
+  await header(page, "history").click();
+  await expect(header(page, "history")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
   await expect(expanded).toHaveCount(1);
 });
 
@@ -402,12 +409,11 @@ test("tree state survives a collapse and a pane switch", async ({ page }) => {
   await expect(sidebar.getByTestId("files-row-src/greet.ts")).toBeVisible();
 });
 
-test("the Files tree follows a worktree switch made while Worktrees is collapsed", async ({
+test("the Files tree follows a worktree switch made by another route", async ({
   page,
 }) => {
-  // The plan's own riskiest claim (§8): open Files (Worktrees collapses),
-  // switch the worktree by ANOTHER route — ⌘K's worktree row — and the tree
-  // re-scopes without Worktrees ever being reopened.
+  // The riskiest sequence: Files open, the worktree changes through ⌘K's
+  // worktree row, and the tree re-scopes with Files staying open.
   await openAccordionWorkspace(page);
   await header(page, "files").click();
   const sidebar = page.getByTestId("app-sidebar");
@@ -419,11 +425,7 @@ test("the Files tree follows a worktree switch made while Worktrees is collapsed
     .getByTestId(`palette-row-worktree:${WORKTREE_B.binding_id}`)
     .click();
 
-  // Worktrees stayed collapsed; the Files tree is the new checkout's.
-  await expect(header(page, "worktrees")).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
+  // Files stayed open; the tree is the new checkout's.
   await expect(header(page, "files")).toHaveAttribute("aria-expanded", "true");
   await expect(sidebar.getByTestId("files-row-ONLY-IN-B.md")).toBeVisible();
   await expect(sidebar.getByTestId("files-row-ONLY-IN-A.md")).toHaveCount(0);
@@ -467,14 +469,13 @@ test("one j, one owner: a keystroke moves exactly one cursor", async ({
   ).toHaveAttribute("aria-selected", "false");
 });
 
-test("the Chats member holds the channel and DM lists, and a channel row navigates", async ({
+test("the inline chat lists hold the channels and DMs, and a channel row navigates", async ({
   page,
 }) => {
-  // The owner's amendment, verbatim in this spec's header: from the Deck there
-  // was no way back to the chats without leaving through Agents or the Inbox.
+  // The owner's amendment survives P1.1 with the fold removed: the chats are
+  // right there on the Deck, below Projects, with nothing to open first.
   await openAccordionWorkspace(page);
 
-  await header(page, "chats").click();
   const sidebar = page.getByTestId("app-sidebar");
   await expect(sidebar.getByTestId("stream-list")).toBeVisible();
   await expect(sidebar.getByTestId("dm-list")).toBeVisible();

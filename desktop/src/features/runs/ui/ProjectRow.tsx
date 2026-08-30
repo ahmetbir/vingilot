@@ -83,7 +83,7 @@ export function ProjectRow({
           }
           type="button"
         >
-          <AttentionDot mark={mark} />
+          <AttentionDot idleWhenNone mark={mark} />
           <span className="min-w-0 flex-1 truncate">{repo.name}</span>
         </button>
         <button

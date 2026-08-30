@@ -2,10 +2,12 @@
 // vingilot/design/mockup/Vingilot.html:66-75). 44px, transparent over the
 // window's gradient ground, with: traffic-light clearance + sidebar toggle +
 // back/forward on the left (testids unchanged), a centered "Search everything
-// ⌘K" pill that opens the palette, and History / Copy-link / Appearance on
-// the right. The whole strip stays a `data-tauri-drag-region`. Fork-shaped
-// pieces (palette request, deep-link copy, the tray) live in their own
-// modules so this upstream file stays mostly wiring.
+// ⌘K" pill that opens the palette, and History / Copy-link on the right
+// (the Appearance button and its tray were vetoed live — P1.1; Settings →
+// Appearance owns those controls, and the palette carries the door). The
+// whole strip stays a `data-tauri-drag-region`. Fork-shaped pieces (palette
+// request, deep-link copy) live in their own modules so this upstream file
+// stays mostly wiring.
 
 import * as React from "react";
 import {
@@ -16,12 +18,10 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
-  SlidersHorizontal,
 } from "lucide-react";
 
 import { copyChannelDeepLink } from "@/app/copyShellLink";
 import { useShellChords } from "@/app/useShellChords";
-import { VingilotAppearanceTray } from "@/app/VingilotAppearanceTray";
 import { requestPaletteOpen } from "@/features/runs/lib/paletteRequest";
 import { isMacPlatform } from "@/shared/lib/platform";
 import { useIsFullscreen } from "@/shared/lib/useIsFullscreen";
@@ -213,18 +213,9 @@ export function AppTopChrome({
         >
           <Link2 />
         </Button>
-        <VingilotAppearanceTray>
-          <Button
-            aria-label="Appearance"
-            className="h-[28px] gap-1.5 rounded-[7px] px-2.5 text-xs font-medium text-foreground/60 hover:bg-foreground/10 hover:text-foreground/90 [&_svg]:size-[14px]"
-            data-testid="top-chrome-appearance"
-            type="button"
-            variant="ghost"
-          >
-            <SlidersHorizontal />
-            Appearance
-          </Button>
-        </VingilotAppearanceTray>
+        {/* No Appearance button (P1.1, owner veto 2): the tray is gone and the
+         * wash/accent controls live in Settings → Appearance, reachable
+         * through the ⌘K palette's "Appearance" row. */}
       </div>
     </div>
   );

@@ -69,21 +69,22 @@ test.describe("sidebar MoreUnreadButton top chrome overlap", () => {
     await expect(page.getByTestId("app-sidebar")).toBeVisible();
   });
 
-  test("top pill clears the pinned header", async ({ page }) => {
+  test("top pill clears the sidebar's fixed top region", async ({ page }) => {
+    // The pinned search header is gone (P1.1 veto 1); the pill's claim is now
+    // against the channel-content region it scrolls inside — it must start at
+    // or below that region's top edge, never over the chrome above it.
     await injectSyntheticPill(page, TOP_CLASS, "synthetic-top");
     const pill = page.getByTestId("synthetic-top");
-    const pinnedHeader = page.getByTestId("sidebar-pinned-header");
+    const channelContent = page.getByTestId("sidebar-channel-content");
     await expect(pill).toBeVisible();
-    await expect(pinnedHeader).toBeVisible();
+    await expect(channelContent).toBeVisible();
 
     const pillBox = await pill.boundingBox();
-    const pinnedHeaderBox = await pinnedHeader.boundingBox();
+    const contentBox = await channelContent.boundingBox();
     expect(pillBox).not.toBeNull();
-    expect(pinnedHeaderBox).not.toBeNull();
+    expect(contentBox).not.toBeNull();
     expect(pillBox?.y ?? Number.NaN).toBeGreaterThanOrEqual(
-      pinnedHeaderBox?.y == null || pinnedHeaderBox.height == null
-        ? Number.NaN
-        : pinnedHeaderBox.y + pinnedHeaderBox.height,
+      contentBox?.y ?? Number.NaN,
     );
 
     await waitForAnimations(page);

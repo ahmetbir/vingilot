@@ -99,6 +99,7 @@ import {
   useControlPlane,
 } from "@/features/runs/lib/useControlPlane";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { requestSearchOpen } from "@/features/search/lib/searchRequest";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { usePaletteCommands } from "@/features/runs/lib/usePaletteCommands";
 import { usePaneActs } from "@/features/runs/lib/usePaneActs";
@@ -592,12 +593,13 @@ export function RunsScreen() {
   // files, this worktree's listing — and the wires that make ⌘K one gesture
   // app-wide (`lib/useWorkspacePalette.ts`, Task 2).
   const workspacePalette = useWorkspacePalette({
+    grouped,
     repos,
     selectRepo,
     selectWorktree: setSelectedWorktreeId,
     showFiles: () => showPane("files"),
+    stats: signals.stats,
     worktreeCwd: selectedWorktreeCwd,
-    worktrees: repoWorktrees,
   });
 
   // The crew's ⌘K rows, which put the Captain in front of one with this
@@ -664,6 +666,8 @@ export function RunsScreen() {
     installShim: hatch.installShim,
     newTerminalTab: () => runTabCommand({ type: "new" }),
     newWorktree: () => dialogs.setCreatingWorktree(true),
+    openAppearance: () => void goSettings("appearance"),
+    openMessageSearch: requestSearchOpen,
     openChannel: (channelId) => void goChannel(channelId),
     openCheatsheet: sheet.show,
     openFile: (worktree, path, line) =>
@@ -831,7 +835,6 @@ export function RunsScreen() {
                     onOpenPrune={dialogs.openPrune}
                     onPrunePreviewChange={dialogs.setPrunePreview}
                     onRemoveProject={projectActions.removeProject}
-                    onSelectLanding={selectLanding}
                     onSelectRepo={selectRepo}
                     onSelectWorktree={setSelectedWorktreeId}
                     pending={projectActions.pending}

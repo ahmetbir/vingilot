@@ -44,7 +44,7 @@ test("locks viewport rubber-band outside conversation scrollers", async ({
     }),
   ).resolves.toBe(true);
   await expect(
-    dispatchWheelPrevented(page, '[data-testid="sidebar-pinned-header"]', {
+    dispatchWheelPrevented(page, '[data-testid="sidebar-primary-menu"]', {
       deltaY: -120,
     }),
   ).resolves.toBe(true);
@@ -93,7 +93,7 @@ test("locks horizontal viewport pan everywhere", async ({ page }) => {
       }),
     ).resolves.toBe(true);
     await expect(
-      dispatchWheelPrevented(page, '[data-testid="sidebar-pinned-header"]', {
+      dispatchWheelPrevented(page, '[data-testid="sidebar-primary-menu"]', {
         deltaX,
       }),
     ).resolves.toBe(true);

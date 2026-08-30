@@ -11,6 +11,14 @@
 // still reserved, because a label that shifts left while git is slow is a row
 // moving for a reason the owner cannot see.
 //
+// Except where the surface's design says otherwise: the redesign mockup's
+// sidebar (`.st.idle`, vingilot/design/mockup/vingilot.css) draws a faint
+// filled dot on EVERY project/worktree row — a row with no news still shows
+// it is being watched (P1.1 verify MAJOR-1). `idleWhenNone` opts a caller
+// into that: null renders the mockup's quiet grey fill instead of an empty
+// box. Off by default so every other caller keeps the audited
+// invisible-when-nothing semantic.
+//
 // Both themes: emerald for working and amber for dirty are the island's own —
 // `RunList`'s `live` hue and the amber square this column already drew for an
 // uncommitted tree. Rose is new here. needs-you had no hue to inherit: the Runs
@@ -38,22 +46,34 @@ const MARK_CLASS: Record<AttentionState, string> = {
   working: "rounded-full bg-emerald-500 motion-safe:animate-pulse",
 };
 
+/** The mockup's `.st.idle`: a faint filled dot, not the hollow "quiet" ring —
+ * idle is the absence of news, quiet is an answered all-clear. */
+const IDLE_CLASS = "rounded-full bg-sidebar-foreground/[0.18]";
+
 export function AttentionDot({
   className = "",
+  idleWhenNone = false,
   mark,
 }: {
   /** Where the caller needs the box to sit — margins only; the size is this
    * component's, so two surfaces cannot draw the same state at two sizes. */
   className?: string;
+  /** Draw the mockup's faint idle dot for `state === null` (this file's
+   * header) — the workspace/mockup sidebar rows opt in; default off. */
+  idleWhenNone?: boolean;
   mark: AttentionMark;
 }) {
   return (
     <span
       aria-hidden="true"
       className={`h-2 w-2 shrink-0 ${className} ${
-        mark.state === null ? "" : MARK_CLASS[mark.state]
+        mark.state === null
+          ? idleWhenNone
+            ? IDLE_CLASS
+            : ""
+          : MARK_CLASS[mark.state]
       }`}
-      data-attention={mark.state ?? "none"}
+      data-attention={mark.state ?? (idleWhenNone ? "idle" : "none")}
       title={mark.sentence === "" ? undefined : mark.sentence}
     />
   );

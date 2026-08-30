@@ -61,9 +61,9 @@ seams:
     added: "2026-08-29"
 
   - path: "desktop/src/app/VingilotAppearanceTray.tsx"
-    reason: "New, fork-owned: the Appearance popover under the top bar's button. Five wash + five accent swatches calling the theme context's setVingilotAppearance (live, P0's pipeline), and a Right/Drawer/Float 'Crew panel' segmented control that persists via vingilot-crew-position.ts but only stores — the dock that reads it is P3's, and the subline says so."
+    reason: "DELETED in P1.1 (owner veto 2, live-testing c59913461): the top bar's Appearance button and this tray are gone. The three controls (wash/accent/crew-position) moved verbatim into Settings → Appearance as VingilotAppearanceSettings.tsx, and the ⌘K palette's 'Appearance' row is the door there. Entry retained so the deletion itself is a declared seam."
     owner: "vingilot/redesign"
-    removable_when: "Never, while the redesign ships."
+    removable_when: "P7 sweep may retire the entry once the deletion is upstream history."
     status: "permanent"
     added: "2026-08-29"
 
@@ -213,3 +213,56 @@ seams:
     removable_when: "P7 e2e migration replaces the spec alongside the old chrome."
     status: "permanent"
     added: "2026-08-29"
+
+  # ----------------------------------------------------------------------------
+  # P1.1 — the owner's four vetoes from live testing (plan §P1.1, run before P2)
+  # ----------------------------------------------------------------------------
+
+  - path: "desktop/src/features/search/ui/TopbarSearch.tsx"
+    reason: "P1.1 veto 1: gains variant='hidden' — the dialog with no trigger at all — because the sidebar's 'Search everything ⌘K' box is removed while the dialog and all its wiring (⌘F channel scope, focus requests) stay; plus a subscription to the fork's searchRequest.ts mailbox so the palette's 'Search messages' row opens it. The trigger button was split out to TopbarSearchTrigger.tsx because this file sat at the 1000-line ceiling and an edit at the ceiling begins with a split."
+    owner: "vingilot/redesign"
+    removable_when: "P6's palette rework may absorb the dialog; the seam stands while it ships."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/src/features/search/ui/TopbarSearchTrigger.tsx"
+    reason: "New, split out of TopbarSearch.tsx at the 1000-line ratchet (P1.1): the visible trigger button, pure presentation. The bar/icon variants still render it; the hidden variant never mounts it."
+    owner: "vingilot/redesign"
+    removable_when: "With the TopbarSearch seam."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/src/features/search/lib/searchRequest.ts"
+    reason: "New, fork-owned: a one-slot mailbox (paletteRequest.ts idiom) carrying the palette's 'Search messages' click to the hidden search mount. Exists because the vetoed sidebar box was the dialog's only visible trigger and removing a box may not remove a function."
+    owner: "vingilot/redesign"
+    removable_when: "P6's palette rework may fold search into the palette proper."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/src/features/settings/ui/VingilotAppearanceSettings.tsx"
+    reason: "New, fork-owned (P1.1 veto 2): the vetoed tray's three controls as a Settings → Appearance card — wash/accent through the theme context's setVingilotAppearance, crew-position through vingilot-crew-position.ts, testids carried over verbatim. SettingsPanels.tsx mounts it with one line."
+    owner: "vingilot/redesign"
+    removable_when: "Never, while the redesign ships."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/overscroll-boundary.spec.ts"
+    reason: "P1.1 veto 1 repair: the wheel-lock probes aimed at sidebar-pinned-header re-aim at sidebar-primary-menu — the sidebar's leading fixed chrome now that the pinned search header is gone. Same claims, same deltas."
+    owner: "vingilot/redesign"
+    removable_when: "P7 e2e migration."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/sidebar-more-unread-overlap.spec.ts"
+    reason: "P1.1 veto 1 repair: 'top pill clears the pinned header' becomes 'top pill clears the sidebar's fixed top region' — the pill is asserted at or below sidebar-channel-content's top edge, since the pinned header it used to clear no longer exists."
+    owner: "vingilot/redesign"
+    removable_when: "P7 e2e migration."
+    status: "permanent"
+    added: "2026-08-30"
+
+  - path: "desktop/tests/e2e/workspace-hook-liveness.spec.ts"
+    reason: "P1.1 verify MAJOR-1 fix ripple: the no-news control row now asserts the faint idle dot (data-attention=idle) the mockup's .st.idle demands, instead of no dot — the comment re-derived to keep the idle-vs-quiet distinction (idle = no news, quiet ring = answered all-clear)."
+    owner: "vingilot/redesign"
+    removable_when: "P7 e2e migration."
+    status: "permanent"
+    added: "2026-08-30"

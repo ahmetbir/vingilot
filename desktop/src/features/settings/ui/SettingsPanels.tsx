@@ -76,6 +76,7 @@ import { AgentsSettingsPanel } from "./AgentsSettingsPanel";
 import { HostedCommunitiesSettingsCard } from "./HostedCommunitiesSettingsCard";
 import { HomeHarborSettingsCard } from "./HomeHarborSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
+import { VingilotAppearanceSettings } from "./VingilotAppearanceSettings";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
 import { UpdateChecker } from "../UpdateChecker";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
@@ -829,6 +830,11 @@ function ThemeSettingsCard() {
           <GlassBackgroundSetting />
           {buzzThemeSelected ? <ProminentActiveTabSetting /> : null}
         </SettingsOptionGroup>
+
+        {/* The Vingilot shell's wash/accent/crew controls — moved here from
+         * the vetoed top-bar tray (P1.1); the ⌘K "Appearance" row lands on
+         * this card. */}
+        <VingilotAppearanceSettings />
 
         <SettingsOptionGroup
           data-testid="appearance-preferences-card"

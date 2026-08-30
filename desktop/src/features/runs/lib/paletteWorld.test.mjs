@@ -81,7 +81,15 @@ test("what the workspace publishes is what a cold shell reads back", () => {
   const store = memory();
   publishPlaces(
     [{ id: "p1", name: "vingilot", path: "/v" }],
-    [{ bindingId: "w1", detail: "the project's checkout", label: "main" }],
+    [
+      {
+        bindingId: "w1",
+        clean: true,
+        detail: "the project's checkout",
+        label: "main",
+        repoId: "p1",
+      },
+    ],
     store,
   );
   rememberFile({ line: 9, path: "src/main.rs", worktree: "/v" }, store);
@@ -91,6 +99,9 @@ test("what the workspace publishes is what a cold shell reads back", () => {
   const cold = readWorld(store);
   assert.deepEqual(cold.projects, [{ id: "p1", name: "vingilot", path: "/v" }]);
   assert.equal(cold.worktrees[0].label, "main");
+  // The repo relation and git's answer ride the snapshot (P1.1 veto 4).
+  assert.equal(cold.worktrees[0].repoId, "p1");
+  assert.equal(cold.worktrees[0].clean, true);
   assert.deepEqual(cold.recentFiles, [
     { line: 9, path: "src/main.rs", worktree: "/v" },
   ]);

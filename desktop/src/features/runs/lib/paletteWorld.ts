@@ -41,11 +41,22 @@ export interface WorldProject {
   path: string;
 }
 
-/** A worktree of the project the workspace had open. */
+/** A worktree, under the project that owns it. Since P1.1 (owner veto 4 — the
+ * sidebar draws every project's worktree children under THAT project's row)
+ * the snapshot carries **every** project's worktrees, not just the open
+ * one's, and each row names its repo. */
 export interface WorldWorktree {
   bindingId: string;
+  /** The owning project's id — `Worktree.repo_id`, the coordinator's own
+   * relation, copied so a chat-route surface can group children under their
+   * repo row without re-deriving anything. */
+  repoId: string;
   label: string;
   detail: string;
+  /** git's read of the tree at publish time: `true` clean, `false` dirty,
+   * `null` when git had not answered — never coerced. A copy like everything
+   * else here: the live read is the workspace's. */
+  clean: boolean | null;
 }
 
 /** A file the viewer has had open, most recent first. */
@@ -80,7 +91,7 @@ export interface StorageLike {
 /** Versioned: a shape change gets a new key rather than a migration, so an
  * older build reading a newer snapshot finds nothing and starts empty instead
  * of half-understanding it. */
-const WORLD_KEY = "vingilot-palette-world.v1";
+const WORLD_KEY = "vingilot-palette-world.v2";
 
 const NO_STORAGE: StorageLike = { getItem: () => null, setItem: () => {} };
 
@@ -119,11 +130,16 @@ export function parseWorld(raw: string | null): PaletteWorld {
     const row = entry as Record<string, unknown>;
     const bindingId = stringOf(row?.bindingId);
     const label = stringOf(row?.label);
-    if (bindingId === null || label === null) continue;
+    const repoId = stringOf(row?.repoId);
+    // A row that names no repo cannot be drawn under one, and v2's key means
+    // no stored snapshot legitimately lacks it — drop, don't guess.
+    if (bindingId === null || label === null || repoId === null) continue;
     worktrees.push({
       bindingId,
+      clean: typeof row?.clean === "boolean" ? row.clean : null,
       detail: stringOf(row?.detail) ?? "",
       label,
+      repoId,
     });
   }
   const recentFiles: WorldFile[] = [];

@@ -41,14 +41,18 @@ async function ensureTimelineScrollable(
 }
 
 async function openSidebarSearch(page: import("@playwright/test").Page) {
-  // ⌘K is the command palette in this fork (paletteKeys.ts; the same
-  // unification the composer-link-shortcut seam documents), so search is opened
-  // through its own surface: the sidebar's "Search everything" button, which the
-  // ShellPalette header calls out as always one click away on every route.
-  const openSearchButton = page.getByTestId("open-search");
-
-  await expect(openSearchButton).toBeVisible();
-  await openSearchButton.click();
+  // ⌘K is the command palette in this fork (paletteKeys.ts), and since P1.1
+  // (owner veto 1) the sidebar's "Search everything" box is gone too — the
+  // palette's "Search messages" row is the dialog's door now
+  // (`searchRequest.ts` carries the click to the hidden mount).
+  await expect(page.getByTestId("top-search-pill")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill("search messages");
+  // Enter, not a click: a mouse click would leave the cursor hovering the
+  // dialog that opens underneath it, and hover clears the keyboard selection
+  // the scope-control assertions read.
+  await page.keyboard.press("Enter");
   await expect(page.getByTestId("search-results")).toBeVisible();
   await expect(page.getByTestId("search-dialog-input")).toBeFocused();
 }
@@ -663,7 +667,9 @@ test("closes sidebar search with Escape", async ({ page }) => {
   await page.keyboard.press("Escape");
 
   await expect(page.getByTestId("search-results")).toHaveCount(0);
-  await expect(page.getByTestId("open-search")).toBeFocused();
+  // No trigger to hand focus back to since P1.1 — the box is gone; closing
+  // simply leaves the dialog closed.
+  await expect(page.getByTestId("open-search")).toHaveCount(0);
 });
 
 test("the palette shortcut opens without disturbing the collapsed sidebar", async ({
@@ -671,12 +677,12 @@ test("the palette shortcut opens without disturbing the collapsed sidebar", asyn
 }) => {
   await page.goto("/");
 
-  await expect(page.getByTestId("open-search")).toBeVisible();
+  await expect(page.getByTestId("top-search-pill")).toBeVisible();
 
   const sidebarRoot = page.locator('[data-side="left"][data-state]');
   await expect(sidebarRoot).toHaveAttribute("data-state", "expanded");
 
-  // Collapse the sidebar; its pinned-header search slides off-screen.
+  // Collapse the sidebar.
   await page
     .getByRole("button", { name: "Toggle Sidebar", exact: true })
     .click();

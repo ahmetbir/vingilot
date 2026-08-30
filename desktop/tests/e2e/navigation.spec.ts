@@ -305,10 +305,11 @@ test("settings shortcut returns without opening search dialog", async ({
   await expect(page.getByTestId("chat-title")).toHaveText("general");
   const channelUrl = page.url();
 
-  // Open search through its own surface (⌘K is the command palette in this
-  // fork — paletteKeys.ts), then close it. The Settings subtree remounts the
-  // sidebar + search on close, which must not resurrect the search dialog.
-  await page.getByTestId("open-search").click();
+  // Open search through its remaining door — ⌘F, the in-channel scope search
+  // (the sidebar box was vetoed off in P1.1; the dialog itself stays mounted)
+  // — then close it. The Settings subtree remounts the sidebar + search on
+  // close, which must not resurrect the search dialog.
+  await page.keyboard.press("ControlOrMeta+f");
   await expect(page.getByTestId("search-dialog-input")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("search-results")).not.toBeVisible();

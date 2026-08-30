@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   actionSource,
+  appSource,
   channelSource,
   crewSource,
   paletteMatches,
@@ -554,6 +555,7 @@ test("a mode asks its own sources, and a host narrows them", () => {
     "panes",
     "crew",
     "actions",
+    "app",
   ]);
   // What the shell can honestly answer for: no work surface, so no pane and no
   // action.
@@ -563,18 +565,30 @@ test("a mode asks its own sources, and a host narrows them", () => {
       "projects",
       "worktrees",
       "recent-files",
+      "app",
     ]),
-    ["projects", "worktrees", "channels", "recent-files"],
+    ["projects", "worktrees", "channels", "recent-files", "app"],
   );
   // And the door that offers nothing here is the one that must fall through.
   assert.deepEqual(sourceIdsForMode("files", ["channels", "projects"]), []);
 });
 
-test("the commands door is the panes and the actions, unchanged", () => {
+test("the commands door is the panes, the actions and the app rows", () => {
   const held = ctx();
   const commands = paletteMatches(held, "", sourcesForMode("commands"));
   assert.deepEqual(
     ids(commands),
-    ids([...paneSource(held, ""), ...actionSource(held, "")]),
+    ids([
+      ...paneSource(held, ""),
+      ...actionSource(held, ""),
+      ...appSource(held, ""),
+    ]),
   );
+});
+
+test("appSource: the Appearance door is offered everywhere and never blocked", () => {
+  const [row] = appSource(ctx(), "appear");
+  assert.equal(row.candidate.id, "app:appearance");
+  assert.equal(row.candidate.blocked, null);
+  assert.deepEqual(row.candidate.command, { type: "open-appearance" });
 });

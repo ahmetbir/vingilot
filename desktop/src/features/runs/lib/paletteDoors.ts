@@ -69,6 +69,13 @@ export type PaletteSourceId =
    * chat route is the one that should keep these off it too. */
   | "crew"
   | "actions"
+  /** App-wide rows every host can answer for — today the one "Appearance" row
+   * (P1.1, owner veto 2: the top bar's tray is gone; Settings → Appearance is
+   * the surface and the palette is its door). Its own source rather than an
+   * `actions` member because `actions` is deliberately workspace-only
+   * (`useWorkspacePalette.ts`'s offers), and a chat route must still offer
+   * this row. */
+  | "app"
   | "worktree-files";
 
 /** **Which sources each mode asks, and in the order an empty query lists
@@ -85,7 +92,7 @@ export type PaletteSourceId =
  * door that also listed projects would be the front door with extra steps. */
 export const MODE_SOURCES: Record<PaletteMode, readonly PaletteSourceId[]> = {
   channels: ["channels"],
-  commands: ["panes", "crew", "actions"],
+  commands: ["panes", "crew", "actions", "app"],
   files: ["worktree-files"],
   go: [
     "projects",
@@ -95,6 +102,7 @@ export const MODE_SOURCES: Record<PaletteMode, readonly PaletteSourceId[]> = {
     "panes",
     "crew",
     "actions",
+    "app",
   ],
 };
 

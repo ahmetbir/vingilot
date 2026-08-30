@@ -109,10 +109,6 @@ interface WorkspaceNavProps {
   onOpenPrune: () => void;
   onPrunePreviewChange: (preview: string[] | null) => void;
   onRemoveProject: (repo: Repo) => void;
-  /** The only route back to the project-less home once a project is
-   * selected — `selectedRepoId` has no other path to `null` short of
-   * forgetting the project you are standing in. */
-  onSelectLanding: () => void;
   onSelectRepo: (id: string) => void;
   onSelectWorktree: (bindingId: string) => void;
   /** True while an add, a remove or a prune is in flight. */
@@ -161,7 +157,6 @@ export function WorkspaceNav({
   onOpenPrune,
   onPrunePreviewChange,
   onRemoveProject,
-  onSelectLanding,
   onSelectRepo,
   onSelectWorktree,
   pending,
@@ -218,28 +213,28 @@ export function WorkspaceNav({
         className="flex w-full flex-col gap-1 px-2 pb-2"
         data-testid="projects-nav"
       >
-        <button
-          className={`rounded-lg px-2 py-1.5 text-left text-sm font-medium transition-colors ${
-            selectedRepoId === null
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-muted/60"
-          }`}
-          data-testid="projects-nav-landing"
-          onClick={onSelectLanding}
-          type="button"
-        >
-          Deck
-        </button>
-
-        {/* The column's one visible heading. The project name is the row the
-         * owner clicked, and repeating it as a second heading 24px lower
-         * would be the nested chrome this merge exists to remove — inside
-         * the disclosure it is `sr-only` instead. */}
-        <div className="mt-2 flex items-center gap-1 px-2">
+        {/* No "Deck" row here (P1.1, owner veto 4): the mockup's `.side` has
+         * Deck as a NAV row above this section, and the primary menu already
+         * draws it. The project-less landing stays reachable through ⌘K's own
+         * "Deck" row (`open-landing`). The header carries the mockup's `+`
+         * affordance (`.sh .plus`), which is the old "+ Add project" button
+         * moved where the design puts it — testid unchanged. */}
+        <div className="mt-1 flex items-center gap-1 px-2">
           <h2 className="flex min-w-0 flex-1 items-center gap-1.5 text-3xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Projects
             <span className="text-muted-foreground/60">{repos.length}</span>
           </h2>
+          <button
+            aria-label="Add project"
+            className="shrink-0 rounded px-1 text-sm leading-none text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+            data-testid="projects-nav-add"
+            disabled={pending}
+            onClick={onAddProject}
+            title="Add project"
+            type="button"
+          >
+            +
+          </button>
         </div>
 
         {storeNotice === null ? null : (
@@ -299,16 +294,6 @@ export function WorkspaceNav({
             ))}
           </ul>
         )}
-
-        <button
-          className="mt-1 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
-          data-testid="projects-nav-add"
-          disabled={pending}
-          onClick={onAddProject}
-          type="button"
-        >
-          + Add project
-        </button>
 
         {importNotice === null ? null : (
           <div

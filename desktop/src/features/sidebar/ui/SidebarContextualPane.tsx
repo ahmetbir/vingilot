@@ -97,7 +97,12 @@ export function SidebarContextualPane({
       className="select-none px-4 py-3 text-sm text-muted-foreground/80"
       data-testid="sidebar-contextual-empty"
     >
-      No sidebar detail for {label} yet.
+      {/* P1.1 veto 3: the Pull requests row must not pretend — the real,
+       * gh-backed pull requests of the worktrees' repos arrive in a later
+       * phase, and until then the pane says exactly that. */}
+      {selectedView === "projects"
+        ? "No pull requests here yet — your repos' real pull requests are on their way."
+        : `No sidebar detail for ${label} yet.`}
     </p>
   );
 }

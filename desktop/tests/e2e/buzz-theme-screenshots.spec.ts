@@ -71,16 +71,12 @@ async function openChannel(page: Page) {
 async function expectBuzzSidebarPalette(page: Page, mode: "light" | "dark") {
   const mutedColor =
     mode === "light" ? "rgba(0, 0, 0, 0.4)" : "rgba(255, 255, 255, 0.4)";
-  const searchSurface =
-    mode === "light" ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.04)";
   const rowHoverSurface =
     mode === "light" ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.04)";
   const activeSurface =
     mode === "light" ? "rgba(0, 0, 0, 0.07)" : "rgba(255, 255, 255, 0.16)";
   const chromeColor =
     mode === "light" ? "rgba(0, 0, 0, 0.5)" : "rgba(255, 255, 255, 0.5)";
-  const search = page.getByTestId("open-search");
-  const pinnedHeader = page.getByTestId("sidebar-pinned-header");
   const sidebarScroller = page.locator(".buzz-sidebar-scrollbar");
   const scrollContent = page.getByTestId("sidebar-scroll-content");
   const primaryMenu = page.getByTestId("sidebar-primary-menu");
@@ -90,25 +86,16 @@ async function expectBuzzSidebarPalette(page: Page, mode: "light" | "dark") {
     .first();
 
   await expect(sectionLabel).toHaveCSS("color", mutedColor);
-  await expect(search).toHaveCSS("background-color", searchSurface);
-  await expect(search.locator("svg").first()).toHaveCSS("color", mutedColor);
-  await expect(search.locator("span").first()).toHaveCSS("color", mutedColor);
-  await expect(pinnedHeader).toHaveCSS("padding-bottom", "8px");
-  await expect(pinnedHeader).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(pinnedHeader).toHaveCSS("margin-left", "3px");
-  await expect(pinnedHeader).toHaveCSS("margin-right", "3px");
-  await expect(pinnedHeader).toHaveCSS("padding-right", "8px");
+  // P1.1 veto 1: the sidebar's own search box and its pinned header are gone
+  // — the primary menu leads the sidebar, and the top-bar pill is the only
+  // search affordance.
+  await expect(page.getByTestId("open-search")).toHaveCount(0);
+  await expect(page.getByTestId("sidebar-pinned-header")).toHaveCount(0);
   await expect(sidebarScroller).toHaveCSS("padding-left", "0px");
   await expect(sidebarScroller).toHaveCSS("padding-right", "0px");
   await expect(scrollContent).toHaveCSS("padding-left", "3px");
   await expect(scrollContent).toHaveCSS("padding-right", "3px");
-  const pinnedSpacerColor = await pinnedHeader.evaluate(
-    (element) => getComputedStyle(element, "::before").backgroundColor,
-  );
-  expect(pinnedSpacerColor).toBe("rgba(0, 0, 0, 0)");
   await expect(sidebarScroller.getByTestId("open-agents-view")).toBeVisible();
-  const searchBox = await search.boundingBox();
-  const pinnedHeaderBox = await pinnedHeader.boundingBox();
   const primaryMenuBox = await primaryMenu.boundingBox();
   const primaryRowBox = await page
     .getByTestId("open-agents-view")
@@ -119,33 +106,16 @@ async function expectBuzzSidebarPalette(page: Page, mode: "light" | "dark") {
     const box = element.getBoundingClientRect();
     return { left: box.left, right: box.right };
   });
-  expect(searchBox).not.toBeNull();
-  expect(pinnedHeaderBox).not.toBeNull();
   expect(primaryMenuBox).not.toBeNull();
   expect(primaryRowBox).not.toBeNull();
   expect(activeRowBox).not.toBeNull();
   expect(hoverRowBox).not.toBeNull();
-  if (
-    !searchBox ||
-    !pinnedHeaderBox ||
-    !primaryMenuBox ||
-    !primaryRowBox ||
-    !activeRowBox ||
-    !hoverRowBox
-  ) {
-    throw new Error("Sidebar search or primary navigation geometry is missing");
+  if (!primaryMenuBox || !primaryRowBox || !activeRowBox || !hoverRowBox) {
+    throw new Error("Sidebar primary navigation geometry is missing");
   }
-  expect(primaryMenuBox.y - (searchBox.y + searchBox.height)).toBe(8);
-  expect(
-    pinnedHeaderBox.y +
-      pinnedHeaderBox.height -
-      (searchBox.y + searchBox.height),
-  ).toBe(8);
-  expect(primaryMenuBox.y - (pinnedHeaderBox.y + pinnedHeaderBox.height)).toBe(
-    0,
-  );
   for (const rowBox of [primaryRowBox, activeRowBox, hoverRowBox]) {
-    expect(Math.abs(rowBox.x - searchBox.x)).toBeLessThanOrEqual(0.5);
+    // One left edge for nav rows and channel rows alike.
+    expect(Math.abs(rowBox.x - primaryRowBox.x)).toBeLessThanOrEqual(0.5);
     // Linux CI reserves a classic scrollbar gutter while macOS uses an
     // overlay scrollbar. Compare each row to its usable scroll area so the
     // alignment check remains platform-independent.
@@ -221,7 +191,9 @@ async function expectBuzzSidebarPalette(page: Page, mode: "light" | "dark") {
     (element) =>
       getComputedStyle(element, "::-webkit-scrollbar-thumb").backgroundColor,
   );
-  expect(scrollbarThumbColor).toBe(searchSurface);
+  // The thumb shares the subtle surface the hover rows use (the old search
+  // box's surface value — the box is gone, the token is not).
+  expect(scrollbarThumbColor).toBe(rowHoverSurface);
 }
 
 async function expectIconlessSectionTitleAligned(
@@ -954,7 +926,12 @@ test("settings content uses the same inset surface as the main app", async ({
   await seedTheme(page, "buzz");
   await installMockBridge(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  const searchBox = await page.getByTestId("open-search").boundingBox();
+  // The sidebar search box is gone (P1.1 veto 1); the sidebar's first nav
+  // row is the alignment anchor the settings back-row is compared against.
+  const searchBox = await page
+    .getByTestId("sidebar-primary-menu")
+    .getByRole("button", { name: "Inbox" })
+    .boundingBox();
   await page.getByTestId("open-settings").click();
   await page.getByTestId("profile-popover-settings").click();
 
@@ -991,7 +968,7 @@ test("settings content uses the same inset surface as the main app", async ({
     throw new Error("Settings layout is missing");
   }
 
-  expect(Math.abs(backToAppBox.y - searchBox.y)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(backToAppBox.y - searchBox.y)).toBeLessThanOrEqual(2);
 
   // Match the normal app shell's strip height: fixed 44px since redesign P1
   // (chromeLayout.ts), then this screen's own 1px top/left inset and 8px

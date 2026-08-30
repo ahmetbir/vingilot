@@ -108,7 +108,7 @@ export function WorktreeRow({
         title={title}
         type="button"
       >
-        <AttentionDot className="mt-1" mark={mark} />
+        <AttentionDot className="mt-1" idleWhenNone mark={mark} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             <span className="min-w-0 flex-1 truncate text-sm">

@@ -36,6 +36,7 @@ import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { requestSearchOpen } from "@/features/search/lib/searchRequest";
 import { requestFile } from "@/features/runs/lib/filesTarget";
 import { subscribePaletteClaim } from "@/features/runs/lib/paletteClaim";
 import { paletteClaimed } from "@/features/runs/lib/paletteClaim";
@@ -56,6 +57,9 @@ const SHELL_OFFERS: readonly PaletteSourceId[] = [
   "projects",
   "worktrees",
   "recent-files",
+  // App-wide rows (the Appearance door) — Settings exists on every screen, so
+  // a host with no work surface can still answer for these (P1.1, veto 2).
+  "app",
 ];
 
 /** Whether the workspace's own palette is mounted. Subscribed rather than
@@ -82,7 +86,7 @@ export function ShellPalette() {
 function ShellPaletteHost() {
   const channelsQuery = useChannelsQuery();
   const world = useWorld();
-  const { goChannel, goWorkspace } = useAppNavigation();
+  const { goChannel, goSettings, goWorkspace } = useAppNavigation();
 
   const channels: readonly PaletteChannel[] = React.useMemo(
     () =>
@@ -132,7 +136,7 @@ function ShellPaletteHost() {
       owner_run_objective: null,
       owner_run_status: null,
       removed: null,
-      repo_id: "",
+      repo_id: worktree.repoId,
       role: "task",
     })),
   };
@@ -142,6 +146,15 @@ function ShellPaletteHost() {
       switch (command.type) {
         case "open-channel":
           void goChannel(command.channelId);
+          return;
+        case "open-appearance":
+          // Upstream's own settings deep link — the same door the workspace
+          // host takes (P1.1, veto 2).
+          void goSettings("appearance");
+          return;
+        case "open-message-search":
+          // The mailbox to the hidden search mount (P1.1, veto 1).
+          requestSearchOpen();
           return;
         case "open-landing":
           void goWorkspace();
@@ -187,7 +200,7 @@ function ShellPaletteHost() {
           return;
       }
     },
-    [goChannel, goWorkspace],
+    [goChannel, goSettings, goWorkspace],
   );
 
   const palette = usePalette({

@@ -432,18 +432,20 @@ for (const theme of ["buzz", "github-light", "catppuccin-mocha"]) {
   test(`uses the continuous sidebar surface in ${theme}`, async ({ page }) => {
     await loadTheme(page, theme);
 
-    const pinnedHeader = page.getByTestId("sidebar-pinned-header");
+    // The pinned search header is gone (P1.1 veto 1); the primary menu is the
+    // sidebar's leading chrome and must be as surface-less as the header was.
+    const primaryMenu = page.getByTestId("sidebar-primary-menu");
     const footer = page.locator(
       '[data-testid="app-sidebar"] [data-sidebar="footer"]',
     );
     const channelContent = page.getByTestId("sidebar-channel-content");
-    await expect(pinnedHeader).toBeVisible();
+    await expect(primaryMenu).toBeVisible();
     await expect(footer).toBeVisible();
     await expect(channelContent).toBeVisible();
 
     const chromeStyles = await page.evaluate(() => {
       const header = document.querySelector<HTMLElement>(
-        '[data-testid="app-sidebar"] [data-testid="sidebar-pinned-header"]',
+        '[data-testid="app-sidebar"] [data-testid="sidebar-primary-menu"]',
       );
       const footerElement = document.querySelector<HTMLElement>(
         '[data-testid="app-sidebar"] [data-sidebar="footer"]',
@@ -492,7 +494,9 @@ for (const theme of ["buzz", "github-light", "catppuccin-mocha"]) {
     expect(chromeStyles.headerBoxShadow).toBe("none");
     expect(chromeStyles.headerIsolation).toBe("auto");
     expect(chromeStyles.headerMarginBottom).toBe(0);
-    expect(chromeStyles.headerZIndex).toBe("auto");
+    // The primary menu stacks over the section scroller by design (z-40) —
+    // stacking is not a surface, so it is allowed where a background is not.
+    expect(chromeStyles.headerZIndex).toBe("40");
     expect(chromeStyles.footerBackground).toBe("none");
     expect(chromeStyles.footerBackgroundColor).toBe("rgba(0, 0, 0, 0)");
     expect(chromeStyles.footerBeforeBackground).toBe("none");
@@ -506,31 +510,20 @@ for (const theme of ["buzz", "github-light", "catppuccin-mocha"]) {
   });
 }
 
-test("aligns the sidebar search with the channel title outside the Buzz theme", async ({
+test("the sidebar carries no search box in any theme (P1.1 veto 1)", async ({
   page,
 }) => {
   await loadTheme(page, "github-light");
   await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
 
-  const root = page.locator("html");
-  const search = page.getByTestId("open-search");
-  const channelTitle = page.getByTestId("chat-title");
-  await expect(root).not.toHaveAttribute("data-buzz-sidebar", "");
-  await expect(search).toBeVisible();
-  await expect(channelTitle).toHaveText("general");
-
-  const [searchBox, channelTitleBox] = await Promise.all([
-    search.boundingBox(),
-    channelTitle.boundingBox(),
-  ]);
-  expect(searchBox).not.toBeNull();
-  expect(channelTitleBox).not.toBeNull();
-
-  if (!searchBox || !channelTitleBox) return;
-
-  const searchCenter = searchBox.y + searchBox.height / 2;
-  const channelTitleCenter = channelTitleBox.y + channelTitleBox.height / 2;
-  expect(Math.abs(searchCenter - channelTitleCenter)).toBeLessThanOrEqual(2);
+  // The old alignment claim (search box centered on the channel title) died
+  // with the box: the top-bar pill is the only search affordance now, and the
+  // sidebar opens straight onto the nav rows.
+  await expect(page.getByTestId("open-search")).toHaveCount(0);
+  await expect(page.getByTestId("sidebar-pinned-header")).toHaveCount(0);
+  await expect(page.getByTestId("top-search-pill")).toBeVisible();
+  await expect(page.getByTestId("sidebar-primary-menu")).toBeVisible();
 });
 
 test("sidebar rail resizes without toggling the sidebar", async ({ page }) => {

@@ -47,10 +47,12 @@ import {
   type WorldWorktree,
 } from "@/features/runs/lib/paletteWorld";
 import {
+  type GroupedWorktrees,
   type Repo,
-  type Worktree,
   worktreeSummary,
 } from "@/features/runs/lib/projects";
+import type { WorktreeStats } from "@/features/runs/lib/useWorktreeStats";
+import { usableStat } from "@/features/runs/lib/worktreeStat";
 import { useWorktreeFiles } from "@/features/runs/lib/useWorktreeFiles";
 import {
   subscribeLanding,
@@ -72,6 +74,8 @@ const WITH_FILES: readonly PaletteSourceId[] = [
   // source answering, not the host refusing to ask.
   "crew",
   "actions",
+  // App-wide rows (the Appearance door, P1.1 veto 2) — both hosts offer them.
+  "app",
   "worktree-files",
 ];
 const WITHOUT_FILES: readonly PaletteSourceId[] = WITH_FILES.filter(
@@ -80,8 +84,13 @@ const WITHOUT_FILES: readonly PaletteSourceId[] = WITH_FILES.filter(
 
 export interface WorkspacePaletteInputs {
   repos: readonly Repo[];
-  /** The open project's worktrees, in the nav's own order. */
-  worktrees: readonly Worktree[];
+  /** EVERY project's worktrees, grouped under their repo — the same
+   * derivation the nav's tree renders (P1.1 veto 4: the snapshot carries all
+   * of them, with their repo relation, so the sidebar on a chat route can draw
+   * each project's children under that project's row). */
+  grouped: GroupedWorktrees;
+  /** git's per-worktree stats, for the snapshot's `clean` copy. */
+  stats: WorktreeStats;
   /** The selected checkout's directory, or `null`. */
   worktreeCwd: string | null;
   selectRepo: (repoId: string) => void;
@@ -105,12 +114,13 @@ export interface WorkspacePalette {
 }
 
 export function useWorkspacePalette({
+  grouped,
   repos,
   selectRepo,
   selectWorktree,
   showFiles,
+  stats,
   worktreeCwd,
-  worktrees,
 }: WorkspacePaletteInputs): WorkspacePalette {
   // 1. The claim: mounted here means the shell's palette stands down.
   React.useEffect(() => claimPalette(), []);
@@ -138,14 +148,26 @@ export function useWorkspacePalette({
       name: repo.name,
       path: repo.path,
     }));
-    const rows: WorldWorktree[] = worktrees.map((worktree) => ({
-      bindingId: worktree.binding_id,
-      detail:
-        worktree.role === "primary" ? "the project's checkout" : worktree.role,
-      label: worktreeSummary(worktree).label,
-    }));
+    // Every project's worktrees, in repo order — each row carries its repo id
+    // and git's clean/dirty answer at publish time (P1.1 veto 4). `null`
+    // stays `null`: a stat git never answered is not "clean".
+    const rows: WorldWorktree[] = repos.flatMap((repo) =>
+      (grouped.byRepo[repo.id] ?? []).map((worktree) => {
+        const stat = usableStat(stats[worktree.binding_id]);
+        return {
+          bindingId: worktree.binding_id,
+          clean: stat === null ? null : !stat.dirty,
+          detail:
+            worktree.role === "primary"
+              ? "the project's checkout"
+              : worktree.role,
+          label: worktreeSummary(worktree).label,
+          repoId: worktree.repo_id,
+        };
+      }),
+    );
     return { projects, rows };
-  }, [repos, worktrees]);
+  }, [grouped, repos, stats]);
   React.useEffect(() => {
     publishPlaces(places.projects, places.rows);
   }, [places]);

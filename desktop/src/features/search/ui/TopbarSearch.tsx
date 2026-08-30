@@ -1,8 +1,11 @@
-import { Search } from "lucide-react";
 import * as React from "react";
 
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import { getMinimumSearchQueryLength } from "@/features/search/hooks";
+import {
+  subscribeSearchRequest,
+  takeSearchRequest,
+} from "@/features/search/lib/searchRequest";
 import { useSearchResults } from "@/features/search/useSearchResults";
 import {
   resultIcon,
@@ -15,6 +18,7 @@ import {
   getChannelScopeLabel,
   SearchDialogInputRow,
 } from "@/features/search/ui/SearchScopeControls";
+import { TopbarSearchTrigger } from "@/features/search/ui/TopbarSearchTrigger";
 import { useSearchMenuKeyboardNavigation } from "@/features/search/ui/useSearchMenuKeyboardNavigation";
 import type { Channel, SearchHit, UserSearchResult } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
@@ -43,7 +47,11 @@ type TopbarSearchProps = {
   onCreateChannel?: () => void | Promise<void>;
   suggestionChannels?: Channel[];
   scopeFocusRequest?: number;
-  variant?: "bar" | "icon";
+  /** `hidden` mounts the dialog with no trigger at all (vingilot P1.1, owner
+   * veto 1): the sidebar's search box is gone and the top-bar pill is the only
+   * search affordance, but the dialog itself stays reachable through the
+   * focus-request wires (⌘F channel search, `AppShell`'s search plumbing). */
+  variant?: "bar" | "icon" | "hidden";
 };
 
 const MAX_SEARCH_SUGGESTIONS = 4;
@@ -437,6 +445,7 @@ export function TopbarSearch({
   });
   const trimmedQuery = query.trim();
   const isIconVariant = variant === "icon";
+  const isHiddenVariant = variant === "hidden";
   const currentChannel = currentChannelId
     ? (channelLookup.get(currentChannelId) ?? null)
     : null;
@@ -594,6 +603,16 @@ export function TopbarSearch({
       setQuery,
     ],
   );
+
+  // The palette's "Search messages" row (P1.1, veto 1): the mailbox request
+  // opens the dialog exactly as the removed sidebar box's click did — checked
+  // once on mount for a request posted mid-transition, then subscribed.
+  React.useEffect(() => {
+    if (takeSearchRequest()) openSearchDialog(null);
+    return subscribeSearchRequest(() => {
+      if (takeSearchRequest()) openSearchDialog(null);
+    });
+  }, [openSearchDialog]);
 
   // Edge-trigger: the counter never resets, so `!== 0` would replay on remount.
   const lastFocusRequestRef = React.useRef(focusRequest);
@@ -925,44 +944,17 @@ export function TopbarSearch({
   return (
     <div className={cn("relative", className)}>
       <Dialog open={isOpen} onOpenChange={handleSearchOpenChange}>
-        <button
-          aria-label="Search everything"
-          className={
-            isIconVariant
-              ? "group/search flex size-6 items-center justify-center rounded p-1 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-border/35 hover:text-sidebar-foreground focus-visible:bg-sidebar-border/35 focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-              : "group/search flex h-8 w-full items-center gap-2 rounded-md bg-sidebar-border/35 px-2 text-left text-sm text-sidebar-foreground/55 transition-colors duration-150 ease-out hover:bg-sidebar-border/35 hover:text-sidebar-foreground focus-visible:bg-sidebar-border/35 focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-          }
-          data-testid="open-search"
-          onClick={() => openSearchDialog(null)}
-          ref={triggerRef}
-          title="Search everything"
-          type="button"
-        >
-          <Search
-            className={
-              isIconVariant
-                ? "h-4 w-4 shrink-0"
-                : "h-4 w-4 shrink-0 text-sidebar-foreground/45 transition-colors duration-150 ease-out group-hover/search:text-sidebar-foreground/65 group-focus-visible/search:text-sidebar-foreground"
-            }
+        {/* No trigger at all in the hidden variant (P1.1 veto 1): the dialog
+         * opens through the focus-request wires only, and close-autofocus
+         * already tolerates a null trigger ref. */}
+        {isHiddenVariant ? null : (
+          <TopbarSearchTrigger
+            isIconVariant={isIconVariant}
+            onOpen={() => openSearchDialog(null)}
+            query={query}
+            triggerRef={triggerRef}
           />
-          {isIconVariant ? null : (
-            <>
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate transition-colors duration-150 ease-out",
-                  query
-                    ? "text-sidebar-foreground"
-                    : "text-sidebar-foreground/55",
-                )}
-              >
-                {query || "Search everything"}
-              </span>
-              <kbd className="shrink-0 text-2xs text-sidebar-foreground/45">
-                &#x2318;K
-              </kbd>
-            </>
-          )}
-        </button>
+        )}
         <DialogContent
           aria-busy={isSearchLoading && searchableResults.length === 0}
           className="mt-[18vh] max-w-2xl self-start gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl"

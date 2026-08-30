@@ -529,13 +529,14 @@ test.describe("one key to go anywhere and do anything", () => {
     //
     // Nothing was taken away, and the two assertions under this one are what
     // say so: upstream's channel list is INSIDE this palette (a channel row is
-    // drawn from the same store their dialog reads), and their dialog is still
-    // one click away on the sidebar's button.
+    // drawn from the same store their dialog reads), and their dialog is one
+    // palette row away — the "Search messages" door that replaced the vetoed
+    // sidebar box (P1.1).
     await page.setViewportSize(SPLITTABLE);
     await installMockBridge(page);
     await mockCoordinator(page);
     await page.goto("/#/");
-    await expect(page.getByTestId("open-search")).toBeVisible();
+    await expect(page.getByTestId("top-search-pill")).toBeVisible();
 
     await page.keyboard.press("ControlOrMeta+k");
     await expect(page.getByTestId("palette")).toBeVisible();
@@ -548,16 +549,20 @@ test.describe("one key to go anywhere and do anything", () => {
 
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("palette")).toBeHidden();
-    await page.getByTestId("open-search").click();
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByTestId("palette-input").fill("search messages");
+    await page.getByTestId("palette-row-app:search").click();
     await expect(upstreamSearch(page)).toBeVisible();
   });
 
-  test("and its button still opens it on the workspace screen too", async ({
+  test("and the same palette row opens it on the workspace screen too", async ({
     page,
   }) => {
-    // Nothing was removed — only a key was redirected.
+    // Nothing was removed — the box became a palette row (P1.1 veto 1).
     await openWorkspace(page);
-    await page.getByTestId("open-search").click();
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByTestId("palette-input").fill("search messages");
+    await page.getByTestId("palette-row-app:search").click();
     await expect(upstreamSearch(page)).toBeVisible();
   });
 });

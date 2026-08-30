@@ -253,10 +253,13 @@ test("an agent working in a worktree turns its dot, and only its own", async ({
   );
 
   // The control: git said nothing about either row and the endpoint said
-  // nothing about this one, so it has no dot at all — never a quiet one.
+  // nothing about this one. Since P1.1's mockup fidelity round the tree rows
+  // draw the faint IDLE dot for exactly this no-news state (AttentionDot's
+  // idleWhenNone — the mockup's .st.idle) — still never the quiet ring,
+  // which remains an answered all-clear.
   await expect(dotIn(page, "run-idle")).toHaveAttribute(
     "data-attention",
-    "none",
+    "idle",
   );
 });
 

@@ -44,9 +44,9 @@ async function firstNavButtonX(page: import("@playwright/test").Page) {
 // controls, so their box must not follow the rem text scale either. The
 // sidebar toggle / History / Copy-link buttons are 28px square; the
 // back/forward history buttons share the height but are deliberately
-// narrower (24px). The Appearance button pins only its height — its label is
-// rem text — and the centered search pill is rem-based on purpose (it sits
-// nowhere near the native controls), so neither is in the fixed-size table.
+// narrower (24px). The centered search pill is rem-based on purpose (it sits
+// nowhere near the native controls), so it is not in the fixed-size table.
+// The Appearance button left the bar in P1.1 (owner veto 2).
 const NAV_BUTTON_SIZE = 28;
 const HISTORY_BUTTON_WIDTH = 24;
 const FIXED_BUTTON_WIDTHS: Record<string, number> = {
@@ -56,7 +56,7 @@ const FIXED_BUTTON_WIDTHS: Record<string, number> = {
   History: NAV_BUTTON_SIZE,
   "Toggle Sidebar": NAV_BUTTON_SIZE,
 };
-const FIXED_HEIGHT_ONLY_LABELS = new Set(["Appearance"]);
+const FIXED_HEIGHT_ONLY_LABELS = new Set<string>();
 
 // The grabber/drag strip hosting the buttons must hold its height too —
 // otherwise Cmd+ balloons the bar around the fixed-size buttons and Cmd-

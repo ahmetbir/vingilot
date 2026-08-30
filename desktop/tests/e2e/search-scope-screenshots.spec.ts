@@ -19,9 +19,11 @@ test("captures global and current-channel search scope states", async ({
     /#\/channels\/9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50$/,
   );
 
-  // ⌘K is the command palette in this fork (paletteKeys.ts); search opens from
-  // its own "Search everything" button.
-  await page.getByTestId("open-search").click();
+  // ⌘K is the command palette in this fork (paletteKeys.ts); since P1.1 the
+  // sidebar box is gone and the palette's "Search messages" row is the door.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByTestId("palette-input").fill("search messages");
+  await page.getByTestId("palette-row-app:search").click();
   const searchDialog = page.getByTestId("search-results");
   const scopeAction = page.getByTestId("search-current-channel-control");
   await expect(scopeAction).toContainText("Search in");
@@ -62,7 +64,9 @@ test("captures global and current-channel search scope states", async ({
   await expect(page).toHaveURL(
     /#\/channels\/f48efb06-0c93-5025-aac9-2e646bb6bfa8$/,
   );
-  await page.getByTestId("open-search").click();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByTestId("palette-input").fill("search messages");
+  await page.getByTestId("palette-row-app:search").click();
   await expect(scopeAction).toContainText("Search conversation with alice");
   await expect(scopeAction).toContainText(
     "Search messages in this conversation.",

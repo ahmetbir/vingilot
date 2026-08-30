@@ -45,6 +45,12 @@ export interface PaletteHandlers {
    * owner's editor. Chord-less by decision — see `OpenInEditor.tsx`'s header. */
   openInEditor: () => void;
   newWorktree: () => void;
+  /** Open Settings → Appearance — the palette's door to the surface that
+   * replaced the vetoed top-bar tray (P1.1). `goSettings("appearance")`. */
+  openAppearance: () => void;
+  /** Open upstream's message-search dialog — the door the removed sidebar box
+   * left behind (P1.1); `searchRequest.ts`'s mailbox. */
+  openMessageSearch: () => void;
   /** Go to a channel — `useAppNavigation`'s `goChannel`, which is where
    * upstream's own switcher goes. The palette hosts their list; it does not
    * navigate its own way (ADR-001). */
@@ -133,6 +139,12 @@ export function usePaletteCommands(
         return;
       case "open-cheatsheet":
         on.openCheatsheet();
+        return;
+      case "open-appearance":
+        on.openAppearance();
+        return;
+      case "open-message-search":
+        on.openMessageSearch();
         return;
       case "open-in-editor":
         on.openInEditor();

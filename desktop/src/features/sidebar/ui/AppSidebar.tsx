@@ -30,7 +30,7 @@ import {
   type SectionDialogValue,
 } from "@/features/sidebar/ui/ChannelSectionDialogs";
 import {
-  AppSidebarPinnedHeader,
+  AppSidebarHiddenSearch,
   AppSidebarPrimaryMenu,
 } from "@/features/sidebar/ui/AppSidebarPinnedHeader";
 import { MoreUnreadButton } from "@/features/sidebar/ui/MoreUnreadButton";
@@ -474,7 +474,10 @@ export function AppSidebar({
         data-sidebar-background
         data-testid="app-sidebar-scroll-anchor"
       >
-        <AppSidebarPinnedHeader
+        {/* P1.1 veto 1: the sidebar search BOX is gone (the top-bar pill is
+         * the only search affordance); the search dialog itself stays mounted
+         * with no trigger so ⌘F and the search plumbing keep working. */}
+        <AppSidebarHiddenSearch
           channelLabels={dmChannelLabels}
           currentPubkey={currentPubkey}
           currentChannelId={

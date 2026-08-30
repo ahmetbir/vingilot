@@ -84,7 +84,7 @@ async function mockCoordinator(page: Page) {
 async function seedWorld(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem(
-      "vingilot-palette-world.v1",
+      "vingilot-palette-world.v2",
       JSON.stringify({
         projects: [
           { id: "repo-left", name: "vingilot", path: "/tmp/vingilot-left" },
@@ -95,8 +95,10 @@ async function seedWorld(page: Page) {
         worktrees: [
           {
             bindingId: "main:repo-left",
+            clean: true,
             detail: "the project's checkout",
             label: "main",
+            repoId: "repo-left",
           },
         ],
       }),
@@ -113,7 +115,9 @@ async function openChat(page: Page) {
   await installMockBridge(page);
   await mockCoordinator(page);
   await page.goto("/#/channels/general");
-  await expect(page.getByTestId("open-search")).toBeVisible();
+  // The sidebar search box is gone (P1.1 veto 1); the top-bar pill is the
+  // shell's one search affordance and the readiness anchor here.
+  await expect(page.getByTestId("top-search-pill")).toBeVisible();
 }
 
 /** The same chat screen, reached the way `messaging.spec.ts` reaches one —
@@ -467,15 +471,16 @@ test.describe("one palette, three doors", () => {
   test("the hint row teaches only the doors this screen actually has", async ({
     page,
   }) => {
-    // On a chat route ⌘P falls through and `>` resolves to a mode with no
-    // sources behind it, so a row offering either would teach the owner to
-    // press a key that answers with an empty box.
+    // On a chat route ⌘P falls through — a row offering it would teach the
+    // owner to press a key that answers with an empty box. `>` is offered
+    // since P1.1: the app-wide source (Appearance, Search messages) gives the
+    // commands door real rows on every host, so the hint is honest now.
     await openChat(page);
     await page.keyboard.press("ControlOrMeta+k");
     await expect(page.getByTestId("palette-hints")).toBeVisible();
     await expect(page.getByTestId("palette-hint-channels")).toBeVisible();
     await expect(page.getByTestId("palette-hint-files")).toBeHidden();
-    await expect(page.getByTestId("palette-hint-commands")).toBeHidden();
+    await expect(page.getByTestId("palette-hint-commands")).toBeVisible();
   });
 
   test("the hint row teaches the doors you are not standing in", async ({

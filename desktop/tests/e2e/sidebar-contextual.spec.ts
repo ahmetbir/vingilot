@@ -102,7 +102,6 @@ test("the agents view stops drawing the channel list and names its empty state",
 
   // The fixed top region does not vary by view.
   await expect(page.getByTestId("sidebar-primary-menu")).toBeVisible();
-  await expect(page.getByTestId("sidebar-pinned-header")).toBeVisible();
 
   // The channel list is gone — before the gate it rendered here regardless.
   await expect(page.getByTestId("stream-list")).toHaveCount(0);
@@ -138,13 +137,11 @@ test("the workspace view swaps the channel list for the project tree, inside the
     page.getByTestId("runs-screen").getByTestId("projects-nav"),
   ).toHaveCount(0);
 
-  // The channel list does not bleed through underneath it. Since the
-  // pane-nav-absorb amendment the lists ARE in this view's DOM — portalled
-  // into the Deck accordion's collapsed Chats member, on purpose ("deckten
-  // geri channellari ve dmleri gormek icin…") — so the claim is hidden, not
-  // absent: nothing channel-shaped is VISIBLE until he opens Chats.
-  await expect(page.getByTestId("stream-list")).toBeHidden();
-  await expect(page.getByTestId("dm-list")).toBeHidden();
+  // Since P1.1 (owner veto 4) the channel/DM lists render INLINE below the
+  // Projects tree — the mockup's own order — rather than behind a Chats fold.
+  // One copy, visible, inside the sidebar.
+  await expect(page.getByTestId("stream-list")).toBeVisible();
+  await expect(page.getByTestId("dm-list")).toBeVisible();
 
   // Selection made in the sidebar's tree still drives the work surface —
   // the state the two trees share cannot have desynced silently.

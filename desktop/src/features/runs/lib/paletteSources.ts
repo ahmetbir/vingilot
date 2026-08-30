@@ -292,6 +292,36 @@ function openProject(ctx: PaletteContext): Repo | null {
   return ctx.repos.find((repo) => repo.id === ctx.selectedRepoId) ?? null;
 }
 
+/** **The app-wide rows** — offered by every host, workspace or not (P1.1,
+ * owner veto 2). One row today: "Appearance", the palette's door to Settings →
+ * Appearance, which is the surface that replaced the top bar's vetoed tray.
+ * Never blocked — Settings exists on every screen. */
+export const appSource: PaletteSource = (_ctx, query) => {
+  const candidates: Candidate[] = [
+    {
+      blocked: null,
+      chord: null,
+      command: { type: "open-appearance" },
+      detail: "sidebar wash, accent and theme — opens Settings → Appearance",
+      id: "app:appearance",
+      kind: "action",
+      label: "Appearance",
+    },
+    {
+      // The message-search dialog's door (P1.1 veto 1): the sidebar box that
+      // used to open it is gone, and this row is what replaced the click.
+      blocked: null,
+      chord: null,
+      command: { type: "open-message-search" },
+      detail: "full-text search across channels and direct messages",
+      id: "app:search",
+      kind: "action",
+      label: "Search messages",
+    },
+  ];
+  return matchAll(candidates, query);
+};
+
 export const actionSource: PaletteSource = (ctx, query) => {
   const project = openProject(ctx);
   const candidates: Candidate[] = [
@@ -636,6 +666,7 @@ export const worktreeFileSource: PaletteSource = (ctx, query) =>
  * here and nowhere else: doors decide *which*, this file decides *what*. */
 export const SOURCES_BY_ID: Record<PaletteSourceId, PaletteSource> = {
   actions: actionSource,
+  app: appSource,
   channels: channelSource,
   crew: crewSource,
   panes: paneSource,

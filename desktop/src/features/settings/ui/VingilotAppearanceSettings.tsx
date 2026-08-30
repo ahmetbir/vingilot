@@ -1,21 +1,22 @@
-// **The Appearance tray** (vingilot redesign P1; mockup `#tray`,
-// vingilot/design/mockup/Vingilot.html:378-399).
-//
-// A popover under the top bar's Appearance button with three controls:
+// **The Vingilot shell's appearance controls, as a Settings card** (P1.1,
+// owner veto 2). The top bar's Appearance tray was vetoed live; Settings →
+// Appearance is the surface that owns these now, and the ⌘K palette's
+// "Appearance" row is the door to it. Same three controls, same pipeline:
 //
 // - **Sidebar** — five wash swatches. Live: a click calls the theme context's
 //   `setVingilotAppearance`, which stamps `data-vingilot-wash` on the root and
-//   persists (`vingilot-appearance.ts`); the gradient consumers follow via
-//   the CSS token layer with no re-render of anything below.
+//   persists (`vingilot-appearance.ts`); the gradient consumers follow via the
+//   CSS token layer.
 // - **Accent** — five accent swatches, same pipeline (`data-vingilot-accent`
 //   plus the `--primary` family through the accent hex map).
-// - **Crew panel** — Right / Drawer / Float. P1 persists the choice only
+// - **Crew panel** — Right / Drawer / Float. Persisted choice only
 //   (`vingilot-crew-position.ts`); the dock that reads it is P3's, and the
-//   subline under the control says so rather than letting three buttons
-//   pretend to move a panel that is not on screen yet.
+//   subline says so rather than letting three buttons pretend to move a panel
+//   that is not on screen yet.
 //
-// Fork-owned, new — mounted by `AppTopChrome` so that upstream file's edit
-// stays a button and a mount.
+// Fork-owned; `SettingsPanels.tsx` mounts it with one line so that upstream
+// file's edit stays a mount. Testids carried over from the tray verbatim —
+// the controls moved, their vocabulary did not.
 
 import * as React from "react";
 
@@ -35,21 +36,13 @@ import {
   type VingilotCrewPosition,
 } from "@/shared/theme/vingilot-crew-position";
 import { cn } from "@/shared/lib/cn";
-import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 
 const CREW_POSITION_LABELS: Record<VingilotCrewPosition, string> = {
   drawer: "Drawer",
   float: "Float",
   right: "Right",
 };
-
-function TrayLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mb-2 mt-3 select-none text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground first:mt-0">
-      {children}
-    </p>
-  );
-}
 
 function Swatch({
   isOn,
@@ -81,12 +74,32 @@ function Swatch({
   );
 }
 
-export function VingilotAppearanceTray({
+function VingilotRow({
   children,
+  subcopy,
+  title,
 }: {
-  /** The Appearance button — rendered by `AppTopChrome`, triggered here. */
   children: React.ReactNode;
+  subcopy: string;
+  title: string;
 }) {
+  return (
+    <SettingsOptionRow>
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{title}</p>
+        <p
+          className="text-sm font-normal text-muted-foreground/70"
+          data-settings-subcopy
+        >
+          {subcopy}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">{children}</div>
+    </SettingsOptionRow>
+  );
+}
+
+export function VingilotAppearanceSettings() {
   const { setVingilotAppearance, vingilotAppearance } = useTheme();
   const [crewPosition, setCrewPosition] = React.useState(
     readVingilotCrewPosition,
@@ -99,7 +112,6 @@ export function VingilotAppearanceTray({
     },
     [],
   );
-
   const selectWash = React.useCallback(
     (wash: VingilotWash) => setVingilotAppearance({ wash }),
     [setVingilotAppearance],
@@ -110,52 +122,55 @@ export function VingilotAppearanceTray({
   );
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-64 p-4"
-        data-testid="vingilot-appearance-tray"
-        sideOffset={6}
+    <SettingsOptionGroup
+      data-testid="vingilot-appearance-card"
+      title="Vingilot shell"
+    >
+      <VingilotRow
+        subcopy="The gradient behind the sidebar — applies live."
+        title="Sidebar"
       >
-        <TrayLabel>Sidebar</TrayLabel>
-        <div className="flex gap-2">
-          {VINGILOT_WASHES.map((wash) => {
-            const gradient = VINGILOT_WASH_GRADIENTS[wash];
-            return (
-              <Swatch
-                isOn={vingilotAppearance.wash === wash}
-                key={wash}
-                label={`${wash} wash`}
-                onClick={() => selectWash(wash)}
-                style={{
-                  background: `linear-gradient(to bottom, ${gradient.top}, ${gradient.bottom})`,
-                }}
-                testId={`vingilot-wash-${wash}`}
-              />
-            );
-          })}
-        </div>
-        <TrayLabel>Accent</TrayLabel>
-        <div className="flex gap-2">
-          {VINGILOT_ACCENTS.map((accent) => (
+        {VINGILOT_WASHES.map((wash) => {
+          const gradient = VINGILOT_WASH_GRADIENTS[wash];
+          return (
             <Swatch
-              isOn={vingilotAppearance.accent === accent}
-              key={accent}
-              label={`${accent} accent`}
-              onClick={() => selectAccent(accent)}
-              style={{ background: VINGILOT_ACCENT_HEX[accent] }}
-              testId={`vingilot-accent-${accent}`}
+              isOn={vingilotAppearance.wash === wash}
+              key={wash}
+              label={`${wash} wash`}
+              onClick={() => selectWash(wash)}
+              style={{
+                background: `linear-gradient(to bottom, ${gradient.top}, ${gradient.bottom})`,
+              }}
+              testId={`vingilot-wash-${wash}`}
             />
-          ))}
-        </div>
-        <TrayLabel>Crew panel</TrayLabel>
+          );
+        })}
+      </VingilotRow>
+      <VingilotRow
+        subcopy="The shell's accent color — applies live."
+        title="Accent"
+      >
+        {VINGILOT_ACCENTS.map((accent) => (
+          <Swatch
+            isOn={vingilotAppearance.accent === accent}
+            key={accent}
+            label={`${accent} accent`}
+            onClick={() => selectAccent(accent)}
+            style={{ background: VINGILOT_ACCENT_HEX[accent] }}
+            testId={`vingilot-accent-${accent}`}
+          />
+        ))}
+      </VingilotRow>
+      <VingilotRow
+        subcopy="Arrives with the dock — your choice is saved."
+        title="Crew panel"
+      >
         <div className="flex gap-0.5 rounded-lg bg-muted/60 p-0.5">
           {VINGILOT_CREW_POSITIONS.map((position) => (
             <button
               aria-pressed={crewPosition === position}
               className={cn(
-                "flex-1 rounded-md py-1 text-xs font-medium text-muted-foreground",
+                "rounded-md px-3 py-1 text-xs font-medium text-muted-foreground",
                 crewPosition === position &&
                   "bg-background text-foreground shadow-xs",
               )}
@@ -168,10 +183,7 @@ export function VingilotAppearanceTray({
             </button>
           ))}
         </div>
-        <p className="mt-2 select-none text-2xs text-muted-foreground">
-          Arrives with the dock — your choice is saved.
-        </p>
-      </PopoverContent>
-    </Popover>
+      </VingilotRow>
+    </SettingsOptionGroup>
   );
 }

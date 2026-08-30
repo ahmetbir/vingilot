@@ -60,7 +60,14 @@ type AppSidebarPrimaryMenuProps = {
   selectedView: SidebarSelectedView;
 };
 
-export function AppSidebarPinnedHeader({
+/** **The search dialog with no box** (vingilot P1.1, owner veto 1). The
+ * sidebar's own "Search everything ⌘K" box is gone — the top bar's pill is the
+ * only search affordance — but the dialog itself stays mounted and reachable
+ * through the focus-request wires (⌘F channel search and `AppShell`'s search
+ * plumbing), so nothing about search *works* differently, it just has one
+ * fewer door. Renamed from `AppSidebarPinnedHeader`; the props are unchanged
+ * so `AppSidebar`'s wiring did not have to move. */
+export function AppSidebarHiddenSearch({
   channelLabels,
   currentChannelId,
   currentPubkey,
@@ -76,26 +83,22 @@ export function AppSidebarPinnedHeader({
   suggestionChannels,
 }: AppSidebarPinnedHeaderProps) {
   return (
-    <div
-      className="mx-[3px] shrink-0 px-2 pb-2 pt-3"
-      data-testid="sidebar-pinned-header"
-    >
-      <TopbarSearch
-        channelLabels={channelLabels}
-        channels={searchChannels}
-        currentChannelId={currentChannelId}
-        currentPubkey={currentPubkey}
-        focusRequest={searchFocusRequest}
-        onOpenChannel={onSelectChannel}
-        onOpenResult={onOpenSearchResult}
-        onOpenUser={(user) => onOpenDm({ pubkeys: [user.pubkey] })}
-        onBrowseChannels={onBrowseChannels}
-        onCreateAgent={onCreateAgent}
-        onCreateChannel={onCreateChannel}
-        scopeFocusRequest={scopeSearchFocusRequest}
-        suggestionChannels={suggestionChannels}
-      />
-    </div>
+    <TopbarSearch
+      channelLabels={channelLabels}
+      channels={searchChannels}
+      currentChannelId={currentChannelId}
+      currentPubkey={currentPubkey}
+      focusRequest={searchFocusRequest}
+      onOpenChannel={onSelectChannel}
+      onOpenResult={onOpenSearchResult}
+      onOpenUser={(user) => onOpenDm({ pubkeys: [user.pubkey] })}
+      onBrowseChannels={onBrowseChannels}
+      onCreateAgent={onCreateAgent}
+      onCreateChannel={onCreateChannel}
+      scopeFocusRequest={scopeSearchFocusRequest}
+      suggestionChannels={suggestionChannels}
+      variant="hidden"
+    />
   );
 }
 
@@ -111,7 +114,7 @@ export function AppSidebarPrimaryMenu({
 }: AppSidebarPrimaryMenuProps) {
   return (
     <SidebarHeader
-      className="relative z-40 cursor-default select-none px-2 pb-0 pt-0"
+      className="relative z-40 cursor-default select-none px-2 pb-0 pt-3"
       data-tauri-drag-region
       data-testid="sidebar-primary-menu"
     >

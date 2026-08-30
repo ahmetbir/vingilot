@@ -106,6 +106,16 @@ export type PaletteCommand =
    * asks it again at Enter rather than carrying the draft through a snapshot
    * that may be a minute old. */
   | { type: "reach-crew"; personaId: string }
+  /** Open Settings → Appearance — the wash/accent/theme surface (P1.1, owner
+   * veto 2: the top bar's Appearance tray is gone; this row is the palette's
+   * door to the surface that replaced it). Both hosts land it through
+   * `useAppNavigation`'s `goSettings("appearance")`, upstream's own
+   * settings deep link. */
+  | { type: "open-appearance" }
+  /** Open upstream's message-search dialog (P1.1, owner veto 1: the sidebar's
+   * search box is gone, and this row is the palette's door to the dialog it
+   * triggered — `searchRequest.ts` carries the click to the hidden mount). */
+  | { type: "open-message-search" }
   /** Not a row: the ask mode's question, carried out the same door every other
    * command leaves by (`askMode.ts`). The host decides where it is asked — the
    * model never held a directory and is not about to start. */

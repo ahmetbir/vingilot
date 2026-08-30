@@ -964,7 +964,12 @@ test.describe("community rail", () => {
     await expect(firstButton).toBeVisible();
     const buttonBox = await firstButton.boundingBox();
     const railBox = await page.getByTestId("community-rail").boundingBox();
-    const searchBox = await page.getByTestId("open-search").boundingBox();
+    // P1.1 veto 1: the sidebar search box is gone — the first nav row is the
+    // sidebar's leading content and shares the inner left edge the box had.
+    const searchBox = await page
+      .getByTestId("sidebar-primary-menu")
+      .getByRole("button", { name: "Inbox" })
+      .boundingBox();
     const appSurfaceBox = await page
       .locator(".buzz-huddle-app-surface")
       .boundingBox();
