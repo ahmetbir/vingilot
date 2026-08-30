@@ -239,7 +239,7 @@ async function openFilesPane(page: Page) {
   await expect(row).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("palette")).toBeHidden();
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
 }
 
 /** Open a file from the sidebar's tree — one click; there is no drawer to

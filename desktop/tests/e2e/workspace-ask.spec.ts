@@ -30,7 +30,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
@@ -177,18 +176,26 @@ async function openPalette(page: Page) {
   await expect(page.getByTestId("palette")).toBeVisible();
 }
 
-/** Put a pane in the right slot, waiting out the menu on both sides of the
- * click — the same dance workspace-no-overlays.spec.ts does, and for the same
- * reason: Radix animates it, and a choice clicked mid-animation is a click on
- * a moving target. */
+/** Put a pane on the dock: the four with a fixed tab (files/diff/history, and
+ * team under its "crew" tab) light their tab directly (`dock.spec.ts`'s
+ * idiom); anything else has no tab and is chosen from the palette — the
+ * dock's only door onto it (`dockModel.ts`). */
 async function choosePane(page: Page, key: string) {
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId(`pane-choice-${key}`).click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
-  await waitForAnimations(page);
+  const tab = key === "team" ? "crew" : key;
+  if (
+    tab === "crew" ||
+    tab === "diff" ||
+    tab === "files" ||
+    tab === "history"
+  ) {
+    await page.getByTestId(`dock-tab-${tab}`).click();
+    return;
+  }
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill(key);
+  await page.getByTestId(`palette-row-pane:${key}`).click();
+  await expect(page.getByTestId("palette")).toHaveCount(0);
 }
 
 test.describe("ask about this project without leaving it", () => {

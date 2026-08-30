@@ -280,15 +280,21 @@ test.describe("one key to go anywhere and do anything", () => {
     await expect(rows.nth(0)).toHaveAttribute("data-active", "true");
   });
 
-  test("a pane is chosen from the palette, and the pane host agrees", async ({
+  test("a pane is chosen from the palette, and the dock agrees", async ({
     page,
   }) => {
     await openWorkspace(page);
     await page.getByTestId("projects-nav-repo-repo-left").click();
-    // Diff is the default arrangement (`paneModel.ts`'s `defaultPaneState`).
-    await expect(page.getByTestId("pane-picker")).toHaveAttribute(
-      "aria-label",
-      "change the right pane — showing Diff",
+    // Diff is the default arrangement (`paneModel.ts`'s `defaultPaneState`)
+    // and one of the dock's six fixed tabs (`dockModel.ts`), so it lights its
+    // own tab.
+    await expect(page.getByTestId("dock-tab-diff")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("dock")).toHaveAttribute(
+      "data-dock-selection",
+      "diff",
     );
 
     await openPalette(page);
@@ -296,9 +302,16 @@ test.describe("one key to go anywhere and do anything", () => {
     await page.keyboard.press("Enter");
 
     await expect(page.getByTestId("palette")).toBeHidden();
-    await expect(page.getByTestId("pane-picker")).toHaveAttribute(
-      "aria-label",
-      "change the right pane — showing Runs",
+    // Runs has no fixed tab, so the dock names it where a tab would light
+    // instead (`dock-pane-label`).
+    await expect(page.getByTestId("dock-tab-diff")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await expect(page.getByTestId("dock-pane-label")).toHaveText("Runs");
+    await expect(page.getByTestId("dock")).toHaveAttribute(
+      "data-dock-selection",
+      "pane:runs",
     );
   });
 

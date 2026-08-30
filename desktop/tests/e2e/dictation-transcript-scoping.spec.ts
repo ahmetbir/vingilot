@@ -95,12 +95,26 @@ async function stubBackend(page: Page) {
   });
 }
 
+/** Put a pane on the dock: the four with a fixed tab (files/diff/history, and
+ * team under its "crew" tab) light their tab directly (`dock.spec.ts`'s
+ * idiom); anything else has no tab and is chosen from the palette — the
+ * dock's only door onto it (`dockModel.ts`). */
 async function choosePane(page: Page, key: string) {
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await page.getByTestId(`pane-choice-${key}`).click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
+  const tab = key === "team" ? "crew" : key;
+  if (
+    tab === "crew" ||
+    tab === "diff" ||
+    tab === "files" ||
+    tab === "history"
+  ) {
+    await page.getByTestId(`dock-tab-${tab}`).click();
+    return;
+  }
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill(key);
+  await page.getByTestId(`palette-row-pane:${key}`).click();
+  await expect(page.getByTestId("palette")).toHaveCount(0);
 }
 
 /** Same fake mic as `composer-dictation.spec.ts` — real mic-acquisition path,
@@ -151,9 +165,9 @@ async function emitTranscript(page: Page, text: string) {
  * its dock composer (`channel-composer-overlay`) is on screen next to the
  * ⌘K palette. */
 async function openTeamThread(page: Page) {
-  // Wide enough for the workspace's two-pane layout (picker + right pane) —
+  // Wide enough for the workspace's two-pane layout (terminal + dock) —
   // narrower defaults collapse to a single-column terminal-only layout with
-  // no `pane-picker`, the same width `workspace-ask.spec.ts` uses.
+  // no dock, the same width `workspace-ask.spec.ts` uses.
   await page.setViewportSize({ height: 900, width: 1700 });
   await installFakeDictationMicrophone(page);
   await installMockBridge(page, { personas: PERSONAS, teams: [TEAM] });

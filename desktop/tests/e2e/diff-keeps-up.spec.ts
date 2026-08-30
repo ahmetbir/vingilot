@@ -34,7 +34,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
 // Matches RunsScreen.tsx's hardcoded dev workspace id.
@@ -189,13 +188,7 @@ async function openDiffPane(page: Page) {
   await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
   await expect(page.getByTestId("work-surface")).toBeVisible();
 
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId("pane-choice-diff").click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
-  await waitForAnimations(page);
+  await page.getByTestId("dock-tab-diff").click();
   await expect(page.getByTestId("pane-diff")).toBeVisible();
 
   // At 1700 the Diff pane is 215px, which `lib/diffLayout.ts` puts the file

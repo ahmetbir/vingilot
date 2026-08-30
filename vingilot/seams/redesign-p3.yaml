@@ -64,3 +64,10 @@ seams:
     removable_when: "While the shell owns the chord."
     status: "permanent"
     added: "2026-08-30"
+
+  - path: "desktop/src/features/messages/ui/ChannelIntroBlock.tsx"
+    reason: "One class: `w-full` on the channel-name heading. The column above it is `items-start`, so a `truncate` heading with no width sizes to its own nowrap content — measured 452px inside the 374px dock (P3.1), where the clipped remainder of a long channel name was unreadable rather than ellipsed. The dock is the first host narrow enough to expose it; upstream's own wide channel view never did."
+    owner: "vingilot/redesign"
+    removable_when: "If upstream gives the heading a width of its own."
+    status: "permanent"
+    added: "2026-08-31"

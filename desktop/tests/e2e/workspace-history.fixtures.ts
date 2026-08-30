@@ -531,14 +531,10 @@ export async function openHistoryWorkspace(
 
   await page.goto("/#/workspace");
   await expect(page.getByTestId("runs-screen")).toBeVisible();
-  // A second call in the same test does NOT reload the document (same-hash
-  // goto), so the accordion may still have History open from the first
-  // half — the repo row lives under Worktrees, which must be the open member
-  // before it can be clicked.
-  const worktrees = page.getByTestId("sidebar-accordion-header-worktrees");
-  if ((await worktrees.getAttribute("aria-expanded")) === "false") {
-    await worktrees.click();
-  }
+  // Since P1.1 the Projects tree renders directly — no "Worktrees" accordion
+  // header to open first (owner veto 4; `sidebar-deck-accordion.spec.ts` is
+  // the living idiom). The repo row is on screen from the first paint, a
+  // second `goto` in the same test included.
   await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
   await expect(page.getByTestId("work-surface")).toBeVisible();
   await page.getByTestId(`worktree-row-${WORKTREE.binding_id}`).click();
@@ -557,7 +553,9 @@ export async function openHistoryPane(page: Page) {
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("history");
   await page.getByTestId("palette-row-pane:history").click();
-  await expect(page.getByTestId("pane-history")).toBeVisible();
+  // Since P3 the History surface is the dock's History tab (`pane-history`
+  // and the old PanePicker chrome are retired — `dock.spec.ts`'s idiom).
+  await expect(page.getByTestId("dock-history")).toBeVisible();
 }
 
 /** Every control the pane OFFERS, by its accessible name. Read out of the real
@@ -574,12 +572,13 @@ export async function openHistoryPane(page: Page) {
  * VS Code-shaped failure — a stage button inside the row — from slipping
  * through this exclusion. */
 export async function controlNames(page: Page): Promise<string[]> {
-  // Both halves of what used to be one pane: the patch box that stayed in
-  // `pane-history` AND the sidebar-hosted status/commit lists — the plan is
-  // explicit that the mutating-verb rule must not leak back in through the
-  // sidebar's copy of the list (pane-nav-absorb §5).
+  // Both halves of what used to be one pane: the patch box that is the
+  // dock's History tab (`dock-history`, since P3) AND the sidebar-hosted
+  // status/commit lists — the plan is explicit that the mutating-verb rule
+  // must not leak back in through the sidebar's copy of the list
+  // (pane-nav-absorb §5).
   return page
-    .locator('[data-testid="pane-history"], [data-testid="history-list"]')
+    .locator('[data-testid="dock-history"], [data-testid="history-list"]')
     .locator("button:not([role='option']), input, [role='menuitem'], a[href]")
     .evaluateAll((nodes) =>
       nodes.map((node) =>

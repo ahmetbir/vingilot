@@ -422,6 +422,27 @@ function FileBody({
     viewerRef: bodyRef,
   });
 
+  // **Tried and reverted: focusing the viewer whenever a file opens.** The
+  // row that opens a file lives in the sidebar's tree (pane-nav-absorb moved
+  // the tree out of this pane), so a MOUSE click leaves focus on a button
+  // `paneRef` does not contain — `ownsChord` (`findKeys.ts`'s boundary)
+  // answers "not mine", and ⌘F right after opening a file that way does
+  // nothing. An effect that focused `bodyRef` on every `file.path` change
+  // fixed exactly that (`workspace-find.spec.ts`'s "no click in between"
+  // tests went green) — and broke `workspace-files.spec.ts`'s "the tree
+  // walks under the arrow keys and opens a file under Enter": Enter is a
+  // KEYBOARD open, and that test's whole claim is that focus stays on the
+  // tree afterward so ArrowLeft keeps walking it. The DOM at the moment this
+  // effect would fire is IDENTICAL in both cases — a tree row has focus,
+  // a file is open — so nothing here can tell "he clicked, about to search"
+  // from "he pressed Enter, about to keep walking" apart. Fixing one broke
+  // the other outright; reverted rather than trade a regression for a
+  // regression. The mouse-click case is real, open debt — the honest fix
+  // needs either `ownsChord` to recognise the sidebar's tree row as this
+  // pane's own (new coupling `findKeys.ts` does not have today) or the
+  // opening click itself to carry an explicit "and take the keyboard" intent
+  // through `filesTarget.ts` — not a blind focus grab in this effect.
+
   // **Walking scrolls the viewer**, which is the half that makes Enter a walk
   // rather than a counter. Read off the DOM rather than computed as a line
   // number, for the reason the marked-line effect above already records: both

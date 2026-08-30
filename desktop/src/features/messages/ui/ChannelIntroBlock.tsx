@@ -47,7 +47,13 @@ export function ChannelIntroBlock({
       >
         {intro.icon ?? <Hash aria-hidden className="h-7 w-7" />}
       </div>
-      <p className="mt-4 max-w-2xl truncate text-xl font-semibold leading-7 tracking-tight text-foreground">
+      {/* `w-full` is what makes `truncate` mean anything here: the column
+       * above is `items-start`, so without it this heading sizes to its own
+       * nowrap content and simply overflows a narrow host instead of
+       * ellipsing. Found at 452px inside the 374px dock (redesign P3.1) with
+       * a long channel name — the clipped remainder was unreadable, not
+       * merely tight. */}
+      <p className="mt-4 w-full max-w-2xl truncate text-xl font-semibold leading-7 tracking-tight text-foreground">
         #{intro.channelName}
       </p>
       <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">

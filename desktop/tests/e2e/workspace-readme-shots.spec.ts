@@ -78,14 +78,13 @@ const WINDOW = { height: 980, width: 2300 } as const;
  * what the owner may ask for, and 80 columns is what he is held to. */
 const PANE_RATIO = 0.5;
 
-/** The narrowest the Diff pane may be and still be worth photographing: enough
- * for the patch column beside the file list rather than the file list alone,
- * and for that patch to be laid out inside the window rather than clipped at
- * its right edge — the Diff pane splits its own width again, so a pane wide
- * enough to hold four file names is still not wide enough to read a diff in.
- * Asserted, because the failure it guards against is invisible to every text
- * assertion in this file — the patch is in the DOM either way. */
-const MIN_READABLE_PANE_PX = 700;
+// P3.1: the dock is a fixed 300–540px card now (`dockModel.ts`, birebir to
+// the mockup's own clamp), not a ratio of the window — `expectReadablePane`
+// used to assert a minimum width (700px) no window could get it under, and
+// no window can get it OVER now either, because the dock stopped answering
+// to the window at all. What survives is the claim the width number was
+// standing in for: nothing in the pane is laid out wider than the pane. See
+// `expectReadablePane`, below.
 
 // ---------------------------------------------------------------------------
 // Standing the app up
@@ -401,16 +400,41 @@ async function openSubject(page: Page, terminal: string[] | null) {
   if (terminal !== null) await feedTerminal(page, terminal);
 }
 
-/** The pane on the right has room to be read in, not merely to exist.
+/** The pane on the right renders without clipping its own furniture — not
+ * "wide", which the dock (P3.1 note above) no longer promises at any window
+ * size, but honest: nothing inside it is laid out wider than the box it is
+ * in. `workspace-diff-fits.spec.ts`'s own overflow reading, reused here for
+ * the same reason it exists there.
  *
  * Every other assertion in this file is on text, and text is in the DOM at any
- * width — including the width at which the patch column is laid out past the
- * edge of the window. This is the one assertion that would have caught that,
- * and it is here because it did not exist the first time and the picture came
- * out of a run that was entirely green. */
+ * width — including the width at which a column is laid out past the edge of
+ * the window. This is the one assertion that would have caught that, and it
+ * is here because it did not exist the first time and the picture came out of
+ * a run that was entirely green. */
 async function expectReadablePane(page: Page, testId: string) {
-  const box = await page.getByTestId(testId).boundingBox();
-  expect(box?.width ?? 0).toBeGreaterThanOrEqual(MIN_READABLE_PANE_PX);
+  const overflow = await page.evaluate((id) => {
+    const pane = document.querySelector(`[data-testid="${id}"]`);
+    if (pane === null) return ["no pane"];
+    const limit = pane.getBoundingClientRect().width;
+    const scrolled = (element: Element) => {
+      let node: Element | null = element.parentElement;
+      while (node !== null && node !== pane) {
+        const overflowX = getComputedStyle(node).overflowX;
+        if (overflowX === "auto" || overflowX === "scroll") return true;
+        node = node.parentElement;
+      }
+      return false;
+    };
+    return Array.from(pane.querySelectorAll("*"))
+      .filter(
+        (el) => el.getBoundingClientRect().width > limit + 1 && !scrolled(el),
+      )
+      .map(
+        (el) =>
+          `${el.tagName.toLowerCase()} ${Math.round(el.getBoundingClientRect().width)} > ${Math.round(limit)}`,
+      );
+  }, testId);
+  expect(overflow).toEqual([]);
 }
 
 /** Read and dismiss the one-time notice the projects column shows the first
@@ -440,16 +464,26 @@ async function feedTerminal(page: Page, lines: string[]) {
   );
 }
 
-/** Put a pane in the right slot, waiting out the menu on both sides of the
- * click — Radix animates it, and a choice clicked mid-animation is a click on
- * a moving target. */
+/** Put a pane on the dock: the four with a fixed tab (files/diff/history, and
+ * team under its "crew" tab) light their tab directly (`dock.spec.ts`'s
+ * idiom); anything else has no tab and is chosen from the palette — the
+ * dock's only door onto it (`dockModel.ts`). */
 async function choosePane(page: Page, key: string) {
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId(`pane-choice-${key}`).click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
+  const tab = key === "team" ? "crew" : key;
+  if (
+    tab === "crew" ||
+    tab === "diff" ||
+    tab === "files" ||
+    tab === "history"
+  ) {
+    await page.getByTestId(`dock-tab-${tab}`).click();
+    return;
+  }
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill(key);
+  await page.getByTestId(`palette-row-pane:${key}`).click();
+  await expect(page.getByTestId("palette")).toHaveCount(0);
   await waitForAnimations(page);
 }
 
@@ -626,13 +660,23 @@ test.describe("the pictures the README shows", () => {
     await choosePane(page, "diff");
     await expect(page.getByTestId("pane-diff")).toBeVisible();
 
-    // The gate, on both halves of the arrangement. The file list has to hold
-    // the changed files, the patch beside it has to hold the fix, and the
-    // terminal has to have taken its bytes — a pane that rendered its frame
-    // and nothing else looks fine in a PNG and says nothing.
+    // P3.1: the dock's default width is under `LIST_LEAVES_BELOW_PX`
+    // (`workspace-diff-fits.spec.ts` — birebir to the mockup's own clamp), so
+    // the list is a drawer here, not a column beside the patch the way the
+    // old ratio pane could stand it. The gate this test owes the seeded
+    // fixture — that "4 files changed" is real data, not an empty pane that
+    // happens to render — is read through that drawer, the same "one gesture
+    // away" affordance `workspace-diff-fits.spec.ts` proves for exactly this
+    // width; the drawer is closed again before the picture, which is of the
+    // patch, not of the list.
     const diff = page.getByTestId("pane-diff");
-    await expect(diff).toContainText("internal/auth/refresh.go");
-    await expect(diff).toContainText("internal/auth/refresh_test.go");
+    await diff.getByTestId("worktree-diff-list-toggle").click();
+    const files = page.getByTestId("worktree-diff-files");
+    await expect(files).toContainText("internal/auth/refresh.go");
+    await expect(files).toContainText("internal/auth/refresh_test.go");
+    await diff.getByTestId("worktree-diff-list-toggle").click();
+    await expect(files).toHaveCount(0);
+
     // The fix itself, in the patch on the right — the first file's, which is
     // the one the pane opens on and therefore the one in the picture.
     await expect(diff).toContainText("s.group.Do(subject, refresh)");
@@ -693,7 +737,7 @@ test.describe("the pictures the README shows", () => {
     await expect(thread).toContainText("Key a singleflight.Group by subject");
     await expect(thread).toContainText("Do deletes the key when the call");
     await expect(thread).not.toContainText("npub1mock");
-    await expectReadablePane(page, "pane-right");
+    await expectReadablePane(page, "pane-team");
 
     await readToTheEnd(page);
     const terminal = page.getByTestId("pane-left");

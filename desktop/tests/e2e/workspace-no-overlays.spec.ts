@@ -128,16 +128,26 @@ async function stubTerminalBackend(page: Page) {
   });
 }
 
-/** Put a pane in the right slot, waiting out the menu on both sides of the
- * click — Radix animates it in and out, and a choice clicked mid-animation is
- * a click on a moving target. */
+/** Put a pane on the dock: the four with a fixed tab (files/diff/history, and
+ * team under its "crew" tab) light their tab directly (`dock.spec.ts`'s
+ * idiom); anything else has no tab and is chosen from the palette — the
+ * dock's only door onto it (`dockModel.ts`). */
 async function choosePane(page: Page, key: string) {
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId(`pane-choice-${key}`).click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
+  const tab = key === "team" ? "crew" : key;
+  if (
+    tab === "crew" ||
+    tab === "diff" ||
+    tab === "files" ||
+    tab === "history"
+  ) {
+    await page.getByTestId(`dock-tab-${tab}`).click();
+    return;
+  }
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill(key);
+  await page.getByTestId(`palette-row-pane:${key}`).click();
+  await expect(page.getByTestId("palette")).toHaveCount(0);
   await waitForAnimations(page);
 }
 
@@ -253,35 +263,32 @@ test.describe("the work surface carries nothing from another feature", () => {
     await expect(page.locator(".xterm").first()).toBeVisible();
     expect(await auditSurface(page), "terminal").toEqual([]);
 
-    const picker = page.getByTestId("pane-picker");
     for (const pane of PANES) {
-      await picker.click();
-      await page.getByTestId(`pane-choice-${pane.key}`).click();
+      await choosePane(page, pane.key);
       await expect(page.locator(pane.ready).first()).toBeVisible();
-      // The picker's own menu overlaps the surface by design, and it leaves on
-      // an animation that outlives the pane appearing — auditing before it has
-      // gone would report the menu the owner just used as a foreign overlay.
-      await expect(picker).toHaveAttribute("data-state", "closed");
-      await waitForAnimations(page);
       expect(await auditSurface(page), `${pane.key} pane`).toEqual([]);
     }
 
     // A pane whose backing is missing is offered and refused, with the reason
-    // on it. Vanishing from the picker would read as a bug in the picker, and
+    // on it — the palette's own row now, since Evidence has no dock tab.
+    // Vanishing from the palette would read as a bug in the palette, and
     // rendering empty would read as a run with nothing in it.
-    await picker.click();
-    const evidence = page.getByTestId("pane-choice-evidence");
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(page.getByTestId("palette")).toBeVisible();
+    await page.getByTestId("palette-input").fill("evidence");
+    const evidence = page.getByTestId("palette-row-pane:evidence");
     await expect(evidence).toHaveAttribute("aria-disabled", "true");
     await expect(evidence).toContainText("no run owns this worktree");
     await page.keyboard.press("Escape");
-    await expect(picker).toHaveAttribute("data-state", "closed");
+    await expect(page.getByTestId("palette")).toHaveCount(0);
     await waitForAnimations(page);
-    expect(await auditSurface(page), "picker closed").toEqual([]);
+    expect(await auditSurface(page), "palette closed").toEqual([]);
 
-    // Hidden and brought back: the collapsed surface is a render of its own,
-    // and the rail that restores it is the only way back that does not need a
-    // shortcut remembered.
-    await page.getByTestId("pane-right-collapse").click();
+    // Hidden and brought back: ⌥⌘B is the mockup's zen (the collapse button
+    // it replaced is retired chrome — the chord is the only door now), the
+    // collapsed surface is a render of its own, and the rail that restores it
+    // is the only way back that does not need a shortcut remembered.
+    await page.keyboard.press("Alt+ControlOrMeta+b");
     await expect(page.getByTestId("pane-right-rail")).toBeVisible();
     expect(await auditSurface(page), "collapsed").toEqual([]);
     // And focus came with it. Collapsing unmounts the control that did the
@@ -290,8 +297,8 @@ test.describe("the work surface carries nothing from another feature", () => {
     // makes the rail exactly the trap it exists to prevent.
     await expect(page.getByTestId("pane-right-expand")).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page.getByTestId("pane-divider")).toBeVisible();
-    await expect(page.getByTestId("pane-divider")).toBeFocused();
+    await expect(page.getByTestId("dock-resizer")).toBeVisible();
+    await expect(page.getByTestId("dock-resizer")).toBeFocused();
   });
 
   test("work in the right pane survives the terminal's shortcuts and a worktree switch", async ({

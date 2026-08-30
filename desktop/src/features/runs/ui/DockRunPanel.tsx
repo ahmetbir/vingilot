@@ -31,8 +31,12 @@ import type { PaneProps } from "@/features/runs/ui/paneRegistry";
 export function DockRunPanel({ onPaneAct, projectPath }: PaneProps) {
   if (projectPath === null) {
     return (
+      // `/70`, not `muted`: DockShell's `DockNotice` sibling measured
+      // 4.53:1 on the float's `bg-popover` ground — legal by a hair — and
+      // this notice wears the identical pattern, so it wears the identical
+      // fix.
       <p
-        className="flex flex-1 items-center justify-center px-6 py-4 text-center text-sm text-muted-foreground"
+        className="flex flex-1 items-center justify-center px-6 py-4 text-center text-sm text-foreground/70"
         data-testid="dock-run-no-project"
       >
         no project is open here, so there is nothing to start and no compose
@@ -102,9 +106,11 @@ function RunBody({
           <div className="text-sm font-semibold text-foreground">Start Dev</div>
           <input
             aria-label="the command that starts this project's dev server"
-            // Placeholder at FULL muted strength — an alpha on the muted seed
-            // is how four phases failed the pixel measure.
-            className="mt-0.5 w-full bg-transparent font-mono text-xs text-muted-foreground placeholder:text-muted-foreground focus:text-foreground focus:outline-none"
+            // `/70`, not the muted seed: full-strength muted-foreground is
+            // how four phases cleared the RIGHT card, but the float's
+            // lighter `bg-popover` ground was never re-measured against it —
+            // this placeholder is the one P3.1's verify caught at 4.28:1.
+            className="mt-0.5 w-full bg-transparent font-mono text-xs text-foreground/70 placeholder:text-foreground/70 focus:text-foreground focus:outline-none"
             data-testid="dock-run-command"
             onBlur={() => persistDevCommand(projectPath, command)}
             onChange={(event) => setCommand(event.target.value)}
@@ -117,18 +123,18 @@ function RunBody({
           />
         </div>
       </div>
-      <p className="px-4 text-2xs text-muted-foreground">
+      <p className="px-4 text-2xs text-foreground/70">
         Typed into a fresh terminal tab, visibly — your shell runs it, and its
         tab is where you stop it. Remembered per project.
       </p>
       {/* The mockup's Services sections, as the honest sentence: no
           per-project compose reader exists yet. */}
       <div className="mt-4 border-t border-border/60 px-4 py-3">
-        <div className="text-2xs font-semibold uppercase tracking-[.05em] text-muted-foreground">
+        <div className="text-2xs font-semibold uppercase tracking-[.05em] text-foreground/70">
           Services
         </div>
         <p
-          className="mt-1.5 text-xs text-muted-foreground"
+          className="mt-1.5 text-xs text-foreground/70"
           data-testid="dock-run-services-empty"
         >
           No services read for this project yet — the compose reader this app

@@ -9,7 +9,7 @@
 // purpose, so it covers the surface he is working on and not the chrome he is
 // not. `position: relative` with `z-index: auto` creates *no stacking context*,
 // and measured at 1728×1117 with a team thread open, neither did anything
-// between that box and the hosted channel: `work-surface`, `pane-right`,
+// between that box and the hosted channel: `work-surface`, the dock,
 // `pane-team`, `team-thread-inset`, `team-thread` and `channel-drop-zone` were
 // every one of them `z-index: auto`, no transform, no isolation. So the channel
 // surface's own layers were not pane-local numbers at all — they were entries
@@ -103,13 +103,26 @@ async function stubBackend(page: Page) {
   });
 }
 
+/** Put a pane on the dock: the four with a fixed tab (files/diff/history, and
+ * team under its "crew" tab) light their tab directly (`dock.spec.ts`'s
+ * idiom); anything else has no tab and is chosen from the palette — the
+ * dock's only door onto it (`dockModel.ts`). */
 async function choosePane(page: Page, key: string) {
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId(`pane-choice-${key}`).click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
+  const tab = key === "team" ? "crew" : key;
+  if (
+    tab === "crew" ||
+    tab === "diff" ||
+    tab === "files" ||
+    tab === "history"
+  ) {
+    await page.getByTestId(`dock-tab-${tab}`).click();
+    return;
+  }
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill(key);
+  await page.getByTestId(`palette-row-pane:${key}`).click();
+  await expect(page.getByTestId("palette")).toHaveCount(0);
   await waitForAnimations(page);
 }
 
@@ -148,7 +161,7 @@ async function inFrontOfThePalette(page: Page) {
     const overlay = document.querySelector(
       '[data-testid="palette-scrim"]',
     )?.parentElement;
-    const pane = document.querySelector('[data-testid="pane-right"]');
+    const pane = document.querySelector('[data-testid="dock"]');
     if (overlay === null || overlay === undefined) return ["no palette"];
     if (pane === null) return ["no right pane"];
     const box = pane.getBoundingClientRect();
@@ -185,7 +198,7 @@ test("nothing in the team thread is painted over the palette", async ({
   // pane — asserted so that a channel surface which stopped drawing them would
   // make this spec say so rather than pass by vacancy.
   const chrome = await page.evaluate(() => {
-    const pane = document.querySelector('[data-testid="pane-right"]');
+    const pane = document.querySelector('[data-testid="dock"]');
     if (pane === null) return [];
     return Array.from(pane.querySelectorAll("*"))
       .filter((element) => {
@@ -210,7 +223,7 @@ test("nothing in the team thread is painted over the palette", async ({
   // a point over the thread's own header, which is where the header used to be
   // the thing under the pointer.
   const headerBox = await page
-    .getByTestId("pane-right")
+    .getByTestId("dock")
     .getByTestId("chat-header")
     .boundingBox();
   expect(headerBox).not.toBeNull();

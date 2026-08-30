@@ -181,15 +181,24 @@ export function DockShell({
       style={style}
     >
       {/* The `.dtop` row: the tab strip scrolls if it must; the `.dctl`
-       * switcher never leaves the card. */}
-      <div className="flex min-h-[42px] shrink-0 items-center border-b border-border/60 px-2.5 py-1">
+       * switcher never leaves the card.
+       *
+       * **The tab padding is tighter than the mockup's own `.dtab` (6px
+       * 12px)** — deliberately. The mockup's six labels plus its `.dc`
+       * switcher (birebir at 24px each, unchanged here) do not fit inside
+       * `DOCK_DEFAULT_W` 376px at the mockup's own padding either; P3.1's
+       * verify caught the sixth tab clipped to "Ru" at that width. Fidelity
+       * to the mockup's padding numbers lost to fidelity to its harder
+       * claim — six full labels, always visible, at its own default
+       * width — so the row is tightened until that claim holds. */}
+      <div className="flex min-h-[42px] shrink-0 items-center border-b border-border/60 px-2 py-1">
         <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
           {DOCK_TABS.map((tab) => {
             const active = selection.kind === "tab" && selection.tab === tab;
             return (
               <button
                 aria-pressed={active}
-                className={`shrink-0 rounded-[7px] px-2 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                className={`shrink-0 rounded-[7px] px-1.5 py-1 text-xs font-medium tracking-tight transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                   active
                     ? "bg-foreground/10 text-foreground"
                     : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
@@ -206,14 +215,14 @@ export function DockShell({
           {selection.kind === "pane" ? (
             // A ⌘K pane with no fixed tab, named where a tab would be lit.
             <span
-              className="shrink-0 rounded-[7px] bg-foreground/10 px-2 py-1.5 text-xs font-medium text-foreground"
+              className="shrink-0 rounded-[7px] bg-foreground/10 px-1.5 py-1 text-xs font-medium tracking-tight text-foreground"
               data-testid="dock-pane-label"
             >
               {paneEntry(selection.pane).title}
             </span>
           ) : null}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-1">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-0.5">
           {(["right", "drawer", "float"] as const).map((candidate) => (
             <button
               aria-pressed={position === candidate}
@@ -294,13 +303,19 @@ function DockPanel({
 
 /** `PaneFrame`'s two-state notice, kept word-for-word in shape: pending is a
  * wait, unavailable is an answer, and reading one as the other is the
- * island's twice-made mistake. */
+ * island's twice-made mistake.
+ *
+ * `/70` rather than `muted`: this notice is the dock's most common body — it
+ * also draws inside the float, whose `bg-popover` ground is a step lighter
+ * than the stage (`DockFloat.tsx`'s own finding). The muted seed measured
+ * 4.53:1 there, legal by a hair; `/70` gives it real margin instead of
+ * riding the line every phase before this one nearly fell off. */
 function DockNotice({ availability }: { availability: PaneAvailability }) {
   if (availability.status === "available") return null;
   const pending = availability.status === "pending";
   return (
     <p
-      className="flex flex-1 items-center justify-center px-6 py-4 text-center text-sm text-muted-foreground"
+      className="flex flex-1 items-center justify-center px-6 py-4 text-center text-sm text-foreground/70"
       data-testid={pending ? "dock-pending" : "dock-unavailable"}
     >
       {pending ? availability.note : availability.reason}

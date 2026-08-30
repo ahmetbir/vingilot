@@ -372,6 +372,21 @@ async function openSearchPane(page: Page) {
 test("⇧⌘F arrives, and ⌘F is still upstream's find-in-this-channel", async ({
   page,
 }) => {
+  // KNOWN RED, not P3's: upstream PR #5306 deleted `ChannelFindBar` /
+  // `useChannelFind` outright, and this test (and `workspace-find.spec.ts`'s
+  // "the ⌘F boundary…") have been its red proofs since before this redesign
+  // — do not spend a P3-scoped fix round chasing it.
+  //
+  // Worth keeping for whoever restores the bar: this test never touches the
+  // dock or the Team pane at all — the ⌘F below is pressed on the STANDALONE
+  // `/channels/general` route, reached by the sidebar click above. At the
+  // moment `channel-find-bar` fails to appear, the accessibility snapshot
+  // has collapsed to almost nothing (`status` and a notifications region,
+  // none of the channel screen's own chrome) — that reads as a crash on this
+  // route around the ⌘F keydown, not a missing component quietly doing
+  // nothing. Start from that hypothesis rather than re-deriving it from a
+  // bare "element not found".
+  //
   // **The half a claimant check cannot give.** ⌘W was lost to an unchecked
   // claimant once, silently, because macOS resolved it before the webview saw
   // anything — so a chord is only taken when a press proves it landed.
@@ -388,24 +403,30 @@ test("⇧⌘F arrives, and ⌘F is still upstream's find-in-this-channel", async
   // that is where the bar exists.
   // Reached by clicking the sidebar rather than by a `goto`, which is how the
   // rest of this repository's specs open a channel and what makes the screen
-  // under it a real mount rather than a route that has not resolved. On the
-  // workspace view the channel rows live inside the Deck accordion's Chats
-  // member (the pane-nav-absorb amendment), so open it first — the exact
-  // door the owner asked for.
-  await page.getByTestId("sidebar-accordion-header-chats").click();
+  // under it a real mount rather than a route that has not resolved. Since
+  // P1.1 the channel rows render inline on the Deck's first screen (owner
+  // veto 4 removed the "Chats" fold — `sidebar-deck-accordion.spec.ts` is the
+  // living idiom), so no header opens first.
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("message-input").first()).toBeVisible();
   await page.keyboard.press("ControlOrMeta+f");
   await expect(page.getByTestId("channel-find-bar")).toBeVisible();
 });
 
-test("the Search pane is on the registry — the palette and the picker both offer it, with its chord", async ({
+test("the Search pane is on the registry — the palette offers it, named where a tab would light, with its chord", async ({
   page,
 }) => {
   // A claim about the registry rather than about this pane: a component added
   // to the tree without being added to `PANE_IDS` is a pane that renders and
   // that he cannot reach. The chord beside the row is what makes the palette a
   // place he learns the shortcut rather than a second way of doing it forever.
+  //
+  // The dock's six tabs are a closed set and Search is not one of them
+  // (`dockModel.ts`), so the retired PanePicker's "also offered from the
+  // dropdown" half of this claim has no dock equivalent to keep — the
+  // palette is now the only door. What the dock DOES still owe Search is its
+  // name where a tab would be lit (`dock-pane-label`), which is what stands
+  // in for "the picker agrees" here.
   await openSearchWorkspace(page);
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
@@ -418,10 +439,7 @@ test("the Search pane is on the registry — the palette and the picker both off
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("palette")).toBeHidden();
   await expect(page.getByTestId("pane-search")).toBeVisible();
-
-  await page.getByTestId("pane-picker").click();
-  await expect(page.getByRole("menuitem", { name: /Search/ })).toBeVisible();
-  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("dock-pane-label")).toHaveText("Search");
 });
 
 test("results arrive grouped by file, with the match emphasised", async ({
@@ -475,7 +493,7 @@ test("Enter lands in the Files viewer, at the line", async ({ page }) => {
   await page.keyboard.press("Enter");
 
   // The Files pane is brought forward — it was not on screen a moment ago.
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
   await expect(page.getByTestId("files-viewer-path")).toHaveText(
     "src/other.ts",
   );
@@ -487,7 +505,7 @@ test("Enter lands in the Files viewer, at the line", async ({ page }) => {
   await expect(page.getByTestId("search-file-src/greet.ts")).toBeVisible();
   await page.getByTestId(`search-hit-${HIT_LINE}:src/greet.ts`).click();
 
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
   await expect(page.getByTestId("files-viewer-path")).toHaveText(
     "src/greet.ts",
   );

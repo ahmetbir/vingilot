@@ -320,7 +320,7 @@ async function openFilesPane(page: Page) {
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("files");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
 }
 
 /** Open a file through the sidebar's tree. No drawer to manage any more —

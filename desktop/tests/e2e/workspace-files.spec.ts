@@ -398,7 +398,7 @@ async function openFilesPane(page: Page) {
   await expect(row).not.toHaveAttribute("data-blocked", "true");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("palette")).toBeHidden();
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
 }
 
 /** Open a file from the sidebar's tree — one click; there is no drawer to put
@@ -407,7 +407,7 @@ async function openFromTree(page: Page, path: string) {
   await page.getByTestId(`files-row-${path}`).click();
 }
 
-test("the Files pane is reachable from the palette and from the pane picker", async ({
+test("the Files pane is reachable from the palette and from the dock's own tab", async ({
   page,
 }) => {
   // The claim is about the registry, not about this pane: adding a component
@@ -415,14 +415,21 @@ test("the Files pane is reachable from the palette and from the pane picker", as
   // cannot get to. Both doors, because they read the same list through
   // different code (`paletteSources.ts` and `WorkSurface`), and a pane that
   // reached only one of them would be half-added.
+  //
+  // Files is one of the dock's six fixed tabs (`dockModel.ts`), so the
+  // retired PanePicker's "also offered from the dropdown" half of this claim
+  // has a stronger dock equivalent: the tab lights up in agreement with the
+  // palette's choice, and is itself the second door.
   await openFilesWorkspace(page);
   await openFilesPane(page);
-  await expect(page.getByTestId("pane-picker")).toContainText("Files");
+  await expect(page.getByTestId("dock-tab-files")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 
-  // And the picker offers it too, by name.
-  await page.getByTestId("pane-picker").click();
-  await expect(page.getByRole("menuitem", { name: /Files/ })).toBeVisible();
-  await page.keyboard.press("Escape");
+  // And the tab offers it too — the second door, clicked directly.
+  await page.getByTestId("dock-tab-files").click();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
 });
 
 test("the tree walks under the arrow keys and opens a file under Enter", async ({
@@ -653,7 +660,7 @@ test("the viewer opens from outside the pane — a patch's file, shown whole", a
   // (`defaultPaneState`), so it is already up.
   await expect(page.getByTestId("pane-diff")).toBeVisible();
   // Deliberately not on the Files pane yet: the act has to bring it forward.
-  await expect(page.getByTestId("pane-files")).toHaveCount(0);
+  await expect(page.getByTestId("dock-files")).toHaveCount(0);
 
   const shows = page.getByTestId("worktree-diff-show-file");
   await expect(shows).toBeVisible();
@@ -663,7 +670,7 @@ test("the viewer opens from outside the pane — a patch's file, shown whole", a
 
   await shows.click();
 
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
   // And it is showing the file the patch was of, not whatever the tree's first
   // row happened to be.
   await expect(page.getByTestId("files-viewer-path")).toHaveText(

@@ -266,8 +266,11 @@ function HistoryBody({ cwd }: { cwd: string }) {
       </div>
 
       {segment === "reflog" ? (
+        // `/70`, not `muted`: the same center-notice pattern as `DockShell`'s
+        // `DockNotice`, measured on the float's `bg-popover` ground and
+        // given the same margin.
         <p
-          className="flex flex-1 items-center justify-center px-6 py-4 text-center text-sm text-muted-foreground"
+          className="flex flex-1 items-center justify-center px-6 py-4 text-center text-sm text-foreground/70"
           data-testid="dock-history-reflog-empty"
         >
           No reflog reader in this build yet — the graph is HEAD&apos;s own
@@ -339,10 +342,17 @@ function CommitRow({
 }) {
   const head = isHead(commit);
   return (
+    // `role="option"`: a row is a *selection*, not an act — `HistoryPane`'s own
+    // rule, and the reason `workspace-history.fixtures.ts`'s `controlNames()`
+    // excludes it. A commit's own subject is git's data and may contain any
+    // word in the language ("Revert…", "commit the fix…"); without this role
+    // the mutating-verb scan reads the row's own title as a control offering
+    // an act it does not offer.
     <button
       className="flex h-[38px] w-full items-center gap-2 px-3.5 text-left transition-colors hover:bg-foreground/[.04] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       data-testid={`dock-history-commit-${commit.hash}`}
       onClick={onOpen}
+      role="option"
       title={`${commit.subject} — open this commit's patch`}
       type="button"
     >

@@ -75,11 +75,29 @@
 // file. They are asserted by measurement (`scrollWidth` against `clientWidth`
 // on the very elements the text is in), because "the element exists" is exactly
 // what an element 3px wide also satisfies.
+//
+// **P3.1: the pane stopped being ratio-scaled and became a clamped card.**
+// Everything above describes a right pane whose width was the surface's own
+// arithmetic — wider window, wider pane, all the way to `PATCH_MIN_PX` and
+// past it. The dock (redesign P3, mockup `.dock`) replaced that with a card
+// fixed to `DOCK_DEFAULT_W` 376px, resizable 300–540 (`dockModel.ts`,
+// itself reading the mockup's own clamp — vingilot.js's `setChat`/resize is
+// `Math.min(540, Math.max(300, …))`, birebir, and not a number this spec may
+// ask past). At 376px the pane measures ~374px net of its own border — under
+// `PATCH_MIN_PX` (467) on ANY viewport, because window width no longer
+// reaches this pane at all. The owner's original complaint survives as a
+// narrower, truer claim than "clears a number": at the dock's default width
+// the patch WRAPS rather than clips — legible, not cut — and reading it wide
+// and unwrapped is what the design's own affordances are for: the float
+// (mockup `.float`, 640px, `DockFloat.tsx`) and ⇧⌥⌘B's right-solo (the whole
+// surface, uncapped — `dockStyle`'s `flexGrow: 1` in `WorkSurface.tsx`). The
+// first two tests below assert the default-width claim against the dock's
+// real number; "given the whole surface, the list comes back beside the
+// patch" (already using `RIGHT_SOLO`) is the existing proof of the second.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
@@ -112,10 +130,12 @@ const MIN_LEFT_PX = 752;
 /** `PATCH_MIN_PX` in `lib/diffLayout.ts`, written out for the same reason. */
 const PATCH_MIN_PX = 467;
 
-/** `LIST_MIN_PX` and `LIST_PREFERRED_PX` in `lib/diffLayout.ts`, written out
- * for the same reason: the geometry test asserts the list stands beside the
- * patch at a *yielded* width, and these are the two ends of that claim. */
-const LIST_MIN_PX = 176;
+/** `LIST_PREFERRED_PX` in `lib/diffLayout.ts`, written out for the same
+ * reason: the geometry test asserts the list stands beside the patch at a
+ * *yielded* width, and this is the far end of that claim. (`LIST_MIN_PX`,
+ * the near end, was P3.1's own casualty — the default-width test that used
+ * to bound the pane between it and `PATCH_MIN_PX` now finds the list a
+ * drawer instead, with no width of its own to bound.) */
 const LIST_PREFERRED_PX = 288;
 
 /** `SPLIT_MIN_PX` in `lib/diffLayout.ts` — two columns of 38 with their gutters,
@@ -123,6 +143,11 @@ const LIST_PREFERRED_PX = 288;
  * rather than imported for the same reason as the two above: this spec must fail
  * if the precondition moves, not silently re-derive it. */
 const SPLIT_MIN_PX = 695;
+
+/** `DOCK_DEFAULT_W` in `lib/dockModel.ts`, written out for the same reason —
+ * P3.1's addendum above is why this pane's width answers to this constant
+ * now and not to the viewport. */
+const DOCK_DEFAULT_W = 376;
 
 /** `SPLIT_MIN_COLUMNS × PATCH_CELL_PX`, the width one split column owes its
  * code — the half of `SPLIT_MIN_PX` that is actually source rather than chrome,
@@ -256,13 +281,7 @@ async function openDiffPane(
   await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
   await expect(page.getByTestId("work-surface")).toBeVisible();
 
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId("pane-choice-diff").click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
-  await waitForAnimations(page);
+  await page.getByTestId("dock-tab-diff").click();
   await expect(page.getByTestId("pane-diff")).toBeVisible();
   await expect(page.getByTestId("worktree-diff-patch")).toBeVisible();
 }
@@ -290,17 +309,16 @@ async function widths(page: Page) {
   });
 }
 
-test("on a 16-inch MacBook Pro the patch clears its floor, and the list is a gesture away", async ({
+test("on a 16-inch MacBook Pro the patch wraps rather than clips, and the list is a gesture away", async ({
   page,
 }) => {
-  // The single-sidebar rework moved the workspace nav into the app sidebar
-  // and the ~224px it was spending beside the surface landed in this split —
-  // but not all of it in this pane: the divider's default ratio gives the
-  // terminal more than its 752px floor once the surface can afford to, so the
-  // pane is 564px measured at 1728×1117 (it was 435 when the terminal sat
-  // pinned on its floor). 564 clears `PATCH_MIN_PX` (467) — the patch is a
-  // grid again, unwrapped — and is still under `LIST_LEAVES_BELOW_PX`
-  // (467 + 176 = 643), so the list is still a drawer over it, not beside it.
+  // The dock is a fixed card now, not a ratio (P3.1 addendum above) — this
+  // pane measures the same ~374px on his 16" as it would on any display wide
+  // enough to seat the terminal beside it at all, because window width no
+  // longer reaches this pane. Below `PATCH_MIN_PX` (467) the patch wraps
+  // (`diffLayout.ts`'s own decision for a pane under its floor) rather than
+  // standing as a grid; the claim this spec still owes him is that wrapping
+  // is not clipping, and that the list stays a gesture away regardless.
   await openDiffPane(page, SIXTEEN_INCH);
   const laid = await widths(page);
 
@@ -309,18 +327,28 @@ test("on a 16-inch MacBook Pro the patch clears its floor, and the list is a ges
   expect(laid.terminal).not.toBeNull();
   expect(laid.terminal as number).toBeGreaterThanOrEqual(MIN_LEFT_PX);
 
-  // The pane that leaves, at this window, on this machine: above the patch's
-  // floor now, not yet enough for the list to stand beside it.
+  // The pane is the dock's own default width, less its own card border — not
+  // a fraction of the window. Proof this reading is honestly about the
+  // dock's clamp, not a stale ratio number left in place.
   expect(laid.pane).not.toBeNull();
   const pane = laid.pane as number;
-  expect(pane).toBeGreaterThanOrEqual(PATCH_MIN_PX);
-  expect(pane).toBeLessThan(LIST_MIN_PX + PATCH_MIN_PX);
+  expect(pane).toBeLessThanOrEqual(DOCK_DEFAULT_W);
+  expect(pane).toBeGreaterThan(DOCK_DEFAULT_W - 10);
+
+  // Below its floor the patch wraps — the honest reading at this width, and
+  // the thing the rest of this test proves is not the same as clipping.
+  await expect(page.getByTestId("worktree-diff-patch")).toHaveAttribute(
+    "data-wrapped",
+    "true",
+  );
 
   // The list is not standing in it. Before the fix it was here at 288px and
-  // nothing could take that width back from it.
+  // nothing could take that width back from it — still true at any width
+  // under `LIST_LEAVES_BELOW_PX`, dock or ratio.
   await expect(page.getByTestId("worktree-diff-files")).toHaveCount(0);
 
-  // What the owner came for: the patch has the pane, less its own padding.
+  // What the owner came for even at this width: the patch has the pane, less
+  // its own padding — wrapped lines, not a narrower box hiding behind a list.
   expect(laid.patch).toBe(pane);
   expect(laid.patchClient as number).toBeGreaterThan(pane - 16);
 
@@ -403,26 +431,32 @@ async function legibility(page: Page) {
   });
 }
 
-test("at his width the patch is a grid at its floor and every row names its file", async ({
+test("at his width the patch wraps at its floor and every row still names its file", async ({
   page,
 }) => {
   await openDiffPane(page, SIXTEEN_INCH);
 
-  // The patch clears its floor now — 564px against `PATCH_MIN_PX`'s 467,
-  // where it was 435 before the single-sidebar rework and 243 before the nav
-  // columns merged — so it does NOT wrap: above the floor the grid is worth
-  // more than the wrap (`diffLayout.ts`, `patchWrapsAt`), and the scroller is
-  // what handles the lines longer than the box. That scroller is the designed
-  // behaviour above the floor, which is why the old "not one line is cut off"
-  // reading left with the wrap: content inside a scroller is the pane
-  // working.
+  // The dock's default is under `PATCH_MIN_PX` (467) on any display — see the
+  // P3.1 addendum above — so the honest reading at his width is the wrap, not
+  // the grid: `diffLayout.ts`'s own decision for a pane under its floor. What
+  // survives from the pre-dock claim is that wrapping is not clipping — every
+  // line stays fully on screen, broken rather than cut, which the overflow
+  // check below is the one that actually proves.
   const before = await legibility(page);
-  expect(before.wrapped).toBe("false");
+  expect(before.wrapped).toBe("true");
   expect(before.lines.length).toBeGreaterThan(0);
   // The fixture's 76-column source line is on screen — asserted by content,
   // so a build that rendered an empty patch could not pass by having nothing
-  // to draw.
+  // to draw. A wrapped line is still one text node, so its full text is still
+  // here to find.
   expect(before.lines.map((line) => line.text)).toContain(PATCH_LINE.trim());
+  // And it is on screen whole: wrapped means broken across visual rows, not
+  // scrolled past the edge. `scrollWidth` over `clientWidth` is the reading
+  // the grid regime deliberately did not take here (a scroller is allowed to
+  // hold more than it shows); the wrap regime has no scroller to hide behind.
+  for (const line of before.lines) {
+    expect(line.overflow).toBeLessThanOrEqual(1);
+  }
 
   // The header names the open file. Before: "desktop/src/feat…".
   expect(before.header).not.toBeNull();
@@ -464,7 +498,7 @@ test("given the whole surface, the list comes back beside the patch", async ({
   await expect(page.getByTestId("worktree-diff-file-0")).toBeVisible();
   // The list is back at its preferred width, and the patch is above its floor
   // — which is the ordering the decision makes: the list only ever yields.
-  expect(laid.list as number).toBe(288);
+  expect(laid.list as number).toBe(LIST_PREFERRED_PX);
   expect((laid.pane as number) - (laid.list as number)).toBeGreaterThanOrEqual(
     PATCH_MIN_PX,
   );

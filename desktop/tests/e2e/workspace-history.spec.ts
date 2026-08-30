@@ -84,14 +84,19 @@ import {
   SLOW_COMMIT_MS,
 } from "./workspace-history.fixtures";
 
-test("the History pane is on the registry — the palette and the picker both offer it", async ({
+test("the History pane is on the registry — the palette offers it, and the dock's own tab agrees", async ({
   page,
 }) => {
   // A claim about the registry rather than about this pane: a component added
   // to the tree without being added to `PANE_IDS` is a pane that renders and
   // that he cannot reach.
+  //
+  // History is one of the dock's six fixed tabs (`dockModel.ts`), so the
+  // retired PanePicker's "also offered from the dropdown" half of this claim
+  // has a stronger dock equivalent: the tab lights up in agreement with the
+  // palette's choice, and is itself the second door.
   await openHistoryWorkspace(page);
-  await expect(page.getByTestId("pane-history")).toHaveCount(0);
+  await expect(page.getByTestId("dock-history")).toHaveCount(0);
 
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
@@ -101,11 +106,15 @@ test("the History pane is on the registry — the palette and the picker both of
   await expect(row).not.toHaveAttribute("data-blocked", "true");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("palette")).toBeHidden();
-  await expect(page.getByTestId("pane-history")).toBeVisible();
+  await expect(page.getByTestId("dock-history")).toBeVisible();
+  await expect(page.getByTestId("dock-tab-history")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 
-  await page.getByTestId("pane-picker").click();
-  await expect(page.getByRole("menuitem", { name: /History/ })).toBeVisible();
-  await page.keyboard.press("Escape");
+  // And the tab offers it too — the second door, clicked directly.
+  await page.getByTestId("dock-tab-history").click();
+  await expect(page.getByTestId("dock-history")).toBeVisible();
 });
 
 test("the commit list renders with hash, subject, author, date and refs", async ({
@@ -475,14 +484,14 @@ test("nothing in the pane offers a mutating action", async ({ page }) => {
   // nested, so there is nowhere for a per-file act to be added without this
   // going red.
   const nested = page
-    .locator('[data-testid="pane-history"], [data-testid="history-list"]')
+    .locator('[data-testid="dock-history"], [data-testid="history-list"]')
     .locator("[role='option'] button, [role='option'] input");
   await expect(nested).toHaveCount(0);
 
   // And no checkbox anywhere, which is the other way staging is always offered.
   await expect(
     page
-      .locator('[data-testid="pane-history"], [data-testid="history-list"]')
+      .locator('[data-testid="dock-history"], [data-testid="history-list"]')
       .locator("input[type='checkbox']"),
   ).toHaveCount(0);
 
@@ -659,9 +668,10 @@ test("the split toggle is this pane's too, on the same flag and the same floor",
   await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
   await expect(page.getByTestId("history-patch-src/read.rs")).toBeVisible();
 
-  // At his own width the pane is ~435px, under the 695px two columns need, so
-  // the control is on screen, unavailable, and says why — in `diffLayout.ts`'s
-  // words, which the unit tests pin and this one only proves reached the header.
+  // At his own width the dock is its default ~374px card, under the 695px
+  // two columns need, so the control is on screen, unavailable, and says why
+  // — in `diffLayout.ts`'s words, which the unit tests pin and this one only
+  // proves reached the header.
   const toggle = page.getByTestId("history-split");
   await expect(toggle).toBeVisible();
   await expect(toggle).toBeDisabled();
@@ -673,11 +683,18 @@ test("the split toggle is this pane's too, on the same flag and the same floor",
     "unified",
   );
 
-  // On the external display the same pane can seat two columns, and the same
-  // control turns them on.
+  // P3.1: the dock is a fixed 300–540px card now (`dockModel.ts`, birebir to
+  // the mockup's own clamp — vingilot.js's resize handler is
+  // `Math.min(540, Math.max(300, …))`), not a ratio of the window — so an
+  // external display alone no longer widens this pane; 540 is still short of
+  // the 695px two columns need. The width the toggle asks for is reachable
+  // exactly the way `workspace-diff-fits.spec.ts` reaches it for Diff: ⇧⌥⌘B
+  // gives the dock the whole surface, uncapped (`WorkSurface.tsx`'s
+  // `dockStyle`), which on the external display is comfortably past 695px.
   await openHistoryWorkspace(page, EXTERNAL_DISPLAY);
   await openHistoryPane(page);
   await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
+  await page.keyboard.press("Shift+Alt+Meta+b");
   const wide = page.getByTestId("history-split");
   await expect(wide).toBeEnabled();
   await expect(page.getByTestId("history-split-why")).toHaveCount(0);

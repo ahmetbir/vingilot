@@ -303,16 +303,26 @@ async function openWorktree(
   await expect(page.getByTestId("work-surface")).toBeVisible();
 }
 
-/** Put a pane in the right slot, waiting out the menu on both sides of the
- * click — Radix animates it, and a choice clicked mid-animation is a click on a
- * moving target. */
+/** Put a pane on the dock: the four with a fixed tab (files/diff/history, and
+ * team under its "crew" tab) light their tab directly (`dock.spec.ts`'s
+ * idiom); anything else has no tab and is chosen from the palette — the
+ * dock's only door onto it (`dockModel.ts`). */
 async function choosePane(page: Page, key: string) {
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId(`pane-choice-${key}`).click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
+  const tab = key === "team" ? "crew" : key;
+  if (
+    tab === "crew" ||
+    tab === "diff" ||
+    tab === "files" ||
+    tab === "history"
+  ) {
+    await page.getByTestId(`dock-tab-${tab}`).click();
+    return;
+  }
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill(key);
+  await page.getByTestId(`palette-row-pane:${key}`).click();
+  await expect(page.getByTestId("palette")).toHaveCount(0);
   await waitForAnimations(page);
 }
 
@@ -903,10 +913,17 @@ test.describe("talk to a team about this worktree", () => {
       localStorage.setItem("buzz.channels.threadViewMode", "focus");
     });
     // Wide enough that the pane's own content clears
-    // `AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX` — under it the thread is a
-    // single-column view and there is no drawer to scope.
+    // `AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX` (600px) — under it the
+    // thread is a single-column view and there is no drawer to scope. The
+    // dock is a fixed 300–540px card now (`dockModel.ts`, mockup birebir),
+    // never wide enough on its own regardless of the window — so ⇧⌥⌘B gives
+    // it the whole surface first (`WorkSurface.tsx`'s right-solo), the same
+    // affordance `workspace-diff-fits.spec.ts` and
+    // `workspace-history.spec.ts`'s split-toggle test reach a wide reading
+    // through.
     await openWorktree(page, "seeded", [], { height: 1000, width: 2400 });
     await openThread(page);
+    await page.keyboard.press("Shift+Alt+Meta+b");
 
     // A thread in the pane's own channel — which this pane created at runtime,
     // so it is reached by the name the pane gave it.

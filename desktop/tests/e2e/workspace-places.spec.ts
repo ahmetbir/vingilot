@@ -249,26 +249,40 @@ async function openWorkspace(page: Page) {
   await expect(page.getByTestId("work-surface")).toBeVisible();
 }
 
-/** Put a pane in the slot, waiting out Radix's animation on both sides of the
- * click — a choice clicked mid-animation is a click on a moving target. */
+/** Put a pane on the dock: the four with a fixed tab (files/diff/history, and
+ * team under its "crew" tab) light their tab directly (`dock.spec.ts`'s
+ * idiom); anything else has no tab and is chosen from the palette — the
+ * dock's only door onto it (`dockModel.ts`). */
 async function choosePane(page: Page, key: string) {
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId(`pane-choice-${key}`).click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
-  await waitForAnimations(page);
+  const tab = key === "team" ? "crew" : key;
+  if (
+    tab === "crew" ||
+    tab === "diff" ||
+    tab === "files" ||
+    tab === "history"
+  ) {
+    await page.getByTestId(`dock-tab-${tab}`).click();
+    return;
+  }
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill(key);
+  await page.getByTestId(`palette-row-pane:${key}`).click();
+  await expect(page.getByTestId("palette")).toHaveCount(0);
+}
+
+/** What pane the dock is showing, read the way `dock.spec.ts` reads it. */
+async function expectDockTab(page: Page, tab: string) {
+  await expect(page.getByTestId("dock")).toHaveAttribute(
+    "data-dock-selection",
+    tab,
+  );
 }
 
 async function selectWorktree(page: Page, branch: string) {
-  // The rows live under the accordion's Worktrees member (pane-nav-absorb
-  // plan); a trail that opened Files first has collapsed it, so reopen it
-  // before clicking — the owner's own gesture.
-  const worktrees = page.getByTestId("sidebar-accordion-header-worktrees");
-  if ((await worktrees.getAttribute("aria-expanded")) === "false") {
-    await worktrees.click();
-  }
+  // Since P1.1 the Projects tree renders directly — no "Worktrees" accordion
+  // to open first (owner veto 4; `sidebar-deck-accordion.spec.ts` is the
+  // living idiom).
   await page.getByTestId(`worktree-row-wt-${branch}`).click();
 }
 
@@ -277,7 +291,7 @@ async function selectWorktree(page: Page, branch: string) {
  * must already be in the slot — this is the third of the three navigations
  * that feed the trail. */
 async function openFileFromTree(page: Page, name: string) {
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
   const files = page.getByTestId("sidebar-accordion-header-files");
   if ((await files.getAttribute("aria-expanded")) === "false") {
     await files.click();
@@ -357,7 +371,7 @@ async function holdAndStep(page: Page, steps: number, back = false) {
 async function buildTrail(page: Page) {
   await selectWorktree(page, "spike");
   await choosePane(page, "diff");
-  await expect(page.getByTestId("pane-picker")).toContainText("Diff");
+  await expectDockTab(page, "diff");
   await choosePane(page, "files");
   await openFileFromTree(page, "main.rs");
   await selectWorktree(page, "polish");
@@ -365,7 +379,7 @@ async function buildTrail(page: Page) {
   // (Diff) — that is row 1 — and choosing Files here is what makes rows 0 and 2
   // differ in the worktree as well as in the file.
   await choosePane(page, "files");
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
 }
 
 /** What `buildTrail` produces, as `overlayRows` reads it, with the cursor on
@@ -419,7 +433,7 @@ test("⌃Tab holds up the places he actually walked, and letting go lands on one
   // pane, and the file that worktree's Files pane had open.
   await page.keyboard.up("Control");
   await expect(overlay).toHaveCount(0);
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
   await expect(page.getByTestId("files-viewer-path")).toHaveText("src/main.rs");
   // Which worktree he is standing in, read off the one surface that names it on
   // every screen and every tab (`ProjectStatusBar`) rather than off a row's
@@ -450,7 +464,9 @@ test("a Files pane that came back with nothing open is drawn with nothing open",
   // The pane really is empty. Asserted first so that the rows below are a reading
   // of this pane and not of a viewer that had somehow kept the file — in which
   // case the row naming it would be right and this spec would be wrong.
-  await expect(page.getByTestId("files-viewer-empty")).toBeVisible();
+  // The dock's Files tab owns its own tree (`DockFilesPanel.tsx`), so "nothing
+  // open" is the tree on screen, not `FileViewer`'s own empty state.
+  await expect(page.getByTestId("dock-files-tree")).toBeVisible();
   await expect(page.getByTestId("files-viewer-path")).toHaveCount(0);
 
   await holdAndStep(page, 1);
@@ -492,14 +508,14 @@ test("a tap goes straight to the previous place, and a second tap comes back", a
   await page.keyboard.down("Control");
   await page.keyboard.press("Tab");
   await page.keyboard.up("Control");
-  await expect(page.getByTestId("pane-picker")).toContainText("Diff");
+  await expectDockTab(page, "diff");
   await expect(page.getByTestId("project-status-bar")).toContainText("polish");
 
   // And back. Same key, same tap — the list reordered under it.
   await page.keyboard.down("Control");
   await page.keyboard.press("Tab");
   await page.keyboard.up("Control");
-  await expect(page.getByTestId("pane-picker")).toContainText("Files");
+  await expectDockTab(page, "files");
   await expect(page.getByTestId("project-status-bar")).toContainText("polish");
 
   // **Six rows, not eight.** Two landings on places that were already in the
@@ -513,7 +529,7 @@ test("a tap goes straight to the previous place, and a second tap comes back", a
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("place-switcher")).toHaveCount(0);
   await page.keyboard.up("Control");
-  await expect(page.getByTestId("pane-picker")).toContainText("Files");
+  await expectDockTab(page, "files");
   await expect(page.getByTestId("project-status-bar")).toContainText("polish");
 });
 
@@ -541,7 +557,9 @@ test("nothing in the team thread is painted over the switcher", async ({
   // surface which stopped drawing them would make this spec say so rather than
   // pass by vacancy.
   const chrome = await page.evaluate(() => {
-    const pane = document.querySelector('[data-testid="pane-right"]');
+    // The dock is the right slot's frame since P3 (`DockShell.tsx` carries
+    // the same `isolate` stacking-context discipline `PaneFrame` did).
+    const pane = document.querySelector('[data-testid="dock"]');
     if (pane === null) return [];
     return Array.from(pane.querySelectorAll("*"))
       .filter((element) => {
@@ -590,7 +608,7 @@ test("nothing in the team thread is painted over the switcher", async ({
   const inFront = await page.evaluate(() => {
     const panel = document.querySelector('[data-testid="place-switcher"]');
     const overlay = panel?.parentElement;
-    const pane = document.querySelector('[data-testid="pane-right"]');
+    const pane = document.querySelector('[data-testid="dock"]');
     if (overlay === null || overlay === undefined) return ["no switcher"];
     if (pane === null) return ["no right pane"];
     const box = pane.getBoundingClientRect();
@@ -683,5 +701,5 @@ test("a focused terminal does not swallow it", async ({ page }) => {
   // stuck up if xterm's textarea were the only listener.
   await page.keyboard.up("Control");
   await expect(page.getByTestId("place-switcher")).toHaveCount(0);
-  await expect(page.getByTestId("pane-picker")).toContainText("Diff");
+  await expectDockTab(page, "diff");
 });

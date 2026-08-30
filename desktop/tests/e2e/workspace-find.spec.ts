@@ -45,7 +45,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
@@ -287,16 +286,26 @@ async function openWorkspace(page: Page) {
   await expect(page.getByTestId("work-surface")).toBeVisible();
 }
 
-/** Put a pane in the slot, waiting out Radix's animation on both sides of the
- * click — a choice clicked mid-animation is a click on a moving target. */
+/** Put a pane on the dock: the four with a fixed tab (files/diff/history, and
+ * team under its "crew" tab) light their tab directly (`dock.spec.ts`'s
+ * idiom); anything else has no tab and is chosen from the palette — the
+ * dock's only door onto it (`dockModel.ts`). */
 async function choosePane(page: Page, key: string) {
-  const picker = page.getByTestId("pane-picker");
-  await picker.click();
-  await expect(picker).toHaveAttribute("data-state", "open");
-  await waitForAnimations(page);
-  await page.getByTestId(`pane-choice-${key}`).click();
-  await expect(picker).toHaveAttribute("data-state", "closed");
-  await waitForAnimations(page);
+  const tab = key === "team" ? "crew" : key;
+  if (
+    tab === "crew" ||
+    tab === "diff" ||
+    tab === "files" ||
+    tab === "history"
+  ) {
+    await page.getByTestId(`dock-tab-${tab}`).click();
+    return;
+  }
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette")).toBeVisible();
+  await page.getByTestId("palette-input").fill(key);
+  await page.getByTestId(`palette-row-pane:${key}`).click();
+  await expect(page.getByTestId("palette")).toHaveCount(0);
 }
 
 /** A worktree, the Files pane, one file open — the tree lives in the Deck
@@ -305,7 +314,7 @@ async function choosePane(page: Page, key: string) {
 async function openFile(page: Page, path: string) {
   await page.getByTestId(`worktree-row-${WORKTREE.binding_id}`).click();
   await choosePane(page, "files");
-  await expect(page.getByTestId("pane-files")).toBeVisible();
+  await expect(page.getByTestId("dock-files")).toBeVisible();
   await page.getByTestId("sidebar-accordion-header-files").click();
   await page.getByTestId("files-row-src").click();
   await page.getByTestId(`files-row-${path}`).click();
@@ -459,6 +468,21 @@ test("the walk scrolls the viewer, on the plain render path too", async ({
 test("the ⌘F boundary: a field outside the pane keeps it, and the team thread keeps upstream's find", async ({
   page,
 }) => {
+  // KNOWN RED, not P3's: upstream PR #5306 deleted `ChannelFindBar` /
+  // `useChannelFind` outright, and this assertion (and
+  // `workspace-search.spec.ts`'s "⇧⌘F arrives…") have been its red proofs
+  // since before this redesign — do not re-derive that finding, and do not
+  // spend a P3-scoped fix round chasing it.
+  //
+  // One observation worth keeping for whoever restores the bar: on the
+  // STANDALONE `/channels` case (`workspace-search.spec.ts:372`, which never
+  // touches the dock or the Team pane at all), the accessibility snapshot at
+  // the moment of failure collapses to almost nothing — `status` and a
+  // notifications region, none of the channel screen's own chrome. That
+  // reads as a crash on that route around the ⌘F keydown, not merely a
+  // missing component quietly doing nothing — start from that hypothesis
+  // rather than re-deriving it from a bare "element not found".
+  //
   // **The other half of taking a chord, and the half that fails silently.** ⌘F is
   // `useChannelFind`'s: a bubble-phase listener on the window, live wherever a
   // channel screen is mounted — which inside the workspace means the Team pane,
@@ -472,7 +496,7 @@ test("the ⌘F boundary: a field outside the pane keeps it, and the team thread 
   //
   // 1. **With the Files pane up and a file open, ⌘F in a text field elsewhere in
   //    the app is not this pane's.** That is the case that says the boundary is
-  //    drawn on `pane-files` and not on the window — the mutation that makes
+  //    drawn on `dock-files` and not on the window — the mutation that makes
   //    `ownsChord` answer `true` turns exactly this red, which is what makes it a
   //    guard rather than a description.
   // 2. **In the Team pane, ⌘F opens upstream's own find bar.** Read here rather
@@ -483,7 +507,7 @@ test("the ⌘F boundary: a field outside the pane keeps it, and the team thread 
   await openFile(page, "src/greet.ts");
 
   // Focus onto the terminal column beside the pane — its tab strip, which is on
-  // screen at the same time as the open file and is not inside `pane-files`. The
+  // screen at the same time as the open file and is not inside `dock-files`. The
   // precondition is read as `activeElement` rather than as `toBeFocused` on the
   // tab, because selecting a tab may hand the keyboard on to the shell, and
   // either way what this test needs is "focus is somewhere that is not this
@@ -498,7 +522,7 @@ test("the ⌘F boundary: a field outside the pane keeps it, and the team thread 
   expect(
     await page.evaluate(
       () =>
-        document.activeElement?.closest('[data-testid="pane-files"]') === null,
+        document.activeElement?.closest('[data-testid="dock-files"]') === null,
     ),
     "focus was still inside the Files pane, so this proves nothing about the boundary",
   ).toBe(true);

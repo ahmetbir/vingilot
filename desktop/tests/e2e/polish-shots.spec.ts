@@ -288,7 +288,14 @@ async function openPane(page: Page, id: string) {
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill(id);
   await page.getByTestId(`palette-row-pane:${id}`).click();
-  await expect(page.getByTestId(`pane-${id}`)).toBeVisible();
+  // Files and History are dock tabs (`dockModel.ts`): the dock renders its
+  // own `DockFilesPanel`/`DockHistoryPanel` for them rather than the
+  // registry's plain component, so their container is the dock's, not
+  // `pane-${id}` — everything else (Search included) keeps its own pane
+  // testid untouched.
+  const containerId =
+    id === "files" || id === "history" ? `dock-${id}` : `pane-${id}`;
+  await expect(page.getByTestId(containerId)).toBeVisible();
 }
 
 async function shoot(page: Page, testId: string, name: string) {
@@ -324,7 +331,7 @@ test("files: the tree, the viewer, the long file, and the empty state", async ({
   await expect
     .poll(async () => coloured.count(), { timeout: 15_000 })
     .toBeGreaterThan(3);
-  await shoot(page, "pane-right", "files-viewer");
+  await shoot(page, "dock-files", "files-viewer");
 
   // The 400-line file — the shot that shows what the ceiling used to cost.
   await page.getByTestId("files-row-src/long.ts").click();
@@ -333,15 +340,19 @@ test("files: the tree, the viewer, the long file, and the empty state", async ({
   // Give a background tokenise time to land when there is one; asserted only
   // as "the text is still there" so the before build passes too.
   await page.waitForTimeout(1_500);
-  await shoot(page, "pane-right", "files-viewer-long");
+  await shoot(page, "dock-files", "files-viewer-long");
 
   // The empty state: leave and come back (a remount — `identity` is the
   // worktree, but the slot renders one pane at a time). No drawer to put
   // away: the viewer has the pane whole.
   await openPane(page, "search");
   await openPane(page, "files");
-  await expect(page.getByTestId("files-viewer-empty")).toBeVisible();
-  await shoot(page, "pane-right", "files-empty");
+  // The dock's Files tab owns its own tree (`DockFilesPanel.tsx` — the mockup's
+  // birebir dress, distinct from the sidebar's), so "nothing open" is the tree
+  // on screen, not `FileViewer`'s own empty state — that placeholder never
+  // reaches this panel.
+  await expect(page.getByTestId("dock-files-tree")).toBeVisible();
+  await shoot(page, "dock-files", "files-empty");
 });
 
 test("search: the idle state and a page of results", async ({ page }) => {
@@ -349,7 +360,7 @@ test("search: the idle state and a page of results", async ({ page }) => {
   await openPane(page, "search");
 
   await expect(page.getByTestId("search-idle")).toBeVisible();
-  await shoot(page, "pane-right", "search-idle");
+  await shoot(page, "pane-search", "search-idle");
 
   await page.getByTestId("search-input").fill("token");
   await expect(page.getByTestId("search-results")).toBeVisible();
@@ -360,7 +371,7 @@ test("search: the idle state and a page of results", async ({ page }) => {
     page.getByTestId("search-file-src/auth/refresh_test.go"),
   ).toBeVisible();
   await expect(page.getByTestId("search-hit-match").first()).toBeVisible();
-  await shoot(page, "pane-right", "search-results");
+  await shoot(page, "pane-search", "search-results");
 });
 
 test("history: source control and commits, then a commit's patch", async ({
@@ -382,7 +393,11 @@ test("history: source control and commits, then a commit's patch", async ({
     page.getByTestId("history-file-status:untracked:notes.txt"),
   ).toBeVisible();
   await expect(page.getByTestId("history-commits")).toBeVisible();
-  await expect(page.getByTestId("history-patch-none")).toBeVisible();
+  // The dock's History tab shows its own graph until a commit is picked
+  // (`DockHistoryPanel.tsx`) — there is no separate "no patch selected"
+  // placeholder beside it the way the old side-by-side pane drew one; the
+  // graph on screen IS the honest "nothing chosen yet" state now.
+  await expect(page.getByTestId("dock-history-graph")).toBeVisible();
   await shoot(page, "app-sidebar", "history-list");
 
   await page.getByTestId(`history-commit-${"a".repeat(40)}`).click();
@@ -390,7 +405,7 @@ test("history: source control and commits, then a commit's patch", async ({
     "aaaaaaa",
   );
   await expect(page.getByTestId("history-patch")).toContainText("+is here now");
-  await shoot(page, "pane-history", "history-commit");
+  await shoot(page, "dock-history", "history-commit");
 });
 
 test("terminal chrome: the tab strip in its header, and the status bar", async ({

@@ -140,18 +140,18 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     // (muda 0.19.3 predefined.rs, HideOthers); ⌥⌘B is nobody's.
     await openWorkspace(page);
     await page.getByTestId("projects-nav-repo-repo-left").click();
-    await expect(page.getByTestId("pane-divider")).toBeVisible();
+    await expect(page.getByTestId("dock-resizer")).toBeVisible();
 
     await page.keyboard.press("Alt+ControlOrMeta+b");
     await expect(page.getByTestId("pane-right-rail")).toBeVisible();
-    await expect(page.getByTestId("pane-divider")).toBeHidden();
+    await expect(page.getByTestId("dock-resizer")).toBeHidden();
     // Not the sidebar's chord with a modifier along for the ride: the two maps
     // are read from two different listeners, and a ⌘B that also fired on ⌥⌘B
     // would hide the sidebar every time the owner hid a pane.
     await expect(sidebar(page)).toHaveAttribute("data-state", "expanded");
 
     await page.keyboard.press("Alt+ControlOrMeta+b");
-    await expect(page.getByTestId("pane-divider")).toBeVisible();
+    await expect(page.getByTestId("dock-resizer")).toBeVisible();
     await expect(sidebar(page)).toHaveAttribute("data-state", "expanded");
 
     // One layout state, persisted per worktree — the same one the header's ›
@@ -180,12 +180,12 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     await page.getByTestId("projects-nav-repo-repo-left").click();
 
     const surface = await page.getByTestId("work-surface").boundingBox();
-    const before = await page.getByTestId("pane-right").boundingBox();
+    const before = await page.getByTestId("dock").boundingBox();
     expect(before?.width ?? 0).toBeLessThan((surface?.width ?? 0) / 2);
 
     await page.keyboard.press("Shift+Alt+ControlOrMeta+b");
     await expect(page.getByTestId("pane-left-rail")).toBeVisible();
-    await expect(page.getByTestId("pane-divider")).toBeHidden();
+    await expect(page.getByTestId("dock-resizer")).toBeHidden();
     // The terminal is not merely off screen — it is still in the document,
     // because its xterm instances are attached to live ptys and cannot be
     // rebuilt. `toBeHidden` passes for both; `count` tells them apart.
@@ -193,15 +193,15 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     await expect(page.getByTestId("pane-left")).toBeHidden();
 
     // Nearly all of it: the rail is the only other thing in the row.
-    const after = await page.getByTestId("pane-right").boundingBox();
+    const after = await page.getByTestId("dock").boundingBox();
     expect(after?.width ?? 0).toBeGreaterThan((surface?.width ?? 0) - 60);
     // Not the nav column's chord with ⌥ along for the ride.
     await expect(page.getByTestId("worktree-column")).toBeVisible();
 
     // The rail is the way back, and it restores the split the owner had.
     await page.getByTestId("pane-left-expand").click();
-    await expect(page.getByTestId("pane-divider")).toBeVisible();
-    const restored = await page.getByTestId("pane-right").boundingBox();
+    await expect(page.getByTestId("dock-resizer")).toBeVisible();
+    const restored = await page.getByTestId("dock").boundingBox();
     expect(Math.round(restored?.width ?? 0)).toBe(
       Math.round(before?.width ?? 0),
     );
@@ -220,7 +220,7 @@ test.describe("columns collapse on the shortcuts VS Code uses", () => {
     await openWorkspace(page);
     await page.getByTestId("projects-nav-repo-repo-left").click();
 
-    const divider = page.getByTestId("pane-divider");
+    const divider = page.getByTestId("dock-resizer");
     await expect(divider).toBeVisible();
     // The divider is a member of the row, and `DIVIDER_PX` is the width the
     // clamp subtracts for it. If this stops being 8, the clamp is subtracting

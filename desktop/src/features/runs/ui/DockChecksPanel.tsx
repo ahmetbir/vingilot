@@ -14,10 +14,13 @@ export function DockChecksPanel() {
       className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-4 text-center"
       data-testid="dock-checks-empty"
     >
-      <span aria-hidden="true" className="text-sm text-muted-foreground">
+      {/* `/70`, not `muted`: the same center-notice pattern as `DockShell`'s
+       * `DockNotice` and `DockRunPanel`'s no-project message, all measured
+       * on the float's `bg-popover` ground and all given the same margin. */}
+      <span aria-hidden="true" className="text-sm text-foreground/70">
         ✓
       </span>
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-foreground/70">
         No checks wired to this worktree yet — they arrive with the pull-request
         island.
       </p>
