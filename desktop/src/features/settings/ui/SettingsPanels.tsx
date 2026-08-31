@@ -77,6 +77,7 @@ import { HostedCommunitiesSettingsCard } from "./HostedCommunitiesSettingsCard";
 import { HomeHarborSettingsCard } from "./HomeHarborSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { VingilotAppearanceSettings } from "./VingilotAppearanceSettings";
+import { VingilotQuickActionsSettings } from "./VingilotQuickActionsSettings";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
 import { UpdateChecker } from "../UpdateChecker";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
@@ -835,6 +836,10 @@ function ThemeSettingsCard() {
          * the vetoed top-bar tray (P1.1); the ⌘K "Appearance" row lands on
          * this card. */}
         <VingilotAppearanceSettings />
+
+        {/* The status bar's configurable canned prompts (redesign P4) — same
+         * "moved here, mounted with one line" pattern as the card above. */}
+        <VingilotQuickActionsSettings />
 
         <SettingsOptionGroup
           data-testid="appearance-preferences-card"

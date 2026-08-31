@@ -185,6 +185,7 @@ export default defineConfig({
         "**/workspace-history.spec.ts",
         "**/sidebar-deck-accordion.spec.ts",
         "**/statusline.spec.ts",
+        "**/status-bar.spec.ts",
         "**/workspace-find.spec.ts",
         "**/workspace-places.spec.ts",
         "**/polish-shots.spec.ts",

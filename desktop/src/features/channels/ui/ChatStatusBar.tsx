@@ -16,10 +16,23 @@
 // relay card fires: `useReconnectRelay`, whose in-flight state is a
 // module-level singleton — two surfaces clicking cannot race two reconnects.
 //
-// Geometry: same footer recipe as ProjectStatusBar (border-t, text-2xs,
-// horizontal-only inner padding) so the two bars read as one system, and the
-// right-hand word is always present in every state — the bar never changes
-// height or jumps when the connection state moves.
+// Geometry, since redesign P4: the mockup's `.status` bar is 36px
+// (`h-9`, matched here) but its separate floating-card treatment
+// (rounded/bordered/shadowed — `VINGILOT_CARD_CLASS`, which
+// `ProjectStatusBar` now wears) is deliberately NOT repeated on this bar.
+// The workspace route draws its own three sibling cards on the bare
+// gradient (stage, dock, status — `AppShellChannelSurface`'s `ownCards`);
+// the channel route does not opt into that layout, so a channel screen is
+// still ONE card (header + messages + composer + this bar) inside
+// `ContentSurface`'s own rounded/shadowed box. Wrapping this bar in a
+// SECOND border+shadow+radius nested inside that one would double chrome
+// the mockup never draws — it has no channel view at all. So this bar
+// keeps the plain border-t footer that already reads as "the bottom strip
+// of the one card it lives in," at the mockup's height. A conscious scope
+// decision, not an oversight: multi-card channel views are outside P4.
+// Otherwise unchanged — text-2xs, horizontal-only inner padding, and the
+// right-hand word always present so the bar never jumps when the
+// connection state moves.
 
 import { relayStatus } from "@/features/channels/lib/relayStatus";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -39,7 +52,7 @@ export function ChatStatusBar() {
 
   return (
     <footer
-      className="flex shrink-0 items-center gap-2 overflow-hidden border-t border-border/60 px-4 py-1.5 text-2xs text-muted-foreground"
+      className="flex h-9 shrink-0 items-center gap-2 overflow-hidden border-t border-border/60 px-4 text-2xs text-muted-foreground"
       data-testid="chat-status-bar"
     >
       <span className="min-w-0 truncate whitespace-nowrap">

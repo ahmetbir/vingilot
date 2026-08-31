@@ -50,6 +50,7 @@ import type { RunSummary } from "@/features/runs/lib/runModel";
 import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import type { Panes } from "@/features/runs/lib/usePanes";
 import type { VingilotCrewPosition } from "@/shared/theme/vingilot-crew-position";
+import { VINGILOT_CARD_CLASS } from "@/shared/ui/vingilotCard";
 import { DockChecksPanel } from "@/features/runs/ui/DockChecksPanel";
 import { DockFilesPanel } from "@/features/runs/ui/DockFilesPanel";
 import { DockHistoryPanel } from "@/features/runs/ui/DockHistoryPanel";
@@ -171,7 +172,7 @@ export function DockShell({
         variant === "card"
           ? // The gutter is the surface's `gap` now (mockup `.card`), not a
             // margin of this card's own — see WorkSurface's container.
-            "shrink-0 rounded-xl border border-foreground/[.06] bg-background shadow-lg"
+            `shrink-0 ${VINGILOT_CARD_CLASS}`
           : "flex-1"
       }`}
       data-dock-position={position}

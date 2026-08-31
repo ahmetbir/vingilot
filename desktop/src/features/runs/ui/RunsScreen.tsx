@@ -105,6 +105,7 @@ import { useStopAll } from "@/features/runs/lib/useStopAll";
 import { useProjectDocuments } from "@/features/runs/lib/useDocument";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
+import { useActiveTerminalTyping } from "@/features/runs/lib/useActiveTerminalTyping";
 import { useAttentionNotices } from "@/features/runs/lib/useAttentionNotices";
 import { useLocalProjects } from "@/features/runs/lib/useLocalProjects";
 import { useMachineFacts } from "@/features/runs/lib/useMachineFacts";
@@ -778,6 +779,12 @@ export function RunsScreen() {
     selectedWorktree?.owner_run_id !== undefined
       ? (runs.find((r) => r.id === selectedWorktree.owner_run_id) ?? null)
       : null;
+  // The status bar's quick-action door (redesign P4) — see the hook's own
+  // header for why this lives here rather than inside ProjectStatusBar.
+  const activeTerminalTyping = useActiveTerminalTyping(
+    selectedWorktreeId,
+    selectedTabs,
+  );
 
   return (
     <div
@@ -968,8 +975,10 @@ export function RunsScreen() {
       {/* STOP rides the status bar, which is the only thing on screen on every
        * screen and every tab — see ProjectStatusBar's own note. */}
       <ProjectStatusBar
+        canType={activeTerminalTyping.activeSessionId !== null}
         onEngageStop={() => void engageStop()}
         controlPlane={controlPlane}
+        onQuickAction={activeTerminalTyping.typeIntoActiveTerminal}
         onReleaseStop={releaseStop}
         onShowControlPlane={() => void goSettings("home-harbor")}
         onShowHistory={() => showPane("history")}

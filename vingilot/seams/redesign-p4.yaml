@@ -1,0 +1,80 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P4 (status bar + quick actions)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: phase P4 of the 2026-08-29 redesign
+# (vingilot/docs/plans/2026-08-29-redesign.md) — the mockup's status bar
+# (Vingilot.html:327-334, `.status`/`.sg`/`.sgrow`/`.sbtn`) rebuilt as the
+# mockup's own card, with two real new segments (the working crew's live
+# turns, a relay word) and the owner's quick-action row (Stop's real behavior
+# kept, configurable canned prompts that type into the active terminal, and
+# Review's popover dispatching to an agent instead — never tmux). Most of the
+# new/changed code lives under desktop/src/features/runs/**, which the root
+# registry already declares whole; the entries here are the paths those globs
+# do not cover: the new vingilot-*.ts storage modules (the localStorage-
+# key-per-concern idiom lives beside vingilot-dock-size.ts, one level up from
+# the runs island), the new shared card-chrome constant those storage siblings
+# do NOT touch but `ChatStatusBar.tsx` (upstream's channels feature) does, the
+# new Settings card, and the two upstream files that mount/register it all.
+
+seams:
+  - path: "desktop/src/shared/theme/vingilot-quick-actions.ts"
+    reason: "New, fork-owned: the status bar's configurable canned-prompt buttons, persisted in the app's localStorage-key-per-concern idiom beside vingilot-dock-size.ts and vingilot-crew-position.ts. An explicit empty list is honored as a real choice; only a genuinely absent/unreadable value falls back to the mockup's two defaults (Commit, Create PR) — Stop and Review are real behavior/dispatch, not prompts, and are not stored here."
+    owner: "vingilot/redesign"
+    removable_when: "With the status bar's quick actions."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/src/shared/theme/vingilot-review.ts"
+    reason: "New, fork-owned: Review's persisted reviewer (a persona id — the roster's stable identity, not a pubkey a remint could change) and instruction text, same idiom as the sibling above. Read/written by useReviewDispatch.ts (desktop/src/features/runs/lib/**, already a declared seam)."
+    owner: "vingilot/redesign"
+    removable_when: "With the Review popover."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/src/shared/ui/vingilotCard.ts"
+    reason: "New, fork-owned: VINGILOT_CARD_CLASS, the mockup's one card treatment (.stage/.dock/.status — rounded/bordered/shadowed) pulled out at its third user (PaneFrame.tsx, DockShell.tsx, ProjectStatusBar.tsx — all desktop/src/features/runs/**, already covered — plus ChatStatusBar.tsx below). Lives in shared/ui/ rather than the runs island on purpose: ChatStatusBar is upstream's own component (features/channels), and an upstream file reaching INTO the fork-owned runs island would run the dependency backwards — the island may depend on upstream (useReviewDispatch.ts does), never the other way."
+    owner: "vingilot/redesign"
+    removable_when: "With the mockup's card treatment."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/src/features/channels/ui/ChatStatusBar.tsx"
+    reason: "One height change (36px, matching the mockup's own .status number) plus a header note on why this bar does NOT wear the new floating-card treatment ProjectStatusBar does: the channel route is not in ownCards mode (AppShellChannelSurface), so a channel screen is still ONE card (header+messages+composer+this bar) inside ContentSurface's own rounded/shadowed box, and a second nested border+shadow+radius here would double chrome the mockup never draws (it has no channel view at all). No behavior changes — same two facts, same relay-word click rule, same testids the existing statusline.spec.ts already asserts."
+    owner: "vingilot/redesign"
+    removable_when: "With the status bar redesign."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/src/features/settings/ui/VingilotQuickActionsSettings.tsx"
+    reason: "New, fork-owned: the status bar's quick-action buttons as a Settings card (owner's own feature — configurable canned prompts, editable label + prompt template per row, add/remove, persisted on every change). Mounted into SettingsPanels.tsx (already a declared seam) with two lines, the same pattern VingilotAppearanceSettings.tsx used for its own mount."
+    owner: "vingilot/redesign"
+    removable_when: "With the status bar's quick actions."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/src/features/settings/ui/SettingsPanels.tsx"
+    reason: "Two lines added to the Appearance section (over redesign-p0.yaml's and redesign-p1.yaml's existing declarations of this same path): one import, one JSX mount of VingilotQuickActionsSettings, placed directly after VingilotAppearanceSettings — the same section the P1.1 tray migration already lands fork-owned Vingilot settings in."
+    owner: "vingilot/redesign"
+    removable_when: "With the status bar's quick actions."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/tests/e2e/status-bar.spec.ts"
+    reason: "New, fork-owned spec: the status bar's contract over the real key path and a recorded pty bridge — bar anatomy against the mockup's .sg/.sgrow/.sbtn (the card treatment, the segment set, the omitted CI/tokens-cost segments declared absent), segment honesty (no fact rendered without its backing state present), a quick-action button proved reaching the ACTIVE session's pty_write (not a new one), the Settings round-trip (add/edit/remove persists and the bar reflects it on remount), and Review's dispatch (a real signed kind:9 addressed to the reviewer — asserted from __BUZZ_E2E_SIGNED_EVENTS__, not from the popover closing — and never a pty_write, plus the thread-blocked and Mate-DM cases)."
+    owner: "vingilot/redesign"
+    removable_when: "With the status bar."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/playwright.config.ts"
+    reason: "One line (over the several prior phases' existing declarations): the smoke project's testMatch gains status-bar.spec.ts."
+    owner: "vingilot/redesign"
+    removable_when: "With the spec it registers."
+    status: "permanent"
+    added: "2026-08-31"

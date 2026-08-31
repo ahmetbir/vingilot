@@ -37,6 +37,7 @@ import type * as React from "react";
 
 import type { PaneAvailability } from "@/features/runs/lib/paneModel";
 import type { PaneEntry } from "@/features/runs/ui/paneRegistry";
+import { VINGILOT_CARD_CLASS } from "@/shared/ui/vingilotCard";
 
 interface PaneFrameProps {
   entry: PaneEntry;
@@ -104,7 +105,7 @@ export function PaneFrame({
           ? // The mockup's `.stage`: this frame is its own card on the
             // gradient, drawn exactly like the dock beside it so neither
             // reads as the other's compartment (redesign P3.2).
-            "rounded-xl border border-foreground/[.06] bg-background shadow-lg"
+            VINGILOT_CARD_CLASS
           : ""
       }`}
       data-pane={entry.id}
