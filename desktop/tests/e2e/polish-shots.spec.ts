@@ -309,19 +309,18 @@ test("files: the tree, the viewer, the long file, and the empty state", async ({
   await openPolishWorkspace(page);
   await openPane(page, "files");
 
-  // The tree lives in the Deck sidebar's Files accordion member now
-  // (pane-nav-absorb plan) — open it and shoot it there.
-  await page.getByTestId("sidebar-accordion-header-files").click();
-  await expect(page.getByTestId("files-tree")).toBeVisible();
-  await expect(page.getByTestId("files-row-src")).toBeVisible();
-  await expect(page.getByTestId("files-row-README.md")).toBeVisible();
-  await page.getByTestId("files-row-src").click();
-  await expect(page.getByTestId("files-row-src/greet.ts")).toBeVisible();
-  await shoot(page, "app-sidebar", "files-tree");
+  // The tree is the dock's own tab since P3, and since P4.1 the only one —
+  // shoot it there, with the language icons P4.1 gave it.
+  await expect(page.getByTestId("dock-files-tree")).toBeVisible();
+  await expect(page.getByTestId("dock-files-row-src")).toBeVisible();
+  await expect(page.getByTestId("dock-files-row-README.md")).toBeVisible();
+  await page.getByTestId("dock-files-row-src").click();
+  await expect(page.getByTestId("dock-files-row-src/greet.ts")).toBeVisible();
+  await shoot(page, "dock-files", "files-tree");
 
   // A small file, highlighted. The colour poll is also what gates the "after"
   // shot on the async swap having landed.
-  await page.getByTestId("files-row-src/greet.ts").click();
+  await page.getByTestId("dock-files-row-src/greet.ts").click();
   await expect(page.getByTestId("files-viewer-path")).toHaveText(
     "src/greet.ts",
   );
@@ -331,16 +330,18 @@ test("files: the tree, the viewer, the long file, and the empty state", async ({
   await expect
     .poll(async () => coloured.count(), { timeout: 15_000 })
     .toBeGreaterThan(3);
-  await shoot(page, "dock-files", "files-viewer");
+  // The reading is a tab on the stage since P4.1, not a viewer inside the
+  // 376px dock card — so the shot is of the surface it actually got.
+  await shoot(page, "files-viewer", "files-viewer");
 
   // The 400-line file — the shot that shows what the ceiling used to cost.
-  await page.getByTestId("files-row-src/long.ts").click();
+  await page.getByTestId("dock-files-row-src/long.ts").click();
   await expect(page.getByTestId("files-viewer-path")).toHaveText("src/long.ts");
   await expect(page.getByTestId("files-viewer")).toContainText("const line399");
   // Give a background tokenise time to land when there is one; asserted only
   // as "the text is still there" so the before build passes too.
   await page.waitForTimeout(1_500);
-  await shoot(page, "dock-files", "files-viewer-long");
+  await shoot(page, "files-viewer", "files-viewer-long");
 
   // The empty state: leave and come back (a remount — `identity` is the
   // worktree, but the slot renders one pane at a time). No drawer to put
@@ -382,30 +383,24 @@ test("history: source control and commits, then a commit's patch", async ({
   await openHistoryWorkspace(page, EXTERNAL_DISPLAY);
   await openHistoryPane(page);
 
-  await expect(page.getByTestId("history-status-headline")).toBeVisible();
-  await expect(
-    page.getByTestId("history-file-status:staged:src/new.rs"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("history-file-status:unstaged:src/a.rs"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("history-file-status:untracked:notes.txt"),
-  ).toBeVisible();
-  await expect(page.getByTestId("history-commits")).toBeVisible();
-  // The dock's History tab shows its own graph until a commit is picked
-  // (`DockHistoryPanel.tsx`) — there is no separate "no patch selected"
-  // placeholder beside it the way the old side-by-side pane drew one; the
-  // graph on screen IS the honest "nothing chosen yet" state now.
+  // Since P4.1 the History surface is one thing: the dock's tab, drawing the
+  // mockup's lane graph over `git log --all`. The sidebar's parked status /
+  // commit lists are gone (the owner's "sol side bardaki history ve files
+  // kalkmali"), so the graph on screen IS the honest "nothing chosen yet"
+  // state — there is no second list beside it and no placeholder patch.
   await expect(page.getByTestId("dock-history-graph")).toBeVisible();
-  await shoot(page, "app-sidebar", "history-list");
+  await expect(page.getByTestId("dock-history-scope")).toContainText(
+    "all branches",
+  );
+  await shoot(page, "dock-history", "history-graph");
 
-  await page.getByTestId(`history-commit-${"a".repeat(40)}`).click();
+  // And a commit opens its patch as a TAB on the stage, not inside the dock.
+  await page.getByTestId(`dock-history-commit-${"a".repeat(40)}`).click();
   await expect(page.getByTestId("history-patch-title")).toContainText(
     "aaaaaaa",
   );
   await expect(page.getByTestId("history-patch")).toContainText("+is here now");
-  await shoot(page, "dock-history", "history-commit");
+  await shoot(page, "work-surface", "history-commit");
 });
 
 test("terminal chrome: the tab strip in its header, and the status bar", async ({

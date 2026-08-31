@@ -147,6 +147,19 @@ interface Props {
    * Optional, so a Diff pane rendered anywhere without a host to ask keeps
    * working and simply does not offer it. */
   onShowFile?: (path: string, line: number | null) => void;
+  /** Read this diff on the whole stage instead — as a view tab beside the
+   * shells (redesign P4.1, item 3).
+   *
+   * **This is P3.1's geometry ruling with a door.** A dock card is 300-540px
+   * and a patch is not; the panel yields to the layout it is in rather than
+   * fighting it, and offers the way to a surface where the same read has room.
+   * It hands back the base it is CURRENTLY reading against, not the one in the
+   * box: the tab must be the diff on screen, and the box may hold a ref the
+   * owner has typed and not yet pressed Read on.
+   *
+   * Optional, and absent exactly where it would be a loop: the copy of this
+   * panel that IS the tab does not offer to open a tab. */
+  onOpenInTab?: (base: string) => void;
 }
 
 /** What has focus right now, in the terms `diffKeys.ts` decides on. The
@@ -162,7 +175,12 @@ function focused(): FocusedElement | null {
   };
 }
 
-export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
+export function WorktreeDiffPanel({
+  cwd,
+  onOpenInTab,
+  onShowFile,
+  worktree,
+}: Props) {
   const suggested = defaultDiffBase(worktree);
   const [draft, setDraft] = React.useState(suggested);
   // One read, named. The nonce is what makes pressing Read with the same ref
@@ -444,6 +462,17 @@ export function WorktreeDiffPanel({ cwd, onShowFile, worktree }: Props) {
           Read
         </button>
         <Freshness readAt={readAt} reading={reading} />
+        {onOpenInTab === undefined ? null : (
+          <button
+            className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            data-testid="worktree-diff-open-tab"
+            onClick={() => onOpenInTab(request.base)}
+            title="Read this diff on the whole stage, as a tab beside the shells"
+            type="button"
+          >
+            Open in tab
+          </button>
+        )}
         {summary === null ? null : (
           <span className="min-w-0 basis-full truncate text-2xs text-muted-foreground">
             {summary.headline}

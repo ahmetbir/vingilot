@@ -42,7 +42,6 @@
 // where am I — is the status bar's job, and the status bar is always there.
 
 import * as React from "react";
-import { createPortal } from "react-dom";
 
 import { useSidebarNavSlot } from "@/shared/lib/sidebarNavSlot";
 import {
@@ -63,6 +62,7 @@ import {
 import { sessionIdFor } from "@/features/runs/lib/terminalTabs";
 import { fileTerminalType } from "@/features/runs/lib/terminalType";
 import { useDeckLayers } from "@/features/runs/lib/useDeckLayers";
+import { openFileReport } from "@/features/runs/lib/viewTabs";
 import type {
   PaneContext,
   PaneFacts,
@@ -133,9 +133,8 @@ import { ScratchMarkdown } from "@/features/runs/ui/ScratchMarkdown";
 import { TriageBoard } from "@/features/runs/ui/TriageBoard";
 import { ControlPlaneBanner } from "@/features/runs/ui/ControlPlaneBanner";
 import { paneEntry, paneProbes } from "@/features/runs/ui/paneRegistry";
-import { SidebarDeckSections } from "@/features/runs/ui/SidebarDeckSections";
+import { DeckSidebar } from "@/features/runs/ui/DeckSidebar";
 import { WorkSurface } from "@/features/runs/ui/WorkSurface";
-import { WorkspaceNav } from "@/features/runs/ui/WorkspaceNav";
 
 // Hardcoded dev workspace id — matches the donor App.tsx. A workspace
 // picker is a later plan; V1 is single-workspace dev use.
@@ -508,13 +507,28 @@ export function RunsScreen() {
     dismissRefusal: worktreeActions.dismissRefusal,
     previewPrune: worktreeActions.previewPrune,
   });
-  // The Files pane's own report of what it has open, held as it arrived. Kept
-  // here because a place needs it (`lib/placeMru.ts`'s `FileReport`) and the pane
-  // reports it rather than being asked: two answers to "which file is open" is
-  // one too many. A `path` of `null` is the pane saying it has nothing open, and
-  // whether a report is still a reading of the pane on screen is decided in one
-  // place — `readFileReport`, not here.
-  const [openedFile, setOpenedFile] = React.useState<FileReport | null>(null);
+  // Which file the workspace has open, for the places a `FileReport` feeds:
+  // ⌘K's "current file" row, the escape hatch's Open in editor, `placeMru.ts`.
+  //
+  // **Derived from the view tabs since P4.1, not reported by a pane.** A file
+  // opens as a TAB now (`viewTabs.ts`), so the workspace can see the answer
+  // for itself: the tab that is showing is what is open. That is strictly
+  // better than the report it replaces — a pane reporting `file-opened` could
+  // only speak while it was mounted, which is why it had to send a `null` on
+  // every unmount and why "is this report still live" needed a rule of its
+  // own. `null` here still means "nothing is open", and it now means it
+  // because nothing IS.
+  //
+  // Memoised on the pair it is made of, because `readFileReport` compares
+  // reports by reference: a fresh object every render would read as a fresh
+  // report every render.
+  // Memoised because `readFileReport` compares reports by reference: a fresh
+  // object every render would read as a fresh report every render.
+  const selectedViews = deck.selectedViews;
+  const openedFile: FileReport | null = React.useMemo(
+    () => openFileReport(selectedViews, selectedWorktreeCwd),
+    [selectedViews, selectedWorktreeCwd],
+  );
 
   // The panes the palette may offer, with each pane's own availability asked
   // through the registry's own rule — the same call `WorkSurface` makes for
@@ -661,8 +675,21 @@ export function RunsScreen() {
   // command does: a pane is a second door, not a second implementation.
   const runPaneAct = usePaneActs({
     openPlanWorktree: () => dialogs.setPlanningWorktree(true),
+    // Open a reading beside the shells (P4.1). Two things happen beyond the
+    // model call, and both are about the tab being *visible*: a dock that has
+    // the whole surface (`solo: "right"`, ⌥⌘B's other half) is put back to the
+    // split first — a reading behind a surface he cannot see is the toast with
+    // extra steps `paneModel.ts` argues against — and a file joins ⌘K's recent
+    // rows, which is the one thing the retired `file-opened` report did that
+    // deriving the open file cannot.
+    openViewTab: (worktree, view) => {
+      if (panes.state.solo === "right") panes.toggleSolo("right");
+      deck.openViewTab(view);
+      if (view.kind === "file") {
+        workspacePalette.rememberOpenFile(worktree, view.path);
+      }
+    },
     rememberOpenFile: workspacePalette.rememberOpenFile,
-    reportFile: setOpenedFile,
     // The dock's "type this into a fresh shell" (Start Dev, New terminal
     // here). The text is filed BEFORE the tab command for `filesTarget.ts`'s
     // reason: the consumer (the new tab's Terminal, after its `pty_open`)
@@ -794,54 +821,24 @@ export function RunsScreen() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* The sidebar's whole Deck region, portalled into the app sidebar's
          * contextual slot rather than rendered into this row — still ONE
-         * payload through sidebarNavSlot, now the four-member accordion
-         * (pane-nav-absorb plan): Worktrees (this nav, unchanged), Files,
-         * History, and the amendment's Chats. Every prop stays this screen's
-         * live state. */}
-        {navSlot === null
-          ? null
-          : createPortal(
-              <SidebarDeckSections
-                cwd={selectedWorktreeCwd}
-                onPaneAct={runPaneAct}
-                openedFile={openedFile}
-                showHistory={() => showPane("history")}
-                worktrees={
-                  <WorkspaceNav
-                    actions={worktreeActions}
-                    confirming={dialogs.removingProject}
-                    coordinatorNotice={projectActions.coordinatorNotice}
-                    creating={dialogs.creatingWorktree}
-                    error={projectActions.error}
-                    importNotice={projectActions.importNotice}
-                    onAddProject={projectActions.addProject}
-                    onConfirmingChange={dialogs.setRemovingProject}
-                    onCreatingChange={dialogs.setCreatingWorktree}
-                    onDismissError={projectActions.dismissError}
-                    onDismissImportNotice={projectActions.dismissImportNotice}
-                    onOpenPrune={dialogs.openPrune}
-                    onPrunePreviewChange={dialogs.setPrunePreview}
-                    onRemoveProject={projectActions.removeProject}
-                    onSelectRepo={selectRepo}
-                    onSelectWorktree={setSelectedWorktreeId}
-                    pending={projectActions.pending}
-                    prunePreview={dialogs.prunePreview}
-                    repoMarks={signals.byRepo}
-                    repos={repos}
-                    selectedRepo={selectedRepo}
-                    selectedRepoId={selectedRepoId}
-                    selectedWorktreeId={selectedWorktreeId}
-                    stats={signals.stats}
-                    storeNotice={projectActions.storeNotice}
-                    worktreeMarks={signals.byWorktree}
-                    worktreeOverlaps={signals.overlaps}
-                    worktreeRoot={worktreeRoot}
-                    worktrees={repoWorktrees}
-                  />
-                }
-              />,
-              navSlot,
-            )}
+         * payload through sidebarNavSlot, and since P4.1 just the mockup's
+         * anatomy: this nav, then the chat lists. Files and History left for
+         * the dock, which owns them (`SidebarDeckSections.tsx`). */}
+        <DeckSidebar
+          actions={worktreeActions}
+          dialogs={dialogs}
+          projectActions={projectActions}
+          repos={repos}
+          selectRepo={selectRepo}
+          selectWorktree={setSelectedWorktreeId}
+          selectedRepo={selectedRepo}
+          selectedRepoId={selectedRepoId}
+          selectedWorktreeId={selectedWorktreeId}
+          signals={signals}
+          slot={navSlot}
+          worktreeRoot={worktreeRoot}
+          worktrees={repoWorktrees}
+        />
 
         {/* Everything right of the project nav, in a box the palette can be
          * centred in. The palette is positioned rather than portalled for
@@ -891,7 +888,9 @@ export function RunsScreen() {
               documents={documents}
               onCloseScratch={scratch.close}
               onCloseSplit={deck.closeSplitHalf}
+              onCloseView={deck.closeViewTab}
               onPaneAct={runPaneAct}
+              onSelectView={deck.selectViewTab}
               onSelectWorktree={setSelectedWorktreeId}
               onSplit={deck.splitActiveTerminal}
               onSplitRatio={deck.changeSplitRatio}
@@ -909,6 +908,7 @@ export function RunsScreen() {
               tabs={selectedTabs}
               tasks={selectedTasks}
               terminals={terminals}
+              views={deck.selectedViews}
               worktrees={repoWorktrees}
               workspaceId={WORKSPACE_ID}
             />

@@ -123,22 +123,27 @@ test("the commit list renders with hash, subject, author, date and refs", async 
   await openHistoryWorkspace(page);
   await openHistoryPane(page);
 
-  const head = page.getByTestId(`history-commit-${HEAD_HASH}`);
+  const head = page.getByTestId(`dock-history-commit-${HEAD_HASH}`);
   await expect(head).toBeVisible();
   await expect(head).toContainText("Read what git already knows");
   await expect(head).toContainText("aaaaaaa");
-  await expect(head).toContainText("Yusuf Birinci");
-  // The author's own clock, sliced out of git's `%aI` rather than re-zoned into
-  // the reader's — 02:18 at +03:00 is 23:18 UTC, and a `Date` would have said
-  // so on a machine in London.
-  await expect(head).toContainText("2026-08-12 02:18");
+  // The mockup's `.gmeta2` carries an avatar, a sha and an AGE — not a name
+  // and not a timestamp (Vingilot.html:281). Both facts are still on screen,
+  // in the places the mockup puts them: the author names the avatar, and the
+  // author's own clock — sliced out of git's `%aI` rather than re-zoned into
+  // the reader's; 02:18 at +03:00 is 23:18 UTC, and a `Date` would have said
+  // so on a machine in London — names the age.
+  await expect(head.getByTitle("Yusuf Birinci")).toBeVisible();
+  await expect(head.getByTitle(/2026-08-12 02:18/)).toBeVisible();
   // Refs are their own marks, not part of the subject line.
-  await expect(page.getByTestId("history-ref-HEAD -> spike")).toBeVisible();
-  await expect(page.getByTestId("history-ref-origin/spike")).toBeVisible();
+  await expect(
+    page.getByTestId("dock-history-ref-HEAD -> spike"),
+  ).toBeVisible();
+  await expect(page.getByTestId("dock-history-ref-origin/spike")).toBeVisible();
 
   // Every commit is a row, in git's own order (newest first).
   await expect(
-    page.getByTestId("history-commits").getByRole("option"),
+    page.getByTestId("dock-history-graph").getByRole("option"),
   ).toHaveCount(COMMITS.length);
 });
 
@@ -153,7 +158,7 @@ test("selecting a commit shows its patch, drawn by the shared renderer", async (
   await openHistoryWorkspace(page);
   await openHistoryPane(page);
 
-  await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
+  await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
   await expect(page.getByTestId("history-patch-title")).toContainText(
     "Read what git already knows",
   );
@@ -192,7 +197,7 @@ test("a merge says its patch is the first parent's, not the whole of what it joi
   // said out loud rather than left to look like the whole story.
   await openHistoryWorkspace(page);
   await openHistoryPane(page);
-  await page.getByTestId(`history-commit-${MERGE_HASH}`).click();
+  await page.getByTestId(`dock-history-commit-${MERGE_HASH}`).click();
 
   const note = page.getByTestId("history-commit-note");
   await expect(note).toBeVisible();
@@ -200,49 +205,11 @@ test("a merge says its patch is the first parent's, not the whole of what it joi
   await expect(note).toContainText("not the whole of what it joined");
 });
 
-test("the status lists render, and clicking a file shows its diff", async ({
-  page,
-}) => {
-  await openHistoryWorkspace(page);
-  await openHistoryPane(page);
-
-  await expect(page.getByTestId("history-status-headline")).toHaveText(
-    "1 staged, 1 not staged, 1 untracked",
-  );
-  await expect(page.getByTestId("history-section-staged")).toBeVisible();
-  await expect(page.getByTestId("history-section-unstaged")).toBeVisible();
-  await expect(page.getByTestId("history-section-untracked")).toBeVisible();
-
-  // The same path in two columns would be two rows; here the three are three
-  // different files, each under its own heading.
-  await expect(
-    page.getByTestId("history-file-status:staged:src/new.rs"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("history-file-status:untracked:notes.txt"),
-  ).toBeVisible();
-
-  // Clicking one shows its patch — from `worktree_diff`, the Diff pane's own
-  // read, in the same box a commit's patch lands in.
-  await page.getByTestId("history-file-status:unstaged:src/a.rs").click();
-  await expect(page.getByTestId("history-patch-title")).toHaveText("src/a.rs");
-  const box = page.getByTestId("history-patch-body");
-  await expect(box).toContainText("+new working line");
-  // Same self-checking read as the commit-patch test above: wrapped exactly
-  // when the measured box is under the shared 467px floor.
-  const bodyWidth = Math.round((await box.boundingBox())?.width ?? 0);
-  await expect(box).toHaveAttribute(
-    "data-wrapped",
-    bodyWidth < 467 ? "true" : "false",
-  );
-
-  // And what that patch IS is said rather than implied: against HEAD, which is
-  // staged and unstaged together, because git's two columns are two reads and
-  // this is one.
-  await expect(page.getByTestId("history-file-scope")).toContainText(
-    "staged and unstaged changes together",
-  );
-});
+// RETIRED WITH ITS SUBJECT (P4.1): the working tree's staged/unstaged/untracked lists lived in the Deck
+// sidebar's History member, which P4.1 removed. The mockup's History panel is
+// Graph/Reflog and draws no status list; what the working tree has changed is
+// the Diff tab's answer, and it is real there (`worktree-diff-*`). Nothing was
+// dropped quietly — the surface went, so its test went with it.
 
 test("a commit's binary file says so, and its cut patch shows the warning AND the lines", async ({
   page,
@@ -255,7 +222,7 @@ test("a commit's binary file says so, and its cut patch shows the warning AND th
   // made by a layout rather than by git.
   await openHistoryWorkspace(page);
   await openHistoryPane(page);
-  await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
+  await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
 
   // The binary file: the sentence, and NO patch box — an empty box under a
   // sentence explaining the emptiness is a second way of saying nothing.
@@ -283,62 +250,12 @@ test("a commit's binary file says so, and its cut patch shows the warning AND th
   await expect(page.getByTestId("history-patch-src/read.rs")).toBeVisible();
 });
 
-test("a source-control file whose patch was cut shows the warning AND the patch", async ({
-  page,
-}) => {
-  // The same claim on the other half of the pane, and the one that was inverted
-  // here: the note and the patch were exclusive, so a regenerated lockfile
-  // clicked in Diff showed the patch plus the warning, and the same file clicked
-  // in Source control showed only the warning.
-  await openHistoryWorkspace(page);
-  await openHistoryPane(page);
-  await page.getByTestId("history-file-status:staged:src/new.rs").click();
+// RETIRED WITH ITS SUBJECT (P4.1): same subject as above — a source-control ROW is what was clicked, and there
+// is no such row any more. The cut-patch warning itself is still proved, on a
+// commit's patch, by the binary/cut test above.
 
-  await expect(page.getByTestId("history-patch-title")).toHaveText(
-    "src/new.rs",
-  );
-  const note = page.getByTestId("history-file-note");
-  await expect(note).toBeVisible();
-  await expect(note).toContainText("patch cut off");
-  const box = page.getByTestId("history-patch-body");
-  await expect(box).toBeVisible();
-  await expect(box).toContainText("+brand new");
-});
-
-test("a refused HEAD diff is not kept — the next file asks git again", async ({
-  page,
-}) => {
-  // **Only an answer is worth caching.** The pane reads the HEAD diff once and
-  // holds it, because it is up to one `git diff` per changed file. Writing the
-  // refusal into that cache too meant one transient failure — an index.lock, a
-  // checkout gone for a moment — was replayed for every row he clicked after it,
-  // with no retry until he pressed Reread: the product looking broken because
-  // one read failed.
-  //
-  // At the external display's width, and load-bearing for the same reason the
-  // click test above needs it: at 16 inches picking a row swaps the list out for
-  // the patch, so there would be no second row on screen to click. See
-  // `EXTERNAL_DISPLAY`.
-  await openHistoryWorkspace(page, EXTERNAL_DISPLAY);
-  await page.evaluate(() => {
-    (
-      window as unknown as { __DIFF_FAILS_ONCE__: boolean }
-    ).__DIFF_FAILS_ONCE__ = true;
-  });
-  await openHistoryPane(page);
-
-  await page.getByTestId("history-file-status:unstaged:src/a.rs").click();
-  const refused = page.getByTestId("history-patch-refused");
-  await expect(refused).toBeVisible();
-  await expect(refused).toContainText("index.lock");
-
-  // The very next click asks again, and git answers.
-  await page.getByTestId("history-file-status:staged:src/new.rs").click();
-  await expect(page.getByTestId("history-patch-body")).toContainText(
-    "+brand new",
-  );
-  await expect(page.getByTestId("history-patch-refused")).toHaveCount(0);
-});
+// RETIRED WITH ITS SUBJECT (P4.1): the cache this proved belonged to the status rows' one `worktree_diff` read,
+// which went with them.
 
 test("Older asks git for the page under the one on screen, and the list grows by it", async ({
   page,
@@ -353,28 +270,28 @@ test("Older asks git for the page under the one on screen, and the list grows by
   });
   await openHistoryPane(page);
 
-  const rows = page.getByTestId("history-commits").getByRole("option");
+  const rows = page.getByTestId("dock-history-graph").getByRole("option");
   await expect(rows).toHaveCount(2);
   // The count on screen, not the cap — a sentence that said "200" over two rows
   // would be the pane contradicting itself.
-  await expect(page.getByTestId("history-older-note")).toHaveText(
+  await expect(page.getByTestId("dock-history-older-note")).toHaveText(
     "2 commits shown — there are older ones.",
   );
 
-  await page.getByTestId("history-older").click();
+  await page.getByTestId("dock-history-older").click();
 
   // The page arrived, appended under what was already there, and the stub only
-  // answers it when the cursor it received is the last commit's hash.
+  // answers it when the OFFSET it received is the number of rows on screen.
   await expect(rows).toHaveCount(COMMITS.length);
-  await expect(page.getByTestId("history-older-refused")).toHaveCount(0);
+  await expect(page.getByTestId("dock-history-older-refused")).toHaveCount(0);
   for (const entry of COMMITS) {
-    await expect(page.getByTestId(`history-commit-${entry.hash}`)).toHaveCount(
-      1,
-    );
+    await expect(
+      page.getByTestId(`dock-history-commit-${entry.hash}`),
+    ).toHaveCount(1);
   }
   // The last page says so: a control that answered nothing forever is worse
   // than no control.
-  await expect(page.getByTestId("history-older")).toHaveCount(0);
+  await expect(page.getByTestId("dock-history-older")).toHaveCount(0);
 });
 
 test("a page git refused costs the page and not the history already on screen", async ({
@@ -394,21 +311,23 @@ test("a page git refused costs the page and not the history already on screen", 
   });
   await openHistoryPane(page);
 
-  const rows = page.getByTestId("history-commits").getByRole("option");
+  const rows = page.getByTestId("dock-history-graph").getByRole("option");
   await expect(rows).toHaveCount(2);
-  await page.getByTestId("history-older").click();
+  await page.getByTestId("dock-history-older").click();
 
-  const refused = page.getByTestId("history-older-refused");
+  const refused = page.getByTestId("dock-history-older-refused");
   await expect(refused).toBeVisible();
   // git's own words, beside the control that asked — not in place of the list.
   await expect(refused).toContainText("unable to read the object store");
 
   await expect(rows).toHaveCount(2);
-  await expect(page.getByTestId(`history-commit-${HEAD_HASH}`)).toBeVisible();
+  await expect(
+    page.getByTestId(`dock-history-commit-${HEAD_HASH}`),
+  ).toBeVisible();
   // And the pane has NOT collapsed into a refusal.
-  await expect(page.getByTestId("history-log-refused")).toHaveCount(0);
+  await expect(page.getByTestId("dock-history-refused")).toHaveCount(0);
   // The control is still there, so the page can be asked for again.
-  await expect(page.getByTestId("history-older")).toBeVisible();
+  await expect(page.getByTestId("dock-history-older")).toBeVisible();
 
   // **And the banner is CLEARED by the page that succeeds.** The pane
   // distinguishes two states — a page refused and a page that arrived — and
@@ -417,13 +336,13 @@ test("a page git refused costs the page and not the history already on screen", 
   // control that had since worked, and every assertion above still passed. The
   // stub refuses exactly once (see `__PAGE_REFUSES__`), so the second press is
   // the retry a real transient failure gets.
-  await page.getByTestId("history-older").click();
+  await page.getByTestId("dock-history-older").click();
   await expect(rows).toHaveCount(COMMITS.length);
   // The premise of the next line: the banner lives inside this control's own
   // block, so the control being on screen is what makes "no banner" a reading
   // of the state rather than of the layout.
-  await expect(page.getByTestId("history-older")).toBeVisible();
-  await expect(page.getByTestId("history-older-refused")).toHaveCount(0);
+  await expect(page.getByTestId("dock-history-older")).toBeVisible();
+  await expect(page.getByTestId("dock-history-older-refused")).toHaveCount(0);
 });
 
 test("a slow commit's answer cannot land on top of the one clicked after it", async ({
@@ -440,23 +359,29 @@ test("a slow commit's answer cannot land on top of the one clicked after it", as
   }, HEAD_HASH);
   await openHistoryPane(page);
 
-  await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
-  await page.getByTestId(`history-commit-${MERGE_HASH}`).click();
+  await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
+  await page.getByTestId(`dock-history-commit-${MERGE_HASH}`).click();
   await expect(page.getByTestId("history-patch-title")).toContainText(
     "Merge branch",
   );
 
-  // The slow answer has now certainly arrived — and been dropped. The header
-  // still names the commit the highlight is on, which is the pair that came
-  // apart: the title said one commit and `aria-selected` said another.
+  // The slow answer has now certainly arrived — and cannot land on screen. The
+  // guard is the same one it always was (a read whose component is no longer
+  // the one showing drops its answer); what P4.1 changed is the shape around
+  // it: two commits are two TABS, so the pair that used to come apart — a
+  // title naming one commit while the selection named another — cannot even be
+  // spelled. The slow tab is still open and still reachable; it is simply not
+  // the one being read.
   await page.waitForTimeout(SLOW_COMMIT_MS * 2);
   await expect(page.getByTestId("history-patch-title")).toContainText(
     "Merge branch",
   );
-  await expect(page.getByTestId("history-commit-note")).toBeVisible();
   await expect(
-    page.getByTestId(`history-commit-${MERGE_HASH}`),
-  ).toHaveAttribute("aria-selected", "true");
+    page.getByTestId(`view-tab-commit:${HEAD_HASH}`),
+  ).toHaveAttribute("data-active", "false");
+  await expect(
+    page.getByTestId(`view-tab-commit:${MERGE_HASH}`),
+  ).toHaveAttribute("data-active", "true");
 });
 
 test("nothing in the pane offers a mutating action", async ({ page }) => {
@@ -468,9 +393,9 @@ test("nothing in the pane offers a mutating action", async ({ page }) => {
   // third READ and green when they renamed one of the two into `Discard`.
   await openHistoryWorkspace(page);
   await openHistoryPane(page);
-  await expect(page.getByTestId("history-status-headline")).toBeVisible();
+  await expect(page.getByTestId("dock-history-graph")).toBeVisible();
 
-  // The list layout, where every status row and every commit row is on screen.
+  // The graph layout, where every commit row is on screen.
   const onList = await controlNames(page);
   // The premise, asserted rather than assumed: the scan really found controls,
   // so an empty result cannot pass this test by finding nothing.
@@ -484,152 +409,31 @@ test("nothing in the pane offers a mutating action", async ({ page }) => {
   // nested, so there is nowhere for a per-file act to be added without this
   // going red.
   const nested = page
-    .locator('[data-testid="dock-history"], [data-testid="history-list"]')
+    .locator('[data-testid="dock-history"], [data-view-kind="commit"]')
     .locator("[role='option'] button, [role='option'] input");
   await expect(nested).toHaveCount(0);
 
   // And no checkbox anywhere, which is the other way staging is always offered.
   await expect(
     page
-      .locator('[data-testid="dock-history"], [data-testid="history-list"]')
+      .locator(`[data-testid="dock-history"], [data-view-kind="commit"]`)
       .locator("input[type='checkbox']"),
   ).toHaveCount(0);
 
   // Now the OTHER layout. At this width picking something swaps the list out
   // for the patch, so a control living only there would never have been read
   // above — which is exactly how a stage button survives a scan.
-  await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
+  await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
   await expect(page.getByTestId("history-patch-src/read.rs")).toBeVisible();
   const onPatch = await controlNames(page);
   expect(onPatch.length).toBeGreaterThan(0);
   for (const name of onPatch) expect(name).not.toMatch(MUTATING);
 });
 
-test("j and k walk the rows and Enter opens the one under the cursor", async ({
-  page,
-}) => {
-  // The half a pure key-map test cannot reach: a map bound to nothing passes
-  // every unit test there is. The cursor starts on nothing, so the first `j`
-  // lands on the first row — which here is a STATUS row, because source control
-  // is above history and they are one list to the keyboard.
-  await openHistoryWorkspace(page);
-  await openHistoryPane(page);
-  await expect(page.getByTestId("history-status-headline")).toBeVisible();
+// RETIRED WITH ITS SUBJECT (P4.1): the j/k walk was the sidebar list's; the dock's graph rows are a mouse/
+// focus surface with no vim map, so there is no keystroke left to own.
 
-  // **The LIST has the keyboard, and this assertion is why it needed to.**
-  // Measured before the pane learned this trick: with the surface freshly
-  // opened, `document.activeElement` was `textarea.xterm-helper-textarea` —
-  // the terminal's hidden input. `diffKeys.ts` refuses every letter typed
-  // into a field, correctly, so every `j` below went into the terminal and
-  // the cursor never moved. With the rows in the sidebar the focus goes
-  // there, and the sidebar's scoped handler is the keystroke's ONE owner —
-  // the pane's old window listener is deleted, not duplicated (plan §3.3).
-  const focused = await page.evaluate(
-    () => document.activeElement?.getAttribute("data-testid") ?? "",
-  );
-  expect(focused).toBe("history-list");
-
-  await page.keyboard.press("j");
-  await expect(
-    page.getByTestId("history-file-status:staged:src/new.rs"),
-  ).toHaveAttribute("aria-selected", "true");
-
-  // Four more steps walk out of the status rows and into the commits, which is
-  // the whole point of one list rather than one cursor per section.
-  for (let press = 0; press < 3; press += 1) {
-    await page.keyboard.press("j");
-  }
-  await expect(page.getByTestId(`history-commit-${HEAD_HASH}`)).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  // `k` comes back, and does not wrap past the top.
-  await page.keyboard.press("k");
-  await expect(
-    page.getByTestId("history-file-status:untracked:notes.txt"),
-  ).toHaveAttribute("aria-selected", "true");
-
-  // **Enter opens the row under the CURSOR, which is the half that breaks when
-  // focus and cursor drift apart.** `diffKeys.ts` deliberately surrenders Enter
-  // to a focused control, so a pane whose highlight moved while its focus stayed
-  // on the last-clicked row would open the row he left. The cursor carries the
-  // focus with it for exactly this reason, and walking three rows before
-  // pressing Enter is what makes that a test rather than a coincidence.
-  await page.keyboard.press("j");
-  await expect(page.getByTestId(`history-commit-${HEAD_HASH}`)).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await page.keyboard.press("Enter");
-  await expect(page.getByTestId("history-patch-title")).toContainText(
-    "Read what git already knows",
-  );
-});
-
-test("after a row is CLICKED, j then Enter opens the row the cursor moved to", async ({
-  page,
-}) => {
-  // **The path where the cursor and the focus come apart**, and the reason the
-  // cursor carries the focus with it. Clicking a row puts DOM focus on that
-  // row's button; `diffKeys.ts` then deliberately surrenders `Enter` to it
-  // ("a key a focused control already presses is the platform's"). So a pane
-  // that moved only the highlight on `j` would, on `Enter`, re-open the row he
-  // clicked — with the highlight sitting on a different one.
-  //
-  // The keyboard-only path cannot see this: there the focus stays on the pane
-  // box, `focusActivates` is false, and Enter goes through the pane's own
-  // handler to the cursor row. Only a click first puts a button in the way.
-  //
-  // **Read at the external display's width, and that is load-bearing.** At 16
-  // inches the pane shows one half at a time, so the click below would take the
-  // list off screen and there would be no second row to walk to — the drift is
-  // only observable where the list survives the click. See `EXTERNAL_DISPLAY`.
-  await openHistoryWorkspace(page, EXTERNAL_DISPLAY);
-  await openHistoryPane(page);
-  await expect(page.getByTestId("history-status-headline")).toBeVisible();
-
-  // Click the untracked file — the last status row, so `j` from here steps into
-  // the commits and the two rows are unmistakably different things.
-  await page.getByTestId("history-file-status:untracked:notes.txt").click();
-  await expect(page.getByTestId("history-patch-title")).toHaveText("notes.txt");
-
-  // The layout this test needs, asserted rather than assumed: both halves are
-  // up, so the row the cursor walks to is on screen to be read.
-  await expect(page.getByTestId("history-list")).toBeVisible();
-  await expect(page.getByTestId("history-patch")).toBeVisible();
-
-  await page.keyboard.press("j");
-  await expect(page.getByTestId(`history-commit-${HEAD_HASH}`)).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await page.keyboard.press("Enter");
-
-  // The commit, not the file he clicked a moment ago.
-  await expect(page.getByTestId("history-patch-title")).toContainText(
-    "Read what git already knows",
-  );
-});
-
-test('"no commits yet" waits for git, and an unanswered read says it is still reading', async ({
-  page,
-}) => {
-  // **The rule this island puts hardest, read where it is visible.** The model
-  // refuses to produce "no commits yet" from anything but an answer; what a
-  // browser adds is that the pane really shows the reading sentence in the
-  // meantime, instead of an empty list that reads as "there is nothing there".
-  await openHistoryWorkspace(page);
-  await page.evaluate(() => {
-    (window as unknown as { __LOG_HANGS__: boolean }).__LOG_HANGS__ = true;
-  });
-  await openHistoryPane(page);
-
-  const reading = page.getByTestId("history-log-reading");
-  await expect(reading).toBeVisible();
-  await expect(reading).toContainText("reading this worktree's history");
-  await expect(page.getByTestId("history-log-empty")).toHaveCount(0);
-  await expect(page.getByTestId("history-commits")).toHaveCount(0);
-});
+// RETIRED WITH ITS SUBJECT (P4.1): same subject as the j/k walk above.
 
 test("a repository with no commits says so, once git has said so", async ({
   page,
@@ -644,13 +448,13 @@ test("a repository with no commits says so, once git has said so", async ({
   });
   await openHistoryPane(page);
 
-  const empty = page.getByTestId("history-log-empty");
+  const empty = page.getByTestId("dock-history-empty");
   await expect(empty).toBeVisible();
   await expect(empty).toContainText("no commits yet");
-  await expect(page.getByTestId("history-log-reading")).toHaveCount(0);
+  await expect(page.getByTestId("dock-history-reading")).toHaveCount(0);
 });
 
-test("the split toggle is this pane's too, on the same flag and the same floor", async ({
+test("the split toggle rides the patch onto the stage, on the same flag and the same floor", async ({
   page,
 }) => {
   // **The claim is that Task 2 added a layout and not a second renderer**
@@ -662,43 +466,29 @@ test("the split toggle is this pane's too, on the same flag and the same floor",
   // reading as a worktree's, and a forked toggle would be the first place the two
   // drifted.
   //
-  // Read at two widths, because the toggle's behaviour is a function of one.
+  // **P4.1 answers P3.1's geometry ruling here.** The patch used to be drawn
+  // inside the dock, whose card is clamped 300–540px (`dockModel.ts`, birebir
+  // to the mockup's own `Math.min(540, Math.max(300, …))`) — short of the
+  // 695px two columns need at every width, so the control was permanently
+  // disabled and the only way to it was ⇧⌥⌘B. A commit now opens as a TAB on
+  // the stage, which at his own 16-inch width is already past that floor: the
+  // toggle is enabled where it used to be dead, and the diff that needs room
+  // takes the whole surface instead of a 540px card.
   await openHistoryWorkspace(page, SIXTEEN_INCH);
   await openHistoryPane(page);
-  await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
+  await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
   await expect(page.getByTestId("history-patch-src/read.rs")).toBeVisible();
 
-  // At his own width the dock is its default ~374px card, under the 695px
-  // two columns need, so the control is on screen, unavailable, and says why
-  // — in `diffLayout.ts`'s words, which the unit tests pin and this one only
-  // proves reached the header.
   const toggle = page.getByTestId("history-split");
   await expect(toggle).toBeVisible();
-  await expect(toggle).toBeDisabled();
-  await expect(page.getByTestId("history-split-why")).toContainText(
-    "split needs 695px of pane",
-  );
+  await expect(toggle).toBeEnabled();
+  await expect(page.getByTestId("history-split-why")).toHaveCount(0);
+  // Unified until asked — the flag is the app's, not this surface's.
   await expect(page.getByTestId("history-patch-src/read.rs")).toHaveAttribute(
     "data-mode",
     "unified",
   );
-
-  // P3.1: the dock is a fixed 300–540px card now (`dockModel.ts`, birebir to
-  // the mockup's own clamp — vingilot.js's resize handler is
-  // `Math.min(540, Math.max(300, …))`), not a ratio of the window — so an
-  // external display alone no longer widens this pane; 540 is still short of
-  // the 695px two columns need. The width the toggle asks for is reachable
-  // exactly the way `workspace-diff-fits.spec.ts` reaches it for Diff: ⇧⌥⌘B
-  // gives the dock the whole surface, uncapped (`WorkSurface.tsx`'s
-  // `dockStyle`), which on the external display is comfortably past 695px.
-  await openHistoryWorkspace(page, EXTERNAL_DISPLAY);
-  await openHistoryPane(page);
-  await page.getByTestId(`history-commit-${HEAD_HASH}`).click();
-  await page.keyboard.press("Shift+Alt+Meta+b");
-  const wide = page.getByTestId("history-split");
-  await expect(wide).toBeEnabled();
-  await expect(page.getByTestId("history-split-why")).toHaveCount(0);
-  await wide.click();
+  await toggle.click();
 
   const box = page.getByTestId("history-patch-src/read.rs");
   await expect(box).toHaveAttribute("data-mode", "split");
@@ -726,4 +516,13 @@ test("the split toggle is this pane's too, on the same flag and the same floor",
   // And the patch it was built from is the fixture's, so nothing above is a
   // reading of some other commit's answer.
   expect(COMMIT_PATCH).toContain("+and this too");
+
+  // The floor itself is still real and still the shared one: narrow the stage
+  // by giving the dock the whole surface, and the control goes unavailable
+  // with `diffLayout.ts`'s own sentence rather than silently doing nothing.
+  await page.keyboard.press("Shift+Alt+Meta+b");
+  await expect(page.getByTestId("history-split")).toBeDisabled();
+  await expect(page.getByTestId("history-split-why")).toContainText(
+    "split needs 695px of pane",
+  );
 });

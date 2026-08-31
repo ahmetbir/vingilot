@@ -49,6 +49,13 @@ export interface Commit {
   /** Ref names pointing here — `HEAD -> main`, `tag: v1`. Empty for almost
    * every commit, which is why it is a list rather than a string. */
   refs: string[];
+  /** This commit's parents, in git's own order (`%P`). Empty for a root
+   * commit, which is a fact and not a gap.
+   *
+   * **The field the lane graph is drawn from** (`commitGraph.ts`). Until
+   * P4.1 the backend did not report it, which is why P3's History panel drew
+   * a column of dots and said so rather than inventing a topology. */
+  parents: string[];
   subject: string;
 }
 
@@ -139,6 +146,12 @@ export function readCommit(value: unknown): Commit | null {
     author: str(v, "author"),
     date: str(v, "date"),
     hash,
+    // An answer with no `parents` reads as a root commit's empty list, which
+    // draws a lane that ends — never as a lane that continues into a hash
+    // nothing named.
+    parents: Array.isArray(v.parents)
+      ? v.parents.filter((hash): hash is string => typeof hash === "string")
+      : [],
     refs: Array.isArray(v.refs)
       ? v.refs.filter((ref): ref is string => typeof ref === "string")
       : [],

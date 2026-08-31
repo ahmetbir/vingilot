@@ -109,6 +109,7 @@ export const COMMITS = [
     author: "Yusuf Birinci",
     date: "2026-08-12T02:18:33+03:00",
     hash: HEAD_HASH,
+    parents: [MERGE_HASH],
     refs: ["HEAD -> spike", "origin/spike"],
     short: "aaaaaaa",
     subject: "Read what git already knows",
@@ -117,7 +118,11 @@ export const COMMITS = [
     author: "Yusuf Birinci",
     date: "2026-08-11T23:04:00+03:00",
     hash: MERGE_HASH,
-    refs: [],
+    // Two parents, and the second one is deliberately NOT on this page: a
+    // lane that opens here and runs off the bottom is the honest picture of a
+    // branch whose own commits are older than the page (P4.1 item 5).
+    parents: [OLDER_HASH, "e".repeat(40)],
+    refs: ["main"],
     short: "ccccccc",
     subject: "Merge branch 'main' into spike",
   },
@@ -125,6 +130,7 @@ export const COMMITS = [
     author: "Someone Else",
     date: "2026-08-10T09:30:00+03:00",
     hash: OLDER_HASH,
+    parents: [],
     refs: [],
     short: "bbbbbbb",
     subject: "The commit before all this",
@@ -298,8 +304,13 @@ export async function openHistoryWorkspace(
             });
           }
           if (knobs.__LOG_MORE__ === true) {
-            const before = ((args ?? {}) as { before?: string }).before;
-            if (before === undefined) {
+            // The union scope (`all: true`) pages by OFFSET, not by cursor —
+            // `vingilot_worktree::log`'s header says why a union of refs has
+            // no single tip to continue from. The stub reads the argument,
+            // which is the point: renaming `skip` would break the real app
+            // and, against a stub that ignored its arguments, fail nothing.
+            const skip = ((args ?? {}) as { skip?: number }).skip;
+            if (skip === undefined || skip === 0) {
               return Promise.resolve({
                 commits: commits.slice(0, 2),
                 cursor: commits[1]?.hash ?? null,
@@ -307,15 +318,11 @@ export async function openHistoryWorkspace(
                 more: true,
               });
             }
-            // **The stub reads the argument, which is the point.** Nothing else
-            // asserts the key `historyClient.ts` sends: renaming `before` to
-            // `cursor` would break the real app and, against a stub that ignored
-            // its arguments, fail nothing.
-            if (before !== commits[1]?.hash) {
+            if (skip !== 2) {
               return Promise.reject({
                 command: "git log",
                 kind: "git-failed",
-                stderr: `the second page asked for "${String(before)}", not the hash of the last commit shown`,
+                stderr: `the second page asked to skip ${String(skip)}, not the 2 rows already on screen`,
               });
             }
             if (knobs.__PAGE_REFUSES__ === true) {
@@ -544,11 +551,9 @@ export async function openHistoryWorkspace(
  * own — Search is the only pane in the table that does, because Search is the
  * only one he left the app for. */
 export async function openHistoryPane(page: Page) {
-  // The lists live in the Deck sidebar's History accordion member now
-  // (pane-nav-absorb plan, Task 5); the pane holds the shared patch box.
-  // Opening both is the whole gesture the old single-component pane was.
-  await page.getByTestId("sidebar-accordion-header-history").click();
-  await expect(page.getByTestId("history-list")).toBeVisible();
+  // Since P4.1 there is one History surface: the dock's own tab. The Deck
+  // sidebar's parked History member is gone ("sol side bardaki history ve
+  // files kalkmali"), and a commit's patch opens as a tab on the stage.
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("history");
@@ -572,13 +577,12 @@ export async function openHistoryPane(page: Page) {
  * VS Code-shaped failure — a stage button inside the row — from slipping
  * through this exclusion. */
 export async function controlNames(page: Page): Promise<string[]> {
-  // Both halves of what used to be one pane: the patch box that is the
-  // dock's History tab (`dock-history`, since P3) AND the sidebar-hosted
-  // status/commit lists — the plan is explicit that the mutating-verb rule
-  // must not leak back in through the sidebar's copy of the list
-  // (pane-nav-absorb §5).
+  // Both halves of the History surface as P4.1 leaves it: the dock's own tab
+  // (`dock-history`), and the commit patch it opens as a tab on the stage
+  // (`[data-view-kind="commit"]`). The mutating-verb rule must not leak back
+  // in through either door.
   return page
-    .locator('[data-testid="dock-history"], [data-testid="history-list"]')
+    .locator('[data-testid="dock-history"], [data-view-kind="commit"]')
     .locator("button:not([role='option']), input, [role='menuitem'], a[href]")
     .evaluateAll((nodes) =>
       nodes.map((node) =>

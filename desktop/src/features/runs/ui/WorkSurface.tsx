@@ -44,6 +44,16 @@
 // survives an unmount here is the pty session itself, whose screen `pty_open`
 // replays on reattach.
 //
+// **A view tab draws in that same box, and cannot disturb it** (redesign
+// P4.1, items 3 and 4). A file, a commit's patch or the worktree's diff can
+// hold a tab in the strip above; while one is showing, every `<Terminal>`
+// below is `hidden` — the exact state a background terminal tab is already in,
+// which `terminalFit.ts` reads as "refuse" — and the view renders as a sibling
+// in the same pane body. Nothing is unmounted, no session id is passed to the
+// view, and no `pty_*` call is on the path. That the reading gets the STAGE
+// rather than the dock is the point: at the default layout the stage is more
+// than twice the dock card's width, and ⌥⌘B gives it the window.
+//
 // That is also why the terminal is the pane fixed to the left rather than one
 // more thing the picker can move: a terminal that changed slots would change
 // parents, which means a new xterm, a fresh attach, and a replay into a
@@ -98,6 +108,8 @@ import type {
 } from "@/features/runs/lib/terminalTabs";
 import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import type { Panes } from "@/features/runs/lib/usePanes";
+import { activeView, type WorktreeViews } from "@/features/runs/lib/viewTabs";
+import { ViewTabSurface } from "@/features/runs/ui/ViewTabSurface";
 import { DockFloat } from "@/features/runs/ui/DockFloat";
 import { DockResizer } from "@/features/runs/ui/DockResizer";
 import { DockShell } from "@/features/runs/ui/DockShell";
@@ -143,6 +155,11 @@ interface WorkSurfaceProps {
    * owner of both (`RunsScreen`); `null` exactly when `tabs` is. */
   tasks: WorktreeTaskStrip | null;
   onTaskCommand: (command: TaskCommand) => void;
+  /** The selected worktree's non-terminal tabs and which of them is showing
+   * (P4.1). Owned by `RunsScreen` for the reason `tabs` is. */
+  views: WorktreeViews;
+  onSelectView: (id: string) => void;
+  onCloseView: (id: string) => void;
   /** Every terminal split, keyed by primary session id — owned by
    * `RunsScreen` for the reason the tab layout is. */
   splits: SplitLayout;
@@ -188,7 +205,9 @@ export function WorkSurface({
   documents,
   onCloseScratch,
   onCloseSplit,
+  onCloseView,
   onPaneAct,
+  onSelectView,
   onSelectWorktree,
   onSplit,
   onSplitRatio,
@@ -205,9 +224,14 @@ export function WorkSurface({
   tabs,
   tasks,
   terminals,
+  views,
   worktrees,
   workspaceId,
 }: WorkSurfaceProps) {
+  // The reading on screen, or `null` while a shell is. Read once: it gates the
+  // terminals' layout, the strip's lit tab, and what the pane body draws, and
+  // three readings of one question is how they come to disagree.
+  const showingView = activeView(views);
   const [focusToken, setFocusToken] = React.useState(0);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const toggleSolo = panes.toggleSolo;
@@ -542,14 +566,20 @@ export function WorkSurface({
           header={
             tabs === null ? null : (
               <TerminalTabStrip
+                activeViewId={views.active}
                 onClose={(n) => onTabCommand({ n, type: "close" })}
                 onCloseScratch={onCloseScratch}
+                onCloseView={onCloseView}
                 onNew={() => onTabCommand({ type: "new" })}
                 onSelect={(n) => onTabCommand({ n, type: "select" })}
+                onSelectView={onSelectView}
                 scratchOpen={scratch !== null}
                 // The active task's tabs only (mockup: each task owns its
                 // terminal set); the raw layout stays the model's business.
                 tabs={tasks === null ? tabs : stripView(tabs, tasks)}
+                // The readings, which belong to the worktree rather than to a
+                // task: a file is not a shell and joins no group of them.
+                views={views.tabs}
               />
             )
           }
@@ -563,7 +593,11 @@ export function WorkSurface({
           {terminals.map((terminal) => {
             const activeTerminal =
               selectedWorktreeId === terminal.bindingId &&
-              tabs?.active === terminal.n;
+              tabs?.active === terminal.n &&
+              // A view showing takes the layout, never the session: this
+              // terminal goes `hidden`, which is where every background tab
+              // already lives.
+              showingView === null;
             const split = splitOf(splits, terminal.sessionId);
             return (
               // The split host: one tab's box, one or two live shells in it.
@@ -628,6 +662,18 @@ export function WorkSurface({
               </div>
             );
           })}
+          {showingView === null || paneContext.cwd === null ? null : (
+            // The reading, in the terminal pane's own body — beside the
+            // shells, never instead of them. A worktree with no cwd this app
+            // can name has nothing to read, and the tab cannot be opened from
+            // anywhere in that state.
+            <ViewTabSurface
+              cwd={paneContext.cwd}
+              onPaneAct={onPaneAct}
+              tab={showingView}
+              worktree={selectedWorktree}
+            />
+          )}
           {scratch === null ? null : (
             // Keyed by the session so a scratch opened somewhere else is a
             // new xterm rather than the old one pointed at a new pty. Drawn

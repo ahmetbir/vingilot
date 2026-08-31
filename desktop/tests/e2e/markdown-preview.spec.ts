@@ -228,10 +228,9 @@ async function openFilesWorkspace(page: Page) {
 }
 
 async function openFilesPane(page: Page) {
-  // The tree lives in the Deck sidebar's Files accordion member now
-  // (pane-nav-absorb plan); the pane is the viewer alone.
-  await page.getByTestId("sidebar-accordion-header-files").click();
-  await expect(page.getByTestId("files-tree")).toBeVisible();
+  // The tree is the dock's Files tab (P3), and since P4.1 the only one — the
+  // sidebar's parked copy is gone. Picking a file there opens the viewer as a
+  // TAB beside the shells, which is where the preview toggle now lives.
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("files");
@@ -245,7 +244,7 @@ async function openFilesPane(page: Page) {
 /** Open a file from the sidebar's tree — one click; there is no drawer to
  * put away, the viewer has the pane to itself. */
 async function openFromTree(page: Page, path: string) {
-  await page.getByTestId(`files-row-${path}`).click();
+  await page.getByTestId(`dock-files-row-${path}`).click();
 }
 
 test("a markdown file toggles between source and rendered preview", async ({

@@ -309,7 +309,9 @@ test("each panel is real or honestly empty", async ({ page }) => {
   await openDockWorkspace(page);
 
   // Files: the tree, the mocked diff's git letter on the changed file, and
-  // the type badge — then a click opens the viewer in place.
+  // the LANGUAGE icon (P4.1's one licensed deviation from the mockup — the
+  // owner called its lettered chips wrong and asked for VS Code's per-language
+  // marks) — then a click opens the file as a TAB beside the shells.
   await page.getByTestId("dock-tab-files").click();
   await expect(page.getByTestId("dock-files-tree")).toBeVisible();
   await page.getByTestId("dock-files-row-src").click();
@@ -318,13 +320,31 @@ test("each panel is real or honestly empty", async ({ page }) => {
   await expect(page.getByTestId("dock-files-mark-src/greet.ts")).toHaveText(
     "M",
   );
-  await expect(page.getByTestId("dock-files-flogo-src/greet.ts")).toHaveText(
-    "TS",
-  );
+  await expect(
+    page
+      .getByTestId("dock-files-icon-src/greet.ts")
+      .locator("[data-file-icon]"),
+  ).toHaveAttribute("data-file-icon", "ts");
+  // A directory keeps the mockup's own folder glyph — the licence is for file
+  // types only.
+  await expect(
+    page.getByTestId("dock-files-icon-src").locator("[data-file-icon]"),
+  ).toHaveAttribute("data-file-icon", "folder");
+
   await changed.click();
-  await expect(page.getByTestId("dock-files-back")).toBeVisible();
-  await page.getByTestId("dock-files-back").click();
+  // The reading is on the stage, not inside the 376px card: the dock keeps its
+  // tree, and there is no viewer and no "‹ tree" back button in it any more.
   await expect(page.getByTestId("dock-files-tree")).toBeVisible();
+  await expect(page.getByTestId("dock-files-back")).toHaveCount(0);
+  await expect(
+    page.getByTestId("dock-files").getByTestId("files-viewer"),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("files-viewer-path")).toHaveText(
+    "src/greet.ts",
+  );
+  await expect(
+    page.getByTestId("view-tab-select-file:src/greet.ts"),
+  ).toBeVisible();
 
   // Checks: the designed empty state — no fake rows.
   await page.getByTestId("dock-tab-checks").click();

@@ -187,6 +187,19 @@ function DiffPane({ cwd, onPaneAct, worktree }: PaneProps) {
   return (
     <WorktreeDiffPanel
       cwd={cwd}
+      // The stage door (P4.1 item 3): the same read, on the whole surface, as
+      // a tab beside the shells. Offered only where there is a directory to
+      // read — a pane with no cwd has no diff to move anywhere.
+      onOpenInTab={
+        cwd === null
+          ? undefined
+          : (base) =>
+              onPaneAct({
+                type: "open-view",
+                view: { base, kind: "diff" },
+                worktree: cwd,
+              })
+      }
       // The `show this file in Diff` this file's header predicted, arriving in
       // the other direction: from a patch to the whole file. It goes through
       // `onPaneAct` rather than through `onChoosePane` because it carries an

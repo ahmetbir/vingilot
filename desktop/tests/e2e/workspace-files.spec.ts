@@ -383,13 +383,12 @@ async function openFilesWorkspace(page: Page) {
  * Deliberately not by clicking through the picker — the palette is the door the
  * plan cares about, and a pane missing from `PANE_IDS` has no row here at all.
  *
- * The tree is not in the pane any more: it is the Deck sidebar's Files
- * accordion member (pane-nav-absorb plan, Task 3), so this helper opens that
- * member too — the drawer, its toggle, and the closeTree/openTree dance this
- * file used to need at 435px are gone with the drawer itself. */
+ * The tree is the DOCK's since P3, and since P4.1 it is the only one — the
+ * Deck sidebar's Files accordion member is gone (the owner's "sol side bardaki
+ * history ve files kalkmali"), so the pane's own tab is the whole door. The
+ * drawer, its toggle, and the closeTree/openTree dance this file used to need
+ * at 435px went with the drawer itself. */
 async function openFilesPane(page: Page) {
-  await page.getByTestId("sidebar-accordion-header-files").click();
-  await expect(page.getByTestId("files-tree")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("files");
@@ -401,10 +400,12 @@ async function openFilesPane(page: Page) {
   await expect(page.getByTestId("dock-files")).toBeVisible();
 }
 
-/** Open a file from the sidebar's tree — one click; there is no drawer to put
- * away, because the viewer has the pane to itself now. */
+/** Open a file from the dock's tree — one click. Since P4.1 that click opens
+ * a TAB beside the shells rather than a viewer inside the 376px dock card
+ * ("file'lara basinca yine terminalin oldugu yerde tab gibi acilmali"), so the
+ * viewer this helper's callers assert on is the one on the stage. */
 async function openFromTree(page: Page, path: string) {
-  await page.getByTestId(`files-row-${path}`).click();
+  await page.getByTestId(`dock-files-row-${path}`).click();
 }
 
 test("the Files pane is reachable from the palette and from the dock's own tab", async ({
@@ -441,15 +442,15 @@ test("the tree walks under the arrow keys and opens a file under Enter", async (
   await openFilesWorkspace(page);
   await openFilesPane(page);
 
-  const tree = page.getByTestId("files-tree");
-  await expect(page.getByTestId("files-row-src")).toBeVisible();
-  await expect(page.getByTestId("files-row-README.md")).toBeVisible();
+  const tree = page.getByTestId("dock-files-tree");
+  await expect(page.getByTestId("dock-files-row-src")).toBeVisible();
+  await expect(page.getByTestId("dock-files-row-README.md")).toBeVisible();
   await tree.focus();
 
   // ↓ lands on the first row, ↓ again on the second — the order the model
   // sorts into (directories first).
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByTestId("files-row-src")).toHaveAttribute(
+  await expect(page.getByTestId("dock-files-row-src")).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -457,17 +458,17 @@ test("the tree walks under the arrow keys and opens a file under Enter", async (
   // → expands, and the children arrive from a second call for that directory
   // alone — which is the whole lazy-listing claim, visible here as `greet.ts`
   // not existing until now.
-  await expect(page.getByTestId("files-row-src/greet.ts")).toHaveCount(0);
+  await expect(page.getByTestId("dock-files-row-src/greet.ts")).toHaveCount(0);
   await page.keyboard.press("ArrowRight");
-  await expect(page.getByTestId("files-row-src/greet.ts")).toBeVisible();
-  await expect(page.getByTestId("files-row-src")).toHaveAttribute(
+  await expect(page.getByTestId("dock-files-row-src/greet.ts")).toBeVisible();
+  await expect(page.getByTestId("dock-files-row-src")).toHaveAttribute(
     "aria-expanded",
     "true",
   );
 
   // → again steps into the first child rather than expanding anything.
   await page.keyboard.press("ArrowRight");
-  await expect(page.getByTestId("files-row-src/greet.ts")).toHaveAttribute(
+  await expect(page.getByTestId("dock-files-row-src/greet.ts")).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -480,12 +481,12 @@ test("the tree walks under the arrow keys and opens a file under Enter", async (
 
   // ← from a file goes up to its directory; ← again shuts it.
   await page.keyboard.press("ArrowLeft");
-  await expect(page.getByTestId("files-row-src")).toHaveAttribute(
+  await expect(page.getByTestId("dock-files-row-src")).toHaveAttribute(
     "aria-selected",
     "true",
   );
   await page.keyboard.press("ArrowLeft");
-  await expect(page.getByTestId("files-row-src/greet.ts")).toHaveCount(0);
+  await expect(page.getByTestId("dock-files-row-src/greet.ts")).toHaveCount(0);
 });
 
 test("an opened file is really highlighted, by the Shiki this app already ships", async ({
@@ -499,8 +500,8 @@ test("an opened file is really highlighted, by the Shiki this app already ships"
   // turns this red rather than looking identical.
   await openFilesWorkspace(page);
   await openFilesPane(page);
-  await page.getByTestId("files-row-src").click();
-  await page.getByTestId("files-row-src/greet.ts").click();
+  await page.getByTestId("dock-files-row-src").click();
+  await page.getByTestId("dock-files-row-src/greet.ts").click();
 
   await expect(page.getByTestId("files-viewer-code")).toBeVisible();
   // No plain-text notice: this file is under the tokenise budget and its
@@ -548,7 +549,7 @@ test("each refusal reaches the screen as its own sentence", async ({
   // said", so each is read for the fact it is supposed to carry.
   await openFilesWorkspace(page);
   await openFilesPane(page);
-  await page.getByTestId("files-row-src").click();
+  await page.getByTestId("dock-files-row-src").click();
 
   // 1. Too large — and it names the real size, because without it he cannot
   // tell whether to reach for `less` or for `head`.
@@ -598,7 +599,9 @@ test("each refusal reaches the screen as its own sentence", async ({
   // (`src` is the only listed directory, so this is asserted through the
   // footer instead: the pane states the two differences from `ls` rather than
   // letting him discover them.)
-  await expect(page.getByTestId("files-footer")).toContainText("ignored files");
+  await expect(page.getByTestId("dock-files-footer")).toContainText(
+    "ignored files",
+  );
 });
 
 test("a long file renders its text instantly and is coloured in the background", async ({
@@ -611,7 +614,7 @@ test("a long file renders its text instantly and is coloured in the background",
   // there is no ceiling being applied.
   await openFilesWorkspace(page);
   await openFilesPane(page);
-  await page.getByTestId("files-row-src").click();
+  await page.getByTestId("dock-files-row-src").click();
   await openFromTree(page, "src/long.ts");
 
   const code = page.getByTestId("files-viewer-code");

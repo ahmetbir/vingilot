@@ -1,5 +1,5 @@
-// The Deck's three persisted layers — terminal tabs, task chips, splits —
-// and every transition between them, as one hook.
+// The Deck's four layers — terminal tabs, task chips, splits, and the view
+// tabs beside them — and every transition between them, as one hook.
 //
 // **Split out of `RunsScreen.tsx` at the 1000-line ratchet** (the house
 // rule: an edit to a file at the ceiling begins with a split, and P2's task
@@ -16,6 +16,16 @@
 // those tabs were carrying (`cascadeSplits`), which the tab model has no
 // name for; both sets of ptys end together. A caller that closed a tab list
 // directly would leave a split half running behind nothing.
+//
+// **The view layer is the fourth, and it touches no pty at all** (P4.1 items
+// 3 and 4). `viewTabs.ts` says why it is a second list rather than a flag on
+// the ordinals; what this hook adds is the one rule that joins them: **every
+// command that puts a shell on screen clears the showing view**. ⌘T, a tab
+// click, ⌥⌘→, closing a tab, switching task — each of them means "I want the
+// terminal", so each of them ends with `clearActiveView`. Nothing in the other
+// direction: opening a view neither closes, hides, resizes nor reattaches a
+// terminal, it only stops being the thing laid out — the state a background
+// tab is already in, and the one `terminalFit.ts` reads as "refuse".
 
 import * as React from "react";
 
@@ -51,6 +61,18 @@ import {
   worktreeTabs,
 } from "./terminalTabs.ts";
 import { readTabLayout, writeTabLayout } from "./terminalTabStore.ts";
+import {
+  clearActiveView,
+  closeView,
+  emptyViews,
+  openView,
+  pruneViews,
+  selectView,
+  type ViewLayout,
+  type ViewSubject,
+  type WorktreeViews,
+  worktreeViews,
+} from "./viewTabs.ts";
 
 export interface DeckLayers {
   /** Which worktrees have terminals open and which tabs each holds — the
@@ -63,8 +85,17 @@ export interface DeckLayers {
   /** The selected worktree's chips, reconciled against `selectedTabs` on
    * every read (`reconcileTasks` is idempotent and reference-stable). */
   selectedTasks: WorktreeTaskStrip | null;
+  /** The selected worktree's view tabs and which of them is showing. Never
+   * `null`: a worktree with no views and one nobody has visited are the same
+   * answer (`viewTabs.ts`). */
+  selectedViews: WorktreeViews;
   runTabCommand: (command: TabCommand) => void;
   runTaskCommand: (command: TaskCommand) => void;
+  /** Open a file / commit / diff as a tab beside the shells, or focus the tab
+   * already open for it. */
+  openViewTab: (subject: ViewSubject) => void;
+  selectViewTab: (id: string) => void;
+  closeViewTab: (id: string) => void;
   /** Split the ACTIVE tab's terminal — ⌘D/⇧⌘D and the palette rows. */
   splitActiveTerminal: (direction: SplitDirection) => void;
   closeSplitHalf: (primary: string) => void;
@@ -99,6 +130,12 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
   React.useEffect(() => {
     writeSplitLayout(splitLayout);
   }, [splitLayout]);
+  // The one layer with no store behind it. `viewTabs.ts` says why: a view tab
+  // is a read of a file or a patch AS IT IS NOW, and restoring one from
+  // storage would put last week's reading on screen wearing a live tab's
+  // chrome. It lives as long as the workspace does, which is the life of the
+  // reading.
+  const [viewLayout, setViewLayout] = React.useState<ViewLayout>(emptyViews);
 
   // The repair `pruneSplits` documents: a stored split whose primary never
   // became a tab this run (a crash between the two layout writes,
@@ -127,6 +164,12 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
     for (const sessionId of cascade.closed) void ptyClose(sessionId);
   }, []);
 
+  // Every shell gesture ends here: the terminals come forward, and whatever
+  // was being read stays a tab away. See this file's header.
+  const showTerminals = React.useCallback((bindingId: string) => {
+    setViewLayout((prev) => clearActiveView(prev, bindingId));
+  }, []);
+
   const runTabCommand = React.useCallback(
     (command: TabCommand) => {
       if (selectedWorktreeId === null) return;
@@ -138,9 +181,10 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
       );
       setTabLayout(change.layout);
       setTaskLayout(change.tasks);
+      showTerminals(selectedWorktreeId);
       endSessions(change.closed);
     },
-    [tabLayout, taskLayout, selectedWorktreeId, endSessions],
+    [tabLayout, taskLayout, selectedWorktreeId, endSessions, showTerminals],
   );
 
   const runTaskCommand = React.useCallback(
@@ -154,9 +198,32 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
       );
       setTabLayout(change.layout);
       setTaskLayout(change.tasks);
+      showTerminals(selectedWorktreeId);
       endSessions(change.closed);
     },
-    [tabLayout, taskLayout, selectedWorktreeId, endSessions],
+    [tabLayout, taskLayout, selectedWorktreeId, endSessions, showTerminals],
+  );
+
+  const openViewTab = React.useCallback(
+    (subject: ViewSubject) => {
+      if (selectedWorktreeId === null) return;
+      setViewLayout((prev) => openView(prev, selectedWorktreeId, subject));
+    },
+    [selectedWorktreeId],
+  );
+  const selectViewTab = React.useCallback(
+    (id: string) => {
+      if (selectedWorktreeId === null) return;
+      setViewLayout((prev) => selectView(prev, selectedWorktreeId, id));
+    },
+    [selectedWorktreeId],
+  );
+  const closeViewTab = React.useCallback(
+    (id: string) => {
+      if (selectedWorktreeId === null) return;
+      setViewLayout((prev) => closeView(prev, selectedWorktreeId, id));
+    },
+    [selectedWorktreeId],
   );
 
   const ensureSelected = React.useCallback((bindingId: string) => {
@@ -169,6 +236,7 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
       if (closed.length === 0) return;
       setTabLayout(layout);
       setTaskLayout((prev) => pruneTasks(prev, layout));
+      setViewLayout((prev) => pruneViews(prev, Object.keys(layout)));
       endSessions(closed);
     },
     [tabLayout, endSessions],
@@ -180,6 +248,7 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
       if (closed.length === 0) return;
       setTabLayout(layout);
       setTaskLayout((prev) => pruneTasks(prev, layout));
+      setViewLayout((prev) => pruneViews(prev, Object.keys(layout)));
       endSessions(closed);
     },
     [tabLayout, endSessions],
@@ -229,17 +298,23 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
     [],
   );
 
+  const selectedViews = worktreeViews(viewLayout, selectedWorktreeId ?? "");
+
   return {
     changeSplitRatio,
     closeActiveSplit,
     closeSplitHalf,
+    closeViewTab,
     closeWorktreesFor,
     dropWorktreesTo,
     ensureSelected,
+    openViewTab,
     runTabCommand,
     runTaskCommand,
+    selectViewTab,
     selectedTabs,
     selectedTasks,
+    selectedViews,
     splitActiveTerminal,
     splitLayout,
     tabLayout,

@@ -45,6 +45,8 @@
  * freezing a plugin API before more than these panes have been written against
  * it would freeze whatever these four happened to need. It becomes an API when
  * a pane nobody here wrote needs one, not before. */
+import type { ViewSubject } from "@/features/runs/lib/viewTabs";
+
 export const PANE_IDS = [
   "terminal",
   "diff",
@@ -105,6 +107,29 @@ export type PaneId = (typeof PANE_IDS)[number];
  * there, to hold a trail nothing is allowed to persist anyway. */
 export type PaneAct =
   | { type: "plan-to-worktree" }
+  | {
+      /** Open this file / commit / diff as a TAB beside the shells, and show
+       * it (redesign P4.1, items 3 and 4 — the owner's "terminalin oldugu
+       * kisimda yeni tab gibi acilmali").
+       *
+       * **The fifth variant, and the first that moves a reading off the
+       * dock.** The dock is where browsing happens — a tree, a commit list, a
+       * file list — and those surfaces are 300-540px wide. A patch or a
+       * source file needs the stage. So a pane that has been clicked in asks
+       * for a view tab rather than drawing the reading inside itself, and the
+       * workspace — which owns the strip beside the terminals — opens one.
+       *
+       * It is an `open-view` and not a widened `show-file` because the
+       * subject is not always a file, and because `show-file` means something
+       * else that must keep working: bring the Files surface forward and land
+       * a target in it (`filesTarget.ts`). The two meet at the tree, which
+       * lands the target AND asks for the tab. */
+      type: "open-view";
+      /** The checkout this view belongs to — `show-file`'s reason: two
+       * worktrees of one project both have `src/main.rs`. */
+      worktree: string;
+      view: ViewSubject;
+    }
   | {
       /** Open a fresh terminal tab in the selected worktree and TYPE `text`
        * into its shell — the P3 dock's Run panel (Start Dev) and the Files

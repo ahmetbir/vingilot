@@ -1,12 +1,19 @@
 // The dock's Files tab (redesign P3, mockup `#dp-files`): the worktree's
-// tree with the mockup's file-type badges and git letters, a right-click
-// menu of REAL acts, and the viewer a picked file opens into.
+// tree with per-language icons and git letters, and a right-click menu of
+// REAL acts.
 //
-// **The tree is `SidebarFilesTree`'s model, re-hosted** — same
-// `filesModel.ts` lazy per-directory reads, same keyboard map, same
-// git-lists-it honesty footer. What the dock adds is the mockup's dress:
-// `.flogo` type badges, `.tbadge` A/M letters cross-referenced from ONE
-// `worktree_diff` read (the tree's own listing carries no git status — the
+// **The dock browses; the tab reads** (P4.1, item 4: "file'lara basinca yine
+// terminalin oldugu yerde tab gibi acilmali"). Picking a file no longer opens
+// a viewer inside this 300-540px card — it asks the workspace for a view tab
+// beside the shells (`viewTabs.ts`), which gets the whole stage. The tree
+// keeps everything that is about *finding* a file: the selection, the folded
+// ancestors, the git letters, the menu. What left is the half that was always
+// too narrow.
+//
+// **The tree is `filesModel.ts`'s** — lazy per-directory reads, the same
+// keyboard map, the same git-lists-it honesty footer. What the dock adds is
+// the mockup's dress: type icons, `.tbadge` A/M letters cross-referenced from
+// ONE `worktree_diff` read (the tree's own listing carries no git status — the
 // letters come from the Diff pane's read or they do not exist), and the
 // `.ctx` context menu.
 //
@@ -20,18 +27,19 @@
 // the no-fake rule: an act that cannot happen does not get a button, not
 // even a disabled one.
 //
-// **The badge letters deviate from the mockup's brand-solid chips,
-// consciously.** White-on-#3178C6 measures ~4.5:1 at 8px — the exact class
-// of marginal alpha-on-dark that failed four phases — so the chips here are
-// the mockup's own `.flogo.md` treatment (dark chip, light letter) with a
-// per-type tinted letter at comfortable contrast. The vocabulary survives;
-// the illegal pixels do not.
+// **The icons are the ONE place the mockup is overruled, and the owner
+// overruled it**: "sagdaki filetreedeki ikonlar sacma. direk vscodedaki gibi
+// dile gore olmali, design orda yanlis yapmis." The mockup's `.flogo` lettered
+// chips — an "S" on every Swift file — are replaced by per-language glyphs
+// (`lib/fileIcons.ts`, `ui/FileIcon.tsx`), which is the licence's whole
+// extent: the folder glyph below is still the mockup's own path, and
+// "dizayna sadik kal" stands everywhere else on this surface.
 
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import * as React from "react";
 
-import { type FileKind, fileKind } from "@/features/runs/lib/fileKinds";
-import { readFile, readTree } from "@/features/runs/lib/filesClient";
+import { fileIconId } from "@/features/runs/lib/fileIcons";
+import { readTree } from "@/features/runs/lib/filesClient";
 import {
   type Expanded,
   ancestors,
@@ -63,11 +71,7 @@ import {
   type DiffChange,
 } from "@/features/runs/lib/worktreeDiff";
 import { gitWorktreeDiff } from "@/features/runs/lib/worktreeClient";
-import {
-  FileViewer,
-  NOTHING_OPEN,
-  type ViewState,
-} from "@/features/runs/ui/FileViewer";
+import { FileIcon } from "@/features/runs/ui/FileIcon";
 import type { PaneProps } from "@/features/runs/ui/paneRegistry";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
@@ -86,40 +90,8 @@ export function DockFilesPanel({ cwd, onPaneAct, worktree }: PaneProps) {
   return <FilesBody base={base} cwd={cwd} key={cwd} onPaneAct={onPaneAct} />;
 }
 
-/** The mockup's `.flogo`, at legal contrast (see header): a letter per
- * file family, tinted, on the `.flogo.md` dark chip. `null` families keep
- * the tree's established kind-dot. */
-function flogoOf(name: string): { label: string; tint: string } | null {
-  const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() : "";
-  if (ext === "ts" || ext === "tsx" || ext === "mts") {
-    return { label: "TS", tint: "text-sky-300" };
-  }
-  if (ext === "js" || ext === "jsx" || ext === "mjs" || ext === "cjs") {
-    return { label: "JS", tint: "text-yellow-200" };
-  }
-  if (ext === "rs") return { label: "RS", tint: "text-orange-300" };
-  if (ext === "swift") return { label: "S", tint: "text-orange-300" };
-  if (ext === "md" || ext === "mdx") {
-    return { label: "M", tint: "text-foreground/80" };
-  }
-  if (ext === "yml" || ext === "yaml") {
-    return { label: "Y", tint: "text-violet-300" };
-  }
-  if (ext === "json") return { label: "J", tint: "text-foreground/80" };
-  if (ext === "css") return { label: "C", tint: "text-sky-300" };
-  return null;
-}
-
 /** A drawn tree line that is an entry — the only rows the menu acts on. */
 type EntryRow = Extract<TreeRow, { row: "entry" }>;
-
-const KIND_DOT: Record<FileKind, string> = {
-  code: "bg-sky-500",
-  config: "bg-amber-500",
-  doc: "bg-muted-foreground/40",
-  image: "bg-violet-500",
-  other: "bg-muted-foreground/40",
-};
 
 function FilesBody({
   base,
@@ -133,7 +105,6 @@ function FilesBody({
   const [dirs, setDirs] = React.useState<TreeDirs>({});
   const [expanded, setExpanded] = React.useState<Expanded>({});
   const [selected, setSelected] = React.useState<string | null>(null);
-  const [view, setView] = React.useState<ViewState>(NOTHING_OPEN);
   // The one `worktree_diff` read the `.tbadge` letters come from. `null`
   // until it answers; a refusal stays `null` — no letters is an honest
   // reading, wrong letters are not.
@@ -185,31 +156,21 @@ function FilesBody({
     [dirs, expanded, listDir],
   );
 
-  // The viewer half — `FilesPane.tsx`'s read discipline, re-hosted with the
-  // tree it answers: superseded answers are dropped on the echoed path.
-  const wanted = React.useRef<string | null>(null);
+  // Opening a file is now two things and neither of them is a read: the row is
+  // selected here, and the workspace is asked for a tab (P4.1 item 4). No
+  // `readFile` on this path at all — the tab does its own, at the width the
+  // text needs.
   const openFile = React.useCallback(
-    async (path: string, line: number | null) => {
-      wanted.current = path;
+    (path: string, line: number | null) => {
       setSelected(path);
-      setView({ path, status: "reading" });
-      onPaneAct({ path, type: "file-opened", worktree: cwd });
-      const answered = await readFile(cwd, path);
-      if (wanted.current !== path) return;
-      setView(
-        answered.ok
-          ? { file: answered.value, line, status: "read" }
-          : { error: answered.error, path, status: "refused" },
-      );
+      onPaneAct({
+        type: "open-view",
+        view: { kind: "file", line, path },
+        worktree: cwd,
+      });
     },
     [cwd, onPaneAct],
   );
-
-  const closeViewer = React.useCallback(() => {
-    wanted.current = null;
-    setView(NOTHING_OPEN);
-    onPaneAct({ path: null, type: "file-opened", worktree: cwd });
-  }, [cwd, onPaneAct]);
 
   // The door from outside (`filesTarget.ts`): pending-then-subscribe, and a
   // landed target folds its ancestors open so the tree agrees with the viewer.
@@ -226,7 +187,7 @@ function FilesBody({
         for (const dir of opening) next = withExpanded(next, dir, true);
         return next;
       });
-      void openFile(request.path, request.line);
+      openFile(request.path, request.line);
     },
     [listDir, openFile],
   );
@@ -243,14 +204,10 @@ function FilesBody({
     });
   }, [cwd, land]);
 
-  // And the empty report on a mount that landed nothing — `FilesPane.tsx`'s
-  // rule, kept: the workspace must not hold a file this panel is not showing.
-  const latestAct = React.useRef(onPaneAct);
-  latestAct.current = onPaneAct;
-  React.useEffect(() => {
-    if (wanted.current !== null) return;
-    latestAct.current({ path: null, type: "file-opened", worktree: cwd });
-  }, [cwd]);
+  // The empty report this panel used to send on a mount that landed nothing is
+  // gone with the viewer that needed it: "which file is open" is the view
+  // tabs' answer now (`RunsScreen` derives it), and a tree that also claimed
+  // to know would be the second answer `paneModel.ts` warns about.
 
   const rows = React.useMemo(() => flatten(dirs, expanded), [dirs, expanded]);
 
@@ -285,7 +242,7 @@ function FilesBody({
       }
       const target = enterOn(rows, selected);
       if (target === null) return;
-      if (target.act === "open") void openFile(target.path, null);
+      if (target.act === "open") openFile(target.path, null);
       else toggleDir(target.path);
     },
     [openFile, rows, selected, toggleDir],
@@ -303,88 +260,58 @@ function FilesBody({
     });
   };
 
-  const paneRef = React.useRef<HTMLDivElement | null>(null);
-  const viewing = view.status !== "empty";
-
   return (
-    <div
-      className="flex min-h-0 flex-1 flex-col"
-      data-testid="dock-files"
-      ref={paneRef}
-    >
-      {viewing ? (
-        <>
-          <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-2 py-1">
-            <button
-              className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-2xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-              data-testid="dock-files-back"
-              onClick={closeViewer}
-              type="button"
-            >
-              ‹ tree
-            </button>
-            <span className="truncate font-mono text-2xs text-muted-foreground">
-              {view.status === "read" ? view.file.path : view.path}
-            </span>
-          </div>
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            <FileViewer cwd={cwd} paneRef={paneRef} state={view} />
-          </div>
-        </>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <div
-            aria-activedescendant={
-              selected === null ? undefined : `dock-files-row-${selected}`
-            }
-            aria-label="files in this worktree"
-            className="w-full py-1 outline-none"
-            data-testid="dock-files-tree"
-            onKeyDown={onKeyDown}
-            role="tree"
-            tabIndex={0}
-          >
-            {rows.map((row) =>
-              row.row === "note" ? (
-                <p
-                  className="px-2 py-0.5 text-2xs text-muted-foreground"
-                  key={row.key}
-                  style={{ paddingLeft: 8 + row.depth * 12 }}
-                >
-                  {row.text}
-                </p>
-              ) : (
-                <TreeRowButton
-                  key={row.path}
-                  mark={
-                    row.kind === "file" ? (marks?.get(row.path) ?? null) : null
-                  }
-                  onCopyPath={() =>
-                    void writeTextToClipboard(absolute(row.path))
-                  }
-                  onNewTerminal={() => newTerminalAt(row)}
-                  onOpen={() =>
-                    row.kind === "file"
-                      ? void openFile(row.path, null)
-                      : toggleDir(row.path)
-                  }
-                  onReveal={() => void revealItemInDir(absolute(row.path))}
-                  path={absolute(row.path)}
-                  row={row}
-                  selected={row.path === selected}
-                />
-              ),
-            )}
-          </div>
-          <p
-            className="mt-auto shrink-0 border-t border-border/60 px-2 py-1 text-2xs text-muted-foreground"
-            data-testid="dock-files-footer"
-          >
-            Listed by git: ignored files, directories holding only ignored
-            files, and empty directories are not shown.
-          </p>
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="dock-files">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div
+          aria-activedescendant={
+            selected === null ? undefined : `dock-files-row-${selected}`
+          }
+          aria-label="files in this worktree"
+          className="w-full py-1 outline-none"
+          data-testid="dock-files-tree"
+          onKeyDown={onKeyDown}
+          role="tree"
+          tabIndex={0}
+        >
+          {rows.map((row) =>
+            row.row === "note" ? (
+              <p
+                className="px-2 py-0.5 text-2xs text-muted-foreground"
+                key={row.key}
+                style={{ paddingLeft: 8 + row.depth * 12 }}
+              >
+                {row.text}
+              </p>
+            ) : (
+              <TreeRowButton
+                key={row.path}
+                mark={
+                  row.kind === "file" ? (marks?.get(row.path) ?? null) : null
+                }
+                onCopyPath={() => void writeTextToClipboard(absolute(row.path))}
+                onNewTerminal={() => newTerminalAt(row)}
+                onOpen={() =>
+                  row.kind === "file"
+                    ? openFile(row.path, null)
+                    : toggleDir(row.path)
+                }
+                onReveal={() => void revealItemInDir(absolute(row.path))}
+                path={absolute(row.path)}
+                row={row}
+                selected={row.path === selected}
+              />
+            ),
+          )}
         </div>
-      )}
+        <p
+          className="mt-auto shrink-0 border-t border-border/60 px-2 py-1 text-2xs text-muted-foreground"
+          data-testid="dock-files-footer"
+        >
+          Listed by git: ignored files, directories holding only ignored files,
+          and empty directories are not shown.
+        </p>
+      </div>
     </div>
   );
 }
@@ -409,7 +336,6 @@ function TreeRowButton({
   row: EntryRow;
   selected: boolean;
 }) {
-  const flogo = row.kind === "file" ? flogoOf(row.name) : null;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -430,29 +356,29 @@ function TreeRowButton({
           type="button"
         >
           {row.kind === "directory" ? (
-            <span
-              aria-hidden="true"
-              className="w-3 shrink-0 text-center text-2xs"
-            >
-              {row.expanded ? "▾" : "▸"}
-            </span>
-          ) : flogo === null ? (
-            <span
-              aria-hidden="true"
-              className="flex w-3 shrink-0 items-center justify-center"
-            >
+            // The mockup's own pair: the chevron, then its folder glyph.
+            <>
               <span
-                className={`h-1.5 w-1.5 rounded-full ${KIND_DOT[fileKind(row.name)]}`}
-                data-kind={fileKind(row.name)}
-              />
-            </span>
+                aria-hidden="true"
+                className="w-3 shrink-0 text-center text-2xs"
+              >
+                {row.expanded ? "▾" : "▸"}
+              </span>
+              <span data-testid={`dock-files-icon-${row.path}`}>
+                <FileIcon id="folder" />
+              </span>
+            </>
           ) : (
+            // A file's own language, in place of the mockup's lettered chip —
+            // the owner's single licensed deviation (see this file's header).
+            // Where the mockup's `.tspacer` was: the tree still lines up,
+            // because a file has no chevron and a directory has no name-column
+            // shift.
             <span
-              aria-hidden="true"
-              className={`flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-foreground/[.16] px-0.5 font-mono text-2xs font-bold ${flogo.tint}`}
-              data-testid={`dock-files-flogo-${row.path}`}
+              className="ml-3 flex shrink-0"
+              data-testid={`dock-files-icon-${row.path}`}
             >
-              {flogo.label}
+              <FileIcon id={fileIconId(row.name)} />
             </span>
           )}
           <span className="min-w-0 flex-1 truncate">{row.name}</span>

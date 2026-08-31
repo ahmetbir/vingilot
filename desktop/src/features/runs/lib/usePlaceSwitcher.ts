@@ -53,7 +53,7 @@
 
 import * as React from "react";
 
-import { requestFile } from "@/features/runs/lib/filesTarget";
+import { pendingFile, requestFile } from "@/features/runs/lib/filesTarget";
 import type { PaneId } from "@/features/runs/lib/paneModel";
 import {
   resolvePlaceKey,
@@ -61,10 +61,8 @@ import {
 } from "@/features/runs/lib/placeKeys";
 import {
   type FileReport,
-  NO_FILE_READING,
   type Place,
   placeKey,
-  readFileReport,
   rememberPlace,
   stepSwitcher,
   switcherLanding,
@@ -97,11 +95,14 @@ interface Options {
   worktreeCwd: string | null;
   /** Which pane is in the right slot. */
   pane: PaneId;
-  /** The Files pane's own report of what it has in its viewer, whichever
-   * worktree it was made in (`PaneAct`'s `file-opened`), or `null` before any
-   * pane has spoken. A `path` of `null` is a report of emptiness and not the
-   * absence of one — see `FileReading`. Held by identity: a fresh object is how
-   * this hook knows a report just arrived. */
+  /** Which file the workspace has open, whichever worktree it belongs to, or
+   * `null` for a workspace standing in no checkout. A `path` of `null` is an
+   * answer of emptiness and not the absence of one.
+   *
+   * **Since P4.1 this is DERIVED, not reported** (`viewTabs.ts`'s
+   * `openFileReport`): a file is a tab beside the shells, so "what is open" is
+   * visible from outside the pane rather than something a mounted pane has to
+   * say. That is what retired the expiry machinery below. */
   file: FileReport | null;
   /** Every worktree the workspace knows about, for turning a place's binding id
    * back into a directory on landing. */
@@ -126,18 +127,15 @@ export function usePlaceSwitcher({
   worktreeIndex,
   worktreeRoot,
 }: Options): PlaceSwitcher {
-  // **The pane's answer expires with the pane.** Folded during render because
-  // `here` below is built during render and the two must not disagree for even
-  // one commit; `readFileReport` returns its argument by identity when nothing
-  // changed, which is what makes a ref safe to hold it (StrictMode's second
-  // render folds the same facts and gets the same object back). The mount string
-  // is `WorkSurface`'s own key for the right pane — the same two facts, spelled
-  // the same way, so the expiry cannot come to disagree with the remount that
-  // causes it.
-  const mount = `${pane}:${worktreeId ?? "none"}`;
-  const reading = React.useRef(NO_FILE_READING);
-  reading.current = readFileReport(reading.current, mount, file);
-  const reported = reading.current.live ? reading.current.report : null;
+  // **The answer no longer expires, because it is no longer a report.** Until
+  // P4.1 the open file was something the Files pane told the workspace, which
+  // meant it could only speak while mounted: `readFileReport` existed to expire
+  // that answer when the pane it came from was remounted by a pane or worktree
+  // switch. A file is a TAB now (`viewTabs.ts`) — it belongs to the worktree,
+  // outlives every pane switch, and the workspace derives it for itself — so
+  // there is nothing left that can go stale, and an expiry here would blank a
+  // file that is visibly still on screen.
+  const reported = file;
 
   // **The address, assembled in one place.** Two of the three fields are the
   // workspace's own state and the third is the pane's report, and a file
@@ -171,8 +169,16 @@ export function usePlaceSwitcher({
   // refused by `filesAvailability` and the pane is never constructed, so waiting
   // for it would be waiting for ever and "this worktree · Files" would never be a
   // place at all. `worktreeCwd` is the same reading that refusal is made on.
+  // What is still worth waiting for is the LANDING, and only that: `onGo`
+  // files a target and selects the worktree in one commit, and the tree opens
+  // the tab a render or two later. Recording in between would put a fileless
+  // row above the place he is landing on, and the tap back would go to that
+  // row instead of to where he came from. `pendingFile()` is the mailbox's own
+  // reading of "a landing is in flight", and it clears the moment the tree
+  // takes it — which is the same commit that opens the tab, so this settles in
+  // one render either way and can never wait for ever.
   const awaiting =
-    pane === "files" && worktreeCwd !== null && !reading.current.live;
+    pane === "files" && worktreeCwd !== null && pendingFile() !== null;
 
   // Landing: three acts, in the order `show-file` already established. The
   // target is filed BEFORE the pane is brought forward, because the pane reads

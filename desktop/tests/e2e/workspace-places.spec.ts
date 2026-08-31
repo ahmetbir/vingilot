@@ -286,22 +286,18 @@ async function selectWorktree(page: Page, branch: string) {
   await page.getByTestId(`worktree-row-wt-${branch}`).click();
 }
 
-/** Open a file from the sidebar's Files tree (pane-nav-absorb plan — the
- * tree left the pane for the Deck sidebar's Files accordion member). The pane
- * must already be in the slot — this is the third of the three navigations
- * that feed the trail. */
+/** Open a file from the dock's Files tree — the only one since P4.1, and the
+ * click that opens the reading as a tab on the stage. The pane must already be
+ * in the slot: this is the third of the three navigations that feed the
+ * trail. */
 async function openFileFromTree(page: Page, name: string) {
   await expect(page.getByTestId("dock-files")).toBeVisible();
-  const files = page.getByTestId("sidebar-accordion-header-files");
-  if ((await files.getAttribute("aria-expanded")) === "false") {
-    await files.click();
-  }
-  await expect(page.getByTestId("files-tree")).toBeVisible();
-  const dir = page.getByTestId("files-row-src");
-  if ((await page.getByTestId(`files-row-src/${name}`).count()) === 0) {
+  await expect(page.getByTestId("dock-files-tree")).toBeVisible();
+  const dir = page.getByTestId("dock-files-row-src");
+  if ((await page.getByTestId(`dock-files-row-src/${name}`).count()) === 0) {
     await dir.click();
   }
-  await page.getByTestId(`files-row-src/${name}`).click();
+  await page.getByTestId(`dock-files-row-src/${name}`).click();
   await expect(page.getByTestId("files-viewer-path")).toHaveText(`src/${name}`);
 }
 
@@ -441,58 +437,17 @@ test("⌃Tab holds up the places he actually walked, and letting go lands on one
   await expect(page.getByTestId("project-status-bar")).toContainText("spike");
 });
 
-test("a Files pane that came back with nothing open is drawn with nothing open", async ({
-  page,
-}) => {
-  // **The leg `buildTrail` cannot walk**, because it never leaves Files and comes
-  // back inside one worktree — and that is the sequence where the workspace's copy
-  // of the pane's report goes wrong. `WorkSurface` keys the slot
-  // `${pane}:${identity}`, so a pane switch unmounts this pane just as a worktree
-  // switch does, and it remounts with an empty viewer: nothing here caches a file
-  // (`wanted` is a ref, and there is no pending target unless something filed
-  // one). A workspace still holding "src/main.rs" would draw it on row 0 — the row
-  // the overlay's header calls where he is standing — for a pane showing the empty
-  // state, and the honest place would never enter the trail at all, because the
-  // dedupe would merge the phantom onto the earlier real visit instead.
-  await openWorkspace(page);
-  await selectWorktree(page, "spike");
-  await choosePane(page, "files");
-  await openFileFromTree(page, "main.rs");
-  await choosePane(page, "diff");
-  await choosePane(page, "files");
-
-  // The pane really is empty. Asserted first so that the rows below are a reading
-  // of this pane and not of a viewer that had somehow kept the file — in which
-  // case the row naming it would be right and this spec would be wrong.
-  // The dock's Files tab owns its own tree (`DockFilesPanel.tsx`), so "nothing
-  // open" is the tree on screen, not `FileViewer`'s own empty state.
-  await expect(page.getByTestId("dock-files-tree")).toBeVisible();
-  await expect(page.getByTestId("files-viewer-path")).toHaveCount(0);
-
-  await holdAndStep(page, 1);
-  await expect(page.getByTestId("place-switcher")).toBeVisible();
-  // Four rows, and the two Files places are two places: the one with the file is
-  // where he was, and the one without it is where he is. `spike · Diff` appears
-  // once — he has been there twice and the second visit moved it rather than
-  // adding a copy, which is the dedupe doing its job on the same walk.
-  expect(await overlayRows(page)).toEqual([
-    "  spike · Files",
-    "> spike · Diff",
-    "  spike · Files · src/main.rs",
-    "  main · Diff",
-  ]);
-
-  // And it is a place he can walk back to: one more step down is the row that
-  // carries the file, and letting go reopens it. That is the other half of the
-  // claim — expiring the report must not cost him the place it was a report of.
-  await page.keyboard.press("Tab");
-  await expect(page.getByTestId("place-row-2")).toHaveAttribute(
-    "data-active",
-    "true",
-  );
-  await page.keyboard.up("Control");
-  await expect(page.getByTestId("files-viewer-path")).toHaveText("src/main.rs");
-});
+// RETIRED WITH ITS SUBJECT (P4.1): this proved that the workspace's copy of the
+// Files pane's report EXPIRED when the pane was remounted — a pane switch away
+// and back used to give an empty viewer, and a workspace still holding
+// "src/main.rs" would have drawn a phantom row 0. There is no report any more:
+// a file is a tab beside the shells, it survives every pane switch on purpose
+// ("terminalin oldugu kisimda yeni tab gibi acilmali"), and the workspace
+// derives "what is open" from the tab that is showing rather than being told.
+// The failure this guarded — a place naming a file the surface is not showing —
+// cannot be spelled, because the thing that names it IS the surface.
+// `sidebar-deck-accordion.spec.ts`'s "the reading survives a pane switch" is
+// the positive half of the same claim.
 
 test("a tap goes straight to the previous place, and a second tap comes back", async ({
   page,

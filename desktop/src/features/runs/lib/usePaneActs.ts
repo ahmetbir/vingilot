@@ -15,16 +15,16 @@
 import * as React from "react";
 
 import { requestFile } from "@/features/runs/lib/filesTarget";
-import type { FileReport } from "@/features/runs/lib/placeMru";
 import type { PaneAct } from "@/features/runs/lib/paneModel";
+import type { ViewSubject } from "@/features/runs/lib/viewTabs";
 
 export interface PaneActHandlers {
   openPlanWorktree: () => void;
-  /** Hold what the Files pane says it has open — a report, `null` path
-   * included. */
-  reportFile: (report: FileReport) => void;
-  /** Remember an opened file for ⌘K's recent rows. A second reader of the same
-   * report, never a second report. */
+  /** Open a file / commit / diff as a tab beside the shells (P4.1). The
+   * screen owns the strip, so the pane asks — the same shape
+   * `runInNewTerminal` already has, and for the same reason. */
+  openViewTab: (worktree: string, view: ViewSubject) => void;
+  /** Remember an opened file for ⌘K's recent rows. */
   rememberOpenFile: (worktree: string, path: string) => void;
   /** Open a fresh terminal tab and type `text` into it (P3 dock — Start Dev,
    * "New terminal here"). The screen owns the strip and the session ids, so
@@ -50,13 +50,22 @@ export function usePaneActs(handlers: PaneActHandlers): (act: PaneAct) => void {
       on.runInNewTerminal(act.text);
       return;
     }
-    // Not a request — a report. The Files pane is the only surface that knows
-    // what it has open, and a place is worktree + pane + file
-    // (`placeMru.ts`). Nothing is opened here: acting on it would reopen the
-    // file the pane just opened.
+    // "Read this beside the shells." Nothing about the dock changes: the tree
+    // the owner clicked in keeps its selection, and the tab is where the
+    // reading goes (P4.1 items 3 and 4).
+    if (act.type === "open-view") {
+      on.openViewTab(act.worktree, act.view);
+      return;
+    }
+    // Not a request — a report. **Since P4.1 the workspace no longer holds it
+    // as the answer to "which file is open"**: a file opens as a view tab now,
+    // so `RunsScreen` derives that from the tab showing rather than from a
+    // pane that can only speak while it is mounted. What survives is the one
+    // thing the derivation cannot do — remembering the file for ⌘K's recent
+    // rows, which is a trail rather than a state. Nothing is opened here:
+    // acting on it would reopen the file the pane just opened.
     if (act.type === "file-opened") {
-      on.reportFile({ path: act.path, worktree: act.worktree });
-      // `null` is the viewer saying it has nothing, which is not a file to
+      // `null` is a pane saying it has nothing, which is not a file to
       // remember.
       if (act.path !== null) on.rememberOpenFile(act.worktree, act.path);
       return;

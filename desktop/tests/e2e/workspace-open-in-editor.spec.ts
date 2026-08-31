@@ -311,11 +311,10 @@ async function openHatchWorkspace(
 const NO_EDITOR_SENTENCE =
   "no editor command was found. Vingilot looks for cursor, code and zed — on PATH and in the usual install locations.";
 
-/** The Files pane, opened the way he opens it — plus the Deck sidebar's
- * Files accordion member, where the tree lives now (pane-nav-absorb plan). */
+/** The Files pane, opened the way he opens it. The tree is the dock's own tab
+ * (P3) and since P4.1 the only one; a file picked there opens as a tab beside
+ * the shells, which is where the viewer header's Open in editor button is. */
 async function openFilesPane(page: Page) {
-  await page.getByTestId("sidebar-accordion-header-files").click();
-  await expect(page.getByTestId("files-tree")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByTestId("palette")).toBeVisible();
   await page.getByTestId("palette-input").fill("files");
@@ -328,10 +327,10 @@ async function openFilesPane(page: Page) {
  * the viewer has the pane whole (pane-nav-absorb plan). */
 async function openFromTree(page: Page, path: string) {
   // `src` is a toggle, so expanding one that is already open would close it.
-  if ((await page.getByTestId(`files-row-${path}`).count()) === 0) {
-    await page.getByTestId("files-row-src").click();
+  if ((await page.getByTestId(`dock-files-row-${path}`).count()) === 0) {
+    await page.getByTestId("dock-files-row-src").click();
   }
-  await page.getByTestId(`files-row-${path}`).click();
+  await page.getByTestId(`dock-files-row-${path}`).click();
   await expect(page.getByTestId("files-viewer-path")).toBeVisible();
 }
 

@@ -308,17 +308,25 @@ async function choosePane(page: Page, key: string) {
   await expect(page.getByTestId("palette")).toHaveCount(0);
 }
 
-/** A worktree, the Files pane, one file open — the tree lives in the Deck
- * sidebar's Files accordion member now (pane-nav-absorb plan), so this is the
- * state ⌘F is pressed from with the viewer owning the pane whole. */
+/** A worktree, the Files pane, one file open — the tree is the dock's own tab
+ * (P3, and since P4.1 the only one), and the file it opens is a tab on the
+ * stage, which is the state ⌘F is pressed from. */
 async function openFile(page: Page, path: string) {
   await page.getByTestId(`worktree-row-${WORKTREE.binding_id}`).click();
   await choosePane(page, "files");
   await expect(page.getByTestId("dock-files")).toBeVisible();
-  await page.getByTestId("sidebar-accordion-header-files").click();
-  await page.getByTestId("files-row-src").click();
-  await page.getByTestId(`files-row-${path}`).click();
+  await page.getByTestId("dock-files-row-src").click();
+  await page.getByTestId(`dock-files-row-${path}`).click();
   await expect(page.getByTestId("files-viewer-path")).toHaveText(path);
+  // **And the keyboard is put where the reading is**, which since P4.1 is a
+  // different place from where the file was picked: the tree is the dock's and
+  // the reading is a tab on the stage, so a click in the tree leaves focus on
+  // a tree row. ⌘F's boundary is deliberately narrow (`findKeys.ts`) — it is
+  // this surface's chord only while the target is inside it — and that is the
+  // same rule VS Code keeps: ⌘F in the explorer is not find-in-file. Clicking
+  // into the text is therefore part of the gesture being tested, not a
+  // workaround for one.
+  await page.getByTestId("files-viewer-body").click();
 }
 
 test("⌘F opens a find bar over the open file, counts, walks and closes", async ({

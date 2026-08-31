@@ -1,29 +1,37 @@
-// The Deck sidebar since P1.1 (owner veto 4): the mockup's `.side` anatomy
-// first — the Projects tree rendered directly (no "Worktrees" accordion
-// header), the channel/DM lists inline below it (no "Chats" header) — and
-// Files/History as a deeper two-member accordion BELOW that anatomy, both
-// collapsed on first paint.
+// The Deck sidebar since P4.1: the mockup's `.side` anatomy, and nothing
+// else — the Projects tree rendered directly (no "Worktrees" accordion
+// header, P1.1's owner veto 4), the channel/DM lists inline below it (no
+// "Chats" header), and since P4.1 no deeper fold either: Files and History
+// left for the dock, which owns both.
 //
 // Each test here is a red-proof for one of the claims:
 //
-// 1. **First-screen anatomy.** Projects and the chat lists are on screen with
-//    no fold to open; the only accordion headers left are Files and History,
-//    both shut; opening one collapses the other. Red before P1.1: four
-//    headers, Worktrees open, chats behind a fold.
-// 2. **The Files pane owns no tree.** The tree lives in the sidebar; the pane
-//    is the viewer at full width, with no drawer and no toggle left in its
-//    DOM.
-// 3. **Tree state survives a collapse and a pane switch.** The collapsed
-//    member's DOM is hidden, not unmounted, and the sidebar is a sibling of
-//    the Deck's panes — so expanded directories outlive both gestures.
-// 4. **Worktree scope follows while Files is open**: the worktree changes by
-//    another route (⌘K), and the Files tree re-reads for the new checkout
-//    with Files staying open.
-// 5. **Exactly one owner per keystroke**: one `j` moves exactly one cursor,
-//    even with the History pane's patch on screen — the sidebar list is the
-//    only listener left.
-// 6. **The inline chat lists** are the same channel/DM lists the Inbox shows,
+// 1. **The anatomy, and only it.** Projects and the chat lists are on screen
+//    with no fold to open, and there is no accordion in the sidebar at all —
+//    no Files header, no History header, no shell around them. Red before
+//    P1.1: four headers, Worktrees open, chats behind a fold. Red before
+//    P4.1: the two deep members were still there.
+// 2. **The tree has the dock, and the reading has the stage.** No tree
+//    survives in the sidebar; the dock's Files tab carries the only one; and
+//    clicking a file in it opens a TAB beside the shells rather than a viewer
+//    inside the 376px card ("file'lara basinca yine terminalin oldugu yerde
+//    tab gibi acilmali").
+// 3. **The reading survives a pane switch; the browsing is re-read.** The open
+//    file is a tab beside the shells, so it belongs to the worktree and not to
+//    whatever panel the dock happens to be showing. The dock's tree is
+//    remounted per visit, and the test says so rather than wishing otherwise.
+// 4. **Worktree scope follows a switch made by another route** (⌘K): the tree
+//    re-reads for the new checkout, and the old one's rows do not come across
+//    under a new name.
+// 5. **The inline chat lists** are the same channel/DM lists the Inbox shows,
 //    and a channel row navigates exactly as it does from there.
+//
+// **One claim was retired with its subject, not dropped quietly.** The
+// "one j, one owner" test proved that a single keystroke moved exactly one
+// cursor while the sidebar's History list and the pane's patch were both on
+// screen. P4.1 removed that list, so there is no second j/k listener left for
+// a keystroke to be shared between: the risk the test guarded cannot arise
+// because the surface that created it is gone.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -307,7 +315,7 @@ function header(page: Page, id: string) {
   return page.getByTestId(`sidebar-accordion-header-${id}`);
 }
 
-test("the workspace sidebar opens on the mockup anatomy, with Files/History folded below", async ({
+test("the workspace sidebar is the mockup anatomy and nothing else", async ({
   page,
 }) => {
   await openAccordionWorkspace(page);
@@ -323,151 +331,127 @@ test("the workspace sidebar opens on the mockup anatomy, with Files/History fold
   // The Projects header carries the mockup's `+` affordance.
   await expect(page.getByTestId("projects-nav-add")).toBeVisible();
 
-  // Files and History are the deeper accordion, both shut on first paint.
-  for (const id of ["files", "history"]) {
-    await expect(header(page, id)).toBeVisible();
-    await expect(header(page, id)).toHaveAttribute("aria-expanded", "false");
-  }
+  // And since P4.1 there is no deeper fold either: Files and History left for
+  // the dock, which owns both ("sol side bardaki history ve files kalkmali.
+  // cok daha iyisi sag tarafa yapilacak"). With the last two members gone the
+  // accordion shell went with them — a fold containing nothing is furniture.
+  await expect(header(page, "files")).toHaveCount(0);
+  await expect(header(page, "history")).toHaveCount(0);
+  await expect(page.getByTestId("sidebar-deck-accordion")).toHaveCount(0);
+  await expect(
+    page.locator('[data-testid^="sidebar-accordion-header-"]'),
+  ).toHaveCount(0);
 
-  // Opening History collapses Files — at most one member expanded, ever.
-  await header(page, "files").click();
-  await expect(header(page, "files")).toHaveAttribute("aria-expanded", "true");
-  await header(page, "history").click();
-  await expect(header(page, "history")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  await expect(header(page, "files")).toHaveAttribute("aria-expanded", "false");
-  const expanded = page.locator(
-    '[data-testid^="sidebar-accordion-header-"][aria-expanded="true"]',
-  );
-  await expect(expanded).toHaveCount(1);
-
-  // Clicking the open member's header is a no-op: exactly one stays open.
-  await header(page, "history").click();
-  await expect(header(page, "history")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  await expect(expanded).toHaveCount(1);
+  // The anatomy that stays is still exactly one payload in the slot.
+  await expect(page.getByTestId("sidebar-deck-sections")).toHaveCount(1);
 });
 
-test("the Files pane owns no tree: the viewer has the pane, the tree has the sidebar", async ({
+test("the tree has the dock, and the reading has the stage", async ({
   page,
 }) => {
   await openAccordionWorkspace(page);
 
-  // The tree is the sidebar's.
-  await header(page, "files").click();
+  // There is no sidebar tree left to compete with it (P4.1 item 1).
   const sidebar = page.getByTestId("app-sidebar");
-  await expect(sidebar.getByTestId("files-tree")).toBeVisible();
+  await expect(sidebar.getByTestId("files-tree")).toHaveCount(0);
+  await expect(sidebar.getByTestId("dock-files-tree")).toHaveCount(0);
 
   // Open the pane through its own door.
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByTestId("palette-input").fill("files");
   await page.getByTestId("palette-row-pane:files").click();
-  // Since P3 the Files surface is the dock's Files tab. The dock's panel
-  // carries the mockup's own tree (dock-files-tree) — the SIDEBAR's tree
-  // (files-tree) still never renders inside it, and neither does the old
-  // drawer chrome this test was written against.
   const pane = page.getByTestId("dock-files");
   await expect(pane).toBeVisible();
-  await expect(pane.getByTestId("files-tree")).toHaveCount(0);
+  await expect(pane.getByTestId("dock-files-tree")).toBeVisible();
+  // And none of the retired chrome came back with it.
   await expect(pane.getByTestId("files-tree-drawer")).toHaveCount(0);
   await expect(pane.getByTestId("files-tree-toggle")).toHaveCount(0);
 
-  // Clicking a file in the sidebar's tree lands it in the viewer — the same
-  // show-file door Search and the Diff pane already use.
-  await sidebar.getByTestId("files-row-src").click();
-  await sidebar.getByTestId("files-row-src/greet.ts").click();
+  // Clicking a file opens it as a TAB beside the shells — the dock keeps the
+  // tree, the stage gets the text ("file'lara basinca yine terminalin oldugu
+  // yerde tab gibi acilmali"). The viewer is NOT inside the dock card.
+  await pane.getByTestId("dock-files-row-src").click();
+  await pane.getByTestId("dock-files-row-src/greet.ts").click();
   await expect(page.getByTestId("files-viewer-path")).toHaveText(
     "src/greet.ts",
   );
+  await expect(pane.getByTestId("files-viewer")).toHaveCount(0);
+  await expect(
+    page.getByTestId("view-tab-select-file:src/greet.ts"),
+  ).toBeVisible();
 });
 
-test("tree state survives a collapse and a pane switch", async ({ page }) => {
+test("the reading survives a pane switch; the browsing is re-read", async ({
+  page,
+}) => {
+  // **The durability that moved.** Before P4.1 the open file lived in whatever
+  // pane was in the slot, so leaving that pane took the reading with it. Now
+  // the reading is a TAB beside the shells — it belongs to the worktree, not
+  // to the dock — and the dock is free to be a browser that re-lists.
   await openAccordionWorkspace(page);
 
-  await header(page, "files").click();
-  const sidebar = page.getByTestId("app-sidebar");
-  await sidebar.getByTestId("files-row-src").click();
-  await expect(sidebar.getByTestId("files-row-src/greet.ts")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByTestId("palette-input").fill("files");
+  await page.getByTestId("palette-row-pane:files").click();
+  const pane = page.getByTestId("dock-files");
+  await pane.getByTestId("dock-files-row-src").click();
+  await pane.getByTestId("dock-files-row-src/greet.ts").click();
+  await expect(page.getByTestId("files-viewer-path")).toHaveText(
+    "src/greet.ts",
+  );
 
-  // Collapse Files by opening History; the tree's DOM is hidden, not
-  // unmounted, so reopening finds `src` still expanded — no remount, no
-  // re-listing, no lost state.
-  await header(page, "history").click();
-  await expect(header(page, "files")).toHaveAttribute("aria-expanded", "false");
-  await header(page, "files").click();
-  await expect(sidebar.getByTestId("files-row-src/greet.ts")).toBeVisible();
-
-  // And a pane switch in the Deck does not touch the sidebar at all: the
-  // sidebar is a sibling of the pane content, so the expansion survives.
+  // Change the dock to another panel entirely: the tab, and the file in it,
+  // are still there — the dock is not where the reading lives.
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByTestId("palette-input").fill("history");
   await page.getByTestId("palette-row-pane:history").click();
   await expect(page.getByTestId("dock-history")).toBeVisible();
-  await expect(sidebar.getByTestId("files-row-src/greet.ts")).toBeVisible();
+  await expect(
+    page.getByTestId("view-tab-select-file:src/greet.ts"),
+  ).toBeVisible();
+  await expect(page.getByTestId("files-viewer-path")).toHaveText(
+    "src/greet.ts",
+  );
+
+  // And coming back to Files gives a freshly listed tree. **Stated rather than
+  // wished for**: the dock's panel really is remounted per visit, so the folds
+  // the owner opened are NOT carried across, and the honest claim is that the
+  // root listing is right rather than that the expansion survived.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByTestId("palette-input").fill("files");
+  await page.getByTestId("palette-row-pane:files").click();
+  await expect(pane.getByTestId("dock-files-row-src")).toBeVisible();
 });
 
 test("the Files tree follows a worktree switch made by another route", async ({
   page,
 }) => {
   // The riskiest sequence: Files open, the worktree changes through ⌘K's
-  // worktree row, and the tree re-scopes with Files staying open.
+  // worktree row, and the tree re-scopes.
   await openAccordionWorkspace(page);
-  await header(page, "files").click();
-  const sidebar = page.getByTestId("app-sidebar");
-  await expect(sidebar.getByTestId("files-row-ONLY-IN-A.md")).toBeVisible();
+  const files = async () => {
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByTestId("palette-input").fill("files");
+    await page.getByTestId("palette-row-pane:files").click();
+  };
+  await files();
+  const pane = page.getByTestId("dock-files");
+  await expect(pane.getByTestId("dock-files-row-ONLY-IN-A.md")).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByTestId("palette-input").fill("spike-b");
   await page
     .getByTestId(`palette-row-worktree:${WORKTREE_B.binding_id}`)
     .click();
+  // Which panel the dock shows is per worktree (`paneModel.ts`'s layout is
+  // keyed by binding id), and this checkout has never been arranged — so
+  // asking for Files here is part of the gesture, not a workaround.
+  await files();
 
-  // Files stayed open; the tree is the new checkout's.
-  await expect(header(page, "files")).toHaveAttribute("aria-expanded", "true");
-  await expect(sidebar.getByTestId("files-row-ONLY-IN-B.md")).toBeVisible();
-  await expect(sidebar.getByTestId("files-row-ONLY-IN-A.md")).toHaveCount(0);
-});
-
-test("one j, one owner: a keystroke moves exactly one cursor", async ({
-  page,
-}) => {
-  // The plan's risk b: History's j/k used to be a window-level listener in the
-  // pane. With the list in the sidebar and the patch in the pane, the sidebar
-  // list is the ONLY owner — one press, one selection moved, nowhere else.
-  await openAccordionWorkspace(page);
-  await header(page, "history").click();
-  const list = page.getByTestId("history-list");
-  await expect(list).toBeVisible();
-  await expect(
-    page.getByTestId(`history-commit-${COMMITS[0].hash}`),
-  ).toBeVisible();
-
-  // Open a patch first, so the pane is mounted and would be racing for the
-  // keystroke if a second listener survived there.
-  await page.getByTestId(`history-commit-${COMMITS[0].hash}`).click();
-  await expect(page.getByTestId("dock-history")).toBeVisible();
-  await expect(page.getByTestId("history-patch-title")).toContainText(
-    "First fixture commit",
-  );
-
-  // One j: the cursor steps to exactly one row — one selected row in the
-  // whole History list, and it is the NEXT one. (Scoped to the list: the
-  // collapsed Worktrees member legitimately keeps its own selected worktree
-  // row in the hidden DOM — that is the state-survives-collapse guarantee,
-  // not a second cursor.)
-  await page.keyboard.press("j");
-  const selected = list.locator('[aria-selected="true"]');
-  await expect(selected).toHaveCount(1);
-  await expect(
-    page.getByTestId(`history-commit-${COMMITS[1].hash}`),
-  ).toHaveAttribute("aria-selected", "true");
-  await expect(
-    page.getByTestId(`history-commit-${COMMITS[0].hash}`),
-  ).toHaveAttribute("aria-selected", "false");
+  // The tree is the new checkout's, and the old one's rows are gone rather
+  // than carried across under a new name — the failure this test exists for.
+  await expect(pane.getByTestId("dock-files-row-ONLY-IN-B.md")).toBeVisible();
+  await expect(pane.getByTestId("dock-files-row-ONLY-IN-A.md")).toHaveCount(0);
 });
 
 test("the inline chat lists hold the channels and DMs, and a channel row navigates", async ({

@@ -1,0 +1,35 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P4.1 (the owner's round from
+# live testing, 2026-08-31)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: the five items the owner raised from his own screen
+# (vingilot/docs/plans/2026-08-29-redesign.md § "P4.1"):
+#
+#   1. the Deck sidebar sheds its parked Files and History members — the dock
+#      owns both ("sol side bardaki history ve files kalkmali");
+#   2. the file tree's lettered `.flogo` chips become per-language icons — the
+#      ONE place the mockup is explicitly overruled, by the owner
+#      ("direk vscodedaki gibi dile gore olmali, design orda yanlis yapmis");
+#   3+4. a file, a commit's patch and a worktree diff open as TABS beside the
+#      shells and get the whole stage ("terminalin oldugu kisimda yeni tab gibi
+#      acilmali"), which is also P3.1's geometry ruling answered;
+#   5. the History panel draws the mockup's real lane graph, from real parent
+#      hashes and every ref, over a backend that now reports both.
+#
+# Almost all of the new code lives under desktop/src/features/runs/** and
+# desktop/src-tauri/src/vingilot_worktree/**, which the root registry already
+# declares whole. The entries here are the one path those globs do not cover.
+
+seams:
+  - path: "desktop/tests/e2e/view-tabs.spec.ts"
+    reason: "New, fork-owned spec: reading beside the shells (P4.1 items 3 and 4) over the real key path and a recorded pty bridge — a file picked in the dock's tree becoming a tab on the stage while the tree stays put and no viewer is drawn inside the dock card; the per-language icon vocabulary read as a vocabulary (six extensions, six glyphs, the lockfile override, and the honest generic fallback); a commit row and the Diff panel's 'Open in tab' doing the same, with the staged diff measured WIDER than the dock card it left; and the invariant the WorkSurface header is about — the recorded pty_open/pty_close/pty_write calls are IDENTICAL across opening three view tabs of three kinds, switching between them and closing them, so a reading can never disturb a shell. Registered in playwright.config.ts's smoke testMatch (that file is already a declared seam over several prior phases)."
+    owner: "vingilot/redesign"
+    removable_when: "With the view tabs."
+    status: "permanent"
+    added: "2026-08-31"

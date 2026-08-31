@@ -88,6 +88,34 @@ export async function readHistory(
   }
 }
 
+/** One page of **every ref**, newest first — the reading a branch graph is a
+ * picture of (P4.1 item 5).
+ *
+ * `skip` is how many rows are already on screen, and it is an offset rather
+ * than a cursor because a union of refs has no single tip to continue from:
+ * `vingilot_worktree::log`'s header argues that out, and states what the
+ * offset costs. Kept a separate function rather than a flag on `readHistory`
+ * for the same reason the backend keeps two variants — a caller that could
+ * pass a cursor with `all` would be a caller that could ask for something git
+ * cannot answer. */
+export async function readAllRefsHistory(
+  worktree: string,
+  skip: number,
+): Promise<HistoryResult<LogPage>> {
+  try {
+    const answered = await invoke<unknown>("worktree_log", {
+      all: true,
+      path: worktree,
+      skip,
+    });
+    const page = readLogPage(answered);
+    if (page === null) return { error: unreadable("worktree_log"), ok: false };
+    return { ok: true, value: page };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
+}
+
 /** One commit's patch, in the same `WorktreeDiff` shape the Diff pane renders. */
 export async function readCommitDiff(
   worktree: string,

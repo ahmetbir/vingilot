@@ -16,23 +16,41 @@
 //! commit past the page and does not show it, so a page that is full and a page
 //! that is exactly full are different answers rather than the same one.
 //!
-//! **Paging is by cursor, not by offset.** The next page is asked for with the
-//! hash of the last commit shown and `--skip=1`, so a commit landing on the
-//! branch between two pages cannot slide a row the owner has already read down
-//! into the next one. `--skip=<n>` alone would.
+//! **Paging is by cursor, not by offset — in the scope that can be.** The next
+//! page of HEAD's own history is asked for with the hash of the last commit
+//! shown and `--skip=1`, so a commit landing on the branch between two pages
+//! cannot slide a row the owner has already read down into the next one.
+//! `--skip=<n>` alone would.
+//!
+//! ## Two scopes, and why only one of them can page by cursor
+//!
+//! [`Page::Head`] walks HEAD's own ancestry: one starting rev, so "continue
+//! under this commit" is expressible as that commit plus `--skip=1`, and it is
+//! exact.
+//!
+//! [`Page::All`] is `git log --all` — the union of every ref, which is what a
+//! branch graph is a picture of. That union has **no single tip**, so there is
+//! no rev that means "continue under the row he last read": passing the cursor
+//! commit as a starting rev would union it back in with every ref and restart
+//! the listing at the newest one. So the all-refs scope pages by offset
+//! (`--skip=<n>`), and this comment is the honest statement of what that costs:
+//! a commit landing anywhere in the repository between two pages shifts the
+//! boundary by one row. It is the wrong trade for a linear reading list and the
+//! only available one for a union — a graph that could not show a second branch
+//! would be a worse answer than a page boundary that can slip.
 //!
 //! ## Why the record format is what it is
 //!
-//! `git log -z --format=%H%n%h%n%an%n%aI%n%D%n%s` — **NUL between commits,
+//! `git log -z --format=%H%n%h%n%an%n%aI%n%D%n%P%n%s` — **NUL between commits,
 //! newline between fields**, which is exact rather than nearly exact:
 //!
 //! - `-z` is the only separator git guarantees cannot occur inside a commit's
 //!   text, and it is what makes a subject containing anything at all safe.
-//! - Every one of the five fields before the subject is newline-free *by git's
-//!   own construction*: `%H`/`%h` are hex, `%aI` is an ISO-8601 instant, and git
-//!   forbids a newline inside an author ident or a ref name. `%s` collapses the
-//!   subject to one line. So a newline is an unambiguous field separator here in
-//!   a way it is not anywhere else in git's output.
+//! - Every one of the six fields before the subject is newline-free *by git's
+//!   own construction*: `%H`/`%h`/`%P` are hex, `%aI` is an ISO-8601 instant,
+//!   and git forbids a newline inside an author ident or a ref name. `%s`
+//!   collapses the subject to one line. So a newline is an unambiguous field
+//!   separator here in a way it is not anywhere else in git's output.
 //! - The subject is read with `splitn`, so it is the field that absorbs a
 //!   surprise rather than the one that shifts every other field along by one.
 //!
@@ -54,10 +72,10 @@ pub const MAX_COMMITS: usize = 200;
 
 /// The record format. See this module's header for why the separators are what
 /// they are; `FIELDS` and this string are one decision and must move together.
-const FORMAT: &str = "--format=%H%n%h%n%an%n%aI%n%D%n%s";
+const FORMAT: &str = "--format=%H%n%h%n%an%n%aI%n%D%n%P%n%s";
 
 /// How many fields `FORMAT` produces.
-const FIELDS: usize = 6;
+const FIELDS: usize = 7;
 
 /// One commit, as the History pane prints it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -80,9 +98,31 @@ pub struct Commit {
     /// `tag: v1` — split out of `%D`. Empty for the overwhelming majority of
     /// commits, which is why it is a list and not a string.
     pub refs: Vec<String>,
+    /// This commit's parents, in git's own order — `%P`. The first is the one
+    /// a patch is read against; a second means a merge.
+    ///
+    /// **This is the field a lane graph is drawn from, and it is why the
+    /// format grew.** Without it a history is a list, and every "branch line"
+    /// over such a list is a topology the drawing invented rather than one git
+    /// reported. Empty for a root commit, which is a fact and not a gap.
+    pub parents: Vec<String>,
     /// The first line. Empty for a commit written with an empty subject, which
     /// git allows; the pane says so rather than rendering a blank row.
     pub subject: String,
+}
+
+/// Which commits a page is a page of, and how the next one is asked for.
+///
+/// Two variants rather than a `bool` plus two optional cursors, because the
+/// two scopes page differently and a shape that let a caller pass a cursor
+/// with `--all` would be a shape that let it ask for something git cannot
+/// answer. See this module's header for why the union cannot use a cursor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Page<'a> {
+    /// HEAD's own ancestry, continued under the commit named. Exact.
+    Head { before: Option<&'a str> },
+    /// Every ref in the repository, continued at an offset.
+    All { skip: usize },
 }
 
 /// One page of history.
@@ -129,6 +169,7 @@ fn parse_commit(record: &str) -> Option<Commit> {
     let author = fields.next()?;
     let date = fields.next()?;
     let refs = fields.next()?;
+    let parents = fields.next()?;
     let subject = fields.next()?;
     if hash.is_empty() {
         return None;
@@ -137,6 +178,8 @@ fn parse_commit(record: &str) -> Option<Commit> {
         author: author.to_string(),
         date: date.to_string(),
         hash: hash.to_string(),
+        // `%P` is space-separated hashes, empty for a root commit.
+        parents: parents.split_whitespace().map(str::to_string).collect(),
         refs: parse_refs(refs),
         short: short.to_string(),
         subject: subject.to_string(),
@@ -155,19 +198,21 @@ pub(super) fn parse_log(text: &str) -> Vec<Commit> {
 /// `git log`'s argument vector, built in one place so a test can read what is —
 /// and is not — in it. Nothing here is conditional on anything but where the
 /// page starts: there is no branch of this function that writes.
-fn log_args<'a>(count: &'a str, skip: &'a str, start: &'a str) -> Vec<&'a str> {
-    vec![
-        "log",
-        "-z",
-        "--no-color",
-        FORMAT,
-        count,
-        skip,
-        start,
-        // Nothing after the separator: this is the whole worktree's history,
-        // and a pathspec would make it something else without saying so.
-        "--",
-    ]
+fn log_args<'a>(count: &'a str, skip: &'a str, start: Option<&'a str>, all: bool) -> Vec<&'a str> {
+    let mut args = vec!["log", "-z", "--no-color", FORMAT, count, skip];
+    // `--all` and a starting rev are alternatives, never a pair: `git log --all
+    // <rev>` is the union of every ref *with* that rev, which is the union
+    // again — so a caller passing both would silently get page one back.
+    if all {
+        args.push("--all");
+    }
+    if let Some(rev) = start {
+        args.push(rev);
+    }
+    // Nothing after the separator: this is the whole worktree's history, and a
+    // pathspec would make it something else without saying so.
+    args.push("--");
+    args
 }
 
 /// Whether this worktree has any commit at all.
@@ -183,6 +228,20 @@ fn has_history(worktree: &str) -> Result<bool, WorktreeError> {
     )
 }
 
+/// Whether this repository has any ref at all — the [`Page::All`] counterpart
+/// of [`has_history`].
+///
+/// `HEAD` is not the question in the union scope: a worktree can sit on an
+/// unborn branch while the repository has branches with commits on them, and
+/// `git log --all` there is a perfectly good answer that `has_history` would
+/// have refused to ask for. `rev-list --all --max-count=1` names one commit or
+/// none, and costs one object read.
+fn has_any_ref(worktree: &str) -> Result<bool, WorktreeError> {
+    let args = ["rev-list", "--all", "--max-count=1"];
+    let ran = run(worktree, &args)?;
+    Ok(ran.ok && !ran.stdout.trim().is_empty())
+}
+
 /// One page of a worktree's history, with the page size handed in.
 ///
 /// **`limit` is a parameter rather than [`MAX_COMMITS`] read straight off the
@@ -194,13 +253,15 @@ fn has_history(worktree: &str) -> Result<bool, WorktreeError> {
 /// overlapping, and the last page's `more: false`.
 pub(super) fn log_bounded(
     worktree: &str,
-    before: Option<&str>,
+    page: Page<'_>,
     limit: usize,
 ) -> Result<LogPage, WorktreeError> {
     ensure_repo(worktree)?;
 
-    let start = match before {
-        Some(cursor) => {
+    let (start, skip_by) = match page {
+        Page::Head {
+            before: Some(cursor),
+        } => {
             // A cursor that names nothing is a refusal and not an empty page:
             // an empty page reads as "there is no more history", which is a
             // claim about the owner's repository.
@@ -212,9 +273,11 @@ pub(super) fn log_bounded(
                     base: cursor.to_string(),
                 });
             }
-            cursor.to_string()
+            // The cursor commit is already on screen; the next page starts
+            // under it.
+            (Some(cursor.to_string()), 1)
         }
-        None => {
+        Page::Head { before: None } => {
             if !has_history(worktree)? {
                 return Ok(LogPage {
                     commits: Vec::new(),
@@ -223,16 +286,35 @@ pub(super) fn log_bounded(
                     more: false,
                 });
             }
-            "HEAD".to_string()
+            (Some("HEAD".to_string()), 0)
+        }
+        Page::All { skip } => {
+            // `git log --all` in a repository with no commits at all exits 128
+            // the same way `git log HEAD` does, and for the same reason: there
+            // is no ref to walk. Answered as an empty page here too — a new
+            // repository is not a broken one.
+            if !has_any_ref(worktree)? {
+                return Ok(LogPage {
+                    commits: Vec::new(),
+                    cursor: None,
+                    limit,
+                    more: false,
+                });
+            }
+            (None, skip)
         }
     };
 
     // One past the page, so `more` is something that was read rather than
     // something inferred from the page being full.
     let count = format!("--max-count={}", limit.saturating_add(1));
-    // The cursor commit is already on screen; the next page starts under it.
-    let skip = format!("--skip={}", usize::from(before.is_some()));
-    let args = log_args(&count, &skip, &start);
+    let skip = format!("--skip={skip_by}");
+    let args = log_args(
+        &count,
+        &skip,
+        start.as_deref(),
+        matches!(page, Page::All { .. }),
+    );
     let ran = run(worktree, &args)?;
     if !ran.ok {
         return Err(WorktreeError::GitFailed {
@@ -261,7 +343,7 @@ pub(super) fn log_bounded(
 pub(super) fn one(worktree: &str, hash: &str) -> Result<Option<Commit>, WorktreeError> {
     let count = "--max-count=1".to_string();
     let skip = "--skip=0".to_string();
-    let args = log_args(&count, &skip, hash);
+    let args = log_args(&count, &skip, Some(hash), false);
     let ran = run(worktree, &args)?;
     if !ran.ok {
         return Ok(None);
@@ -274,13 +356,38 @@ pub(super) fn one(worktree: &str, hash: &str) -> Result<Option<Commit>, Worktree
 /// `path` is the worktree, not the repository: a linked worktree has its own
 /// `HEAD`, and its history is its branch's rather than the repository's.
 ///
-/// `before` is the hash of the last commit already shown; omit it for the first
-/// page. `async`, and off the thread the webview talks on, for the reason
+/// **Two scopes.** `all: false` (or omitted) is HEAD's own ancestry, paged by
+/// `before` — the hash of the last commit already shown; omit it for the first
+/// page. `all: true` is `git log --all`, the union of every ref, which is what
+/// a branch graph is a picture of; it is paged by `skip`, the number of rows
+/// already on screen. See this module's header for why the union cannot use a
+/// cursor, and what that costs.
+///
+/// A `before` sent with `all: true` is **ignored rather than honoured**: it
+/// cannot mean anything in the union (git would union the commit back in and
+/// return page one), and silently returning page one to a caller that asked
+/// for page three is the kind of answer this island refuses to give.
+///
+/// `async`, and off the thread the webview talks on, for the reason
 /// `off_thread` documents.
 #[tauri::command]
-pub async fn worktree_log(path: String, before: Option<String>) -> Result<LogPage, WorktreeError> {
+pub async fn worktree_log(
+    path: String,
+    before: Option<String>,
+    all: Option<bool>,
+    skip: Option<usize>,
+) -> Result<LogPage, WorktreeError> {
     super::off_thread("worktree log", move || {
-        log_bounded(&path, before.as_deref(), MAX_COMMITS)
+        let page = if all == Some(true) {
+            Page::All {
+                skip: skip.unwrap_or(0),
+            }
+        } else {
+            Page::Head {
+                before: before.as_deref(),
+            }
+        };
+        log_bounded(&path, page, MAX_COMMITS)
     })
     .await
 }
@@ -306,6 +413,7 @@ mod tests {
             "Ada Lovelace",
             "2026-08-12T02:03:21+03:00",
             "HEAD -> main, origin/main",
+            "2222222222222222222222222222222222222222",
             "the subject line",
         ]));
         assert_eq!(parsed.len(), 1);
@@ -314,7 +422,39 @@ mod tests {
         assert_eq!(parsed[0].author, "Ada Lovelace");
         assert_eq!(parsed[0].date, "2026-08-12T02:03:21+03:00");
         assert_eq!(parsed[0].refs, vec!["HEAD -> main", "origin/main"]);
+        assert_eq!(
+            parsed[0].parents,
+            vec!["2222222222222222222222222222222222222222"]
+        );
         assert_eq!(parsed[0].subject, "the subject line");
+    }
+
+    #[test]
+    fn a_merges_two_parents_are_both_read_and_a_roots_none_are() {
+        // The two facts a lane graph is drawn from. `%P` is space-separated;
+        // a merge has two (or more) and a root commit has the empty string,
+        // which must read as no parents rather than as one empty one.
+        let merge = parse_log(&record([
+            "e".repeat(40).as_str(),
+            "eeeeeee",
+            "T",
+            "d",
+            "",
+            &format!("{} {}", "a".repeat(40), "b".repeat(40)),
+            "Merge branch 'x'",
+        ]));
+        assert_eq!(merge[0].parents, vec!["a".repeat(40), "b".repeat(40)]);
+
+        let root = parse_log(&record([
+            "f".repeat(40).as_str(),
+            "fffffff",
+            "T",
+            "d",
+            "",
+            "",
+            "first",
+        ]));
+        assert_eq!(root[0].parents, Vec::<String>::new());
     }
 
     #[test]
@@ -324,6 +464,7 @@ mod tests {
             "aaaaaaa",
             "T",
             "d",
+            "",
             "",
             "s",
         ]));
@@ -342,6 +483,7 @@ mod tests {
             "d",
             "",
             "",
+            "",
         ]));
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].author, "T");
@@ -350,8 +492,8 @@ mod tests {
 
     #[test]
     fn a_short_record_is_dropped_rather_than_read_with_every_field_shifted() {
-        // Four fields where six are expected. Read positionally, this would put
-        // a date in the refs column and a plausible-looking row on screen.
+        // Four fields where seven are expected. Read positionally, this would
+        // put a date in the refs column and a plausible-looking row on screen.
         assert_eq!(parse_log("only\ntwo\nthree\nfour\0"), Vec::new());
         assert_eq!(parse_log(""), Vec::new());
     }
@@ -360,8 +502,8 @@ mod tests {
     fn the_terminating_nul_does_not_produce_a_phantom_commit() {
         let two = format!(
             "{}{}",
-            record(["c".repeat(40).as_str(), "ccccccc", "T", "d", "", "one"]),
-            record(["d".repeat(40).as_str(), "ddddddd", "T", "d", "", "two"]),
+            record(["c".repeat(40).as_str(), "ccccccc", "T", "d", "", "", "one"]),
+            record(["d".repeat(40).as_str(), "ddddddd", "T", "d", "", "", "two"]),
         );
         assert_eq!(parse_log(&two).len(), 2);
     }
@@ -393,7 +535,14 @@ mod tests {
     }
 
     fn read(worktree: &str, before: Option<&str>, limit: usize) -> LogPage {
-        match log_bounded(worktree, before, limit) {
+        match log_bounded(worktree, Page::Head { before }, limit) {
+            Ok(page) => page,
+            Err(error) => panic!("expected a page of history, got {error:?}"),
+        }
+    }
+
+    fn read_all(worktree: &str, skip: usize, limit: usize) -> LogPage {
+        match log_bounded(worktree, Page::All { skip }, limit) {
             Ok(page) => page,
             Err(error) => panic!("expected a page of history, got {error:?}"),
         }
@@ -480,11 +629,119 @@ mod tests {
         // a claim about his repository made from a question that failed.
         let repo = Repo::new();
         assert_eq!(
-            log_bounded(&repo.path(), Some("no-such-commit"), MAX_COMMITS),
+            log_bounded(
+                &repo.path(),
+                Page::Head {
+                    before: Some("no-such-commit")
+                },
+                MAX_COMMITS
+            ),
             Err(WorktreeError::UnknownBase {
                 base: "no-such-commit".to_string()
             })
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // the union scope: parents, every ref, and offset paging
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn every_commits_parents_arrive_and_they_chain() {
+        // The claim a lane graph rests on: row N's parent is row N+1's hash,
+        // all the way down, and the root commit has none.
+        let repo = history(&["second", "third"]);
+        let page = read(&repo.path(), None, MAX_COMMITS);
+        assert_eq!(page.commits.len(), 3);
+        assert_eq!(page.commits[0].parents, vec![page.commits[1].hash.clone()]);
+        assert_eq!(page.commits[1].parents, vec![page.commits[2].hash.clone()]);
+        assert_eq!(page.commits[2].parents, Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_union_scope_sees_a_branch_head_never_walked_to_and_names_a_merges_two_parents() {
+        // HEAD's own ancestry cannot show a sibling branch — that is exactly
+        // the gap `--all` closes — and a merge is where the second lane is
+        // real rather than drawn.
+        let repo = history(&["second"]);
+        repo.git(&["checkout", "-b", "side"]);
+        repo.write("side.txt", "on the side\n");
+        repo.git(&["add", "side.txt"]);
+        repo.git(&["commit", "-m", "only on side"]);
+        repo.git(&["checkout", "main"]);
+
+        let head = read(&repo.path(), None, MAX_COMMITS);
+        assert_eq!(subjects(&head), vec!["second", "first"]);
+
+        let all = read_all(&repo.path(), 0, MAX_COMMITS);
+        assert!(
+            all.commits.iter().any(|c| c.subject == "only on side"),
+            "--all must reach a ref HEAD cannot walk to: {:?}",
+            subjects(&all)
+        );
+        // And the ref name rides along, which is what the branch chips draw.
+        assert!(
+            all.commits
+                .iter()
+                .any(|c| c.refs.iter().any(|r| r.contains("side"))),
+            "{:?}",
+            all.commits.iter().map(|c| &c.refs).collect::<Vec<_>>()
+        );
+
+        repo.git(&["merge", "--no-ff", "-m", "Merge side", "side"]);
+        let merged = read(&repo.path(), None, MAX_COMMITS);
+        assert_eq!(merged.commits[0].subject, "Merge side");
+        assert_eq!(
+            merged.commits[0].parents.len(),
+            2,
+            "a --no-ff merge has two parents: {:?}",
+            merged.commits[0].parents
+        );
+    }
+
+    #[test]
+    fn the_union_scope_pages_by_offset() {
+        // Offset rather than cursor, for the reason the header states. What is
+        // asserted here is that the offset is really applied and that the last
+        // page says it is the last.
+        let repo = history(&["second", "third", "fourth"]);
+        let first = read_all(&repo.path(), 0, 2);
+        assert_eq!(first.commits.len(), 2);
+        assert!(first.more);
+        let second = read_all(&repo.path(), 2, 2);
+        assert_eq!(subjects(&second), vec!["second", "first"]);
+        assert!(!second.more);
+    }
+
+    #[test]
+    fn a_repository_with_no_refs_is_an_empty_union_page_and_not_a_refusal() {
+        // `git log --all` exits 128 in a fresh repository exactly as `git log
+        // HEAD` does. Reported as git failing it would say the same wrong
+        // thing about a new repository.
+        let dir = temp_dir();
+        let path = dir.path().to_string_lossy().into_owned();
+        assert!(super::super::testrepo::git_at(
+            &path,
+            &["init", "-b", "main"]
+        ));
+        let page = read_all(&path, 0, MAX_COMMITS);
+        assert_eq!(page.commits, Vec::new());
+        assert!(!page.more);
+        assert_eq!(page.cursor, None);
+    }
+
+    #[test]
+    fn the_two_scopes_never_hand_git_a_rev_and_all_at_once() {
+        // `git log --all <rev>` is the union again, so a page-three request
+        // would silently come back as page one. The shape of `Page` is what
+        // makes that unspellable; this is the proof the arg builder agrees.
+        let union = log_args("--max-count=10", "--skip=20", None, true);
+        assert!(union.contains(&"--all"));
+        assert!(!union.contains(&"HEAD"));
+
+        let head = log_args("--max-count=10", "--skip=0", Some("HEAD"), false);
+        assert!(!head.contains(&"--all"));
+        assert!(head.contains(&"HEAD"));
     }
 
     #[test]
@@ -492,7 +749,7 @@ mod tests {
         let plain = temp_dir();
         let path = plain.path().to_string_lossy().into_owned();
         assert_eq!(
-            log_bounded(&path, None, MAX_COMMITS),
+            log_bounded(&path, Page::Head { before: None }, MAX_COMMITS),
             Err(WorktreeError::NotARepo { path })
         );
     }
@@ -539,7 +796,7 @@ mod tests {
     fn the_log_commands_never_carry_a_write_verb() {
         // This module reads. A future edit that reaches for the index, the
         // working tree or a ref fails here.
-        let args = log_args("--max-count=10", "--skip=0", "HEAD");
+        let args = log_args("--max-count=10", "--skip=0", Some("HEAD"), false);
         assert_eq!(args[0], "log");
         for arg in args {
             for forbidden in [
@@ -556,6 +813,6 @@ mod tests {
         // See `off_thread`: only an `async fn` gets `respond_async_serialized`.
         // The thread is not observable from here; the shape that decides it is.
         fn accepts_only_a_future<F: std::future::Future>(_: F) {}
-        accepts_only_a_future(worktree_log("/nonexistent".to_string(), None));
+        accepts_only_a_future(worktree_log("/nonexistent".to_string(), None, None, None));
     }
 }

@@ -40,16 +40,35 @@
 // others' normal weight, and an inset ring. The ring is drawn on every tab and
 // is merely transparent on the inactive ones, so gaining or losing it moves no
 // pixel of the row — the same reason the `×` fades rather than appears.
+//
+// **Not every tab is a terminal any more** (redesign P4.1, items 3 and 4: "hatta
+// bence terminalin oldugu kisimda yeni tab gibi acilmali"). A file, a commit's
+// patch or the worktree's diff can hold a tab here too — they are drawn AFTER
+// the shells, wear their subject's name instead of an ordinal, and take the
+// active treatment off the shells while one is showing. The two lists are kept
+// apart on purpose (`viewTabs.ts`): the ordinals name ptys, and nothing about a
+// reading may reach the model that owns sessions. What this component shows is
+// the one place they meet — exactly one tab in the row is lit.
 
 import * as React from "react";
 
 import type { WorktreeTabs } from "@/features/runs/lib/terminalTabs";
+import type { ViewTab } from "@/features/runs/lib/viewTabs";
+import { viewLabel, viewTitle } from "@/features/runs/lib/viewTabs";
+import { FileIcon } from "@/features/runs/ui/FileIcon";
+import { fileIconId } from "@/features/runs/lib/fileIcons";
 
 interface TerminalTabStripProps {
   tabs: WorktreeTabs;
   onSelect: (n: number) => void;
   onClose: (n: number) => void;
   onNew: () => void;
+  /** The non-terminal tabs beside the shells, in the order they were opened. */
+  views?: readonly ViewTab[];
+  /** Which view is showing, or `null` while a terminal is. */
+  activeViewId?: string | null;
+  onSelectView?: (id: string) => void;
+  onCloseView?: (id: string) => void;
   /** True while the scratch shell is open over this surface. The mockup
    * (`#tab-scratch`) draws the scratch as a tab that exists only while it is
    * open: amber dot, always-visible ✕. This strip draws the same tab; the
@@ -60,12 +79,16 @@ interface TerminalTabStripProps {
 }
 
 export function TerminalTabStrip({
+  activeViewId = null,
   onClose,
   onCloseScratch,
+  onCloseView,
   onNew,
   onSelect,
+  onSelectView,
   scratchOpen = false,
   tabs,
+  views = [],
 }: TerminalTabStripProps) {
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const activeRef = React.useRef<HTMLDivElement | null>(null);
@@ -79,7 +102,7 @@ export function TerminalTabStrip({
   // The dependency is the ordinal rather than the strip: the two acts that put
   // a tab off screen are selecting one (⌥⌘←/→) and opening one, and both land
   // here because both change which ordinal is active (`terminalTabs.ts`).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tabs.active is a pure trigger — the body reads the DOM, not the value
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the two actives are pure triggers — the body reads the DOM, not the values
   React.useEffect(() => {
     const scroller = scrollerRef.current;
     const tab = activeRef.current;
@@ -91,7 +114,7 @@ export function TerminalTabStrip({
     } else if (right > scroller.scrollLeft + scroller.clientWidth) {
       scroller.scrollLeft = right - scroller.clientWidth;
     }
-  }, [tabs.active]);
+  }, [tabs.active, activeViewId]);
 
   return (
     <div
@@ -109,7 +132,9 @@ export function TerminalTabStrip({
         role="tablist"
       >
         {tabs.tabs.map((n) => {
-          const active = n === tabs.active;
+          // A shell is only the showing tab while no view is: exactly one tab
+          // in the row is lit, whichever list it comes from.
+          const active = n === tabs.active && activeViewId === null;
           return (
             <div
               className={`group flex shrink-0 items-center gap-1 rounded-md pl-2.5 pr-1 text-xs ring-1 ring-inset transition-colors ${
@@ -152,6 +177,61 @@ export function TerminalTabStrip({
                 data-testid={`terminal-tab-close-${n}`}
                 onClick={() => onClose(n)}
                 title={`Close terminal ${n} (⇧⌘W)`}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+        {views.map((view) => {
+          const active = view.id === activeViewId;
+          const label = viewLabel(view.subject);
+          return (
+            <div
+              className={`group flex shrink-0 items-center gap-1 rounded-md pl-2 pr-1 text-xs ring-1 ring-inset transition-colors ${
+                active
+                  ? "bg-[var(--vingilot-term,hsl(var(--muted)))] text-foreground ring-border"
+                  : "text-muted-foreground ring-transparent hover:bg-muted/50 hover:text-foreground"
+              }`}
+              data-active={active}
+              data-testid={`view-tab-${view.id}`}
+              key={view.id}
+              ref={active ? activeRef : null}
+            >
+              <button
+                aria-selected={active}
+                className={`flex max-w-[14rem] items-center gap-1.5 py-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
+                  active ? "font-semibold" : "font-normal"
+                }`}
+                data-testid={`view-tab-select-${view.id}`}
+                onClick={() => onSelectView?.(view.id)}
+                role="tab"
+                title={viewTitle(view.subject)}
+                type="button"
+              >
+                {/* A view tab wears its subject rather than a state dot: the
+                 * language icon a file has in the tree, and the two other
+                 * kinds' own marks. Nothing here reports liveness — a reading
+                 * has none. */}
+                {view.subject.kind === "file" ? (
+                  <FileIcon id={fileIconId(label)} />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="font-mono text-2xs text-muted-foreground"
+                  >
+                    {view.subject.kind === "commit" ? "◇" : "±"}
+                  </span>
+                )}
+                <span className="truncate">{label}</span>
+              </button>
+              <button
+                aria-label={`close ${viewTitle(view.subject)}`}
+                className="rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100"
+                data-testid={`view-tab-close-${view.id}`}
+                onClick={() => onCloseView?.(view.id)}
+                title="Close this reading — the shells are untouched"
                 type="button"
               >
                 ×
