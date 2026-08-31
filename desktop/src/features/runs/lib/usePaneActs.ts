@@ -17,6 +17,8 @@ import * as React from "react";
 import { requestFile } from "@/features/runs/lib/filesTarget";
 import type { PaneAct } from "@/features/runs/lib/paneModel";
 import type { ViewSubject } from "@/features/runs/lib/viewTabs";
+import type { Worktree } from "@/features/runs/lib/projects";
+import { defaultDiffBase } from "@/features/runs/lib/worktreeDiff";
 
 export interface PaneActHandlers {
   openPlanWorktree: () => void;
@@ -78,4 +80,30 @@ export function usePaneActs(handlers: PaneActHandlers): (act: PaneAct) => void {
     requestFile({ line: act.line, path: act.path, worktree: act.worktree });
     on.showFiles();
   }, []);
+}
+
+/** Open a worktree's diff as a view tab, through the act table above.
+ *
+ * **Here rather than inline in `RunsScreen`, because it is the same act by a
+ * second door.** ⌘K's "Read this worktree's diff" row (P4.6) and the dock Diff
+ * pane's "Open in tab" button ask for exactly one thing, and routing the
+ * palette's copy through `runPaneAct` is what makes them land identically — a
+ * soloed dock is put back first, which is `openViewTab`'s own rule and not
+ * something a second caller should have to remember.
+ *
+ * `null` on either side is a workspace standing in no checkout: nothing is
+ * opened, which is the same refusal `paletteSources.ts` already blocks the row
+ * on. Read twice rather than trusted once, because the row is drawn from a
+ * snapshot and Enter happens later. */
+export function openDiffTabAct(
+  worktree: Worktree | null,
+  cwd: string | null,
+  run: (act: PaneAct) => void,
+): void {
+  if (worktree === null || cwd === null) return;
+  run({
+    type: "open-view",
+    view: { base: defaultDiffBase(worktree), kind: "diff" },
+    worktree: cwd,
+  });
 }

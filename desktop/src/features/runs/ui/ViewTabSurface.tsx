@@ -16,31 +16,42 @@
 // component has no access to a session id, spawns nothing, and closes nothing.
 //
 // **Each kind reuses the surface that already knows how to draw it**: the
-// `FileViewer` the Files pane was built around, the shared `Patch` box the
-// History surfaces render commits through, and `WorktreeDiffPanel` itself. A
-// second drawing of a patch would be a second set of answers about wrapping,
-// split mode and syntax, and the two would drift.
+// `FileViewer` the Files pane was built around, `HistoryPanel` for a graph, and
+// — since P4.6 — one `DiffTab` for both a commit's patch and a worktree's
+// changes. Those two were separate components (`Patch` and
+// `WorktreeDiffPanel`), which is how the same reading came to have two
+// headers, two file lists and two answers about folding. They are one reading
+// with different provenance, and `DiffTab.tsx`'s header says so; the *dock*
+// keeps `WorktreeDiffPanel`, which is the browsing surface that reading was
+// always the wrong size for.
 
 import * as React from "react";
 
-import { patchWrapsAt, splitFitsAt } from "@/features/runs/lib/diffLayout";
-import { effectiveDiffMode } from "@/features/runs/lib/diffMode";
+import { patchWrapsAt } from "@/features/runs/lib/diffLayout";
 import { readFile } from "@/features/runs/lib/filesClient";
 import { readCommitDiff } from "@/features/runs/lib/historyClient";
-import { useDiffMode } from "@/features/runs/lib/useDiffMode";
+import {
+  commitPatchNote,
+  commitSubject,
+  type CommitPatch,
+} from "@/features/runs/lib/historyModel";
 import type { PaneAct } from "@/features/runs/lib/paneModel";
 import type { ViewTab } from "@/features/runs/lib/viewTabs";
 import { viewTitle } from "@/features/runs/lib/viewTabs";
+import { gitWorktreeDiff } from "@/features/runs/lib/worktreeClient";
+import {
+  diffSummary,
+  type WorktreeDiff,
+} from "@/features/runs/lib/worktreeDiff";
 import { explainWorktreeError } from "@/features/runs/lib/worktreePlan";
 import type { Worktree } from "@/features/runs/lib/projects";
 import { HistoryPanel } from "@/features/runs/ui/DockHistoryPanel";
+import { DiffTab, type DiffProvenance } from "@/features/runs/ui/DiffTab";
 import {
   FileViewer,
   NOTHING_OPEN,
   type ViewState,
 } from "@/features/runs/ui/FileViewer";
-import { Patch, type PatchState } from "@/features/runs/ui/HistoryPatch";
-import { WorktreeDiffPanel } from "@/features/runs/ui/WorktreeDiffPanel";
 
 export function ViewTabSurface({
   cwd,
@@ -72,7 +83,7 @@ export function ViewTabSurface({
       {tab.subject.kind === "file" ? (
         <FileView cwd={cwd} line={tab.subject.line} path={tab.subject.path} />
       ) : tab.subject.kind === "commit" ? (
-        <CommitView cwd={cwd} hash={tab.subject.hash} />
+        <CommitView cwd={cwd} hash={tab.subject.hash} worktree={worktree} />
       ) : tab.subject.kind === "history" ? (
         // **The same panel the dock draws, in a box that can hold the graph**
         // (redesign P4.3). Not a second History component: the scope decision
@@ -81,9 +92,9 @@ export function ViewTabSurface({
         // `tabbed` only removes the door that leads here.
         <HistoryPanel cwd={cwd} onPaneAct={onPaneAct} tabbed />
       ) : worktree === null ? (
-        // The diff panel is a reading OF a worktree row — its base, its
-        // freshness and its branch all come from one. A tab that outlived the
-        // row it was opened from says so rather than drawing an empty diff.
+        // The diff is a reading OF a worktree row — its base, its freshness and
+        // its branch all come from one. A tab that outlived the row it was
+        // opened from says so rather than drawing an empty diff.
         <p
           className="flex flex-1 items-center justify-center px-6 py-4 text-center text-sm text-foreground/70"
           data-testid="view-tab-no-worktree"
@@ -92,12 +103,11 @@ export function ViewTabSurface({
           so there is nothing left for git to compare.
         </p>
       ) : (
-        <WorktreeDiffPanel
+        <WorktreeView
+          base={tab.subject.base}
+          branch={worktree.branch}
+          bindingId={worktree.binding_id}
           cwd={cwd}
-          onShowFile={(path, line) =>
-            onPaneAct({ line, path, type: "show-file", worktree: cwd })
-          }
-          worktree={worktree}
         />
       )}
     </div>
@@ -144,16 +154,73 @@ function FileView({
   );
 }
 
-/** One commit's patch, in the shared `Patch` box.
+type Reading<T> =
+  | { status: "reading" }
+  | { status: "read"; answer: T }
+  | { status: "refused"; note: string };
+
+/** The surface's own width, because whether two columns fit is a question in
+ * pixels and no class name can express it. The same `ResizeObserver` shape
+ * every other patch surface in this island uses. */
+function useMeasured(): [React.RefObject<HTMLDivElement | null>, number] {
+  const ref = React.useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const box = ref.current;
+    if (box === null) return;
+    setWidth(box.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      const measured = entries[0]?.contentRect.width;
+      if (measured !== undefined) setWidth(measured);
+    });
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width];
+}
+
+/** What a reading that is not an answer draws — the two sentences every read on
+ * this island is allowed to say while it has none. */
+function Waiting({ state }: { state: Reading<unknown> }) {
+  if (state.status === "reading") {
+    return (
+      <p
+        className="flex flex-1 items-center justify-center px-6 py-4 text-sm text-foreground/70"
+        data-testid="view-tab-reading"
+      >
+        reading…
+      </p>
+    );
+  }
+  return (
+    <p
+      className="flex flex-1 items-center justify-center whitespace-pre-wrap px-6 py-4 text-center text-sm text-destructive"
+      data-testid="view-tab-refused"
+    >
+      {state.status === "refused" ? state.note : ""}
+    </p>
+  );
+}
+
+/** One commit's patch, on the diff surface.
  *
- * No back affordance: the tab strip is the way out of a tab, and a second
- * "‹ back" inside one would be a control that means something different from
- * the ✕ two pixels above it. `Patch` already makes `onBack` optional for
- * exactly this. */
-function CommitView({ cwd, hash }: { cwd: string; hash: string }) {
-  const [state, setState] = React.useState<PatchState>({ status: "reading" });
-  const paneRef = React.useRef<HTMLDivElement | null>(null);
-  const [paneWidth, setPaneWidth] = React.useState(0);
+ * The provenance is the commit record git already answered with — its subject,
+ * its author, its `%aI` date, its short hash and the refs that point at it.
+ * Nothing is derived that git did not say: a commit with no refs draws no
+ * branch chip. */
+function CommitView({
+  cwd,
+  hash,
+  worktree,
+}: {
+  cwd: string;
+  hash: string;
+  worktree: Worktree | null;
+}) {
+  const [state, setState] = React.useState<Reading<CommitPatch>>({
+    status: "reading",
+  });
+  const [ref, width] = useMeasured();
 
   React.useEffect(() => {
     let alive = true;
@@ -162,7 +229,7 @@ function CommitView({ cwd, hash }: { cwd: string; hash: string }) {
       if (!alive) return;
       setState(
         answered.ok
-          ? { answer: answered.value, status: "commit" }
+          ? { answer: answered.value, status: "read" }
           : {
               note: explainWorktreeError(answered.error).message,
               status: "refused",
@@ -174,30 +241,108 @@ function CommitView({ cwd, hash }: { cwd: string; hash: string }) {
     };
   }, [cwd, hash]);
 
-  // The patch box's width machinery, shared with every other surface that
-  // renders one: whether a split fits is a question in pixels.
-  React.useLayoutEffect(() => {
-    const pane = paneRef.current;
-    if (pane === null) return;
-    setPaneWidth(pane.getBoundingClientRect().width);
-    const observer = new ResizeObserver((entries) => {
-      const measured = entries[0]?.contentRect.width;
-      if (measured !== undefined) setPaneWidth(measured);
-    });
-    observer.observe(pane);
-    return () => observer.disconnect();
-  }, []);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" ref={ref}>
+      {state.status !== "read" ? (
+        <Waiting state={state} />
+      ) : (
+        <DiffTab
+          bindingId={worktree?.binding_id ?? null}
+          cwd={cwd}
+          diff={state.answer.diff}
+          paneWidth={width}
+          provenance={commitProvenance(state.answer)}
+          testid="diff-tab-commit"
+          wraps={patchWrapsAt(width)}
+        />
+      )}
+    </div>
+  );
+}
 
-  const mode = effectiveDiffMode(useDiffMode(), splitFitsAt(paneWidth));
+function commitProvenance(answer: CommitPatch): DiffProvenance {
+  const commit = answer.commit;
+  // git's `%D` writes the ref HEAD is on as `HEAD -> name`; the chip wants the
+  // name. A commit nothing points at gets no chip, which is most of them.
+  const ref = commit.refs.find((name) => name.startsWith("HEAD -> "));
+  const branch =
+    ref !== undefined ? ref.slice("HEAD -> ".length) : (commit.refs[0] ?? null);
+  return {
+    author: commit.author === "" ? null : commit.author,
+    branch,
+    date: commit.date === "" ? null : commit.date,
+    note: commitPatchNote(answer),
+    sha: commit.short === "" ? null : commit.short,
+    subject: commitSubject(commit),
+  };
+}
+
+/** This worktree's uncommitted changes, on the same surface.
+ *
+ * **The header says less, because less is true.** There is no author, no
+ * commit time and no sha — these changes have not been committed — so those
+ * three are `null` and the header draws the subject, the branch and the counts.
+ * The mockup's own meta row is a commit's; putting a name and a hash over a
+ * working tree would be this surface inventing provenance. */
+function WorktreeView({
+  base,
+  bindingId,
+  branch,
+  cwd,
+}: {
+  base: string;
+  bindingId: string;
+  branch: string | null;
+  cwd: string;
+}) {
+  const [state, setState] = React.useState<Reading<WorktreeDiff>>({
+    status: "reading",
+  });
+  const [ref, width] = useMeasured();
+
+  React.useEffect(() => {
+    let alive = true;
+    setState({ status: "reading" });
+    void gitWorktreeDiff(cwd, base).then((answered) => {
+      if (!alive) return;
+      setState(
+        answered.ok
+          ? { answer: answered.value, status: "read" }
+          : {
+              note: explainWorktreeError(answered.error).message,
+              status: "refused",
+            },
+      );
+    });
+    return () => {
+      alive = false;
+    };
+  }, [base, cwd]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" ref={paneRef}>
-      <Patch
-        mode={mode}
-        paneWidth={paneWidth}
-        state={state}
-        wraps={patchWrapsAt(paneWidth)}
-      />
+    <div className="flex min-h-0 flex-1 flex-col" ref={ref}>
+      {state.status !== "read" ? (
+        <Waiting state={state} />
+      ) : (
+        <DiffTab
+          bindingId={bindingId}
+          cwd={cwd}
+          diff={state.answer}
+          paneWidth={width}
+          provenance={{
+            author: null,
+            branch: branch === null || branch === "" ? null : branch,
+            date: null,
+            // What was left out of the answer entirely — the file caps. Said
+            // where it is true, which is above the cards.
+            note: diffSummary(state.answer).omission,
+            sha: null,
+            subject: `Working tree against ${state.answer.base}`,
+          }}
+          testid="diff-tab-worktree"
+          wraps={patchWrapsAt(width)}
+        />
+      )}
     </div>
   );
 }

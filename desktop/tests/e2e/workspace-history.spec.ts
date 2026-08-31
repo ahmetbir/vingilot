@@ -159,7 +159,7 @@ test("selecting a commit shows its patch, drawn by the shared renderer", async (
   await openHistoryPane(page);
 
   await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
-  await expect(page.getByTestId("history-patch-title")).toContainText(
+  await expect(page.getByTestId("diff-tab-subject")).toHaveText(
     "Read what git already knows",
   );
 
@@ -212,7 +212,7 @@ test("a merge says its patch is the first parent's, not the whole of what it joi
   await openHistoryPane(page);
   await page.getByTestId(`dock-history-commit-${MERGE_HASH}`).click();
 
-  const note = page.getByTestId("history-commit-note");
+  const note = page.getByTestId("diff-tab-note");
   await expect(note).toBeVisible();
   await expect(note).toContainText("a merge");
   await expect(note).toContainText("not the whole of what it joined");
@@ -377,7 +377,7 @@ test("a slow commit's answer cannot land on top of the one clicked after it", as
 
   await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
   await page.getByTestId(`dock-history-commit-${MERGE_HASH}`).click();
-  await expect(page.getByTestId("history-patch-title")).toContainText(
+  await expect(page.getByTestId("diff-tab-subject")).toContainText(
     "Merge branch",
   );
 
@@ -389,7 +389,7 @@ test("a slow commit's answer cannot land on top of the one clicked after it", as
   // spelled. The slow tab is still open and still reachable; it is simply not
   // the one being read.
   await page.waitForTimeout(SLOW_COMMIT_MS * 2);
-  await expect(page.getByTestId("history-patch-title")).toContainText(
+  await expect(page.getByTestId("diff-tab-subject")).toContainText(
     "Merge branch",
   );
   await expect(
@@ -495,10 +495,11 @@ test("the split toggle rides the patch onto the stage, on the same flag and the 
   await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
   await expect(page.getByTestId("history-patch-src/read.rs")).toBeVisible();
 
-  const toggle = page.getByTestId("history-split");
+  // P4.6: the mockup's `.dvseg` segmented control, which writes the same one
+  // `diffMode.ts` flag the Diff pane's toggle writes.
+  const toggle = page.getByTestId("diff-tab-mode-split");
   await expect(toggle).toBeVisible();
   await expect(toggle).toBeEnabled();
-  await expect(page.getByTestId("history-split-why")).toHaveCount(0);
   // Unified until asked — the flag is the app's, not this surface's.
   await expect(page.getByTestId("history-patch-src/read.rs")).toHaveAttribute(
     "data-mode",
@@ -519,8 +520,12 @@ test("the split toggle rides the patch onto the stage, on the same flag and the 
       kind: node.getAttribute("data-split-row"),
     })),
   );
+  // P4.6: the hunk header is the mockup's `.hunkbar` strip in BOTH layouts —
+  // split drew git's raw `@@` line (and its `diff --git`/`index` preamble)
+  // until this round, which was P4.4's own defect surviving in the layout that
+  // round did not rewrite.
   expect(rows.map((row) => row.kind)).toEqual([
-    "span",
+    "hunk",
     "context",
     "change",
     "change",
@@ -537,8 +542,8 @@ test("the split toggle rides the patch onto the stage, on the same flag and the 
   // by giving the dock the whole surface, and the control goes unavailable
   // with `diffLayout.ts`'s own sentence rather than silently doing nothing.
   await page.keyboard.press("Shift+Alt+Meta+b");
-  await expect(page.getByTestId("history-split")).toBeDisabled();
-  await expect(page.getByTestId("history-split-why")).toContainText(
+  await expect(page.getByTestId("diff-tab-mode-split")).toBeDisabled();
+  await expect(page.getByTestId("diff-tab-split-why")).toContainText(
     "split needs 695px of pane",
   );
 });

@@ -1,0 +1,35 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P4.6, the diff tab
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment (vingilot/design/mockup/DIFF-TAB-BRIEF.md, and the
+# owner's clarification of 2026-08-31 at the bottom of it):
+#
+#   P4.6 — the diff stops being a patch box and becomes the mockup's `.dv`
+#          SURFACE: a commit header with provenance and a change-ratio bar, a
+#          toolbar (Unified/Split, Ignore whitespace, Wrap, Expand all, Next
+#          change, Review…), one elevated card per file in a scroller, rows
+#          with word-level highlighting from a real intra-line differ, the
+#          local review agent's notes rendered inside the code, and a footer
+#          that tallies what is on screen. "verify'a gecti ama hala iyi degil
+#          be" / "hala cok terminal gibi".
+#
+# Everything this round touched is already declared whole by the root registry
+# — desktop/src/features/runs/**, desktop/src/shared/styles/globals/
+# vingilot-tokens.css (P0's fork-owned token layer), desktop/playwright.config.ts,
+# and the four e2e specs it edited (view-tabs, workspace-history,
+# workspace-diff-fits, history-and-diff-readable) — except the one new file
+# below.
+
+seams:
+  - path: "desktop/tests/e2e/diff-tab.spec.ts"
+    reason: "New, fork-owned spec: the diff tab read against THIS repository's own commits, for `real-repo.fixtures.ts`'s stated reason — a hand-written patch has no directory to dim, no file long enough to fold, no paired rewrite to word-diff and no author to name, and every one of those is something the brief asks the SURFACE to draw. Its tests map one-to-one onto the brief's sections: §1 the header is git's own record (subject as a title a type step above the meta, author, sha chip, branch chip, file count, +N/−N, the five-block ratio bar) AND a worktree diff draws none of the three fields it has no source for; §2 the toolbar writes the app's one `diffMode` flag, persists Ignore whitespace and Wrap to `vingilot-diff-tab-prefs.v1`, and Review… opens P4's own `StatusBarReviewPopover` rather than a second reviewer picker; §3 every file is a card, every card is `flex-shrink: 0` (the brief calls this out — cards squash and clip without it) and the SCROLLER is what overflows, a card collapses, and its copy-path button does not collapse it; §4 rows are 22px, an added line's code starts at the same x as a context line's, the word-level highlight is present on a real rewrite (asserted only after a `beforeAll` proves this commit HAS one), hovering reveals the comment affordance and ⌥⏎ opens it on the row `J` focused; §5 with no anchored note in the worktree's team thread the diff draws NO review thread — never a seeded sample; §6 the footer tallies what is on screen and ⌘K is the third door onto the tab. Registered in playwright.config.ts's smoke testMatch (already a declared seam)."
+    owner: "vingilot/redesign"
+    removable_when: "With the diff tab."
+    status: "permanent"
+    added: "2026-08-31"

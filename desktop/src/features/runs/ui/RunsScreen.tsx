@@ -91,7 +91,7 @@ import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { requestSearchOpen } from "@/features/search/lib/searchRequest";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { usePaletteCommands } from "@/features/runs/lib/usePaletteCommands";
-import { usePaneActs } from "@/features/runs/lib/usePaneActs";
+import { openDiffTabAct, usePaneActs } from "@/features/runs/lib/usePaneActs";
 import {
   openFileFromPalette,
   useWorkspacePalette,
@@ -651,6 +651,10 @@ export function RunsScreen() {
     openMessageSearch: requestSearchOpen,
     openChannel: (channelId) => void goChannel(channelId),
     openCheatsheet: sheet.show,
+    // ⌘K's door onto the diff tab (P4.6) — the same act the dock's own "Open
+    // in tab" asks for, routed through `runPaneAct` so the two land identically.
+    openDiffTab: () =>
+      openDiffTabAct(selectedWorktree, selectedWorktreeCwd, runPaneAct),
     openFile: (worktree, path, line) =>
       openFileFromPalette(worktree, path, line, () => showPane("files")),
     openInEditor: hatch.openCurrentFileInEditor,

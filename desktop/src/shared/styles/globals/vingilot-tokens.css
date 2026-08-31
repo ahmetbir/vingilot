@@ -143,12 +143,115 @@ select,
  * as a flat green and red wall and lets Shiki's colours through it (P4.4).
  * Unlayered, like everything here.
  */
+/*
+ * P4.6 adds the mockup's LEFT EDGE to the same two rules — `inset 2px 0 0` at
+ * half strength (DIFF-TAB-BRIEF §4: "Row tint + `inset 2px 0 0` left edge
+ * instead of full-bleed green/red blocks"). The tint alone is a 8% wash that
+ * disappears at a glance down a long file; the edge is what makes a change
+ * block findable while scrolling without painting the row solid, which is the
+ * complaint the whole round is named after.
+ */
 .vingilot-dline-add {
   background-color: color-mix(in srgb, var(--status-added) 8%, transparent);
+  box-shadow: inset 2px 0 0
+    color-mix(in srgb, var(--status-added) 55%, transparent);
 }
 
 .vingilot-dline-del {
   background-color: color-mix(in srgb, var(--status-deleted) 8%, transparent);
+  box-shadow: inset 2px 0 0
+    color-mix(in srgb, var(--status-deleted) 55%, transparent);
+}
+
+/*
+ * ============================================================================
+ * Redesign P4.6 — the deletion count on a file card's own ground.
+ * ============================================================================
+ *
+ * The diff tab's file card is the mockup's `.fcard`: #17171a with an
+ * `rgba(255,255,255,.028)` header wash, which lands at (29,29,32) — a LIGHTER
+ * ground than any surface `--status-deleted` had been measured on before this
+ * round. Measured from this build's own screenshot, the `−N` glyph there is
+ * (223,71,86) against (29,29,32): **4.14:1**, under the 4.5:1 floor. The same
+ * red is legal on the tab's own #141417 ground (4.93:1) and on every earlier
+ * surface; it is the card the round introduced that broke it.
+ *
+ * So the card's deletion count is the SAME token lightened by 8% white — the
+ * smallest mix that clears the floor (measured 4.60:1 on the card header,
+ * 5.03:1 on the surface) — rather than a second red invented here, which is the
+ * thing `worktreeDiff.ts`'s colour vocabulary forbids. The addition count needs
+ * nothing: green measures 8.26:1 on the same band.
+ *
+ * The precedent is P4.4's marker column, which made exactly this trade for
+ * exactly this reason and said so.
+ */
+.vingilot-numstat-del {
+  color: color-mix(in srgb, var(--status-deleted) 92%, #fff);
+}
+
+/*
+ * ============================================================================
+ * Redesign P4.6 — the word-level highlight inside a changed line.
+ * ============================================================================
+ *
+ * The mockup's `.wd` (vingilot.css:353-355): a rounded, stronger tint of the
+ * row's own colour over the tokens that really changed. Which tokens those are
+ * is `lib/wordDiff.ts`'s answer — a real intra-line differ, never a hand-tagged
+ * span — and this file only says what "stronger" is: the same status token as
+ * the row's tint, so the highlight and the row it is on can never be two
+ * different greens.
+ *
+ * **The wash is 13%, not the 26% this first shipped with, and the pill is
+ * carried by an outline.** Measured (P4.6 verify): at 26% the composited
+ * ground was (31,81,46) on an add row, and Shiki's own token colours — which
+ * paint ON TOP of this — fell to 3.47–4.48:1 there. Every one of those tokens
+ * is legal on the plain tinted row; the highlight alone caused the failure.
+ * Halving the wash keeps the ratios where the row already proved them and the
+ * ring restores the shape the area used to carry, so the pill still reads as
+ * a pill.
+ *
+ * `padding` without `display:inline-block`, deliberately: an inline-block
+ * inside a `white-space: pre` line would break the monospace grid the gutters
+ * are aligned to. An inline box takes the horizontal padding and none of the
+ * vertical, which is exactly the mockup's rounded pill.
+ */
+.vingilot-wd {
+  border-radius: 3px;
+  padding: 1px 2px;
+}
+
+.vingilot-dline-add .vingilot-wd {
+  background-color: color-mix(in srgb, var(--status-added) 13%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--status-added) 45%, transparent);
+}
+
+.vingilot-dline-del .vingilot-wd {
+  background-color: color-mix(in srgb, var(--status-deleted) 13%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--status-deleted) 45%, transparent);
+}
+
+/*
+ * The row the keyboard is on (`J`/`K`, and what `⌥⏎` would comment on). A ring
+ * rather than a background: the row may already carry an add or delete tint,
+ * and a second background would either hide the tint or be hidden by it.
+ * Drawn inset so it does not add a pixel to the 22px row and shift the grid.
+ */
+.vingilot-dline-focus {
+  box-shadow: inset 0 0 0 1px hsl(var(--ring));
+}
+
+.vingilot-dline-add.vingilot-dline-focus {
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--status-added) 55%, transparent),
+    inset 0 0 0 1px hsl(var(--ring));
+}
+
+.vingilot-dline-del.vingilot-dline-focus {
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--status-deleted) 55%, transparent),
+    inset 0 0 0 1px hsl(var(--ring));
 }
 
 /*
@@ -165,7 +268,18 @@ select,
  * `padding-left` + a matching negative `text-indent` is the hanging indent:
  * the two pseudos live in the negative indent, so the first visual line starts
  * at the left edge and every WRAPPED line starts under the code instead of
- * under the numbers. 9ch of numbers ("nnnn nnnn") plus 3ch of marker (" + ").
+ * under the numbers. 11ch of numbers ("nnnnn nnnnn") plus 3ch of marker
+ * (" + ").
+ *
+ * **P4.6 widened the numbers from four digits to five**, which is the brief's
+ * two 44px gutter columns read in the unit this drawing is actually in. At the
+ * `text-xs` token in JetBrains Mono one `ch` is 7.22px, so a five-digit column
+ * is 36px and the pair with its separator is 79px — against the mockup's 88px,
+ * and it buys the thing four digits could not: a line number past 9,999, which
+ * this repository has (`paneModel.ts` is 863 lines, upstream's largest source
+ * files are five figures). The marker column is 3ch = 22px against the
+ * mockup's 16px, and it stays three characters because " + " is what centres
+ * the glyph between the numbers and the code.
  *
  * **The mockup's `.dno` is `rgba(255,255,255,.18)` and this is not.** That
  * alpha measures about 2.3:1 on this ground — a line number is text, and text
@@ -175,8 +289,8 @@ select,
  */
 .vingilot-dline {
   display: block;
-  padding-left: 12ch;
-  text-indent: -12ch;
+  padding-left: 14ch;
+  text-indent: -14ch;
 }
 
 .vingilot-dline::before {

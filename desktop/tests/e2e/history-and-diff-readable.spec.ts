@@ -312,22 +312,29 @@ test("the same diff on the whole stage, and the commit patch's files are its hea
   await openDockTab(page, "diff");
   await page.getByTestId("worktree-diff-open-tab").click();
 
+  // **P4.6 replaced the tab's list-and-one-patch with the mockup's `.dv`
+  // surface**: every changed file is its own card, so there is no "open file"
+  // to click and no single patch box — the mixed file's own card is simply one
+  // of the cards, and it is the one this shot is about.
   const staged = page
     .getByTestId("work-surface")
-    .locator('[data-view-kind="diff"] [data-testid="pane-diff"]');
+    .locator('[data-view-kind="diff"] [data-testid="diff-tab-worktree"]');
   await expect(staged).toBeVisible();
-  // The mixed file, so the shot is of a patch with all three kinds of line in
-  // it rather than of a one-line addition.
-  const at = REAL_DIFF.files.findIndex((file) => file.path === REAL_MIXED_PATH);
-  await staged.getByTestId(`worktree-diff-file-${at}`).click();
-  await expect(staged.getByTestId("worktree-diff-open")).toHaveText(
-    REAL_MIXED_PATH,
-  );
+  await expect(staged.getByTestId("diff-tab-subject")).toBeVisible();
+  const mixed = staged.getByTestId(`history-file-row-${REAL_MIXED_PATH}`);
+  await expect(mixed).toBeVisible();
+  // A card over the fold ceiling opens closed, so the card is opened here —
+  // which is also the collapse behaviour, exercised.
+  if ((await mixed.getAttribute("aria-expanded")) === "false") {
+    await mixed.click();
+  }
   await expect(
-    staged.locator('[data-testid="worktree-diff-patch"] [data-highlighted]'),
+    staged.locator(
+      `[data-testid="history-patch-${REAL_MIXED_PATH}"] [data-highlighted]`,
+    ),
   ).toHaveAttribute("data-highlighted", "true", { timeout: 15_000 });
-  // The file row carries the mockup's change square beside its numstat.
-  await expect(staged.locator("[data-change-square]").first()).toBeVisible();
+  // The mockup's change-ratio bar, on the header and on every card.
+  await expect(staged.locator("[data-ratio-bar]").first()).toBeVisible();
 
   await waitForAnimations(page);
   await page.getByTestId("work-surface").screenshot({
@@ -342,7 +349,7 @@ test("the same diff on the whole stage, and the commit patch's files are its hea
     .getByRole("option")
     .first();
   await first.click();
-  await expect(page.getByTestId("history-patch-title")).toBeVisible();
+  await expect(page.getByTestId("diff-tab-subject")).toBeVisible();
 
   const rows = page.locator('[data-testid^="history-file-row-"]');
   await expect(rows.first()).toBeVisible();

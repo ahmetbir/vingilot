@@ -63,6 +63,13 @@ export type PaletteCommand =
    * project both have `src/main.rs`, so a target without it names nothing. */
   | { type: "open-file"; worktree: string; path: string; line: number | null }
   | { type: "choose-pane"; pane: string }
+  /** Read this worktree's uncommitted changes on the whole stage, as a view
+   * tab beside the shells (redesign P4.6). The brief names ⌘K as one of the
+   * three doors onto the diff tab; the other two — a History row and the dock
+   * Diff pane's own button — were already open. It carries no base: the tab is
+   * opened against whatever `defaultDiffBase` says this worktree is read
+   * against, which is the same answer the dock pane starts from. */
+  | { type: "open-diff-tab" }
   | { type: "new-worktree" }
   /** Open the dialog that turns this project's plan into a worktree. The
    * command opens it and nothing more: the branch name is derived from the

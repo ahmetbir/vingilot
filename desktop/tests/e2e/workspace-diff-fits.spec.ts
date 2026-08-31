@@ -647,8 +647,12 @@ test("given the whole surface, split draws two aligned columns and neither is cl
 
   // The hunk header belongs to neither file and spans; the three deletions
   // against one addition are three change rows; the context line is one row.
+  // P4.6: the hunk header is the mockup's `.hunkbar` strip in BOTH layouts —
+  // split drew git's raw `@@` line (and its `diff --git`/`index` preamble)
+  // until this round, which was P4.4's own defect surviving in the layout that
+  // round did not rewrite.
   expect(rows.map((row) => row.kind)).toEqual([
-    "span",
+    "hunk",
     "change",
     "change",
     "change",

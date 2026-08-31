@@ -402,9 +402,9 @@ test("a commit and a diff open as tabs too, and the diff gets the whole stage", 
   );
   await page.getByTestId(`dock-history-commit-${HEAD_HASH}`).click();
   await expect(page.getByTestId(`view-tab-commit:${HEAD_HASH}`)).toBeVisible();
-  await expect(page.getByTestId("history-patch-title")).toContainText(
-    "aaaaaaa",
-  );
+  // P4.6: the commit tab is the diff surface, and its header names the commit
+  // the way git does — a subject, and the sha in its own chip.
+  await expect(page.getByTestId("diff-tab-sha")).toContainText("aaaaaaa");
   // The dock is still the graph: browsing did not become reading.
   await expect(page.getByTestId("dock-history-graph")).toBeVisible();
 
@@ -420,11 +420,11 @@ test("a commit and a diff open as tabs too, and the diff gets the whole stage", 
   const diffTab = page.locator('[data-testid^="view-tab-diff:"]');
   await expect(diffTab).toBeVisible();
   await expect(diffTab).toHaveAttribute("data-active", "true");
-  // Two `pane-diff`s exist now — the dock's and the tab's — and the one on the
-  // stage is the wide one.
+  // The dock keeps `pane-diff` (browsing); the stage draws the P4.6 diff
+  // surface (reading), and the one on the stage is the wide one.
   const staged = page
     .getByTestId("work-surface")
-    .locator('[data-view-kind="diff"] [data-testid="pane-diff"]');
+    .locator('[data-view-kind="diff"] [data-testid="diff-tab-worktree"]');
   await expect(staged).toBeVisible();
   const dockWidth = await page
     .getByTestId("dock")
@@ -464,9 +464,9 @@ test("no view tab ever disturbs a pty", async ({ page }) => {
   await page.getByTestId("view-tab-select-file:src/main.rs").click();
   await expect(page.getByTestId("files-viewer-path")).toHaveText("src/main.rs");
   await page.getByTestId(`view-tab-select-commit:${HEAD_HASH}`).click();
-  await expect(page.getByTestId("history-patch-title")).toContainText(
-    "aaaaaaa",
-  );
+  // P4.6: the commit tab is the diff surface, and its header names the commit
+  // the way git does — a subject, and the sha in its own chip.
+  await expect(page.getByTestId("diff-tab-sha")).toContainText("aaaaaaa");
 
   await page.locator('[data-testid^="view-tab-close-diff:"]').click();
   await page.getByTestId(`view-tab-close-commit:${HEAD_HASH}`).click();

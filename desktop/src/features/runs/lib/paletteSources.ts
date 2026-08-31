@@ -326,6 +326,23 @@ export const actionSource: PaletteSource = (ctx, query) => {
   const project = openProject(ctx);
   const candidates: Candidate[] = [
     {
+      // Blocked on the worktree and not on the project: a diff is a reading OF
+      // a checkout, and with none selected there is nothing for git to
+      // compare. The same fact `WorktreeDiffPanel` refuses on, read here so the
+      // row says why rather than opening an empty tab.
+      blocked:
+        ctx.selectedWorktreeId === null
+          ? "no worktree is open, so there is nothing for git to compare."
+          : null,
+      chord: null,
+      command: { type: "open-diff-tab" },
+      detail:
+        "this worktree's uncommitted changes, on the whole stage — one card per file, beside the shells",
+      id: "action:open-diff-tab",
+      kind: "action",
+      label: "Read this worktree's diff",
+    },
+    {
       blocked: project === null ? NO_PROJECT : null,
       chord: null,
       command: { type: "new-worktree" },

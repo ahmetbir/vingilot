@@ -96,8 +96,26 @@ const PLUMBING = [
   "copy to ",
 ] as const;
 
-function isPlumbing(text: string): boolean {
+/** Is this line git's wire format rather than anybody's file?
+ *
+ * Exported since P4.6 because the SPLIT layout needs the same answer. Until
+ * then only `unifiedRows` asked, and split drew `diff --git`, `index` and
+ * `---`/`+++` verbatim — P4.4's own defect, surviving in the layout that round
+ * did not rewrite, and visible the moment the diff tab put split on the stage.
+ * One list, two readers. */
+export function isPlumbing(text: string): boolean {
   return PLUMBING.some((prefix) => text.startsWith(prefix));
+}
+
+/** A hunk header split into the ranges and git's enclosing-symbol hint, or
+ * `null` for a header shape this build cannot read — which is drawn whole
+ * rather than dropped, exactly as `unifiedRows` does with one. */
+export function hunkParts(
+  text: string,
+): { range: string; context: string } | null {
+  const found = HUNK.exec(text);
+  if (found === null) return null;
+  return { context: found[4].trim(), range: found[1] };
 }
 
 /** The line without its marker column, and only when the marker is really

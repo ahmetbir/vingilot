@@ -34,6 +34,16 @@
 // code ever moves sideways, and the code itself is highlighted by the Shiki
 // this app already ships instead of being painted one flat green or red.
 //
+// **P4.6 split the file and did NOT split the renderer.** The unified layout
+// grew everything the diff tab's brief asks a row to do — word-level markup, a
+// comment affordance, review threads between rows, windowing for large patches
+// — and the two layouts stopped fitting under the 1000-line ratchet. So
+// `ui/PatchUnified.tsx` holds the unified drawing and this file still holds the
+// decision: one `mode` prop, one set of rows, one component every surface in
+// the app renders a patch through. There is exactly one `UnifiedBody` and
+// exactly one `SplitBody` in this codebase, which is the promise the header
+// above makes.
+//
 // **What is NOT here.** How a patch line is classified is `lib/runModel.ts`'s
 // `diffView`; what a unified row IS is `lib/unifiedDiff.ts`'s `unifiedRows`;
 // how those lines become aligned two-column rows is `lib/splitDiff.ts`'s
@@ -41,25 +51,16 @@
 // `lib/diffLayout.ts`'s `patchWrapsAt`, and whether split is offered at all is
 // its `splitFitsAt`. This component takes the answers and draws them.
 
-import * as React from "react";
-import type { ThemedToken } from "shiki";
-
 import type { DiffMode } from "@/features/runs/lib/diffMode";
-import {
-  HIGHLIGHT_BYTE_CEILING,
-  languageOf,
-} from "@/features/runs/lib/fileViewer";
 import type { DiffLineKind } from "@/features/runs/lib/runModel";
 import { splitRows } from "@/features/runs/lib/splitDiff";
 import type { SplitCell } from "@/features/runs/lib/splitDiff";
+import { hunkParts, isPlumbing } from "@/features/runs/lib/unifiedDiff";
 import {
-  codeText,
-  type DiffRow,
-  unifiedRows,
-} from "@/features/runs/lib/unifiedDiff";
-import { useTheme } from "@/shared/theme/ThemeProvider";
-import { resolveShikiThemeName } from "@/shared/theme/theme-loader";
-import { tokenizeChunked } from "@/shared/ui/markdown/CodeBlock";
+  HunkStrip,
+  UnifiedBody,
+  type UnifiedProps,
+} from "@/features/runs/ui/PatchUnified";
 
 // The add/del hues are the theme's own diff tokens (`--status-added` /
 // `--status-deleted`, set per-theme by `ThemeProvider`) — the same green and
@@ -99,7 +100,11 @@ const SPLIT_GRID = "grid-cols-[3rem_minmax(0,1fr)_3rem_minmax(0,1fr)]";
  * continuation is never mistaken for a line of its own. */
 const WRAP_CLASS = "-indent-4 whitespace-pre-wrap break-words pl-4";
 
-interface Props {
+interface Props
+  extends Pick<
+    UnifiedProps,
+    "focused" | "markup" | "onComment" | "renderAfter" | "rows" | "window"
+  > {
   /** The raw unified patch, as the backend answered it. */
   patch: string;
   /** Wrap long lines instead of scrolling sideways. Decided by the caller from
@@ -126,13 +131,8 @@ interface Props {
   path?: string;
 }
 
-export function PatchView({
-  mode = "unified",
-  patch,
-  path,
-  testid,
-  wraps,
-}: Props) {
+export function PatchView({ mode = "unified", testid, ...unified }: Props) {
+  const { patch, wraps } = unified;
   // Split's cells always wrap, and `data-wrapped` says so rather than repeating
   // the caller's unified decision: the attribute is a reading of what the box
   // on screen does. Wrapping costs unified its grid — a re-flowed line is no
@@ -154,207 +154,10 @@ export function PatchView({
       {mode === "split" ? (
         <SplitBody patch={patch} />
       ) : (
-        <UnifiedBody patch={patch} path={path} wraps={wraps} />
+        <UnifiedBody {...unified} />
       )}
     </div>
   );
-}
-
-/** How wide each gutter number's column is, in monospace characters. Four
- * digits is a 9,999-line file; past that the column simply grows, because a
- * number that does not fit is worse than a column that is one character
- * wider. */
-const NO_WIDTH = 4;
-
-/** The row's tint — the mockup's `.dline.add` / `.dline.del` alphas, over the
- * theme's own diff tokens rather than the mockup's fixed hexes so a diff means
- * the same thing by the same colour on every surface of the app. Defined in
- * shared/styles/globals/vingilot-tokens.css. */
-const TINT: Record<" " | "+" | "-", string> = {
-  " ": "",
-  "+": "vingilot-dline-add",
-  "-": "vingilot-dline-del",
-};
-
-/** The two `.dno` columns as ONE monospace string, right-aligned by padding.
- *
- * **The gutter is generated content, and that is a measured decision rather
- * than a stylistic one.** It was first built as three `<span>`s carrying
- * `user-select: none`, which is the obvious reading of "the gutter is not
- * selectable" — and in Chromium a drag over the code beside them selected
- * NOTHING AT ALL. Bisected in the browser: with the three spans removed from
- * the row the same drag selects immediately, so an unselectable sibling
- * element at the start of a row is a barrier Blink will not begin or extend a
- * selection across.
- *
- * Generated content has no such problem, and this app already had the proof:
- * the file viewer's line numbers are `.code-block-lines [data-line]::before`
- * with `user-select: none`, and dragging down a file has always worked and has
- * never copied a line number. So the diff's gutter is the same technique — one
- * pseudo for the numbers, one for the marker — and the columns line up because
- * the type is monospace and the string is padded. */
-function gutterText(before: number | null, after: number | null): string {
-  return `${String(before ?? "").padStart(NO_WIDTH)} ${String(after ?? "").padStart(NO_WIDTH)}`;
-}
-
-function UnifiedBody({
-  patch,
-  path,
-  wraps,
-}: {
-  patch: string;
-  path: string | undefined;
-  wraps: boolean;
-}) {
-  const rows = React.useMemo(() => unifiedRows(patch), [patch]);
-  const tokens = useDiffTokens(rows, path);
-  // Which line row this is, counted across the whole patch — the index the
-  // token lists are keyed by (`unifiedDiff.ts`'s `codeText` walks the same
-  // array in the same order).
-  let ordinal = -1;
-  return (
-    <div
-      className={`font-mono text-xs ${wraps ? "w-full" : "w-max min-w-full"}`}
-      data-highlighted={tokens === null ? "false" : "true"}
-      // **The selectable region is the whole patch body, with the gutters cut
-      // out of it** (redesign P4.2). Not the code cells one at a time:
-      // measured in Chromium, a `user-select: text` island inside a `none`
-      // region cannot have a selection STARTED in it, so a drag over the code
-      // came back empty. A `text` region with `none` children is the shape the
-      // spec is written for — the excluded columns are simply skipped in what
-      // is copied, which is exactly the rule ("dosya satir numaralari filan
-      // secilemez olmali").
-      data-select="text"
-    >
-      {rows.map((row, i) => {
-        // Positional content, never reordered — the same key rule the split
-        // body below keeps.
-        const key = i;
-        if (row.kind === "hunk") {
-          // The mockup's `.hunk` strip. **The human half first**: git's
-          // enclosing-function hint is what tells a reader where in the file
-          // he is, and the ranges are kept beside it rather than instead of
-          // it. `select-none`, because a hunk header is not code.
-          return (
-            <div
-              className="mt-2 select-none bg-[rgba(127,178,201,.07)] px-3 py-0.5 text-2xs text-[#7fb2c9] first:mt-0"
-              data-diff-hunk=""
-              key={key}
-            >
-              {/* **The human half leads, and the ranges keep full strength.**
-                  Drawn at `/70` first, the ranges measured 3.87:1 on this
-                  band — under the 4.5:1 floor, which is not "quiet", it is
-                  unreadable. The hierarchy is carried by order and weight
-                  instead, and the colour stays legal (6.3:1 measured). */}
-              <span className="font-medium">
-                {row.context === "" ? row.range : row.context}
-              </span>
-              {row.context === "" ? null : (
-                <span className="ml-2">{row.range}</span>
-              )}
-            </div>
-          );
-        }
-        if (row.kind === "note") {
-          return (
-            <div
-              className="select-none px-3 py-0.5 text-2xs text-muted-foreground"
-              data-diff-note=""
-              key={key}
-            >
-              {row.text}
-            </div>
-          );
-        }
-        ordinal += 1;
-        const line = tokens?.[ordinal] ?? null;
-        return (
-          // The two gutter columns and the marker are this row's own `::before`
-          // and its child's — see `gutterText`. `vingilot-dline` carries the
-          // hanging indent that keeps a wrapped line starting under the code
-          // rather than under the numbers.
-          <div
-            className={`vingilot-dline pr-2 ${TINT[row.sign]}`}
-            data-diff-nos={gutterText(row.before, row.after)}
-            data-diff-sign={
-              row.sign === " " ? "ctx" : row.sign === "+" ? "add" : "del"
-            }
-            key={key}
-          >
-            <span className="vingilot-dmark" data-diff-mark={` ${row.sign} `}>
-              <span
-                className={`text-foreground ${wraps ? "whitespace-pre-wrap break-words" : "whitespace-pre"}`}
-                data-diff-code=""
-              >
-                {line === null
-                  ? row.text === ""
-                    ? " "
-                    : row.text
-                  : line.length === 0
-                    ? " "
-                    : line.map((token, at) => (
-                        <span
-                          // biome-ignore lint/suspicious/noArrayIndexKey: tokens are positional and never reordered
-                          key={at}
-                          style={{ color: token.color }}
-                        >
-                          {token.content}
-                        </span>
-                      ))}
-              </span>
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/** Shiki's tokens for a patch's code, one list per line row, or `null` while
- * there are none.
- *
- * **The same Shiki the file viewer uses, asked the same way** — the singleton
- * highlighter, the grammar cache and the chunked tokenise in
- * `shared/ui/markdown/CodeBlock.tsx`. Nothing waits on it: the patch renders
- * uncoloured immediately and the colours arrive when they arrive, which is
- * `FileViewer`'s own rule and the reason a 2,000-line patch does not stall the
- * pane.
- *
- * The answer is kept WITH the text it is an answer about, so a swap that
- * outlived its patch cannot colour the next file with this one's tokens. */
-function useDiffTokens(
-  rows: readonly DiffRow[],
-  path: string | undefined,
-): ThemedToken[][] | null {
-  const code = React.useMemo(() => codeText(rows), [rows]);
-  const language = path === undefined ? "plain" : languageOf(path);
-  const { themeName } = useTheme();
-  const shikiTheme = resolveShikiThemeName(themeName);
-  const [swap, setSwap] = React.useState<{
-    code: string;
-    tokens: ThemedToken[][];
-  } | null>(null);
-
-  // The same byte ceiling the viewer applies, and for the same reason:
-  // TextMate grammars are superlinear on line length and a patch of a minified
-  // bundle is one very long line.
-  const ok = language !== "plain" && code.length <= HIGHLIGHT_BYTE_CEILING;
-
-  React.useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    void tokenizeChunked(code, language, shikiTheme, () => cancelled).then(
-      (answered) => {
-        if (cancelled || answered === null) return;
-        setSwap({ code, tokens: answered });
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [code, language, ok, shikiTheme]);
-
-  return swap !== null && swap.code === code ? swap.tokens : null;
 }
 
 /** Old on the left, new on the right, hunks aligned row for row.
@@ -381,9 +184,46 @@ function SplitBody({ patch }: { patch: string }) {
         // `contents` so the row is a named thing a spec can read while its four
         // children remain direct grid items — a real box here would be one grid
         // cell containing everything and there would be no columns at all.
-        // biome-ignore lint/suspicious/noArrayIndexKey: patch rows are positional content, never reordered
         const key = i;
         if (row.kind === "span") {
+          // **P4.6: the plumbing goes here too.** P4.4 dropped git's wire
+          // format from the unified layout and left it in this one, where it
+          // was invisible until the diff tab put split on the whole stage —
+          // `diff --git`, `index 8ab607…`, `---`/`+++`, one flat line each,
+          // which is the exact "terminal output" the whole round is named
+          // after. Same answers as unified, from the same module
+          // (`unifiedDiff.ts`), so the two layouts cannot disagree about what
+          // plumbing is.
+          // `splitRows` files the whole preamble under `meta` — `---`/`+++`
+          // from `diffView`, and `diff --git` / `index …` / `similarity index`
+          // because they reach it as un-numbered context (its own header says
+          // so). All of it is git's wire format; the backend's truncation
+          // marker and `\ No newline at end of file` are NOT, and stay.
+          if (
+            row.lineKind === "meta" &&
+            (row.text === "" ||
+              row.text.startsWith("---") ||
+              row.text.startsWith("+++") ||
+              isPlumbing(row.text))
+          ) {
+            return null;
+          }
+          if (row.lineKind === "hunk") {
+            const parts = hunkParts(row.text);
+            return (
+              <div className="contents" data-split-row="hunk" key={key}>
+                <div className="col-span-4">
+                  <HunkStrip
+                    row={{
+                      context: parts?.context ?? "",
+                      kind: "hunk",
+                      range: parts?.range ?? row.text,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          }
           return (
             <div className="contents" data-split-row="span" key={key}>
               <span

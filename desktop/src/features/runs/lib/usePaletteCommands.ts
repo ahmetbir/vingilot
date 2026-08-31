@@ -52,6 +52,11 @@ export interface PaletteHandlers {
    * owner's editor. Chord-less by decision — see `OpenInEditor.tsx`'s header. */
   openInEditor: () => void;
   newWorktree: () => void;
+  /** Open the selected worktree's diff as a view tab (P4.6). The workspace
+   * resolves which worktree and which base — the palette names neither, for
+   * `paletteSources.ts`'s stated reason: a row is drawn from a snapshot and
+   * Enter happens later. */
+  openDiffTab: () => void;
   /** Open Settings → Appearance — the palette's door to the surface that
    * replaced the vetoed top-bar tray (P1.1). `goSettings("appearance")`. */
   openAppearance: () => void;
@@ -117,6 +122,9 @@ export function usePaletteCommands(
         return;
       case "open-channel":
         on.openChannel(command.channelId);
+        return;
+      case "open-diff-tab":
+        on.openDiffTab();
         return;
       case "open-file":
         on.openFile(command.worktree, command.path, command.line);
