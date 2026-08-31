@@ -4,9 +4,16 @@ import { test } from "node:test";
 import {
   graphPixelWidth,
   graphWidth,
+  laneBudget,
   laneColor,
   laneX,
   layoutCommitGraph,
+  MAX_LANES,
+  META_PX,
+  MIN_LANES,
+  scopeLabel,
+  SUBJECT_MIN_PX,
+  subjectParts,
 } from "./commitGraph.ts";
 
 /** A page of history, oldest last, written the way git answers: each entry is
@@ -129,4 +136,88 @@ test("lane colours cycle rather than running out", () => {
   assert.equal(laneColor(0), "#7fb2c9", "the mockup's trunk colour");
   assert.equal(laneColor(1), "var(--vingilot-accent)", "and its branch colour");
   assert.equal(laneColor(5), laneColor(0));
+});
+
+// ---------------------------------------------------------------------------
+// The ceiling (redesign P4.3)
+// ---------------------------------------------------------------------------
+
+test("the dock's own width buys exactly the mockup's two-lane gutter", () => {
+  // 376px is what the dock measured live when the owner sent his screenshot,
+  // and the answer is the mockup's own `.gsvg`: 42px, two columns. Everything
+  // wider than that is the subject's.
+  assert.equal(laneBudget(376), MIN_LANES);
+  assert.equal(graphPixelWidth(laneBudget(376)), 42);
+  // A panel that has not been measured yet takes the narrowest layout rather
+  // than a wide one it would have to take back on the first paint.
+  assert.equal(laneBudget(0), MIN_LANES);
+});
+
+test("a full-width surface buys the braid, and the ceiling is still a number", () => {
+  // The stage at his 16-inch default. This is the whole of "the full-width
+  // History tab is where a big graph gets room".
+  assert.ok(laneBudget(1100) > laneBudget(376));
+  assert.ok(laneBudget(1100) >= 24, "this repository needs 24 lanes today");
+  // And it does not run away: a 6000px window is not 300 lanes.
+  assert.equal(laneBudget(6000), MAX_LANES);
+});
+
+test("the budget never eats the subject's floor", () => {
+  // The defect this whole ceiling exists for, stated as an invariant: whatever
+  // the width, what the lanes take plus the meta plus the subject's floor is
+  // never more than the pane.
+  for (const width of [200, 376, 540, 800, 1100, 1728]) {
+    const spent = graphPixelWidth(laneBudget(width)) + META_PX + SUBJECT_MIN_PX;
+    if (width >= 376) {
+      assert.ok(spent <= width, `at ${width}px the graph took ${spent}px`);
+    }
+  }
+});
+
+test("the first-parent page is one lane, because a merge's other parent is not on it", () => {
+  // `git log --first-parent` still REPORTS both parents of a merge; the second
+  // names a commit no row carries. Laid out honestly it opens a lane that never
+  // closes — six of them, measured on this repository — so the trunk reading
+  // clips it and says "first-parent" in the header.
+  const trunk = page(["m", "b", "side"], ["b", "a"], ["a"]);
+  assert.equal(graphWidth(layoutCommitGraph(trunk)), 2);
+  const clipped = layoutCommitGraph(trunk, { firstParentOnly: true });
+  assert.equal(graphWidth(clipped), 1);
+  assert.deepEqual(
+    clipped.map((row) => row.forks),
+    [[], [], []],
+  );
+});
+
+test("the header says which reading is on screen", () => {
+  assert.equal(scopeLabel("all-branches"), "all branches");
+  assert.equal(scopeLabel("first-parent"), "first-parent");
+});
+
+test("a subject's conventional prefix is the half that gives way", () => {
+  // The mockup's own sample data is written this way, and twenty rows of
+  // `relay: ` is the one part of a history nobody is reading.
+  assert.deepEqual(subjectParts("relay: heartbeat tuning for mesh reconnect"), {
+    lead: "relay: ",
+    name: "heartbeat tuning for mesh reconnect",
+  });
+  assert.deepEqual(subjectParts("feat(dock)!: bound the lane column"), {
+    lead: "feat(dock)!: ",
+    name: "bound the lane column",
+  });
+});
+
+test("a subject that is a sentence is all name", () => {
+  // The cost of a false positive is dimming half an English sentence, so the
+  // rule is narrow: a capital first letter is prose, a long prefix is a clause,
+  // and a colon with nothing after it is not a prefix at all.
+  for (const subject of [
+    "P4.1's own account enters the plan",
+    "Note: this changes everything",
+    "Merge #398 — surface cards grid",
+    "the diff stops looking like terminal output: a rewrite of what it draws",
+    "fix:",
+  ]) {
+    assert.deepEqual(subjectParts(subject), { lead: "", name: subject });
+  }
 });

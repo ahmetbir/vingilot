@@ -116,6 +116,37 @@ export async function readAllRefsHistory(
   }
 }
 
+/** One page of this branch's own trunk — `git log --first-parent HEAD`, newest
+ * first (redesign P4.3).
+ *
+ * **The bounded reading.** `readAllRefsHistory` is what a branch graph is a
+ * picture of and it is unbounded in lanes: measured on this repository, its
+ * newest 200 commits need 24 columns, which is a 438px gutter inside a 376px
+ * dock card. A trunk cannot fork, so its graph is one lane whatever the
+ * repository looks like — and the panel that falls back to it says
+ * "first-parent" in its header rather than letting the reader believe he is
+ * still looking at every branch.
+ *
+ * Paged by cursor, like `readHistory`: one starting rev, so "continue under
+ * this commit" is exact. */
+export async function readTrunkHistory(
+  worktree: string,
+  before: string | null,
+): Promise<HistoryResult<LogPage>> {
+  try {
+    const answered = await invoke<unknown>("worktree_log", {
+      firstParent: true,
+      ...(before === null ? {} : { before }),
+      path: worktree,
+    });
+    const page = readLogPage(answered);
+    if (page === null) return { error: unreadable("worktree_log"), ok: false };
+    return { ok: true, value: page };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
+}
+
 /** One commit's patch, in the same `WorktreeDiff` shape the Diff pane renders. */
 export async function readCommitDiff(
   worktree: string,

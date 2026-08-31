@@ -318,6 +318,18 @@ function ViewerLines({
 const VIEWER_BODY_CLASS =
   "code-block-lines w-max min-w-full whitespace-pre font-mono text-xs text-foreground";
 
+/** **The file's text is one of the five surfaces that may be selected**
+ * (redesign P4.2). The shell is `user-select: none` and this opts back in — on
+ * the `<pre>` that holds the source and NOT on the header, the path or the
+ * plain-text note above it.
+ *
+ * The line numbers are already excluded and were before this rule existed:
+ * they are `.code-block-lines [data-line]::before` generated content carrying
+ * its own `user-select: none` (shared/styles/globals/markdown.css), which is
+ * exactly the owner's "dosya satir numaralari filan secilemez olmali". So a
+ * drag down the viewer copies the code and never the gutter. */
+const VIEWER_SELECTABLE = { "data-select": "text" } as const;
+
 function FileBody({
   cwd,
   file,
@@ -581,6 +593,7 @@ function FileBody({
                 // spec can assert the swap happened instead of inferring it from
                 // colour counts alone.
                 <pre
+                  {...VIEWER_SELECTABLE}
                   className={VIEWER_BODY_CLASS}
                   data-highlighted={tokens === null ? "false" : "true"}
                   data-testid="files-viewer-code"
@@ -594,6 +607,7 @@ function FileBody({
                 </pre>
               ) : (
                 <pre
+                  {...VIEWER_SELECTABLE}
                   className={VIEWER_BODY_CLASS}
                   data-testid="files-viewer-plain"
                 >

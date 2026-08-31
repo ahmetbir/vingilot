@@ -337,7 +337,10 @@ mod tests {
     fn head(repo: &Repo) -> String {
         let page = super::super::log::log_bounded(
             &repo.path(),
-            super::super::log::Page::Head { before: None },
+            super::super::log::Page::Head {
+                before: None,
+                first_parent: false,
+            },
             1,
         )
         .expect("a page");

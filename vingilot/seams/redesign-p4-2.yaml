@@ -1,0 +1,50 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P4.2, P4.3 and P4.4 (three rounds
+# the owner raised from his own screen, 2026-08-31)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment (vingilot/docs/plans/2026-08-29-redesign.md, §§ P4.2,
+# P4.3, P4.4):
+#
+#   P4.2 — the shell stops being draggable text. Selection is `none` by default
+#          and opted into by the surfaces whose content is meant to be copied
+#          ("secme kismi sadece dosya olmali ya da terminal ici").
+#   P4.3 — the History graph's lane column gets a ceiling, the commit subject
+#          becomes the row's primary text, and a pane too narrow for every
+#          branch falls back to the first-parent trunk and says so.
+#   P4.4 — the diff stops rendering git's wire format: no plumbing, gutter
+#          columns instead of a marker prefix, and Shiki over the add/remove
+#          tint.
+#
+# Everything else these rounds touched is already declared whole by the root
+# registry: desktop/src/features/runs/**, desktop/src-tauri/src/
+# vingilot_worktree/**, and desktop/src/shared/styles/globals/
+# vingilot-tokens.css (the fork-owned token layer, P0). The entries here are
+# the three paths those globs do not cover.
+
+seams:
+  - path: "desktop/tests/e2e/selection-belongs-to-content.spec.ts"
+    reason: "New, fork-owned spec: P4.2 over a REAL pointer drag, because a CSS assertion cannot prove a selection rule. Four claims, each read off `window.getSelection()` after a press-drag-release: a sweep from the sidebar across the work surface to the status bar selects nothing at all; a drag down an open file selects the file's own text and never its line numbers (asserted by containment — everything copied is in the file); a drag down a patch brings back the code and neither of the two `.dno` columns nor the marker; and what selects natively still does — an input's caret over its own value, and xterm's own `user-select: none`, which is xterm's and is deliberately not overridden. Registered in playwright.config.ts's smoke testMatch (already a declared seam)."
+    owner: "vingilot/redesign"
+    removable_when: "With the selection rule."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/tests/e2e/history-and-diff-readable.spec.ts"
+    reason: "New, fork-owned spec: P4.3 and P4.4 at this repository's REAL scale, which is the only scale at which either defect exists. The History half measures the laid-out row — the lane gutter is no wider than the mockup's 42px, the subject is a real width, the sha is inside the row, the row is 38px — and asserts the header says WHICH reading is on screen ('first-parent' in the dock, 'all branches' in the full-width tab, never the wrong one). The diff half asserts that not one line of git's wire format survives on screen, that the `@@` strip carries git's enclosing-function hint, that an added line's code starts at the same x as a context line's (the whole of 'never shift the code one character right'), that Shiki coloured it, and that a commit's file rows are its hunks' headers with the long ones folded. Registered in playwright.config.ts's smoke testMatch (already a declared seam)."
+    owner: "vingilot/redesign"
+    removable_when: "With the History graph and the diff renderer."
+    status: "permanent"
+    added: "2026-08-31"
+
+  - path: "desktop/tests/e2e/real-repo.fixtures.ts"
+    reason: "New, fork-owned fixture: this repository read with git at test time — `log --all` (200 commits over every ref), `log --first-parent HEAD`, and a real commit's real `git diff` output with its plumbing intact — served to the mock Tauri bridge in `vingilot_worktree`'s own answer shapes. It exists because every earlier round's evidence was a fixture that could not have shown the defect: a two-commit page has one lane and says nothing about a lane column with no ceiling, and a six-line hand-written patch has no `diff --git` to drop. Nothing shaped like 'the newest commit is X' is asserted from it — those claims stay in the hand-written fixtures; what is asserted here are the invariants only real scale exercises, plus the screenshots, which are of the real thing. Not a spec: Playwright's testMatch does not pick up `*.fixtures.ts`."
+    owner: "vingilot/redesign"
+    removable_when: "With the two specs above."
+    status: "permanent"
+    added: "2026-08-31"

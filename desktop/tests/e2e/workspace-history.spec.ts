@@ -176,8 +176,21 @@ test("selecting a commit shows its patch, drawn by the shared renderer", async (
     "data-wrapped",
     boxWidth < 467 ? "true" : "false",
   );
-  await expect(box).toContainText("+is here now");
-  await expect(box).toContainText("-was here");
+  // **Without their markers, since P4.4.** The claim is unchanged and the
+  // shape is not: the `+`/`-` used to be the first character of the code,
+  // which is what made a patch read as terminal spew. The sign is now a
+  // column of its own — generated content, so it is not in `textContent` at
+  // all — and the row says which it is in an attribute. Both readings are
+  // asserted, because "the text is there" alone would pass against the old
+  // rendering too.
+  await expect(box).toContainText("is here now");
+  await expect(box).toContainText("was here");
+  await expect(box.locator('[data-diff-sign="add"]').first()).toContainText(
+    "is here now",
+  );
+  await expect(box.locator('[data-diff-sign="del"]').first()).toContainText(
+    "was here",
+  );
 
   // The lines are classified rather than printed as one blob: the added line
   // and the removed line resolve to different colours.
@@ -240,7 +253,10 @@ test("a commit's binary file says so, and its cut patch shows the warning AND th
   await expect(cutNote).toContainText("2000 lines");
   const cutBox = page.getByTestId("history-patch-pnpm-lock.yaml");
   await expect(cutBox).toBeVisible();
-  await expect(cutBox).toContainText("+new-resolution");
+  await expect(cutBox).toContainText("new-resolution");
+  await expect(cutBox.locator('[data-diff-sign="add"]')).toContainText(
+    "new-resolution",
+  );
 
   // And a file with nothing to declare gets no sentence: a note under every
   // file is a note nobody reads.

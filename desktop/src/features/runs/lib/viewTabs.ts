@@ -49,6 +49,17 @@ export type ViewSubject =
       kind: "diff";
       /** The ref the working tree is compared against. */
       base: string;
+    }
+  | {
+      /** This worktree's history, on the whole stage (redesign P4.3).
+       *
+       * **The one subject with nothing to identify it**, and that is the
+       * point: there is exactly one history per worktree, so `viewId` is the
+       * bare word and a second "Open in tab" lands on the tab already open.
+       * It exists because the dock's card cannot draw this repository's lanes
+       * — measured, 24 of them against a 376px card — and the honest place for
+       * a graph that needs room is a surface that has it. */
+      kind: "history";
     };
 
 export interface ViewTab {
@@ -93,7 +104,7 @@ export function viewLabel(subject: ViewSubject): string {
     return at === -1 ? subject.path : subject.path.slice(at + 1);
   }
   if (subject.kind === "commit") return subject.short;
-  return "diff";
+  return subject.kind === "history" ? "history" : "diff";
 }
 
 /** The full sentence the tab carries as its `title` — the basename alone is
@@ -105,7 +116,9 @@ export function viewTitle(subject: ViewSubject): string {
       : `${subject.path}:${subject.line}`;
   }
   if (subject.kind === "commit") return `commit ${subject.short}`;
-  return `working tree against ${subject.base}`;
+  return subject.kind === "history"
+    ? "this worktree's history, every branch"
+    : `working tree against ${subject.base}`;
 }
 
 /** The identity two opens of one thing share.
@@ -116,7 +129,7 @@ export function viewTitle(subject: ViewSubject): string {
 export function viewId(subject: ViewSubject): string {
   if (subject.kind === "file") return `file:${subject.path}`;
   if (subject.kind === "commit") return `commit:${subject.hash}`;
-  return `diff:${subject.base}`;
+  return subject.kind === "history" ? "history" : `diff:${subject.base}`;
 }
 
 function replace(

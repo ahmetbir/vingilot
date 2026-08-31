@@ -7,6 +7,8 @@
 // a commit's answer are all `lib/historyModel.ts`'s and `lib/worktreeDiff.ts`'s
 // decisions, exactly as they were before the split.
 
+import * as React from "react";
+
 import type { DiffMode } from "@/features/runs/lib/diffMode";
 import {
   type CommitPatch,
@@ -15,10 +17,19 @@ import {
   type FilePatch,
   STATUS_BASE,
 } from "@/features/runs/lib/historyModel";
-import { fileNote, labelParts } from "@/features/runs/lib/worktreeDiff";
+import {
+  type DiffFile,
+  fileNote,
+  labelParts,
+} from "@/features/runs/lib/worktreeDiff";
+import { ChangeSquare } from "@/features/runs/ui/ChangeSquare";
 import { DiffModeToggle } from "@/features/runs/ui/DiffModeToggle";
 import { PaneEmpty } from "@/features/runs/ui/PaneEmpty";
 import { PatchView } from "@/features/runs/ui/PatchView";
+
+/** One file inside a commit's answer — `WorktreeDiff["files"]`'s member,
+ * named here because `FileSection` takes exactly one and nothing else. */
+type FilePatchFile = DiffFile;
 
 export type PatchState =
   | { status: "none" }
@@ -174,6 +185,7 @@ function Body({
             note={state.file.note}
             noteTestid="history-file-note"
             patch={state.file.patch}
+            path={state.file.path}
             testid="history-patch-body"
             wraps={wraps}
           />
@@ -206,6 +218,7 @@ function NotedPatch({
   note,
   noteTestid,
   patch,
+  path,
   testid,
   wraps,
 }: {
@@ -213,6 +226,8 @@ function NotedPatch({
   note: string | null;
   noteTestid: string;
   patch: string;
+  /** The file this patch is of, for the language it is highlighted as. */
+  path?: string;
   testid: string;
   wraps: boolean;
 }) {
@@ -227,7 +242,13 @@ function NotedPatch({
         </p>
       )}
       {patch === "" ? null : (
-        <PatchView mode={mode} patch={patch} testid={testid} wraps={wraps} />
+        <PatchView
+          mode={mode}
+          patch={patch}
+          path={path}
+          testid={testid}
+          wraps={wraps}
+        />
       )}
     </>
   );
@@ -291,27 +312,81 @@ function CommitBody({
         // to prevent, and one the Diff pane does make about the same file.
         <div className="min-h-0 flex-1 overflow-auto">
           {files.map((file) => (
-            <div key={file.path}>
-              <p className="sticky top-0 flex items-baseline bg-background px-2 py-0.5 text-2xs">
-                <FilePathLabel path={file.path} />
-                <span className="ml-1 shrink-0 tabular-nums">
-                  <span className="text-status-added">+{file.additions}</span>{" "}
-                  <span className="text-status-deleted">−{file.deletions}</span>
-                </span>
-              </p>
-              <NotedPatch
-                mode={mode}
-                note={fileNote(file, answer.diff.limits)}
-                noteTestid={`history-file-note-${file.path}`}
-                patch={file.patch}
-                testid={`history-patch-${file.path}`}
-                wraps={wraps}
-              />
-            </div>
+            <FileSection
+              file={file}
+              key={file.path}
+              limits={answer.diff.limits}
+              mode={mode}
+              wraps={wraps}
+            />
           ))}
         </div>
       )}
     </>
+  );
+}
+
+/** A patch this long is folded away until it is asked for.
+ *
+ * **A commit is not a file, and a twelve-file commit where one file is a
+ * 900-line regenerated lockfile is a commit nobody scrolls to the end of.**
+ * Sixty lines is about two screens of the patch box at this type size: past it
+ * the file is a heading with its numbers, and one click opens it. Under it
+ * nothing is hidden, because a fold over four lines is a control that costs
+ * more than it saves. */
+const COLLAPSE_OVER_LINES = 60;
+
+/** One file inside a commit's patch: the mockup's `.frow` as the header for
+ * its own hunks (redesign P4.4), and the patch under it.
+ *
+ * The row carries what the mockup's does — the path under the shared lead/name
+ * rule, `+N −N`, and the `.chgsq` change square — and one thing the mockup's
+ * does not: it is the control that folds the file away, because a mockup with
+ * three files in it never had to answer for a commit with forty. */
+function FileSection({
+  file,
+  limits,
+  mode,
+  wraps,
+}: {
+  file: FilePatchFile;
+  limits: CommitPatch["diff"]["limits"];
+  mode: DiffMode;
+  wraps: boolean;
+}) {
+  const long = file.patch.split("\n").length > COLLAPSE_OVER_LINES;
+  const [open, setOpen] = React.useState(!long);
+  return (
+    <div>
+      <button
+        aria-expanded={open}
+        className="sticky top-0 z-10 flex w-full items-center gap-1.5 bg-background px-2 py-1 text-left text-2xs transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        data-testid={`history-file-row-${file.path}`}
+        onClick={() => setOpen((was) => !was)}
+        type="button"
+      >
+        <span aria-hidden="true" className="w-2 shrink-0 text-muted-foreground">
+          {open ? "▾" : "▸"}
+        </span>
+        <FilePathLabel path={file.path} />
+        <span className="ml-auto shrink-0 tabular-nums">
+          <span className="text-status-added">+{file.additions}</span>{" "}
+          <span className="text-status-deleted">−{file.deletions}</span>
+        </span>
+        <ChangeSquare file={file} />
+      </button>
+      {open ? (
+        <NotedPatch
+          mode={mode}
+          note={fileNote(file, limits)}
+          noteTestid={`history-file-note-${file.path}`}
+          patch={file.patch}
+          path={file.path}
+          testid={`history-patch-${file.path}`}
+          wraps={wraps}
+        />
+      ) : null}
+    </div>
   );
 }
 

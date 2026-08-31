@@ -120,7 +120,18 @@ pub struct Commit {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Page<'a> {
     /// HEAD's own ancestry, continued under the commit named. Exact.
-    Head { before: Option<&'a str> },
+    ///
+    /// `first_parent` adds `--first-parent`, which walks only the first parent
+    /// of every merge — the branch's own trunk, one lane wide by construction.
+    /// **It exists because a lane column needs a ceiling** (redesign P4.3): at
+    /// the dock's 376px this repository's `--all` union needs 24 lanes, and
+    /// the only bounded thing to fall back to is a chain that cannot fork. The
+    /// panel that asks for it says "first-parent" in its header rather than
+    /// letting the reader think he is seeing every branch.
+    Head {
+        before: Option<&'a str>,
+        first_parent: bool,
+    },
     /// Every ref in the repository, continued at an offset.
     All { skip: usize },
 }
@@ -198,13 +209,25 @@ pub(super) fn parse_log(text: &str) -> Vec<Commit> {
 /// `git log`'s argument vector, built in one place so a test can read what is —
 /// and is not — in it. Nothing here is conditional on anything but where the
 /// page starts: there is no branch of this function that writes.
-fn log_args<'a>(count: &'a str, skip: &'a str, start: Option<&'a str>, all: bool) -> Vec<&'a str> {
+fn log_args<'a>(
+    count: &'a str,
+    skip: &'a str,
+    start: Option<&'a str>,
+    all: bool,
+    first_parent: bool,
+) -> Vec<&'a str> {
     let mut args = vec!["log", "-z", "--no-color", FORMAT, count, skip];
     // `--all` and a starting rev are alternatives, never a pair: `git log --all
     // <rev>` is the union of every ref *with* that rev, which is the union
     // again — so a caller passing both would silently get page one back.
     if all {
         args.push("--all");
+    }
+    // Only ever with a starting rev, and `Page` is what makes that true: the
+    // union has no trunk to walk the first parent of, so `Page::All` cannot
+    // spell this.
+    if first_parent {
+        args.push("--first-parent");
     }
     if let Some(rev) = start {
         args.push(rev);
@@ -261,6 +284,7 @@ pub(super) fn log_bounded(
     let (start, skip_by) = match page {
         Page::Head {
             before: Some(cursor),
+            ..
         } => {
             // A cursor that names nothing is a refusal and not an empty page:
             // an empty page reads as "there is no more history", which is a
@@ -277,7 +301,7 @@ pub(super) fn log_bounded(
             // under it.
             (Some(cursor.to_string()), 1)
         }
-        Page::Head { before: None } => {
+        Page::Head { before: None, .. } => {
             if !has_history(worktree)? {
                 return Ok(LogPage {
                     commits: Vec::new(),
@@ -314,6 +338,13 @@ pub(super) fn log_bounded(
         &skip,
         start.as_deref(),
         matches!(page, Page::All { .. }),
+        matches!(
+            page,
+            Page::Head {
+                first_parent: true,
+                ..
+            }
+        ),
     );
     let ran = run(worktree, &args)?;
     if !ran.ok {
@@ -343,7 +374,7 @@ pub(super) fn log_bounded(
 pub(super) fn one(worktree: &str, hash: &str) -> Result<Option<Commit>, WorktreeError> {
     let count = "--max-count=1".to_string();
     let skip = "--skip=0".to_string();
-    let args = log_args(&count, &skip, Some(hash), false);
+    let args = log_args(&count, &skip, Some(hash), false, false);
     let ran = run(worktree, &args)?;
     if !ran.ok {
         return Ok(None);
@@ -368,6 +399,13 @@ pub(super) fn one(worktree: &str, hash: &str) -> Result<Option<Commit>, Worktree
 /// return page one), and silently returning page one to a caller that asked
 /// for page three is the kind of answer this island refuses to give.
 ///
+/// `first_parent` narrows the HEAD scope to the branch's own trunk
+/// (`--first-parent`) — a chain that cannot fork, which is the one reading a
+/// bounded lane column can always draw (redesign P4.3). It is **ignored with
+/// `all: true`** for the same reason `before` is: the union has no trunk, and
+/// answering a narrower question than the one asked would be worse than
+/// answering the one asked.
+///
 /// `async`, and off the thread the webview talks on, for the reason
 /// `off_thread` documents.
 #[tauri::command]
@@ -376,6 +414,7 @@ pub async fn worktree_log(
     before: Option<String>,
     all: Option<bool>,
     skip: Option<usize>,
+    first_parent: Option<bool>,
 ) -> Result<LogPage, WorktreeError> {
     super::off_thread("worktree log", move || {
         let page = if all == Some(true) {
@@ -385,6 +424,7 @@ pub async fn worktree_log(
         } else {
             Page::Head {
                 before: before.as_deref(),
+                first_parent: first_parent == Some(true),
             }
         };
         log_bounded(&path, page, MAX_COMMITS)
@@ -535,7 +575,28 @@ mod tests {
     }
 
     fn read(worktree: &str, before: Option<&str>, limit: usize) -> LogPage {
-        match log_bounded(worktree, Page::Head { before }, limit) {
+        match log_bounded(
+            worktree,
+            Page::Head {
+                before,
+                first_parent: false,
+            },
+            limit,
+        ) {
+            Ok(page) => page,
+            Err(error) => panic!("expected a page of history, got {error:?}"),
+        }
+    }
+
+    fn read_trunk(worktree: &str, limit: usize) -> LogPage {
+        match log_bounded(
+            worktree,
+            Page::Head {
+                before: None,
+                first_parent: true,
+            },
+            limit,
+        ) {
             Ok(page) => page,
             Err(error) => panic!("expected a page of history, got {error:?}"),
         }
@@ -632,7 +693,8 @@ mod tests {
             log_bounded(
                 &repo.path(),
                 Page::Head {
-                    before: Some("no-such-commit")
+                    before: Some("no-such-commit"),
+                    first_parent: false,
                 },
                 MAX_COMMITS
             ),
@@ -735,13 +797,53 @@ mod tests {
         // `git log --all <rev>` is the union again, so a page-three request
         // would silently come back as page one. The shape of `Page` is what
         // makes that unspellable; this is the proof the arg builder agrees.
-        let union = log_args("--max-count=10", "--skip=20", None, true);
+        let union = log_args("--max-count=10", "--skip=20", None, true, false);
         assert!(union.contains(&"--all"));
         assert!(!union.contains(&"HEAD"));
 
-        let head = log_args("--max-count=10", "--skip=0", Some("HEAD"), false);
+        let head = log_args("--max-count=10", "--skip=0", Some("HEAD"), false, false);
         assert!(!head.contains(&"--all"));
         assert!(head.contains(&"HEAD"));
+        // And `--first-parent` is only ever spelled beside a starting rev.
+        assert!(!head.contains(&"--first-parent"));
+        let trunk = log_args("--max-count=10", "--skip=0", Some("HEAD"), false, true);
+        assert!(trunk.contains(&"--first-parent"));
+        assert!(!trunk.contains(&"--all"));
+    }
+
+    #[test]
+    fn the_trunk_scope_walks_only_first_parents_and_the_head_scope_walks_both() {
+        // **The bounded reading a lane column can always draw** (redesign
+        // P4.3). A merge's side branch is in HEAD's ancestry and is NOT on the
+        // trunk, so the two scopes give different pages — and the trunk's page
+        // is the one whose graph is one lane wide by construction.
+        let repo = history(&["second"]);
+        repo.git(&["checkout", "-b", "side"]);
+        repo.write("side.txt", "on the side\n");
+        repo.git(&["add", "side.txt"]);
+        repo.git(&["commit", "-m", "only on side"]);
+        repo.git(&["checkout", "main"]);
+        repo.git(&["merge", "--no-ff", "-m", "Merge side", "side"]);
+
+        let ancestry = read(&repo.path(), None, MAX_COMMITS);
+        assert!(
+            subjects(&ancestry).contains(&"only on side"),
+            "HEAD's ancestry includes the merged branch: {:?}",
+            subjects(&ancestry)
+        );
+
+        let trunk = read_trunk(&repo.path(), MAX_COMMITS);
+        assert_eq!(subjects(&trunk), vec!["Merge side", "second", "first"]);
+        // Every row's first parent is the row below it — which is what makes
+        // the drawing one lane. The merge still REPORTS both parents; the
+        // second names a commit no row on screen carries, and the panel clips
+        // it rather than opening a column for it.
+        assert_eq!(trunk.commits[0].parents.len(), 2);
+        assert_eq!(trunk.commits[0].parents[0], trunk.commits[1].hash);
+        assert_eq!(
+            trunk.commits[1].parents,
+            vec![trunk.commits[2].hash.clone()]
+        );
     }
 
     #[test]
@@ -749,7 +851,14 @@ mod tests {
         let plain = temp_dir();
         let path = plain.path().to_string_lossy().into_owned();
         assert_eq!(
-            log_bounded(&path, Page::Head { before: None }, MAX_COMMITS),
+            log_bounded(
+                &path,
+                Page::Head {
+                    before: None,
+                    first_parent: false,
+                },
+                MAX_COMMITS
+            ),
             Err(WorktreeError::NotARepo { path })
         );
     }
@@ -796,7 +905,7 @@ mod tests {
     fn the_log_commands_never_carry_a_write_verb() {
         // This module reads. A future edit that reaches for the index, the
         // working tree or a ref fails here.
-        let args = log_args("--max-count=10", "--skip=0", Some("HEAD"), false);
+        let args = log_args("--max-count=10", "--skip=0", Some("HEAD"), false, true);
         assert_eq!(args[0], "log");
         for arg in args {
             for forbidden in [
@@ -813,6 +922,12 @@ mod tests {
         // See `off_thread`: only an `async fn` gets `respond_async_serialized`.
         // The thread is not observable from here; the shape that decides it is.
         fn accepts_only_a_future<F: std::future::Future>(_: F) {}
-        accepts_only_a_future(worktree_log("/nonexistent".to_string(), None, None, None));
+        accepts_only_a_future(worktree_log(
+            "/nonexistent".to_string(),
+            None,
+            None,
+            None,
+            None,
+        ));
     }
 }

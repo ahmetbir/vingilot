@@ -79,6 +79,7 @@ import {
   UNREAD,
 } from "@/features/runs/lib/diffRefresh";
 import type { Worktree } from "@/features/runs/lib/projects";
+import { ChangeSquare } from "@/features/runs/ui/ChangeSquare";
 import { OpenInEditor } from "@/features/runs/ui/OpenInEditor";
 import { PatchView } from "@/features/runs/ui/PatchView";
 import { gitWorktreeDiff } from "@/features/runs/lib/worktreeClient";
@@ -634,6 +635,10 @@ export function WorktreeDiffPanel({
               <PatchView
                 mode={mode}
                 patch={shown === null ? "" : shown.patch}
+                // The language the code in this patch is highlighted as
+                // (P4.4). The open file's own path, so a `.rs` patch is Rust
+                // and a `.toml` patch is TOML.
+                path={shown?.path}
                 testid="worktree-diff-patch"
                 wraps={wraps}
               />
@@ -802,6 +807,7 @@ function FileList({
                 </>
               )}
             </span>
+            <ChangeSquare file={file} />
           </button>
           {cwd === null ? null : (
             // **The source-control row's escape hatch.** No line: a changed

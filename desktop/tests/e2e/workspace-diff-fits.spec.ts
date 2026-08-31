@@ -449,7 +449,16 @@ test("at his width the patch wraps at its floor and every row still names its fi
   // so a build that rendered an empty patch could not pass by having nothing
   // to draw. A wrapped line is still one text node, so its full text is still
   // here to find.
-  expect(before.lines.map((line) => line.text)).toContain(PATCH_LINE.trim());
+  //
+  // **Without its `+`, since P4.4.** The claim is unchanged and the shape is
+  // not: the marker used to be the first character of the code, which is what
+  // made a diff read as terminal spew and is exactly what the owner asked to
+  // be rid of. It now has a column of its own, so the code cell holds the
+  // source and nothing else — and the assertion that it does is the next one
+  // down.
+  expect(before.lines.map((line) => line.text)).toContain(
+    PATCH_LINE.slice(1).trim(),
+  );
   // And it is on screen whole: wrapped means broken across visual rows, not
   // scrolled past the edge. `scrollWidth` over `clientWidth` is the reading
   // the grid regime deliberately did not take here (a scroller is allowed to

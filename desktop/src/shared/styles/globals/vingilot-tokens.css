@@ -52,6 +52,158 @@
   background-color: var(--vingilot-term, hsl(var(--background)));
 }
 
+/*
+ * ============================================================================
+ * Redesign P4.2 — selection belongs to content, not to chrome.
+ * ============================================================================
+ *
+ * The owner's screenshot: one stray drag across the window selected the whole
+ * app — sidebar rows, tab labels, project names, the file viewer's line-number
+ * gutter, the status bar. His rule, verbatim: "secme kismi sadece dosya olmali
+ * ya da terminal ici. dosya satir numaralari filan secilemez olmali."
+ *
+ * So the default is `none` and selection is OPTED INTO, by exactly the
+ * surfaces whose content is meant to be copied. Four notes on the shape:
+ *
+ * 1. **On `body`, not on `#root`.** Every Radix overlay in this app portals to
+ *    `document.body` — a dialog, a dropdown, a popover, a context menu are all
+ *    OUTSIDE `#root`. A default on the app div would leave every one of them
+ *    draggable-as-text, which is the same defect in the surfaces the owner is
+ *    most likely to drag across.
+ *
+ * 2. **Editable elements are opted in explicitly** and this is not belt and
+ *    braces: in Blink an inherited `user-select: none` really does reach into
+ *    an `<input>`/`<textarea>` and stop the caret from selecting. The
+ *    composer's ProseMirror surface is `[contenteditable]`, so it is named
+ *    here too — and it also wears `.message-markdown`, which is the next rule.
+ *
+ * 3. **`.message-markdown` is the chat body**, `MESSAGE_MARKDOWN_CLASS` in
+ *    shared/ui/mentionChip.ts. Targeted from the stylesheet rather than by
+ *    editing every message component, and it covers the code blocks inside a
+ *    message for free — they are rendered inside it.
+ *
+ * 4. **The terminal is deliberately NOT in this list.** xterm's own stylesheet
+ *    already declares `.xterm { user-select: none }` (@xterm/xterm 5.5.0
+ *    css/xterm.css:41) because it draws and owns its selection itself, through
+ *    its SelectionService and `term.getSelection()` rather than through the
+ *    browser's range. A rule here forcing `text` onto `.xterm` would be
+ *    fighting it — the one thing P4.2 says not to do — and would lose to
+ *    xterm's own declaration anyway. The shell default changes nothing there:
+ *    the element already said `none` before this file existed.
+ *
+ * Everything else — nav rows, tab strips, section headers, the status bar,
+ * buttons, tree rows, chips — simply inherits `none`. Keyboard reachability
+ * and focus rings are untouched: `user-select` is about pointer drags and
+ * says nothing about focus.
+ *
+ * `[data-select="text"]` / `[data-select="none"]` are the two opt-ins a
+ * component writes: a diff's code cell says `text`, the gutter beside it says
+ * `none`, and because both are declarations ON the element, the inner one
+ * wins over what it would otherwise inherit whatever the rule order is.
+ *
+ * Unlayered, like every rule in this file: it must win over Tailwind's own
+ * `select-*` utilities without `!important`.
+ */
+body {
+  user-select: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable]:not([contenteditable="false"]),
+.message-markdown,
+[data-select="text"] {
+  user-select: text;
+}
+
+[data-select="none"] {
+  user-select: none;
+}
+
+/*
+ * ============================================================================
+ * Redesign P4.4 — a diff's row tint.
+ * ============================================================================
+ *
+ * The mockup's `.dline.add` / `.dline.del` (Vingilot.html 229-241) are flat
+ * 8% washes of its own two hexes. These are the same alphas over the THEME's
+ * diff tokens — `--status-added` / `--status-deleted`, set per theme by
+ * ThemeProvider — so an added line is the same green here, in chat's own
+ * `DiffViewer`, in the changed-file list's numstat and on the file row's
+ * change square. A second green invented in this file is how one surface goes
+ * emerald while the next goes teal.
+ *
+ * `color-mix` rather than an `hsl(var(--x) / .08)`: the status tokens are
+ * whole colours, not the h/s/l channel triples the shadcn variables carry, so
+ * the slash syntax cannot reach them.
+ *
+ * A tint and not a text colour: **the +/− is the row's ground and its marker
+ * column now, never the code's own hue** — that is what stops a patch reading
+ * as a flat green and red wall and lets Shiki's colours through it (P4.4).
+ * Unlayered, like everything here.
+ */
+.vingilot-dline-add {
+  background-color: color-mix(in srgb, var(--status-added) 8%, transparent);
+}
+
+.vingilot-dline-del {
+  background-color: color-mix(in srgb, var(--status-deleted) 8%, transparent);
+}
+
+/*
+ * The mockup's two `.dno` columns and the marker column, as GENERATED CONTENT
+ * — and that is a measured decision, argued in full at `gutterText` in
+ * ui/PatchView.tsx. In short: built as unselectable sibling `<span>`s, a drag
+ * over the code beside them selected nothing at all in Chromium; bisected in
+ * the browser, removing the spans fixed it. Generated content is the technique
+ * that has always worked here — the file viewer's own line numbers are
+ * `.code-block-lines [data-line]::before` (markdown.css) — and it excludes the
+ * gutter from what is copied, which is the owner's rule: "dosya satir
+ * numaralari filan secilemez olmali".
+ *
+ * `padding-left` + a matching negative `text-indent` is the hanging indent:
+ * the two pseudos live in the negative indent, so the first visual line starts
+ * at the left edge and every WRAPPED line starts under the code instead of
+ * under the numbers. 9ch of numbers ("nnnn nnnn") plus 3ch of marker (" + ").
+ *
+ * **The mockup's `.dno` is `rgba(255,255,255,.18)` and this is not.** That
+ * alpha measures about 2.3:1 on this ground — a line number is text, and text
+ * under 4.5:1 is unreadable rather than merely quiet. Full-strength muted is
+ * the smallest change that keeps the mockup's intent (the numbers recede), and
+ * it is the same declared, measured accessibility deviation P0 and P1 made.
+ */
+.vingilot-dline {
+  display: block;
+  padding-left: 12ch;
+  text-indent: -12ch;
+}
+
+.vingilot-dline::before {
+  content: attr(data-diff-nos);
+  white-space: pre;
+  user-select: none;
+  color: hsl(var(--muted-foreground));
+}
+
+/*
+ * The marker column. **Foreground strength rather than the diff hue, and that
+ * is a measured deviation.** The obvious drawing paints `+` in `--status-added`
+ * and `−` in `--status-deleted`; measured from this build's own screenshot, the
+ * `−` glyph in `--status-deleted` on its own 8% tint is (161,57,67) against
+ * (42,30,31) — **2.44:1**, well under the 4.5:1 floor, because a mid-dark red
+ * on a red wash has almost nothing to be different from. The hue is already
+ * carried by the row's tint and cannot be carried twice; the marker's job is to
+ * be legible, so it takes the foreground. A context row's marker is three
+ * spaces and paints no glyph at all.
+ */
+.vingilot-dmark::before {
+  content: attr(data-diff-mark);
+  white-space: pre;
+  user-select: none;
+  color: hsl(var(--foreground));
+}
+
 :root {
   /* Surfaces + ink (mockup: --content/--content2/--term/--ink/--mut/--bor) */
   --vingilot-content: #1a1a1a;

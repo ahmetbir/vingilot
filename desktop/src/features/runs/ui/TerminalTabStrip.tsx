@@ -221,7 +221,11 @@ export function TerminalTabStrip({
                     aria-hidden="true"
                     className="font-mono text-2xs text-muted-foreground"
                   >
-                    {view.subject.kind === "commit" ? "◇" : "±"}
+                    {view.subject.kind === "commit"
+                      ? "◇"
+                      : view.subject.kind === "history"
+                        ? "⑂"
+                        : "±"}
                   </span>
                 )}
                 <span className="truncate">{label}</span>

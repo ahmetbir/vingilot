@@ -79,12 +79,31 @@ function freeLane(open: (string | null)[]): number {
  *
  * The result is index-aligned with `commits`, so a caller renders row `i`
  * beside commit `i` with no lookup and no key to keep in step. */
-export function layoutCommitGraph(commits: readonly GraphCommit[]): GraphRow[] {
+export function layoutCommitGraph(
+  commits: readonly GraphCommit[],
+  options: {
+    /** Draw only the edge into each commit's first parent, and ignore the
+     * rest.
+     *
+     * **For the `--first-parent` page and nothing else** (redesign P4.3). git
+     * reports a merge's parents whatever it was asked to walk, so on that page
+     * the second parent names a commit no row carries: laid out honestly it
+     * opens a lane that never closes, and this repository's trunk drew six
+     * lanes instead of one. Clipping it here is not hiding an edge — the row
+     * it points at is not in this reading at all, and the panel's header says
+     * which reading it is. */
+    firstParentOnly?: boolean;
+  } = {},
+): GraphRow[] {
   // lane -> the hash that lane is waiting for, or `null` for a free column.
   const open: (string | null)[] = [];
   const rows: GraphRow[] = [];
 
-  for (const commit of commits) {
+  for (const raw of commits) {
+    const commit: GraphCommit =
+      options.firstParentOnly === true
+        ? { hash: raw.hash, parents: raw.parents.slice(0, 1) }
+        : raw;
     const waiting = open.indexOf(commit.hash);
     const up = waiting !== -1;
     const lane = up ? waiting : freeLane(open);
@@ -193,4 +212,109 @@ const LANE_COLORS = [
 
 export function laneColor(lane: number): string {
   return LANE_COLORS[lane % LANE_COLORS.length];
+}
+
+// ---------------------------------------------------------------------------
+// The ceiling (redesign P4.3)
+// ---------------------------------------------------------------------------
+//
+// **P4.1 drew a real graph and gave the lane column no ceiling, and at this
+// repository's real width that is the same thing as drawing no history at
+// all.** `graphWidth` answers the widest row's lane count, the row's SVG is
+// `shrink-0`, and the two together are a gutter that takes whatever it likes:
+// measured live in the dock at 376px, `--all` over this repository's newest
+// 200 commits needs 24 lanes — a 438px gutter inside a 376px card — which left
+// the subject 0px and pushed sha, author and age off the row. His words:
+// *"suanki hali kullanilamaz gibi… su graph kismina bisi anlasilmiyo."*
+//
+// So the pane's width is spent in this order, and the graph is last: the
+// subject is the point of a history and gets a floor; the meta on the right is
+// fixed furniture; the lanes get what is left, and when that is not enough the
+// panel changes SCOPE rather than compressing 24 lanes into two.
+
+/** The narrowest a commit subject may be drawn and still be scanned — about
+ * thirty characters of the row's 12px type. Measured against this repository's
+ * own subjects, which run 40-70 characters: at 180px a truncated subject still
+ * carries the verb and the noun ("The history graph forgot the com…"), and
+ * below it the ellipsis lands inside the first phrase. */
+export const SUBJECT_MIN_PX = 180;
+
+/** What `.gmeta2` occupies on the right: a 16px avatar, a 7-character sha and
+ * an age, with the mockup's 8px gaps. Fixed furniture rather than a
+ * measurement, because it must be known BEFORE the row is laid out. */
+export const META_PX = 116;
+
+/** The row's own padding — the mockup's `.grow2` is `0 14px 0 8px`, plus the
+ * 4px gap either side of the graph. */
+export const ROW_PADDING_PX = 30;
+
+/** Never fewer than the mockup's own two columns: a graph with one lane is a
+ * list of dots, and the whole point of the picture is that a second line can
+ * appear beside the first. */
+export const MIN_LANES = 2;
+
+/** And never more than this, however wide the pane is. Twenty-four is what
+ * this repository needs today and a bound has to be a number rather than "the
+ * data": past it the braid is not a picture anybody reads, it is a texture. */
+export const MAX_LANES = 24;
+
+/** How many lanes this pane may draw before the subject starts paying for
+ * them.
+ *
+ * Derived from the width rather than fixed at the mockup's two, because the
+ * SAME panel is drawn in a 376px dock card and in a full-width tab, and the
+ * honest answer is different in the two places: the dock gets the mockup's
+ * gutter and a scannable list, the tab gets the braid. That is P4.3's own
+ * ruling — "the full-width History tab is where a big graph gets room, the
+ * dock panel is a scannable list first".
+ *
+ * A pane that has not been measured yet is 0 and gets `MIN_LANES`: the first
+ * paint is the narrow layout, which is the one that always fits. */
+export function laneBudget(paneWidth: number): number {
+  const forLanes = paneWidth - SUBJECT_MIN_PX - META_PX - ROW_PADDING_PX;
+  // `graphPixelWidth(n)` is `LANE_X0 + (n-1)*LANE_DX + LANE_X0`; this is that,
+  // solved for n.
+  const fits = Math.floor((forLanes - 2 * LANE_X0) / LANE_DX) + 1;
+  return Math.max(MIN_LANES, Math.min(MAX_LANES, fits));
+}
+
+/** Which commits the panel is drawing, and the word the header says.
+ *
+ * **`first-parent` is a different READ, not a compressed drawing.** The lanes
+ * of `--all` are branch TIPS, not merges — measured on this repository, taking
+ * only first parents of the same union changes 24 lanes into 23, because every
+ * tip in the page still opens a column of its own. The only bounded thing to
+ * fall back to is HEAD's own first-parent chain, which is exactly one lane by
+ * construction, and the header says so rather than letting the owner think he
+ * is looking at every branch. */
+export type GraphScope = "all-branches" | "first-parent";
+
+export function scopeLabel(scope: GraphScope): string {
+  return scope === "all-branches" ? "all branches" : "first-parent";
+}
+
+/** A commit subject split where an ellipsis must not fall — the same shape
+ * `worktreeDiff.ts`'s `labelParts` gives a path, and the same discipline the
+ * file rows draw with: the repeated, contextual half dims and the half that
+ * says what happened stays bright.
+ *
+ * For a path that split is the directory; for a subject it is the
+ * conventional-commit prefix — `relay: `, `persona: `, `feat(dock)!: ` — which
+ * is the same word on twenty consecutive rows and is exactly what the eye is
+ * not reading. The mockup's own sample data is written this way ("relay:
+ * heartbeat tuning for mesh reconnect", "persona: seed First Mate defaults").
+ *
+ * Deliberately narrow, because the cost of a false positive is dimming half of
+ * an English sentence:
+ * - the type must start lower-case, so "Note: this changes everything" and
+ *   "Revert: …" are left whole;
+ * - the whole prefix must be under 24 characters, so a subject that merely
+ *   contains a colon keeps its first clause bright;
+ * - and what is left after it must be non-empty, so "fix:" alone is all name.
+ */
+export function subjectParts(subject: string): { lead: string; name: string } {
+  const found = /^([a-z][\w.-]*(?:\([^)]*\))?!?:\s+)(\S.*)$/.exec(subject);
+  if (found === null || found[1].length > 24)
+    return { lead: "", name: subject };
+  return { lead: found[1], name: found[2] };
 }

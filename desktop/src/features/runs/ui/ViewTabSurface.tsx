@@ -33,6 +33,7 @@ import type { ViewTab } from "@/features/runs/lib/viewTabs";
 import { viewTitle } from "@/features/runs/lib/viewTabs";
 import { explainWorktreeError } from "@/features/runs/lib/worktreePlan";
 import type { Worktree } from "@/features/runs/lib/projects";
+import { HistoryPanel } from "@/features/runs/ui/DockHistoryPanel";
 import {
   FileViewer,
   NOTHING_OPEN,
@@ -72,6 +73,13 @@ export function ViewTabSurface({
         <FileView cwd={cwd} line={tab.subject.line} path={tab.subject.path} />
       ) : tab.subject.kind === "commit" ? (
         <CommitView cwd={cwd} hash={tab.subject.hash} />
+      ) : tab.subject.kind === "history" ? (
+        // **The same panel the dock draws, in a box that can hold the graph**
+        // (redesign P4.3). Not a second History component: the scope decision
+        // is made from the measured width, so one component gives the dock a
+        // scannable first-parent list and gives this surface every branch.
+        // `tabbed` only removes the door that leads here.
+        <HistoryPanel cwd={cwd} onPaneAct={onPaneAct} tabbed />
       ) : worktree === null ? (
         // The diff panel is a reading OF a worktree row — its base, its
         // freshness and its branch all come from one. A tab that outlived the
