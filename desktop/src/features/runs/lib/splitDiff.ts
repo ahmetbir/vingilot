@@ -93,6 +93,76 @@ export type PairedRow =
  * rows and indices that still address them.
  */
 export function pairRows(rows: readonly DiffRow[]): PairedRow[] {
+  return paired(rows);
+}
+
+/** Which side of the pairing, if either, has **no line at all** — the reading
+ * behind P4.8b's "a wall of hatch is a loud way to say nothing was here".
+ *
+ * A gap opposite a change block is a local claim: *this row* has nothing on
+ * that side, and the hatch is what stops it reading as a hole. An ADDED file
+ * makes the same claim on every row of the patch, forty times, about a side
+ * that does not exist — and repeating a fact once per row is the opposite of
+ * quiet. So the drawing asks this first and paints plain ground instead
+ * (`ui/PatchSplit.tsx`'s `Cell`).
+ *
+ * `null` unless one side is empty AND the other is not: a patch of nothing but
+ * hunk headers has two empty sides and no side worth calling absent, and one
+ * context line — present in both files by definition — disqualifies both. */
+export function emptySide(
+  pairs: readonly PairedRow[],
+): "before" | "after" | null {
+  let before = 0;
+  let after = 0;
+  for (const pair of pairs) {
+    if (pair.kind === "context") return null;
+    if (pair.kind !== "change") continue;
+    if (pair.before !== null) before += 1;
+    if (pair.after !== null) after += 1;
+  }
+  if (before === 0 && after > 0) return "before";
+  if (after === 0 && before > 0) return "after";
+  return null;
+}
+
+/** The longest line in the patch, in characters — how far a column's scroller
+ * has to be able to travel.
+ *
+ * **Why the model answers this and not the browser.** With wrapping off the
+ * columns are horizontal scrollers, two per run of pairs, and their offsets are
+ * one shared number: a side-by-side diff that let its halves slide apart
+ * sideways would stop being a comparison at the eightieth column. Left to size
+ * themselves, each scroller would reach only as far as its own run's longest
+ * line, so the shared offset would run some of them out while others still had
+ * room and the columns would visibly tear. One floor, given to every scroller,
+ * is what makes one offset legal.
+ *
+ * **This is not the sizing that caused the defect**, which is worth saying
+ * plainly: it sets how far a column can SCROLL, never how wide it is drawn. The
+ * columns are half the pane each whatever this answers, so an added file's code
+ * still begins at the fold. What P4.8 had was the opposite — a width taken from
+ * the other column's longest line — and it is gone.
+ *
+ * Counted in characters because the drawing is monospace and spends the answer
+ * in `ch`; a tab or a wide glyph makes it an under-estimate, which costs a
+ * column its last few pixels of travel and never mis-aligns a pair. */
+export function widestLine(pairs: readonly PairedRow[]): number {
+  let widest = 0;
+  for (const pair of pairs) {
+    const lines =
+      pair.kind === "context"
+        ? [pair.row.text]
+        : pair.kind === "change"
+          ? [pair.before?.row.text ?? "", pair.after?.row.text ?? ""]
+          : [];
+    for (const line of lines) {
+      if (line.length > widest) widest = line.length;
+    }
+  }
+  return widest;
+}
+
+function paired(rows: readonly DiffRow[]): PairedRow[] {
   const out: PairedRow[] = [];
   let at = 0;
   while (at < rows.length) {

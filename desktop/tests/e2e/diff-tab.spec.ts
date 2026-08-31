@@ -389,7 +389,9 @@ async function linesOnScreen(page: Page, mode: "split" | "unified") {
     // In split one context row is drawn in TWO cells — the same line of the
     // same file, once per column. Unified draws it once, so the right-hand copy
     // is skipped: this compares what the reader is told, not how many boxes
-    // told him.
+    // told him. P4.8b: the two cells of a pair are in two different column
+    // scrollers now, so "the left one" is a selector rather than "the first
+    // child of the row".
     //
     // `[data-diff-code]` and not the cell's own text, in BOTH branches: the
     // comment affordance is a `+` glyph living inside the cell (out of flow,
@@ -398,8 +400,10 @@ async function linesOnScreen(page: Page, mode: "split" | "unified") {
     // a drag copies, but it is in what `textContent` reads — and a reading that
     // included it would be comparing the button, not the line.
     const out: string[] = [];
-    for (const row of document.querySelectorAll('[data-split-row="context"]')) {
-      const code = row.querySelector("[data-split-cell] [data-diff-code]");
+    for (const cell of document.querySelectorAll(
+      '[data-split-cell="before"][data-split-kind="context"]',
+    )) {
+      const code = cell.querySelector("[data-diff-code]");
       out.push(`ctx·${clean(code?.textContent ?? "")}`);
     }
     return out;
@@ -470,24 +474,37 @@ test("§4 · P4.8 split shows the SAME lines as unified, in the same vocabulary"
   );
   expect(splitContext.length).toBeGreaterThan(0);
 
-  const read = await page.evaluate(() => {
+  const read = await patch.evaluate((card) => {
     const cells = Array.from(
       document.querySelectorAll("[data-split-cell]:not([data-split-filler])"),
     );
-    const rows = Array.from(
-      document.querySelectorAll('[data-split-row="change"]'),
-    );
-    const pair = rows.find(
-      (row) =>
-        row.querySelectorAll("[data-split-cell]").length === 2 &&
-        row.querySelectorAll("[data-split-filler]").length === 0,
-    );
+    // A pair is joined by `data-split-pair` since P4.8b — the two cells are in
+    // two different column scrollers, which is what stopped one column's
+    // longest line from setting the other column's width.
+    //
+    // **Scoped to THIS card, and that is the whole reason the join needs a
+    // scope.** `data-split-pair` is a pair's index within its own patch, so
+    // with every file expanded the fifth pair of six cards is six elements
+    // under one key and `cells.length === 2` is never true — the reading would
+    // silently find no pair to measure and the alignment claim would evaporate
+    // while still looking asserted. Before this round the two cells of a pair
+    // shared an ancestor, which scoped the join by construction; they are in
+    // two different scrollers now, so the scope has to be said.
+    const paired = new Map<string, Element[]>();
+    for (const cell of card.querySelectorAll(
+      '[data-split-cell][data-split-kind="change"]',
+    )) {
+      const at = cell.getAttribute("data-split-pair") ?? "";
+      paired.set(at, [...(paired.get(at) ?? []), cell]);
+    }
     const box = (el: Element | null | undefined) =>
       el === null || el === undefined ? null : el.getBoundingClientRect();
     const both =
-      pair === undefined
-        ? []
-        : Array.from(pair.querySelectorAll("[data-split-cell]"));
+      Array.from(paired.values()).find(
+        (cells) =>
+          cells.length === 2 &&
+          cells.every((cell) => !cell.hasAttribute("data-split-filler")),
+      ) ?? [];
     return {
       // Gap 1: the word-level highlight, on the layout where comparing tokens
       // is the entire point.
@@ -510,10 +527,14 @@ test("§4 · P4.8 split shows the SAME lines as unified, in the same vocabulary"
       // y and are the same height, and that height is the mockup's 22px row.
       pairTops: both.map((cell) => Math.round(box(cell)?.top ?? -1)),
       pairHeights: both.map((cell) => Math.round(box(cell)?.height ?? -1)),
-      // Gap 7: a gap is a drawn band rather than an unpainted hole.
-      fillers: document.querySelectorAll("[data-split-filler]").length,
+      // Gap 7: a gap is a drawn band rather than an unpainted hole. Scoped to
+      // the fillers that really are gaps: P4.8b draws the OTHER kind — a side
+      // the patch does not have at all — as plain ground, because a wall of
+      // hatch down an added file says "nothing here" once per row about a side
+      // that does not exist.
+      fillers: document.querySelectorAll('[data-split-filler="gap"]').length,
       hatched: Array.from(
-        document.querySelectorAll("[data-split-filler]"),
+        document.querySelectorAll('[data-split-filler="gap"]'),
       ).every((cell) => getComputedStyle(cell).backgroundImage !== "none"),
     };
   });
@@ -556,7 +577,7 @@ test("§4 · P4.8 split offers the comment affordance and the same thread slot",
   // actually on — the same `.addbtn` the unified row has offered since P4.6.
   const cell = tab
     .locator(
-      '[data-split-row="change"] [data-split-cell]:not([data-split-filler])',
+      '[data-split-cell][data-split-kind="change"]:not([data-split-filler])',
     )
     .first();
   await expect(cell).toBeVisible();

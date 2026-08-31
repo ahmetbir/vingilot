@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { withoutWhitespaceChanges } from "./diffTab.ts";
-import { pairRows } from "./splitDiff.ts";
+import { emptySide, pairRows, widestLine } from "./splitDiff.ts";
 import { unifiedRows } from "./unifiedDiff.ts";
 
 // **What P4.8 changed about this file, and what it deliberately did not.**
@@ -290,4 +290,55 @@ test("the trailing newline of a patch string is not a line of anybody's file", (
 
 test("an empty patch is no rows", () => {
   assert.deepEqual(pairs(""), []);
+});
+
+// ── P4.8b: what the drawing asks the model before it paints ─────────────────
+//
+// Two questions the two-column arrangement cannot answer for itself. Both are
+// arithmetic over the pairs, so both are here rather than in the component —
+// `ui/PatchSplit.tsx` is an arrangement and holds no reading of the patch.
+
+test("an added file has no old side, and a deleted one has no new side", () => {
+  // The owner's own case: a new file's patch is nothing but `+` rows, so every
+  // row of the left column is a gap and the hatch says so forty times about a
+  // side that does not exist. Asked once here instead.
+  assert.equal(
+    emptySide(pairs("@@ -0,0 +1,3 @@\n+one\n+two\n+three")),
+    "before",
+  );
+  assert.equal(
+    emptySide(pairs("@@ -1,3 +0,0 @@\n-one\n-two\n-three")),
+    "after",
+  );
+});
+
+test("a gap inside a file that has both sides is a gap, not an absent side", () => {
+  // Three deletions against one addition: two rows are gaps on the right, and
+  // the right side of the FILE is very much present. This is the case the hatch
+  // exists for, and it must survive the case above.
+  assert.equal(emptySide(pairs("@@ -1,4 +1,2 @@\n-a\n-b\n-c\n+d\n ctx")), null);
+  // One context line is present in both files by definition, so neither side is
+  // absent however one-sided the changes around it are.
+  assert.equal(emptySide(pairs("@@ -1,2 +1,3 @@\n ctx\n+new")), null);
+  // And a patch with no lines at all names no absent side: there is no side to
+  // call missing when there is nothing on either.
+  assert.equal(emptySide(pairs("@@ -1 +1 @@")), null);
+  assert.equal(emptySide(pairs("")), null);
+});
+
+test("how far a column may scroll is the patch's longest line, not its width", () => {
+  // The distinction the defect turned on. `widestLine` sets the SCROLL RANGE the
+  // two halves share; it must never be read as a width, which is what P4.8's
+  // `fr` tracks did — there, the added side's 2,164-character line made the
+  // EMPTY side 2,164 characters wide and put the code eleven screens right.
+  const wide = "x".repeat(2164);
+  assert.equal(widestLine(pairs(`@@ -0,0 +1,2 @@\n+short\n+${wide}`)), 2164);
+  // A context line is one row in both columns and counts like any other.
+  assert.equal(
+    widestLine(pairs("@@ -1,2 +1,2 @@\n a longer context line\n-old\n+new")),
+    "a longer context line".length,
+  );
+  // A patch with no lines has nothing to scroll to.
+  assert.equal(widestLine(pairs("@@ -1 +1 @@")), 0);
+  assert.equal(widestLine(pairs("")), 0);
 });

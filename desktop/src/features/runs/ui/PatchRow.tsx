@@ -120,7 +120,16 @@ export function halfGutter(no: number | null): string {
  * same way, which is why it is one component rather than two.
  *
  * `aria-label` rather than a visible name because the glyph is one character
- * wide by design and the row beside it already says which line this is. */
+ * wide by design and the row beside it already says which line this is.
+ *
+ * **`select-none`, and that is P4.2's rule rather than a preference** (P4.8b
+ * MINOR-3). The glyph is `display:none` until the row is hovered, so it is not
+ * on screen — but it IS in the flow of the cell, and a drag down the diff took
+ * it: a copied split selection came out as `["+    row.chords.include"]`, a `+`
+ * that is not in either file glued to the line under it. The gutters are
+ * excluded from selection for exactly this reason and this control sits over
+ * them; one word here closes it in both layouts, because both draw this
+ * component and not a copy of it. */
 export function CommentButton({
   line,
   onClick,
@@ -131,7 +140,7 @@ export function CommentButton({
   return (
     <button
       aria-label={`comment on line ${line}`}
-      className="absolute left-0.5 top-px hidden h-4 w-4 items-center justify-center rounded-[5px] bg-[var(--vingilot-accent)] text-2xs font-bold text-[#1a1a1a] group-hover:flex focus-visible:flex focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="absolute left-0.5 top-px hidden h-4 w-4 select-none items-center justify-center rounded-[5px] bg-[var(--vingilot-accent)] text-2xs font-bold text-[#1a1a1a] group-hover:flex focus-visible:flex focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       data-diff-comment-button=""
       onClick={onClick}
       type="button"

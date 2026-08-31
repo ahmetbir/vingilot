@@ -238,10 +238,35 @@ async function patchReading(page: Page, root: string) {
         (hunk) => hunk.textContent ?? "",
       ),
       rows: rows.length,
+      // Every row the renderer DREW, one string each — a line row's code and a
+      // note's text. What the plumbing check needs is one row at a time: see
+      // its use below.
+      rowTexts: [
+        ...rows.map((row) => codeOf(row)?.textContent ?? ""),
+        ...Array.from(
+          patch.querySelectorAll("[data-diff-note]"),
+          (note) => note.textContent ?? "",
+        ),
+      ],
       text: patch.textContent ?? "",
     };
   }, root);
 }
+
+/** git's wire format, as the four line SHAPES it really is.
+ *
+ * **Anchored, and that is the repair.** This check used to be
+ * `patch.text.not.toContain("diff --git ")` over the whole card's concatenated
+ * `textContent`, which cannot tell a row the renderer drew from a line of
+ * source that happens to quote one. It went red the moment the fixture's
+ * located file became `splitDiff.test.mjs` — a test whose own fixtures are
+ * patches, so `"diff --git a/x.ts b/x.ts\nindex …"` is a string literal IN the
+ * code under diff. Deleting the assertion would have lost the claim; loosening
+ * it to that one file would have pinned the fixture it was written not to pin.
+ * A drawn plumbing row BEGINS with its marker, and content that mentions one
+ * does not, so anchoring says the same thing about the renderer and stops
+ * saying anything about what the source is allowed to contain. */
+const WIRE = /^(diff --git |index [0-9a-f]{7,}|--- a\/|\+\+\+ b\/)/;
 
 test("the diff drops git's plumbing and stops shifting the code", async ({
   page,
@@ -267,11 +292,14 @@ test("the diff drops git's plumbing and stops shifting the code", async ({
   expect(patch.rows).toBeGreaterThan(10);
 
   // **1. The plumbing is gone.** Every one of these is in the raw patch this
-  // fixture was built from (asserted in `beforeAll`), and none of them is on
-  // screen. The file row above already says which file this is.
-  for (const wire of ["diff --git ", "index ", "--- a/", "+++ b/"]) {
-    expect(patch.text).not.toContain(wire);
-  }
+  // fixture was built from (asserted in `beforeAll`), and not one of them is a
+  // row on screen. The file row above already says which file this is. Read
+  // row by row against `WIRE` rather than as a substring of the whole card —
+  // the reason is at `WIRE`.
+  expect(patch.rowTexts.filter((row) => WIRE.test(row.trim()))).toEqual([]);
+  // And the reading really did look at rows, so the line above is a check
+  // rather than a filter over an empty list.
+  expect(patch.rowTexts.length).toBeGreaterThan(10);
 
   // **2. The `@@` header is the quiet strip with the human part.** git puts
   // the enclosing construct after the ranges when it can find one; that is

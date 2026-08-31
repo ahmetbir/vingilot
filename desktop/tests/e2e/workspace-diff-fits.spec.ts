@@ -100,6 +100,10 @@ import type { Page } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
 
+/** P4.8b's evidence, beside every other round's. */
+const P48B_SHOTS =
+  "/private/tmp/claude-501/-Users-ahmetyusufbirinci/9a20f9f6-1102-43cb-8495-976fd565d0ea/scratchpad/p48b-shots";
+
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 const COORDINATOR_ORIGIN = "http://127.0.0.1:7117";
 const REPO = { id: "repo-fit", name: "vingilot", path: "/tmp/vingilot-fit" };
@@ -159,6 +163,11 @@ const SPLIT_COLUMN_CODE_PX = 274;
  * code width is compared against the constant above. */
 const SPLIT_GUTTER_PX = 48;
 
+/** `PatchView`'s `px-4` — the scroller's own horizontal inset, which every
+ * geometry read below is measured from the patch box's border edge and so must
+ * account for. It is not part of the split arrangement and predates it. */
+const PATCH_PAD_PX = 16;
+
 /** Long enough that a patch line is a real source line rather than a token —
  * the content the 32px scroller had 704px of. */
 const PATCH_LINE =
@@ -186,6 +195,73 @@ const PATHS = [
   "desktop/src/features/runs/lib/paneModel.ts",
   "desktop/src/features/runs/ui/WorktreeDiffPanel.tsx",
   "desktop/src/features/runs/lib/diffLayout.ts",
+];
+
+// ── P4.8b's fixture: the card that showed him no code at all ────────────────
+//
+// > He opened `4fa0f44fd` in Split and the card for the ADDED
+// > `vingilot/seams/redesign-p4-7.yaml` was a full-height wall of hatched
+// > filler with no code in it.
+//
+// The two properties that produced it, written out so this fixture can fail the
+// build that had them: a file with **nothing but added lines**, so one whole
+// column is a gap, and **one very long line**, so a layout that sizes the empty
+// column from the other one puts the code off the screen. 2,164 characters is
+// the real length of line 36 of that file, and at the `text-xs` monospace cell
+// (7.225px) it is about 15,600px — a dozen screens on the laptop he owns.
+
+/** The length of the line he actually met. */
+const WIDE_CHARS = 2164;
+
+const WIDE_LINE = `  chords: ${"seam-".repeat(430)}seam`;
+
+/** A new file's patch: `/dev/null` on the left, so every row of the left column
+ * is a gap and the left column has nothing of its own to be as wide as. */
+const ADDED_PATCH = `@@ -0,0 +1,4 @@\n+name: redesign-p4-7\n+seams:\n+${WIDE_LINE}\n+  done: true\n`;
+
+/** And the mirror, in a file that has both sides: one 2,164-character line on
+ * the LEFT, a short line beside it on the right. The pair must still be one
+ * row — which is the thing two independent scrollers could get wrong and a
+ * shared grid row could not. */
+const WIDE_PAIR_PATCH = `@@ -1,3 +1,3 @@\n ctx above\n-${WIDE_LINE}\n+  chords: short\n ctx below\n`;
+
+const ADDED_PATH = "vingilot/seams/redesign-p4-7.yaml";
+const WIDE_PAIR_PATH = "vingilot/seams/redesign-p4-6.yaml";
+
+/** The files `worktree_diff` answers with. The default is the three modified
+ * ones every test above reads; P4.8b's two tests ask for their own. */
+const DEFAULT_FILES = PATHS.map((path) => ({
+  additions: 1,
+  binary: false,
+  change: "modified",
+  deletions: 3,
+  oldPath: null,
+  patch: PATCH,
+  path,
+  truncated: false,
+}));
+
+const P48B_FILES = [
+  {
+    additions: 4,
+    binary: false,
+    change: "added",
+    deletions: 0,
+    oldPath: null,
+    patch: ADDED_PATCH,
+    path: ADDED_PATH,
+    truncated: false,
+  },
+  {
+    additions: 1,
+    binary: false,
+    change: "modified",
+    deletions: 1,
+    oldPath: null,
+    patch: WIDE_PAIR_PATCH,
+    path: WIDE_PAIR_PATH,
+    truncated: false,
+  },
 ];
 
 async function mockCoordinator(page: Page) {
@@ -217,9 +293,9 @@ async function mockCoordinator(page: Page) {
  * says nothing, and a `worktree_diff` whose answer this spec owns — what is
  * under test is a layout, so a real git would make it a property of the repo
  * this happens to run in. */
-async function stubBackend(page: Page) {
+async function stubBackend(page: Page, files: typeof DEFAULT_FILES) {
   await page.evaluate(
-    ({ patch: body, paths }) => {
+    ({ files: answered }) => {
       const internals = (
         window as unknown as {
           __TAURI_INTERNALS__: {
@@ -237,19 +313,10 @@ async function stubBackend(page: Page) {
         if (name.startsWith("pty_")) return Promise.resolve(null);
         if (name === "worktree_diff") {
           return Promise.resolve({
-            additions: paths.length,
+            additions: answered.length,
             base: String((args as { base?: unknown })?.base ?? "HEAD"),
             deletions: 0,
-            files: paths.map((path) => ({
-              additions: 1,
-              binary: false,
-              change: "modified",
-              deletions: 3,
-              oldPath: null,
-              patch: body,
-              path,
-              truncated: false,
-            })),
+            files: answered,
             limits: {
               maxFiles: 400,
               maxPatchBytes: 262_144,
@@ -263,13 +330,14 @@ async function stubBackend(page: Page) {
         return passThrough(cmd, args, opts);
       };
     },
-    { patch: PATCH, paths: PATHS },
+    { files },
   );
 }
 
 async function openDiffPane(
   page: Page,
   viewport: { height: number; width: number },
+  files: typeof DEFAULT_FILES = DEFAULT_FILES,
 ) {
   await page.setViewportSize(viewport);
   await installMockBridge(page);
@@ -279,7 +347,7 @@ async function openDiffPane(
   // The home-dir lookup runs once, on RunsScreen's mount, and the diff pane has
   // no cwd without it — so the stub has to be in place before the screen that
   // reads it mounts. Leaving and returning is what re-runs it.
-  await stubBackend(page);
+  await stubBackend(page, files);
   await page.goto("/#/");
   await page.goto("/#/workspace");
 
@@ -558,50 +626,106 @@ test("given the whole surface, the list comes back beside the patch", async ({
  * the CSS itself reads. And the hue of a change is now the row's TINT rather
  * than the letters' colour, which is P4.4's vocabulary — "the +/− is the row's
  * ground, never the code's own hue" — finally applied to both layouts instead
- * of one. */
+ * of one.
+ *
+ * **P4.8b moved WHERE a pair lives, and the reading follows it.** With wrapping
+ * off the two cells of a pair are no longer siblings inside one row element:
+ * they are in two different column scrollers, which is the whole repair — a
+ * 2,164-character line in one column can no longer push the other column's
+ * origin off the screen. So a pair is joined by `data-split-pair` (the index
+ * both cells carry) rather than by a shared ancestor, and `data-split-row` now
+ * names ONLY the rows that belong to neither column. Document order is what
+ * puts the pairs back in order: the first cell of a pair is where the pair sits
+ * in the flow, and a hunk strip between two runs sits between them.
+ *
+ * The clipping measurement moved with it and did NOT weaken: a cell is still
+ * read for content it cannot show, and the column scroller it sits in is read
+ * separately below for whether the two halves are halves. */
 async function splitReading(page: Page) {
   return page.evaluate(() => {
     const patch = document.querySelector('[data-testid="worktree-diff-patch"]');
     if (patch === null) return null;
-    const rows = Array.from(
-      patch.querySelectorAll("[data-split-row]"),
-      (row) => {
-        const cells = Array.from(row.querySelectorAll("[data-split-cell]"));
-        const cell = (which: string) =>
-          cells.find((one) => one.getAttribute("data-split-cell") === which) ??
-          null;
-        const read = (which: string) => {
-          const element = cell(which);
-          return element === null
-            ? null
-            : {
-                // The row's ground, which is where an add and a del differ now.
-                tint: getComputedStyle(element).backgroundColor,
-                // Content against visible width, on the very element the text
-                // is in: this is what says "nothing is clipped" rather than
-                // "an element exists".
-                overflow: element.scrollWidth - element.clientWidth,
-                // The code, and only the code: the comment affordance is a `+`
-                // glyph out of flow inside the cell, so the cell's own
-                // `textContent` would read as the button plus the line.
-                text:
-                  element.querySelector("[data-diff-code]")?.textContent ?? "",
-                width: Math.round(element.getBoundingClientRect().width),
-              };
+    const read = (element: Element | null) =>
+      element === null
+        ? null
+        : {
+            // Content against visible width, on the very element the text is
+            // in: this is what says "nothing is clipped" rather than "an
+            // element exists".
+            overflow: element.scrollWidth - element.clientWidth,
+            // The code, and only the code: the comment affordance is a `+`
+            // glyph out of flow inside the cell, so the cell's own
+            // `textContent` would read as the button plus the line.
+            text: element.querySelector("[data-diff-code]")?.textContent ?? "",
+            // The row's ground, which is where an add and a del differ now.
+            tint: getComputedStyle(element).backgroundColor,
+            width: Math.round(element.getBoundingClientRect().width),
+          };
+    type Cell = NonNullable<ReturnType<typeof read>>;
+    interface Row {
+      after: Cell | null;
+      afterNo: string;
+      before: Cell | null;
+      beforeNo: string;
+      kind: string | null;
+      span: Cell | null;
+    }
+    const rows: Row[] = [];
+    const seen = new Map<string, Row>();
+    for (const node of patch.querySelectorAll(
+      "[data-split-pair], [data-split-row]",
+    )) {
+      const pair = node.getAttribute("data-split-pair");
+      const blank = { afterNo: "", beforeNo: "", span: null };
+      if (pair === null) {
+        // A hunk strip or a note: one box across both columns, and measured for
+        // overflow like any other — a strip that clipped its own text would be
+        // a strip nobody could read.
+        rows.push({
+          ...blank,
+          after: null,
+          before: null,
+          kind: node.getAttribute("data-split-row"),
+          span: read(node),
+        });
+        continue;
+      }
+      let row = seen.get(pair);
+      if (row === undefined) {
+        row = {
+          ...blank,
+          after: null,
+          before: null,
+          kind: node.getAttribute("data-split-kind"),
         };
-        const no = (which: string) =>
-          (cell(which)?.getAttribute("data-diff-nos") ?? "").trim();
-        return {
-          after: read("after"),
-          afterNo: no("after"),
-          before: read("before"),
-          beforeNo: no("before"),
-          kind: row.getAttribute("data-split-row"),
-          span: cells.length === 0 ? (row.textContent ?? "") : null,
-        };
-      },
-    );
-    return { columns: patch.clientWidth, rows };
+        seen.set(pair, row);
+        rows.push(row);
+      }
+      const no = (node.getAttribute("data-diff-nos") ?? "").trim();
+      if (node.getAttribute("data-split-cell") === "before") {
+        row.before = read(node);
+        row.beforeNo = no;
+      } else {
+        row.after = read(node);
+        row.afterNo = no;
+      }
+    }
+    // The two column scrollers themselves — since P4.8b these are the halves,
+    // and the cells inside them are as wide as their own longest line.
+    const column = (which: string) => {
+      const box = patch.querySelector(`[data-split-column="${which}"]`);
+      return box === null
+        ? null
+        : {
+            client: box.clientWidth,
+            width: Math.round(box.getBoundingClientRect().width),
+          };
+    };
+    return {
+      columns: patch.clientWidth,
+      halves: { after: column("after"), before: column("before") },
+      rows,
+    };
   });
 }
 
@@ -668,7 +792,7 @@ test("given the whole surface, split draws two aligned columns and neither is cl
 
   const reading = await splitReading(page);
   expect(reading).not.toBeNull();
-  const { columns, rows } = reading as NonNullable<typeof reading>;
+  const { columns, halves, rows } = reading as NonNullable<typeof reading>;
 
   // The hunk header belongs to neither file and spans; the three deletions
   // against one addition are three change rows; the context line is one row.
@@ -724,30 +848,43 @@ test("given the whole surface, split draws two aligned columns and neither is cl
   // any other, which is what makes it a token rather than a per-row decision.
   expect(rows[3].before?.tint).toBe(deleted);
 
-  // **Two halves, and nothing cut off.** The columns are the same width to
-  // within a pixel, each has the code width the precondition promised, and no
-  // cell has content wider than it can show — which is the whole reason the
-  // layout is a grid and not two clipped boxes.
+  // **Two halves, and nothing cut off.** The halves are the two column
+  // SCROLLERS, and since P4.8b that is what "half" means here: each is half of
+  // the patch box to within a pixel, whatever either column's longest line is.
+  // Before that round the halves were two `fr` tracks of one max-content grid,
+  // which made both of them as wide as the longest line in EITHER — the defect
+  // this spec's new sibling below is named after.
   //
-  // The measured box is now the whole cell, gutter included, so the gutter's
-  // own budget comes off before the comparison: `SPLIT_GUTTER_PX` is what
-  // `SPLIT_MIN_PX` counts for it, and the drawing spends less than that (six
-  // monospace characters, 43.35px), so subtracting the budget is the
-  // conservative reading of the same claim.
-  const code = rows[4];
-  expect(
-    Math.abs((code.before?.width ?? 0) - (code.after?.width ?? 0)),
-  ).toBeLessThanOrEqual(1);
-  expect((code.before?.width ?? 0) - SPLIT_GUTTER_PX).toBeGreaterThanOrEqual(
+  // The measured box includes the gutter, so the gutter's own budget comes off
+  // before the comparison: `SPLIT_GUTTER_PX` is what `SPLIT_MIN_PX` counts for
+  // it, and the drawing spends less than that (six monospace characters,
+  // 43.35px), so subtracting the budget is the conservative reading of the same
+  // claim.
+  expect(halves.before).not.toBeNull();
+  expect(halves.after).not.toBeNull();
+  const left = halves.before as NonNullable<typeof halves.before>;
+  const right = halves.after as NonNullable<typeof halves.after>;
+  expect(Math.abs(left.width - right.width)).toBeLessThanOrEqual(1);
+  expect(left.client - SPLIT_GUTTER_PX).toBeGreaterThanOrEqual(
     SPLIT_COLUMN_CODE_PX,
   );
   expect(columns).toBeGreaterThanOrEqual(SPLIT_MIN_PX - 32);
+
+  // And no cell hides text inside its own box: a cell is as wide as the line it
+  // holds, so what a reader cannot see yet is reachable by scrolling the column
+  // rather than lost. `span` is a box like the other two and is read like one —
+  // it used to be a STRING here, so `cell.overflow` was `undefined` on it and
+  // `undefined > 1` is always false: spanning rows had silently stopped being
+  // checked at all while this comment claimed they were (P4.8b MINOR-1).
   const clipped = rows.flatMap((row) =>
     [row.before, row.after, row.span].filter(
       (cell) => cell !== null && cell.overflow > 1,
     ),
   );
   expect(clipped).toEqual([]);
+  // The reading really did look at a spanning row, so the line above is a check
+  // and not a filter over three nulls.
+  expect(rows.filter((row) => row.span !== null).length).toBeGreaterThan(0);
 
   // Back again, on the same control. One renderer, two layouts.
   await toggle.click();
@@ -789,4 +926,217 @@ test("the choice is remembered — declined in a pane too narrow for it, honoure
     "aria-pressed",
     "true",
   );
+});
+
+// ── P4.8b · the half that hid the code ───────────────────────────────────────
+//
+// > *"diff split olarak acinca kod gorunmuyor"* — he opened `4fa0f44fd` in
+// > Split and the card for the ADDED `vingilot/seams/redesign-p4-7.yaml` was a
+// > full-height wall of hatched filler.
+//
+// **What the two tests below would have caught, and the one above would not.**
+// The existing split test reads a fixture whose two sides are both present and
+// both short, so its columns were the same width whichever rule sized them —
+// `1fr 1fr` under max-content sizing gives equal tracks, and equal tracks look
+// correct exactly until one column is empty and the other holds a long line.
+// That is the whole defect: the EMPTY column took the other's max-content, so
+// on the build these tests were written against the added code began about
+// eleven screens to the right of the fold. The first test measures where the
+// code starts; the second measures that fixing it did not cost the alignment
+// the two columns exist for.
+
+test("P4.8b · an added file's code is at the fold, not eleven screens right", async ({
+  page,
+}) => {
+  await openDiffPane(page, SIXTEEN_INCH, P48B_FILES);
+  await page.keyboard.press(RIGHT_SOLO);
+  await page.getByTestId("worktree-diff-split").click();
+  const patch = page.getByTestId("worktree-diff-patch");
+  await expect(patch).toHaveAttribute("data-mode", "split");
+  // Shot before anything is asserted, deliberately: this is the picture the
+  // owner sent, and it is the picture a build with the defect still in it
+  // produces — so the evidence for "before" and "after" comes out of the same
+  // spec rather than out of two different ones.
+  await page.screenshot({ path: `${P48B_SHOTS}/p48b-added.png` });
+  // Wrapping OFF is the precondition this whole arrangement is only used
+  // under: every row one line, every pair 22px, the columns free to scroll.
+  await expect(patch).toHaveAttribute("data-wrapped", "false");
+  // On the split BODY, not on the scroller: `data-mode` and `data-wrapped` are
+  // `PatchView`'s answers and this is `SplitBody`'s own, so it is where the
+  // arrangement is decided rather than one box up.
+  await expect(patch.locator("[data-split-layout]")).toHaveAttribute(
+    "data-split-layout",
+    "columns",
+  );
+
+  const read = await patch.evaluate((box) => {
+    const rect = box.getBoundingClientRect();
+    const columns = Array.from(
+      box.querySelectorAll("[data-split-column]"),
+      (column) => ({
+        client: column.clientWidth,
+        left: Math.round(column.getBoundingClientRect().left - rect.left),
+        scroll: column.scrollWidth,
+        scrollLeft: column.scrollLeft,
+        // How far this column can travel: the whole point is that the empty one
+        // may travel as far as the full one and still be drawn at the fold.
+        travel: column.scrollWidth - column.clientWidth,
+        which: column.getAttribute("data-split-column"),
+        width: Math.round(column.getBoundingClientRect().width),
+      }),
+    );
+    // The first line of real code in the new file, and where it begins.
+    const code = box.querySelector(
+      '[data-split-cell="after"]:not([data-split-filler]) [data-diff-code]',
+    );
+    const fillers = Array.from(box.querySelectorAll("[data-split-filler]"));
+    return {
+      // The patch box itself: nothing to scroll sideways, and not scrolled.
+      boxScroll: box.scrollWidth - box.clientWidth,
+      client: box.clientWidth,
+      codeLeft:
+        code === null
+          ? null
+          : Math.round(code.getBoundingClientRect().left - rect.left),
+      codeText: code?.textContent ?? "",
+      columns,
+      fillerKinds: [
+        ...new Set(fillers.map((one) => one.getAttribute("data-split-filler"))),
+      ],
+      hatched: fillers.filter(
+        (one) => getComputedStyle(one).backgroundImage !== "none",
+      ).length,
+      onlyLeftIsGap: fillers.every(
+        (one) => one.getAttribute("data-split-cell") === "before",
+      ),
+    };
+  });
+
+  // **The acceptance test, in one number.** The added code begins at the fold —
+  // half the patch box — plus that column's own line-number gutter, and not a
+  // pixel further. On the build this replaces, the empty left column was as
+  // wide as the added side's 2,164-character line, so this read about 15,600
+  // rather than about 610: the failure this guards against is off by a factor
+  // of twenty-five, not by a gutter.
+  expect(read.codeLeft).not.toBeNull();
+  expect(read.codeText.length).toBeGreaterThan(0);
+  expect(read.codeLeft as number).toBeLessThanOrEqual(
+    read.client / 2 + SPLIT_GUTTER_PX + 2,
+  );
+  // And there is real room for code past that point, not a sliver.
+  expect(read.client / 2 - SPLIT_GUTTER_PX).toBeGreaterThanOrEqual(
+    SPLIT_COLUMN_CODE_PX,
+  );
+
+  // **Nothing was scrolled to get there.** The patch box has no horizontal
+  // overflow at all now — the columns own that axis — and neither column has
+  // moved. "Without scrolling sideways" is the owner's own wording and this is
+  // it, measured.
+  expect(read.boxScroll).toBeLessThanOrEqual(1);
+  expect(read.columns.map((column) => column.scrollLeft)).toEqual([0, 0]);
+
+  // Two halves, and the empty one is a half like the other. It is also free to
+  // travel as far, which is what lets one offset drive both.
+  expect(read.columns.length).toBe(2);
+  const [left, right] = read.columns;
+  expect(left.which).toBe("before");
+  // Against the scroller's own inset, not against zero: `PatchView` has drawn
+  // its box with `px-4` since P4.6, so the first column starts one padding in
+  // and always did. Zero here would be a claim about the padding, which is not
+  // what this test is about.
+  expect(left.left).toBe(PATCH_PAD_PX);
+  expect(Math.abs(left.width - right.width)).toBeLessThanOrEqual(1);
+  // Same travel, so the two scrollers can reach the same offset. `scroll` and
+  // `client` ride along in the read only so that a failure here says WHICH of
+  // the two moved — a bare travel mismatch does not.
+  expect(left.travel).toBe(right.travel);
+  expect(left.travel).toBeGreaterThan(0);
+
+  // **And the empty half is quiet.** Every gap on this card is on the left,
+  // every one of them is named `absent` rather than `gap`, and not one is
+  // hatched: a new file has no old side, the card's own header says `added`,
+  // and repeating that once per row in texture is the loud way to say it.
+  expect(read.onlyLeftIsGap).toBe(true);
+  expect(read.fillerKinds).toEqual(["absent"]);
+  expect(read.hatched).toBe(0);
+});
+
+test("P4.8b · a pair holding a 2,164-character line is still one row, and the halves move together", async ({
+  page,
+}) => {
+  await openDiffPane(page, SIXTEEN_INCH, P48B_FILES);
+  await page.keyboard.press(RIGHT_SOLO);
+  // The second file: a 2,164-character deletion against a short addition, so
+  // the long line is on the LEFT and the right column has nothing to be wide
+  // for. Under the old grid this made the short new line start past the screen.
+  await page.getByTestId("worktree-diff-file-1").click();
+  await page.getByTestId("worktree-diff-split").click();
+  const patch = page.getByTestId("worktree-diff-patch");
+  await expect(patch).toHaveAttribute("data-mode", "split");
+  await expect(patch.locator("[data-split-layout]")).toHaveAttribute(
+    "data-split-layout",
+    "columns",
+  );
+
+  const reading = await splitReading(page);
+  expect(reading).not.toBeNull();
+  const { rows } = reading as NonNullable<typeof reading>;
+  expect(rows.map((row) => row.kind)).toEqual([
+    "hunk",
+    "context",
+    "change",
+    "context",
+  ]);
+  // The fixture really does carry the line this is about — a claim about a
+  // 2,164-character line proves nothing over a fixture that has a short one.
+  expect(rows[2].before?.text.length).toBe(WIDE_CHARS);
+  expect(rows[2].after?.text.length).toBeLessThan(40);
+
+  // **The pair is one row.** Two cells, same top, both the mockup's 22px — the
+  // property that made it safe to take the pair out of a shared grid row in the
+  // first place, read off the drawn boxes rather than assumed.
+  const geometry = await patch.evaluate((box) => {
+    const cells = Array.from(
+      box.querySelectorAll('[data-split-cell][data-split-kind="change"]'),
+    );
+    return cells.map((cell) => {
+      const rect = cell.getBoundingClientRect();
+      return {
+        height: Math.round(rect.height),
+        top: Math.round(rect.top),
+        which: cell.getAttribute("data-split-cell"),
+      };
+    });
+  });
+  expect(geometry.length).toBe(2);
+  expect(geometry[0].top).toBe(geometry[1].top);
+  expect(geometry[0].height).toBe(22);
+  expect(geometry[1].height).toBe(22);
+
+  // **And the two halves carry ONE offset.** Scroll the column with the long
+  // line in it and the other follows — the eightieth column of the old line
+  // stays beside the eightieth column of the new one, which is what a
+  // side-by-side diff is for. Driven through the box the way a trackpad would,
+  // then read back off both.
+  const moved = await patch.evaluate(async (box) => {
+    const columns = Array.from(box.querySelectorAll("[data-split-column]"));
+    const before = columns.find(
+      (column) => column.getAttribute("data-split-column") === "before",
+    );
+    if (before === undefined) return null;
+    before.scrollLeft = 600;
+    await new Promise((done) => requestAnimationFrame(() => done(null)));
+    await new Promise((done) => requestAnimationFrame(() => done(null)));
+    return columns.map((column) => ({
+      scrollLeft: Math.round(column.scrollLeft),
+      which: column.getAttribute("data-split-column"),
+    }));
+  });
+  expect(moved).not.toBeNull();
+  expect(moved).toEqual([
+    { scrollLeft: 600, which: "before" },
+    { scrollLeft: 600, which: "after" },
+  ]);
+
+  await page.screenshot({ path: `${P48B_SHOTS}/p48b-wide-pair.png` });
 });

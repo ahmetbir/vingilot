@@ -90,10 +90,13 @@ interface Props
 export function PatchView({ mode = "unified", testid, ...body }: Props) {
   return (
     <div
-      // ONE scroller, whichever layout is inside it. In split that is also what
-      // makes the two columns share a horizontal scroll rather than sliding
-      // independently: the grid is one box, so both halves move together and
-      // the pair stays aligned.
+      // The scroller the patch lives in, whichever layout is inside it — and
+      // since P4.8b, in split with wrapping off, no longer the horizontal one.
+      // A shared horizontal scroll was what made an added file's code start
+      // eleven screens to the right: both halves moved together because both
+      // halves were one max-content box. `PatchSplit` now scrolls its two
+      // columns itself, so nothing here overflows sideways and this box is left
+      // doing what it does in every other mode.
       className="min-h-0 flex-1 overflow-auto px-4 py-2"
       // Which of the renderings is up, so a spec can say the mode out loud
       // instead of inferring it from a scroll width that could also be zero

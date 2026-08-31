@@ -517,18 +517,44 @@ test("the split toggle rides the patch onto the stage, on the same flag and the 
   // number is read off `data-diff-nos` (the attribute the CSS itself reads) and
   // the code off the cell's text. The claims below are the ones this test made
   // before that change; only where the numbers live moved.
-  const rows = await box.locator("[data-split-row]").evaluateAll((nodes) =>
-    nodes.map((node) => ({
-      cells: Array.from(node.querySelectorAll("[data-split-cell]"), (cell) => [
-        (cell.getAttribute("data-diff-nos") ?? "").trim(),
-        // The code only — the hover comment affordance is a `+` glyph living
-        // inside the cell, so the cell's own text would read as the button plus
-        // the line.
-        (cell.querySelector("[data-diff-code]")?.textContent ?? "").trim(),
-      ]).flat(),
-      kind: node.getAttribute("data-split-row"),
-    })),
-  );
+  // P4.8b: with wrapping off the two cells of a pair are in two different
+  // column scrollers — the repair that stopped one column's longest line from
+  // setting the other's width — so a pair is joined by `data-split-pair` rather
+  // than by a shared ancestor, and `data-split-row` names only the rows that
+  // belong to neither column. Document order still puts them in order: a cell's
+  // first appearance is where its pair sits in the flow.
+  const rows = await box
+    .locator("[data-split-pair], [data-split-row]")
+    .evaluateAll((nodes) => {
+      const out: { cells: string[]; kind: string | null }[] = [];
+      const seen = new Map<string, { cells: string[]; kind: string | null }>();
+      for (const node of nodes) {
+        const pair = node.getAttribute("data-split-pair");
+        if (pair === null) {
+          out.push({ cells: [], kind: node.getAttribute("data-split-row") });
+          continue;
+        }
+        let row = seen.get(pair);
+        if (row === undefined) {
+          row = { cells: [], kind: node.getAttribute("data-split-kind") };
+          seen.set(pair, row);
+          out.push(row);
+        }
+        const read = [
+          (node.getAttribute("data-diff-nos") ?? "").trim(),
+          // The code only — the hover comment affordance is a `+` glyph living
+          // inside the cell, so the cell's own text would read as the button
+          // plus the line.
+          (node.querySelector("[data-diff-code]")?.textContent ?? "").trim(),
+        ];
+        if (node.getAttribute("data-split-cell") === "before") {
+          row.cells.unshift(...read);
+        } else {
+          row.cells.push(...read);
+        }
+      }
+      return out;
+    });
   // P4.6: the hunk header is the mockup's `.hunkbar` strip in BOTH layouts —
   // split drew git's raw `@@` line (and its `diff --git`/`index` preamble)
   // until this round, which was P4.4's own defect surviving in the layout that
