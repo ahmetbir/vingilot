@@ -178,6 +178,38 @@ export function selectView(
   return replace(layout, bindingId, { ...views, active: id });
 }
 
+/** Put a reading where another one sits — the pointer's reorder (redesign
+ * P4.7, item 3).
+ *
+ * `before` of `null` means the end of the strip; a `before` naming no tab, or
+ * the tab itself, changes nothing. The selection is untouched: dragging a tab
+ * arranges the strip, it does not choose what to look at.
+ *
+ * **Nowhere to persist this, and that is not an omission.** A terminal
+ * reorder is written to disk because the ordinals it arranges name tmux
+ * sessions that survive a restart; a reading does not survive one at all (this
+ * file's header), so the order of readings lives exactly as long as the
+ * readings do. */
+export function moveView(
+  layout: ViewLayout,
+  bindingId: string,
+  id: string,
+  before: string | null,
+): ViewLayout {
+  const views = worktreeViews(layout, bindingId);
+  const from = views.tabs.findIndex((tab) => tab.id === id);
+  if (from === -1 || id === before) return layout;
+  const rest = views.tabs.filter((tab) => tab.id !== id);
+  const at =
+    before === null ? rest.length : rest.findIndex((tab) => tab.id === before);
+  if (at === -1) return layout;
+  const moved = views.tabs[from];
+  return replace(layout, bindingId, {
+    ...views,
+    tabs: [...rest.slice(0, at), moved, ...rest.slice(at)],
+  });
+}
+
 /** Close one view.
  *
  * **Closing the showing one falls back to a neighbour, then to the

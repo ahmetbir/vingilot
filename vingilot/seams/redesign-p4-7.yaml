@@ -1,0 +1,40 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P4.7, the tab strip's manners
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment (vingilot/docs/plans/2026-08-29-redesign.md, "P4.7 —
+# the tab strip earns VS Code's manners", owner 2026-08-31):
+#
+#   "cmd w ye filan basinca tab kapanmali. iki tab yan yana acabilmeliyim
+#    filan. vscodedaki seyler lazim shortcut ve drag."
+#
+#   ⌘W closes the focused tab (the chord taken back now that `app_menu.rs`
+#   builds this app's menu without `close_window`); ⇧⌘\ puts two TABS side by
+#   side on the stage with a draggable divider; a tab drags to reorder, onto a
+#   half to move, out over the stage's edge to split; middle-click closes; and
+#   a tab context menu carries Close / Close others / Close to the right /
+#   Split the stage / Copy path.
+#
+# Everything this round touched is already declared whole by the root registry
+# — desktop/src/features/runs/** (the fork's workspace island) and
+# desktop/playwright.config.ts — except the one new file below.
+#
+# **Nothing in `desktop/src-tauri/` was touched.** The ⌘W claim rests on
+# `app_menu.rs`, which is upstream's own (it arrived with `feat: ship Buzz Term
+# (#4347)`) and which already omits both `close_window` items; this round
+# read it and corrected the fork's frontend headers to match, and changed no
+# Rust. The stale claim it leaves behind is named in the report as deferred,
+# not silently repaired here.
+
+seams:
+  - path: "desktop/tests/e2e/tab-split.spec.ts"
+    reason: "New, fork-owned spec: the tab strip's editor manners over the real key path, the real strip and a recorded pty bridge. Its four tests are the four things no pure model can say. (1) ⌘W really closes the focused tab — a shell from inside its own xterm screen, then a reading — and really does NOT take a tab when a surface is stacked over the work surface, which is the whole close order in `closeRequest.ts` exercised as a keystroke rather than as the native close request it used to be; the palette arm doubles as the regression test for the capture-phase binding, since `CommandPalette.tsx`'s own shield ends in an unconditional `stopPropagation()` and a bubble-phase ⌘W is invisible to exactly the surfaces it is for. (2) ⇧⌘\\ really puts a shell and a reading side by side, with `data-half` on both tabs and a `tab-split-divider` between the two boxes — and **no pty learns of any of it**: the recorded `pty_open`/`pty_close`/`pty_write` lists are asserted IDENTICAL across splitting the stage, moving the keyboard between halves, dragging the divider and putting the stage back, which is this round's hardest constraint (`WorkSurface.tsx`'s rule that a terminal which changes parents is a new xterm) turned into an exact invariant. (3) A drag really reorders inside the strip and really starts a split when it lands on the stage's trailing edge — @dnd-kit pointer events, because `tauri.conf.json` sets `dragDropEnabled: true` and HTML5 `dataTransfer` is dark in this window (`TabDnd.tsx`'s header, `nativeDrop.ts`'s before it), so a strip built on HTML5 drag would pass in Chromium and do nothing in the app. (4) Middle-click closes and the context menu's five rows do what they say, with Close-to-the-right and Close-others checked against the row the owner actually right-clicked in. It also carries the round's three screenshots behind `P47_SHOTS`, one of which is the vocabulary itself: a diff in its own Split RENDERING MODE, inside a tab that is itself in a TAB SPLIT, beside a shell — two dividers, two meanings, neither called \"unified\". Registered in playwright.config.ts's smoke testMatch (already a declared seam)."
+    owner: "vingilot/redesign"
+    removable_when: "With the tab split and ⌘W."
+    status: "permanent"
+    added: "2026-08-31"

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   activeView,
+  moveView,
   clearActiveView,
   closeView,
   emptyViews,
@@ -132,4 +133,38 @@ test("a tab says what it is: a basename in the strip, the whole path on hover", 
     viewLabel({ kind: "file", line: null, path: "README.md" }),
     "README.md",
   );
+});
+
+test("readings reorder within their own run, and the selection stays put", () => {
+  let layout = emptyViews();
+  layout = openView(layout, WT, { kind: "file", line: null, path: "a.rs" });
+  layout = openView(layout, WT, { kind: "file", line: null, path: "b.rs" });
+  layout = openView(layout, WT, { kind: "history" });
+  layout = selectView(layout, WT, "file:a.rs");
+
+  layout = moveView(layout, WT, "history", "file:a.rs");
+  assert.deepEqual(
+    views(layout).tabs.map((tab) => tab.id),
+    ["history", "file:a.rs", "file:b.rs"],
+  );
+  // Dragging a tab arranges the strip; it does not choose what to look at.
+  assert.equal(views(layout).active, "file:a.rs");
+
+  // To the end of the row.
+  layout = moveView(layout, WT, "history", null);
+  assert.deepEqual(
+    views(layout).tabs.map((tab) => tab.id),
+    ["file:a.rs", "file:b.rs", "history"],
+  );
+});
+
+test("a reading dropped on itself, or onto a tab that is not there", () => {
+  let layout = emptyViews();
+  layout = openView(layout, WT, { kind: "file", line: null, path: "a.rs" });
+  layout = openView(layout, WT, { kind: "history" });
+  // Both change nothing, and return the input so a caller can skip the write.
+  assert.equal(moveView(layout, WT, "history", "history"), layout);
+  assert.equal(moveView(layout, WT, "history", "file:nope.rs"), layout);
+  assert.equal(moveView(layout, WT, "file:nope.rs", "history"), layout);
+  assert.equal(moveView(layout, "local:wt-2", "history", null), layout);
 });

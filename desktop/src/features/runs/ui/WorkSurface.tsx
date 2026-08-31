@@ -94,33 +94,37 @@ import {
   taskOf,
   type WorktreeTaskStrip,
 } from "@/features/runs/lib/taskStrip";
+import {
+  stageTabPath,
+  type TabCloseScope,
+  tabsToClose,
+} from "@/features/runs/lib/tabMenu";
+import { parseStageKey, stageKey } from "@/features/runs/lib/tabSplit";
 import { resolveKey } from "@/features/runs/lib/terminalKeys";
 import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
-import {
-  type SplitDirection,
-  type SplitLayout,
-  splitOf,
-  splitSessionId,
+import type {
+  SplitDirection,
+  SplitLayout,
 } from "@/features/runs/lib/terminalSplit";
 import type {
   TabCommand,
   WorktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
+import type { StageTabs } from "@/features/runs/lib/useDeckLayers";
 import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import type { Panes } from "@/features/runs/lib/usePanes";
-import { activeView, type WorktreeViews } from "@/features/runs/lib/viewTabs";
-import { ViewTabSurface } from "@/features/runs/ui/ViewTabSurface";
+import type { WorktreeViews } from "@/features/runs/lib/viewTabs";
+import { writeTextToClipboard } from "@/shared/lib/clipboard";
+import { StageBody } from "@/features/runs/ui/StageBody";
+import { type TabDrop, TabDndProvider } from "@/features/runs/ui/TabDnd";
 import { DockFloat } from "@/features/runs/ui/DockFloat";
 import { DockResizer } from "@/features/runs/ui/DockResizer";
 import { DockShell } from "@/features/runs/ui/DockShell";
 import { PaneFrame } from "@/features/runs/ui/PaneFrame";
 import { PaneLabel } from "@/features/runs/ui/PanePicker";
 import { paneEntry } from "@/features/runs/ui/paneRegistry";
-import { ScratchTerminal } from "@/features/runs/ui/ScratchTerminal";
 import { TaskStrip } from "@/features/runs/ui/TaskStrip";
-import { Terminal } from "@/features/runs/ui/Terminal";
 import { TerminalAgentReadout } from "@/features/runs/ui/TerminalAgentReadout";
-import { TerminalSplitDivider } from "@/features/runs/ui/TerminalSplitDivider";
 import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 import {
@@ -158,8 +162,13 @@ interface WorkSurfaceProps {
   /** The selected worktree's non-terminal tabs and which of them is showing
    * (P4.1). Owned by `RunsScreen` for the reason `tabs` is. */
   views: WorktreeViews;
-  onSelectView: (id: string) => void;
   onCloseView: (id: string) => void;
+  /** The TAB SPLIT layer, whole (`useDeckLayers.ts`'s `StageTabs`): which tab
+   * the other half draws, which half the keyboard is in, and every act that
+   * changes either. One prop because it is one subject — eleven would be
+   * eleven chances for the screen and this surface to disagree about which tab
+   * is focused. */
+  stage: StageTabs;
   /** Every terminal split, keyed by primary session id — owned by
    * `RunsScreen` for the reason the tab layout is. */
   splits: SplitLayout;
@@ -207,7 +216,6 @@ export function WorkSurface({
   onCloseSplit,
   onCloseView,
   onPaneAct,
-  onSelectView,
   onSelectWorktree,
   onSplit,
   onSplitRatio,
@@ -221,6 +229,7 @@ export function WorkSurface({
   scratch,
   selectedWorktreeId,
   splits,
+  stage,
   tabs,
   tasks,
   terminals,
@@ -231,10 +240,11 @@ export function WorkSurface({
   // The reading on screen, or `null` while a shell is. Read once: it gates the
   // terminals' layout, the strip's lit tab, and what the pane body draws, and
   // three readings of one question is how they come to disagree.
-  const showingView = activeView(views);
+  const tabSplit = stage.tabSplit;
   const [focusToken, setFocusToken] = React.useState(0);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const toggleSolo = panes.toggleSolo;
+  const toggleTabSplit = stage.toggleTabSplit;
 
   // The dock's own three (see the header): where it is, how big, and whether
   // a dock-only panel (Checks/Run) is overlaying the slot's pane.
@@ -329,9 +339,13 @@ export function WorkSurface({
       // ⌘\ — float↔right, the mockup's own binding (vingilot.js:50). Before
       // the pane map so nothing below can shadow it; `Esc docks back` is the
       // float's own listener (`DockFloat.tsx`).
+      // ⇧ is refused explicitly: ⇧⌘\ is P4.7's TAB SPLIT (`terminalKeys.ts`),
+      // and on a layout that reports "\" for both readings the dock would
+      // otherwise float itself on the way to splitting the stage.
       if (
         input.primaryModifier &&
         !input.altKey &&
+        input.shiftKey !== true &&
         input.key === "\\" &&
         input.repeat !== true
       ) {
@@ -432,6 +446,17 @@ export function WorkSurface({
         onTabCommand({ n: tabs.active, type: "close" });
         return;
       }
+      // ⇧⌘\ — the TAB SPLIT. Guarded by the same two rules as the tab keys
+      // above (a strip to act on, and the cursor not inside the dock), because
+      // it is the same kind of act: it rearranges the strip's own stage, and a
+      // chord that split the surface while the owner was typing an objective
+      // would be the theft that guard exists to prevent.
+      if (action.type === "toggle-tab-split") {
+        event.preventDefault();
+        if (soloNow.current === "right") toggleSolo("right");
+        toggleTabSplit();
+        return;
+      }
       if (action.type === "step-terminal-tab") {
         event.preventDefault();
         onTabCommand({ dir: action.dir, type: "step" });
@@ -454,6 +479,7 @@ export function WorkSurface({
     onTaskCommand,
     onToggleScratch,
     setPosition,
+    toggleTabSplit,
     toggleSolo,
     tabs,
   ]);
@@ -509,262 +535,239 @@ export function WorkSurface({
     else leftRailRef.current?.focus();
   }, [solo]);
 
+  // The context menu's three close scopes, resolved against the row the owner
+  // right-clicked in (`tabMenu.ts`) and performed through the ordinary close
+  // paths, so every rule those keep is kept here for free.
+  const closeScope = React.useCallback(
+    (key: string, scope: TabCloseScope) => {
+      stage.closeStageTabs(tabsToClose(stage.stageTabs, key, scope));
+    },
+    [stage.closeStageTabs, stage.stageTabs],
+  );
+
+  const copyTabPath = React.useCallback(
+    (key: string) => {
+      const parsed = parseStageKey(key);
+      const subject =
+        parsed !== null && parsed.kind === "view"
+          ? (views.tabs.find((view) => view.id === parsed.id)?.subject ?? null)
+          : null;
+      const path = stageTabPath(paneContext.cwd, subject);
+      if (path !== null) void writeTextToClipboard(path);
+    },
+    [views.tabs, paneContext.cwd],
+  );
+
+  // Where a dragged tab landed. Three answers and one rule each: another tab
+  // is a reorder, a half is a move into it, the stage's edge is a new split.
+  const onTabDrop = React.useCallback(
+    (drop: TabDrop) => {
+      if (drop.over === null) return;
+      if (drop.over.type === "tab-slot") {
+        stage.reorderStageTab(drop.key, drop.over.key);
+        return;
+      }
+      if (drop.over.type === "stage-edge") {
+        stage.splitTabOut(drop.key);
+        return;
+      }
+      stage.moveTabToHalf(drop.key, drop.over.half);
+    },
+    [stage.reorderStageTab, stage.splitTabOut, stage.moveTabToHalf],
+  );
+
   return (
-    // `relative` costs the layout nothing: a relative box with no offsets
-    // occupies exactly the space it did. (The scratch shell now anchors one
-    // level deeper — the terminal pane's own body — so its tab bar stays
-    // reachable while the shell is open.)
-    <div
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
-      data-testid="work-surface"
-    >
-      {/* The Deck's tasks strip (mockup `.tasks`): full width, above both
-       * panes — a task is about the worktree, not about one pane of it. */}
-      {tabs !== null && tasks !== null ? (
-        <TaskStrip
-          activeTaskId={taskOf(tasks, tabs.active)?.id ?? null}
-          onClose={(id) => onTaskCommand({ id, type: "close-task" })}
-          onNew={() => onTaskCommand({ type: "new-task" })}
-          onSelect={(id) => onTaskCommand({ id, type: "select-task" })}
-          strip={tasks}
-        />
-      ) : null}
-      {/* The mockup's `.card` (vingilot.css): the stage and the dock are
-       * SIBLING cards with the window's gradient showing through a 10px gap,
-       * not one box split by a divider. `overflow-visible` so each card's
-       * own radius and shadow are not clipped by their container. */}
+    // One dragging context around the strip AND the stage: a tab dragged out
+    // of the row has to have somewhere to land, and a second context would be
+    // a second vocabulary (`TabDnd.tsx`).
+    <TabDndProvider onDrop={onTabDrop}>
+      {/* `relative` costs the layout nothing: a relative box with no offsets
+       * occupies exactly the space it did. (The scratch shell now anchors one
+       * level deeper — the terminal pane's own body — so its tab bar stays
+       * reachable while the shell is open.) */}
       <div
-        className={`flex min-h-0 flex-1 gap-2.5 overflow-visible ${
-          dockPosition === "drawer" ? "flex-col" : ""
-        }`}
-        ref={surfaceRef}
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+        data-testid="work-surface"
       >
-        {solo === "right" && dockDocked ? (
-          <PaneRail
-            buttonRef={leftRailRef}
-            onRestore={() => toggleSolo("right")}
-            side="left"
-            title={leftEntry.title}
+        {/* The Deck's tasks strip (mockup `.tasks`): full width, above both
+         * panes — a task is about the worktree, not about one pane of it. */}
+        {tabs !== null && tasks !== null ? (
+          <TaskStrip
+            activeTaskId={taskOf(tasks, tabs.active)?.id ?? null}
+            onClose={(id) => onTaskCommand({ id, type: "close-task" })}
+            onNew={() => onTaskCommand({ type: "new-task" })}
+            onSelect={(id) => onTaskCommand({ id, type: "select-task" })}
+            strip={tasks}
           />
         ) : null}
-
-        <PaneFrame
-          card
-          action={
-            // The mockup `.tright`: what the worktree's terminal agent is
-            // doing, and for how long — empty when nothing is live.
-            selectedWorktreeId === null ? null : (
-              <TerminalAgentReadout
-                bindingId={selectedWorktreeId}
-                cwd={paneContext.cwd}
-              />
-            )
-          }
-          availability={leftEntry.availability(paneContext)}
-          chooser={<PaneLabel entry={leftEntry} />}
-          entry={leftEntry}
-          header={
-            tabs === null ? null : (
-              <TerminalTabStrip
-                activeViewId={views.active}
-                onClose={(n) => onTabCommand({ n, type: "close" })}
-                onCloseScratch={onCloseScratch}
-                onCloseView={onCloseView}
-                onNew={() => onTabCommand({ type: "new" })}
-                onSelect={(n) => onTabCommand({ n, type: "select" })}
-                onSelectView={onSelectView}
-                scratchOpen={scratch !== null}
-                // The active task's tabs only (mockup: each task owns its
-                // terminal set); the raw layout stays the model's business.
-                tabs={tasks === null ? tabs : stripView(tabs, tasks)}
-                // The readings, which belong to the worktree rather than to a
-                // task: a file is not a shell and joins no group of them.
-                views={views.tabs}
-              />
-            )
-          }
-          // Mounted, un-laid-out. Never unmounted: the xterm instances below
-          // are attached to live ptys. A floating dock never takes the
-          // terminal's box — it draws OVER it.
-          hidden={solo === "right" && dockDocked}
-          share={1}
-          side="left"
+        {/* The mockup's `.card` (vingilot.css): the stage and the dock are
+         * SIBLING cards with the window's gradient showing through a 10px gap,
+         * not one box split by a divider. `overflow-visible` so each card's
+         * own radius and shadow are not clipped by their container. */}
+        <div
+          className={`flex min-h-0 flex-1 gap-2.5 overflow-visible ${
+            dockPosition === "drawer" ? "flex-col" : ""
+          }`}
+          ref={surfaceRef}
         >
-          {terminals.map((terminal) => {
-            const activeTerminal =
-              selectedWorktreeId === terminal.bindingId &&
-              tabs?.active === terminal.n &&
-              // A view showing takes the layout, never the session: this
-              // terminal goes `hidden`, which is where every background tab
-              // already lives.
-              showingView === null;
-            const split = splitOf(splits, terminal.sessionId);
-            return (
-              // The split host: one tab's box, one or two live shells in it.
-              // The primary Terminal's parent (the ratio box) exists in both
-              // states, so opening or closing a split never remounts the
-              // xterm that was already attached.
-              <div
-                className={`min-h-0 min-w-0 flex-1 ${
-                  activeTerminal ? "flex" : "hidden"
-                } ${split?.direction === "down" ? "flex-col" : ""}`}
-                data-split={split?.direction ?? "none"}
-                data-testid={`terminal-split-host-${terminal.sessionId}`}
-                key={terminal.sessionId}
-              >
-                <div
-                  className="flex min-h-0 min-w-0 basis-0"
-                  style={{ flexGrow: split === null ? 1 : split.ratio }}
-                >
-                  <Terminal
-                    active={activeTerminal}
-                    cwd={terminal.cwd}
-                    focusToken={focusToken}
-                    sessionId={terminal.sessionId}
-                  />
-                </div>
-                {split === null ? null : (
-                  <>
-                    <TerminalSplitDivider
-                      direction={split.direction}
-                      onRatio={(next) => onSplitRatio(terminal.sessionId, next)}
-                      ratio={split.ratio}
-                    />
-                    <div
-                      className="relative flex min-h-0 min-w-0 basis-0"
-                      style={{ flexGrow: 1 - split.ratio }}
-                    >
-                      <Terminal
-                        active={activeTerminal}
-                        cwd={terminal.cwd}
-                        // Never auto-focused: the keyboard stays where it
-                        // was, and the half is a click away.
-                        focusToken={0}
-                        sessionId={splitSessionId(terminal.sessionId)}
-                      />
-                      <button
-                        aria-label="close this split half and end its shell"
-                        // Full-strength resting state on purpose: with
-                        // opacity-60 the only affordance for closing a half
-                        // measured 2.5:1 on the term ground (P2 verify,
-                        // MAJOR 2) — a control may whisper, not vanish.
-                        className="absolute right-2 top-2 z-10 rounded-md border border-border/60 bg-popover px-1.5 py-0.5 text-xs text-foreground/75 shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        data-testid={`terminal-split-close-${terminal.sessionId}`}
-                        onClick={() => onCloseSplit(terminal.sessionId)}
-                        title="Close this split half — ends its shell; the tab stays"
-                        type="button"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-          {showingView === null || paneContext.cwd === null ? null : (
-            // The reading, in the terminal pane's own body — beside the
-            // shells, never instead of them. A worktree with no cwd this app
-            // can name has nothing to read, and the tab cannot be opened from
-            // anywhere in that state.
-            <ViewTabSurface
+          {solo === "right" && dockDocked ? (
+            <PaneRail
+              buttonRef={leftRailRef}
+              onRestore={() => toggleSolo("right")}
+              side="left"
+              title={leftEntry.title}
+            />
+          ) : null}
+
+          <PaneFrame
+            card
+            // A TAB SPLIT lays this body as a ROW; with one tab on the stage it
+            // stays the column it has always been (`PaneFrame.tsx`).
+            bodyRow={tabSplit !== null}
+            action={
+              // The mockup `.tright`: what the worktree's terminal agent is
+              // doing, and for how long — empty when nothing is live.
+              selectedWorktreeId === null ? null : (
+                <TerminalAgentReadout
+                  bindingId={selectedWorktreeId}
+                  cwd={paneContext.cwd}
+                />
+              )
+            }
+            availability={leftEntry.availability(paneContext)}
+            chooser={<PaneLabel entry={leftEntry} />}
+            entry={leftEntry}
+            header={
+              tabs === null ? null : (
+                <TerminalTabStrip
+                  activeViewId={views.active}
+                  onClose={(n) => onTabCommand({ n, type: "close" })}
+                  onCloseScope={closeScope}
+                  onCloseScratch={onCloseScratch}
+                  onCloseView={onCloseView}
+                  onCopyPath={copyTabPath}
+                  onNew={() => onTabCommand({ type: "new" })}
+                  // Selection goes through the stage rather than straight to the
+                  // tab models: which half the keyboard lands in is part of what
+                  // clicking a tab means now, and only the stage knows.
+                  onSelect={(n) =>
+                    stage.selectStageTab(stageKey({ kind: "terminal", n }))
+                  }
+                  onSelectView={(id) =>
+                    stage.selectStageTab(stageKey({ id, kind: "view" }))
+                  }
+                  onSplitTab={stage.splitTabOut}
+                  scratchOpen={scratch !== null}
+                  splitFocus={tabSplit?.focus ?? null}
+                  splitSecondary={tabSplit?.secondary ?? null}
+                  // The active task's tabs only (mockup: each task owns its
+                  // terminal set); the raw layout stays the model's business.
+                  tabs={tasks === null ? tabs : stripView(tabs, tasks)}
+                  // The readings, which belong to the worktree rather than to a
+                  // task: a file is not a shell and joins no group of them.
+                  views={views.tabs}
+                />
+              )
+            }
+            // Mounted, un-laid-out. Never unmounted: the xterm instances below
+            // are attached to live ptys. A floating dock never takes the
+            // terminal's box — it draws OVER it.
+            hidden={solo === "right" && dockDocked}
+            share={1}
+            side="left"
+          >
+            <StageBody
               cwd={paneContext.cwd}
+              focusToken={focusToken}
+              onCloseScratch={onCloseScratch}
+              onCloseSplit={onCloseSplit}
               onPaneAct={onPaneAct}
-              tab={showingView}
+              onSplitRatio={onSplitRatio}
+              scratch={scratch}
+              selectedWorktreeId={selectedWorktreeId}
+              splits={splits}
+              stage={stage}
+              terminals={terminals}
+              views={views}
               worktree={selectedWorktree}
             />
-          )}
-          {scratch === null ? null : (
-            // Keyed by the session so a scratch opened somewhere else is a
-            // new xterm rather than the old one pointed at a new pty. Drawn
-            // over the terminal pane's BODY (PaneFrame's relative wrapper),
-            // below its header — so the tab bar, the scratch tab the strip
-            // mirrors, and that tab's ✕ stay reachable while the shell is
-            // open, the way the mockup's own scratch sits under `.tbar`.
-            // Nothing about the terminals underneath is touched either way:
-            // they stay mounted, laid out, and the size they were.
-            <ScratchTerminal
-              key={scratch.sessionId}
-              onClose={onCloseScratch}
-              scratch={scratch}
-            />
-          )}
-        </PaneFrame>
+          </PaneFrame>
 
-        {/* The dock's resize rail (mockup `.rz2`) — only while the dock is
-         * really sharing the surface in a docked position. */}
-        {solo === null && dockDocked ? (
-          dockPosition === "drawer" ? (
-            <DockResizer
-              axis="y"
-              focusRef={dividerRef}
-              onSize={sizeDockHeight}
-              size={clampDockHeight(dockHeight)}
-            />
-          ) : (
-            <DockResizer
-              axis="x"
-              focusRef={dividerRef}
-              onSize={(px) => sizeDockWidth(px, surfaceWidth)}
-              size={clampDockWidth(dockWidth, surfaceWidth)}
-            />
-          )
-        ) : null}
+          {/* The dock's resize rail (mockup `.rz2`) — only while the dock is
+           * really sharing the surface in a docked position. */}
+          {solo === null && dockDocked ? (
+            dockPosition === "drawer" ? (
+              <DockResizer
+                axis="y"
+                focusRef={dividerRef}
+                onSize={sizeDockHeight}
+                size={clampDockHeight(dockHeight)}
+              />
+            ) : (
+              <DockResizer
+                axis="x"
+                focusRef={dividerRef}
+                onSize={(px) => sizeDockWidth(px, surfaceWidth)}
+                size={clampDockWidth(dockWidth, surfaceWidth)}
+              />
+            )
+          ) : null}
 
-        {dockHidden ? (
-          <PaneRail
-            buttonRef={rightRailRef}
-            onRestore={() => toggleSolo("left")}
-            side="right"
-            title="Dock"
-          />
-        ) : dockDocked ? (
-          <DockShell
-            context={paneContext}
-            controlPlane={controlPlane}
-            documents={documents}
-            extra={dockExtra}
-            frameRef={rightPaneRef}
-            onChoose={panes.choose}
-            onExtra={setDockExtra}
-            onPaneAct={onPaneAct}
-            onPosition={setPosition}
-            pollMs={pollMs}
-            position={dockPosition}
-            right={layout.right}
-            runs={runs}
-            style={dockStyle}
-            workspaceId={workspaceId}
-            worktree={selectedWorktree}
-          />
+          {dockHidden ? (
+            <PaneRail
+              buttonRef={rightRailRef}
+              onRestore={() => toggleSolo("left")}
+              side="right"
+              title="Dock"
+            />
+          ) : dockDocked ? (
+            <DockShell
+              context={paneContext}
+              controlPlane={controlPlane}
+              documents={documents}
+              extra={dockExtra}
+              frameRef={rightPaneRef}
+              onChoose={panes.choose}
+              onExtra={setDockExtra}
+              onPaneAct={onPaneAct}
+              onPosition={setPosition}
+              pollMs={pollMs}
+              position={dockPosition}
+              right={layout.right}
+              runs={runs}
+              style={dockStyle}
+              workspaceId={workspaceId}
+              worktree={selectedWorktree}
+            />
+          ) : null}
+        </div>
+        {/* The floating dock (mockup `.float`): over the surface, the terminal
+         * keeping its whole box underneath. Hidden by zen like the docked card
+         * — one meaning for ⌥⌘B, wherever the dock is. */}
+        {dockPosition === "float" && !dockHidden ? (
+          <DockFloat onDockBack={setPosition}>
+            <DockShell
+              context={paneContext}
+              controlPlane={controlPlane}
+              documents={documents}
+              extra={dockExtra}
+              frameRef={rightPaneRef}
+              onChoose={panes.choose}
+              onExtra={setDockExtra}
+              onPaneAct={onPaneAct}
+              onPosition={setPosition}
+              pollMs={pollMs}
+              position={dockPosition}
+              right={layout.right}
+              runs={runs}
+              variant="float"
+              workspaceId={workspaceId}
+              worktree={selectedWorktree}
+            />
+          </DockFloat>
         ) : null}
       </div>
-      {/* The floating dock (mockup `.float`): over the surface, the terminal
-       * keeping its whole box underneath. Hidden by zen like the docked card
-       * — one meaning for ⌥⌘B, wherever the dock is. */}
-      {dockPosition === "float" && !dockHidden ? (
-        <DockFloat onDockBack={setPosition}>
-          <DockShell
-            context={paneContext}
-            controlPlane={controlPlane}
-            documents={documents}
-            extra={dockExtra}
-            frameRef={rightPaneRef}
-            onChoose={panes.choose}
-            onExtra={setDockExtra}
-            onPaneAct={onPaneAct}
-            onPosition={setPosition}
-            pollMs={pollMs}
-            position={dockPosition}
-            right={layout.right}
-            runs={runs}
-            variant="float"
-            workspaceId={workspaceId}
-            worktree={selectedWorktree}
-          />
-        </DockFloat>
-      ) : null}
-    </div>
+    </TabDndProvider>
   );
 }
 

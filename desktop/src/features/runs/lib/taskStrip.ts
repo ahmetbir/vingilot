@@ -212,7 +212,8 @@ export function applyDeckTabCommand(
     | { type: "close"; n: number }
     | { type: "select"; n: number }
     | { type: "step"; dir: -1 | 1 }
-    | { type: "move"; dir: -1 | 1 },
+    | { type: "move"; dir: -1 | 1 }
+    | { type: "reorder"; n: number; before: number | null },
 ): DeckChange {
   const pair = pairFor(layout, tasks, bindingId);
   if (pair === null) return unchanged(layout, tasks);
@@ -291,6 +292,37 @@ export function applyDeckTabCommand(
           tasks,
           bindingId,
           replaceGroup(strip, { ...group, tabs: reordered }),
+        ),
+      };
+    }
+    // The pointer's reorder (redesign P4.7, item 3). Applied to BOTH lists:
+    // the raw layout, which is what is written to disk, and the task group,
+    // which is what the strip actually draws (`stripView`). Reordering only
+    // the first would leave the tab under the owner's finger where it was —
+    // the strip he is dragging in is the group's list, not the layout's.
+    //
+    // A drop onto a tab that is not in this task lands nowhere: `before` is
+    // filtered against the group, so a stray key changes neither list rather
+    // than silently pulling a tab across a task boundary.
+    case "reorder": {
+      const group = taskOf(strip, command.n);
+      if (group === null) return unchanged(layout, tasks);
+      const applied = applyTabCommand(layout, bindingId, command);
+      const from = group.tabs.indexOf(command.n);
+      const rest = group.tabs.filter((n) => n !== command.n);
+      const at =
+        command.before === null ? rest.length : rest.indexOf(command.before);
+      if (from === -1 || at === -1) return unchanged(layout, tasks);
+      return {
+        closed: [],
+        layout: applied.layout,
+        tasks: replaceStrip(
+          tasks,
+          bindingId,
+          replaceGroup(strip, {
+            ...group,
+            tabs: [...rest.slice(0, at), command.n, ...rest.slice(at)],
+          }),
         ),
       };
     }

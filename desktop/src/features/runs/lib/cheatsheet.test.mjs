@@ -100,12 +100,31 @@ test("the chords that are not the island's are on it too", () => {
     .map((hit) => hit.chord)
     .filter((chord) => chords.includes(chord));
   assert.deepEqual(claimed, []);
-  const closeWindow = (elsewhere?.rows ?? []).find((row) =>
-    row.chords.includes("⌘W"),
+});
+
+test("⌘W is the island's own row now, and still says what it really does", () => {
+  // It used to be printed under "elsewhere" — a native gesture this app could
+  // only intercept, because the default macOS menu resolved the accelerator
+  // before the webview saw it. `app_menu.rs` drops that menu item, so the
+  // keystroke arrives and `closeKeys.ts` resolves it; the row is generated
+  // from that map like every other chord the island owns. Both halves are
+  // asserted: that it is generated, and that it still tells the truth about
+  // what happens past the bottom of the stack.
+  const generated = cheatsheet()
+    .filter((section) => section.id !== "elsewhere")
+    .flatMap((section) => section.rows)
+    .find((row) => row.chords.includes("⌘W"));
+  assert.notEqual(generated, undefined, "⌘W is not on the sheet it now owns");
+  assert.match(generated?.what ?? "", /minimiz/);
+  assert.match(generated?.what ?? "", /never hides/);
+  // And it is no longer printed as somebody else's: the "elsewhere" section
+  // says the workspace binds none of what is in it.
+  const elsewhereRows =
+    cheatsheet().find((section) => section.id === "elsewhere")?.rows ?? [];
+  assert.equal(
+    elsewhereRows.some((row) => row.chords.includes("⌘W")),
+    false,
   );
-  // The whole reason ⌘W is on the sheet: what it does here is not close.
-  assert.match(closeWindow?.what ?? "", /minimiz/);
-  assert.match(closeWindow?.what ?? "", /never hides/);
 });
 
 test("a chord is written the way this island already writes one", () => {

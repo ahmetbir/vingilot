@@ -81,7 +81,7 @@ import { useAskPending } from "@/features/runs/lib/useAskPending";
 import { useCheatsheet } from "@/features/runs/lib/useCheatsheet";
 import { useCrewMint } from "@/features/runs/lib/useCrewMint";
 import { useCrewReach } from "@/features/runs/lib/useCrewReach";
-import { useCloseRequest } from "@/features/runs/lib/useCloseRequest";
+import { useWorkspaceCloseRequest } from "@/features/runs/lib/useWorkspaceCloseRequest";
 import { useWorkspaceDialogs } from "@/features/runs/lib/useWorkspaceDialogs";
 import {
   POLL_INTERVAL_MS,
@@ -647,6 +647,7 @@ export function RunsScreen() {
     newWorktree: () => dialogs.setCreatingWorktree(true),
     splitTerminal: deck.splitActiveTerminal,
     closeTerminalSplit: deck.closeActiveSplit,
+    toggleTabSplit: deck.toggleTabSplit,
     openAppearance: () => void goSettings("appearance"),
     openMessageSearch: requestSearchOpen,
     openChannel: (channelId) => void goChannel(channelId),
@@ -768,42 +769,24 @@ export function RunsScreen() {
     worktreeRoot,
   });
 
-  // ⌘W, and the red button with it. Neither reaches this app as a keydown
-  // (lib/closeRequest.ts's header), so what arrives is the close request the
-  // backend refused to act on, and this screen answers it by giving up
-  // whatever is stacked over the work surface. The dialogs go together — the
-  // four this screen opens and the crew offer that opens itself — because
-  // `useWorkspaceDialogs` holds one reading of them; a ⌘W with only the crew
-  // offer on screen must dismiss the question, not be answered by the backend
-  // closing the window.
-  useCloseRequest(
-    {
-      cheatsheet: sheet.open,
-      // Only when there is a tab to *remove*: `closeTab` answers a lone tab by
-      // ending its shell and spawning a fresh one, and ⌘W must never spend a
-      // tmux session to hand back an empty prompt. See `closeRequest.ts`.
-      closableTab: (selectedTabs?.tabs.length ?? 0) > 1,
-      dialog: dialogs.anyOpen,
-      palette: palette.open,
-      scratch: scratch.session !== null,
-      scratchMarkdown: notepad.open,
+  // ⌘W and the red button, one rung at a time
+  // (`lib/useWorkspaceCloseRequest.ts`, split out of this file at the ratchet;
+  // the order and the reasons are `lib/closeRequest.ts`'s). The dialogs go
+  // together — the four this screen opens and the crew offer that opens itself
+  // — because `useWorkspaceDialogs` holds one reading of them: a ⌘W with only
+  // the crew offer on screen must dismiss the question, not be answered by the
+  // backend minimizing the window.
+  useWorkspaceCloseRequest({
+    cheatsheet: { close: sheet.close, open: sheet.open },
+    closableTab: {
+      close: deck.closeFocusedTab,
+      open: deck.focusedTabClosable,
     },
-    {
-      cheatsheet: sheet.close,
-      // A plain closure over this render's `selectedTabs`: `useCloseRequest`
-      // re-reads its arguments through a ref it refreshes every render, so
-      // what runs is never stale.
-      closableTab: () => {
-        if (selectedTabs !== null) {
-          runTabCommand({ n: selectedTabs.active, type: "close" });
-        }
-      },
-      dialog: dialogs.dismissAll,
-      palette: palette.close,
-      scratch: scratch.close,
-      scratchMarkdown: notepad.close,
-    },
-  );
+    dialog: { close: dialogs.dismissAll, open: dialogs.anyOpen },
+    palette: { close: palette.close, open: palette.open },
+    scratch: { close: scratch.close, open: scratch.session !== null },
+    scratchMarkdown: { close: notepad.close, open: notepad.open },
+  });
 
   const ownerRun =
     selectedWorktree?.owner_run_id !== null &&
@@ -894,7 +877,6 @@ export function RunsScreen() {
               onCloseSplit={deck.closeSplitHalf}
               onCloseView={deck.closeViewTab}
               onPaneAct={runPaneAct}
-              onSelectView={deck.selectViewTab}
               onSelectWorktree={setSelectedWorktreeId}
               onSplit={deck.splitActiveTerminal}
               onSplitRatio={deck.changeSplitRatio}
@@ -909,6 +891,7 @@ export function RunsScreen() {
               scratch={scratch.session}
               selectedWorktreeId={selectedWorktreeId}
               splits={deck.splitLayout}
+              stage={deck}
               tabs={selectedTabs}
               tasks={selectedTasks}
               terminals={terminals}

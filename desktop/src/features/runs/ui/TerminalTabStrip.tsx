@@ -1,17 +1,18 @@
 // The strip of terminal tabs for one worktree — the row of iTerm tabs this
-// app is replacing.
+// app is replacing, wearing an editor's manners since P4.7.
 //
 // It renders a strip, and nothing else: which tabs exist, which is showing,
 // and what the owner just asked for. The layout it displays lives in
 // `RunsScreen` (which never unmounts) and the rules that change it live in
-// `lib/terminalTabs.ts`.
+// `lib/terminalTabs.ts`, `lib/viewTabs.ts` and `lib/tabSplit.ts`.
 //
-// Every affordance here also has a key (`lib/terminalKeys.ts`), and the close
-// key is ⇧⌘W rather than the ⌘W an iTerm tab would use: macOS's default
-// application menu claims ⌘W for "Close Window" and resolves it before the
-// webview sees the event, so binding it here would not close a tab, it would
-// close the owner's window. The `×` is what makes that a preference rather
-// than a limitation.
+// **⌘W closes the focused tab now** (redesign P4.7, item 1: "cmd w ye filan
+// basinca tab kapanmali"). The header that stood here said the opposite — that
+// ⌘W could never reach the webview because macOS resolved it as the default
+// menu's Close Window — and that stopped being true when `app_menu.rs` began
+// building this app's menu without that item. `lib/closeKeys.ts` carries the
+// re-run six-claimant audit and what still closes the window. ⇧⌘W stays, and
+// stays narrower: it closes a terminal tab whatever is stacked over it.
 //
 // A tab is labelled by its ordinal, not its position. The ordinal is what
 // names the shell (and, under tmux, the session), so it stays with the tab
@@ -34,29 +35,37 @@
 // under a 24px row is thicker than the thing it measures; what says there is
 // more is the tab clipped at the edge.
 //
-// **The active tab is read by three signals, not one.** It was a `bg-muted`
-// fill and nothing else, which on a header that is itself a muted surface is
-// close to no signal at all. Now: the fill, a full-weight label against the
-// others' normal weight, and an inset ring. The ring is drawn on every tab and
-// is merely transparent on the inactive ones, so gaining or losing it moves no
-// pixel of the row — the same reason the `×` fades rather than appears.
+// **Three states now, not two.** A tab is off the stage, on it, or focused on
+// it. The third is what it always was — fill, full-weight label, an inset ring
+// — and the second is the tab in the OTHER half of a tab split: the same fill
+// at a quieter ring and weight, because it is on screen but the keyboard is
+// not in it. The ring is drawn on every tab and merely transparent on the
+// ones that are off, so gaining or losing it moves no pixel of the row.
 //
-// **Not every tab is a terminal any more** (redesign P4.1, items 3 and 4: "hatta
-// bence terminalin oldugu kisimda yeni tab gibi acilmali"). A file, a commit's
-// patch or the worktree's diff can hold a tab here too — they are drawn AFTER
-// the shells, wear their subject's name instead of an ordinal, and take the
-// active treatment off the shells while one is showing. The two lists are kept
-// apart on purpose (`viewTabs.ts`): the ordinals name ptys, and nothing about a
-// reading may reach the model that owns sessions. What this component shows is
-// the one place they meet — exactly one tab in the row is lit.
+// **Not every tab is a terminal** (redesign P4.1). A file, a commit's patch or
+// the worktree's diff can hold a tab here too — drawn AFTER the shells, wearing
+// their subject's name instead of an ordinal. The two lists are kept apart on
+// purpose (`viewTabs.ts`): the ordinals name ptys, and nothing about a reading
+// may reach the model that owns sessions. That is also why a drag reorders
+// within its own run rather than interleaving the two.
 
 import * as React from "react";
 
+import { fileIconId } from "@/features/runs/lib/fileIcons";
+import type { TabCloseScope } from "@/features/runs/lib/tabMenu";
+import { stageKey, type TabSplitHalf } from "@/features/runs/lib/tabSplit";
 import type { WorktreeTabs } from "@/features/runs/lib/terminalTabs";
 import type { ViewTab } from "@/features/runs/lib/viewTabs";
 import { viewLabel, viewTitle } from "@/features/runs/lib/viewTabs";
+import { DraggableTab } from "@/features/runs/ui/TabDnd";
 import { FileIcon } from "@/features/runs/ui/FileIcon";
-import { fileIconId } from "@/features/runs/lib/fileIcons";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/shared/ui/context-menu";
 
 interface TerminalTabStripProps {
   tabs: WorktreeTabs;
@@ -69,6 +78,17 @@ interface TerminalTabStripProps {
   activeViewId?: string | null;
   onSelectView?: (id: string) => void;
   onCloseView?: (id: string) => void;
+  /** The tab the RIGHT half of the stage is drawing, or `null` when one tab
+   * has the whole stage (`tabSplit.ts`). */
+  splitSecondary?: string | null;
+  /** Which half the keyboard is in, or `null` when there is no split. */
+  splitFocus?: TabSplitHalf | null;
+  /** The context menu's three close scopes, resolved against the strip's own
+   * order by `tabMenu.ts` and performed by the deck. */
+  onCloseScope?: (key: string, scope: TabCloseScope) => void;
+  /** Put this tab in the other half of the stage. */
+  onSplitTab?: (key: string) => void;
+  onCopyPath?: (key: string) => void;
   /** True while the scratch shell is open over this surface. The mockup
    * (`#tab-scratch`) draws the scratch as a tab that exists only while it is
    * open: amber dot, always-visible ✕. This strip draws the same tab; the
@@ -81,28 +101,44 @@ interface TerminalTabStripProps {
 export function TerminalTabStrip({
   activeViewId = null,
   onClose,
+  onCloseScope,
   onCloseScratch,
   onCloseView,
+  onCopyPath,
   onNew,
   onSelect,
   onSelectView,
+  onSplitTab,
   scratchOpen = false,
+  splitFocus = null,
+  splitSecondary = null,
   tabs,
   views = [],
 }: TerminalTabStripProps) {
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const activeRef = React.useRef<HTMLDivElement | null>(null);
 
-  // Bring the showing tab into view, and no further. `scrollIntoView` would
+  // Which tab the left half draws — the strip's own selection, unchanged by
+  // the split (`tabSplit.ts` says why the asymmetry is the point).
+  const primaryKey =
+    activeViewId !== null
+      ? stageKey({ id: activeViewId, kind: "view" })
+      : stageKey({ kind: "terminal", n: tabs.active });
+  const focusedKey =
+    splitFocus === "right" && splitSecondary !== null
+      ? splitSecondary
+      : primaryKey;
+
+  // Bring the focused tab into view, and no further. `scrollIntoView` would
   // have been one line, but its `block: "nearest"` still walks every scrollable
   // ancestor — and one of this row's ancestors is the work surface. Moving the
   // scroller by hand is the whole of what this needs and cannot reach anything
   // else.
   //
-  // The dependency is the ordinal rather than the strip: the two acts that put
-  // a tab off screen are selecting one (⌥⌘←/→) and opening one, and both land
-  // here because both change which ordinal is active (`terminalTabs.ts`).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the two actives are pure triggers — the body reads the DOM, not the values
+  // The dependency is the focused key rather than the strip: the acts that put
+  // a tab off screen are selecting one (⌥⌘←/→, a click, a half change) and
+  // opening one, and all of them change which key is focused.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the focused key is a pure trigger — the body reads the DOM, not the value
   React.useEffect(() => {
     const scroller = scrollerRef.current;
     const tab = activeRef.current;
@@ -114,7 +150,7 @@ export function TerminalTabStrip({
     } else if (right > scroller.scrollLeft + scroller.clientWidth) {
       scroller.scrollLeft = right - scroller.clientWidth;
     }
-  }, [tabs.active, activeViewId]);
+  }, [focusedKey]);
 
   return (
     <div
@@ -132,26 +168,32 @@ export function TerminalTabStrip({
         role="tablist"
       >
         {tabs.tabs.map((n) => {
-          // A shell is only the showing tab while no view is: exactly one tab
-          // in the row is lit, whichever list it comes from.
-          const active = n === tabs.active && activeViewId === null;
+          const key = stageKey({ kind: "terminal", n });
+          const state = tabState(key, focusedKey, primaryKey, splitSecondary);
           return (
-            <div
-              className={`group flex shrink-0 items-center gap-1 rounded-md pl-2.5 pr-1 text-xs ring-1 ring-inset transition-colors ${
-                active
-                  ? "bg-[var(--vingilot-term,hsl(var(--muted)))] text-foreground ring-border"
-                  : "text-muted-foreground ring-transparent hover:bg-muted/50 hover:text-foreground"
-              }`}
-              data-active={active}
+            <TabShell
+              activeRef={state.focused ? activeRef : null}
               key={n}
-              ref={active ? activeRef : null}
+              label={`Terminal ${n}`}
+              onClose={() => onClose(n)}
+              onCloseScope={onCloseScope}
+              onCopyPath={onCopyPath}
+              onSplit={onSplitTab}
+              pad="pl-2.5 pr-1"
+              stageKey={key}
+              state={state}
+              testid={`terminal-tab-shell-${n}`}
             >
               <button
-                aria-selected={active}
+                aria-selected={state.focused}
                 // Tabular figures so a strip that reaches double digits does
                 // not re-space itself as the ordinals grow.
                 className={`flex items-center gap-2 py-1.5 font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
-                  active ? "font-semibold" : "font-normal"
+                  state.focused
+                    ? "font-semibold"
+                    : state.onStage
+                      ? "font-medium"
+                      : "font-normal"
                 }`}
                 data-testid={`terminal-tab-${n}`}
                 onClick={() => onSelect(n)}
@@ -164,45 +206,48 @@ export function TerminalTabStrip({
                 <span
                   aria-hidden="true"
                   className={`h-[5px] w-[5px] shrink-0 rounded-full transition-colors ${
-                    active
+                    state.onStage
                       ? "bg-[var(--vingilot-accent)] shadow-[0_0_6px_var(--vingilot-accent)]"
                       : "bg-foreground/25"
                   }`}
                 />
                 {n}
               </button>
-              <button
-                aria-label={`close terminal ${n}`}
-                className="rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100"
-                data-testid={`terminal-tab-close-${n}`}
-                onClick={() => onClose(n)}
-                title={`Close terminal ${n} (⇧⌘W)`}
-                type="button"
-              >
-                ×
-              </button>
-            </div>
+              <TabCloseButton
+                label={`close terminal ${n}`}
+                onClose={() => onClose(n)}
+                testid={`terminal-tab-close-${n}`}
+                title={`Close terminal ${n} (⌘W, or ⇧⌘W wherever you are)`}
+              />
+            </TabShell>
           );
         })}
         {views.map((view) => {
-          const active = view.id === activeViewId;
+          const key = stageKey({ id: view.id, kind: "view" });
+          const state = tabState(key, focusedKey, primaryKey, splitSecondary);
           const label = viewLabel(view.subject);
           return (
-            <div
-              className={`group flex shrink-0 items-center gap-1 rounded-md pl-2 pr-1 text-xs ring-1 ring-inset transition-colors ${
-                active
-                  ? "bg-[var(--vingilot-term,hsl(var(--muted)))] text-foreground ring-border"
-                  : "text-muted-foreground ring-transparent hover:bg-muted/50 hover:text-foreground"
-              }`}
-              data-active={active}
-              data-testid={`view-tab-${view.id}`}
+            <TabShell
+              activeRef={state.focused ? activeRef : null}
               key={view.id}
-              ref={active ? activeRef : null}
+              label={label}
+              onClose={() => onCloseView?.(view.id)}
+              onCloseScope={onCloseScope}
+              onCopyPath={onCopyPath}
+              onSplit={onSplitTab}
+              pad="pl-2 pr-1"
+              stageKey={key}
+              state={state}
+              testid={`view-tab-${view.id}`}
             >
               <button
-                aria-selected={active}
+                aria-selected={state.focused}
                 className={`flex max-w-[14rem] items-center gap-1.5 py-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
-                  active ? "font-semibold" : "font-normal"
+                  state.focused
+                    ? "font-semibold"
+                    : state.onStage
+                      ? "font-medium"
+                      : "font-normal"
                 }`}
                 data-testid={`view-tab-select-${view.id}`}
                 onClick={() => onSelectView?.(view.id)}
@@ -230,17 +275,13 @@ export function TerminalTabStrip({
                 )}
                 <span className="truncate">{label}</span>
               </button>
-              <button
-                aria-label={`close ${viewTitle(view.subject)}`}
-                className="rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100"
-                data-testid={`view-tab-close-${view.id}`}
-                onClick={() => onCloseView?.(view.id)}
+              <TabCloseButton
+                label={`close ${viewTitle(view.subject)}`}
+                onClose={() => onCloseView?.(view.id)}
+                testid={`view-tab-close-${view.id}`}
                 title="Close this reading — the shells are untouched"
-                type="button"
-              >
-                ×
-              </button>
-            </div>
+              />
+            </TabShell>
           );
         })}
         {scratchOpen ? (
@@ -281,5 +322,159 @@ export function TerminalTabStrip({
         +
       </button>
     </div>
+  );
+}
+
+/** The three states a tab can be in, read once per tab per render so the fill,
+ * the ring, the weight and the dot cannot come to disagree. */
+interface TabState {
+  focused: boolean;
+  onStage: boolean;
+  half: TabSplitHalf | null;
+}
+
+function tabState(
+  key: string,
+  focusedKey: string,
+  primaryKey: string,
+  secondary: string | null,
+): TabState {
+  const half: TabSplitHalf | null =
+    secondary !== null && key === secondary
+      ? "right"
+      : key === primaryKey
+        ? "left"
+        : null;
+  return { focused: key === focusedKey, half, onStage: half !== null };
+}
+
+/** One tab: its chrome, its drag handle, its middle-click and its menu.
+ *
+ * The chrome is one component for both kinds because the three states have to
+ * read identically whatever the tab is a tab OF — a shell and a reading that
+ * wore different rings would make the row a puzzle rather than a strip. */
+function TabShell({
+  activeRef,
+  children,
+  label,
+  onClose,
+  onCloseScope,
+  onCopyPath,
+  onSplit,
+  pad,
+  stageKey: key,
+  state,
+  testid,
+}: {
+  activeRef: React.RefObject<HTMLDivElement | null> | null;
+  children: React.ReactNode;
+  label: string;
+  onClose: () => void;
+  onCloseScope?: (key: string, scope: TabCloseScope) => void;
+  onCopyPath?: (key: string) => void;
+  onSplit?: (key: string) => void;
+  pad: string;
+  stageKey: string;
+  state: TabState;
+  testid: string;
+}) {
+  return (
+    <ContextMenu>
+      {/* `display: contents` so the trigger adds listeners and no box: the
+       * strip's own flex row still lays the tab out, the tab is still the drag
+       * node, and every spec that reads `data-active` off the tab's own box
+       * still reads it off the same element it always did. */}
+      <ContextMenuTrigger
+        className="contents"
+        // Middle-click closes, the way it does on every tab bar the owner
+        // uses. `onAuxClick` rather than a button check inside `onClick`,
+        // which never fires for the middle button; the mousedown is
+        // swallowed so Chromium does not start its autoscroll instead.
+        onAuxClick={(event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          onClose();
+        }}
+        onMouseDown={(event) => {
+          if (event.button === 1) event.preventDefault();
+        }}
+      >
+        <DraggableTab
+          boxRef={activeRef}
+          className={`group flex shrink-0 items-center gap-1 rounded-md ${pad} text-xs ring-1 ring-inset transition-colors ${
+            state.focused
+              ? "bg-[var(--vingilot-term,hsl(var(--muted)))] text-foreground ring-border"
+              : state.onStage
+                ? "bg-[var(--vingilot-term,hsl(var(--muted)))] text-foreground ring-border/50"
+                : "text-muted-foreground ring-transparent hover:bg-muted/50 hover:text-foreground"
+          }`}
+          dataTestid={testid}
+          half={state.half ?? undefined}
+          isActive={state.focused}
+          label={label}
+          stageKey={key}
+        >
+          {children}
+        </DraggableTab>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-60" data-testid={`tab-menu-${key}`}>
+        <ContextMenuItem
+          data-testid="tab-menu-close"
+          onSelect={() => onCloseScope?.(key, "this")}
+        >
+          Close
+        </ContextMenuItem>
+        <ContextMenuItem
+          data-testid="tab-menu-close-others"
+          onSelect={() => onCloseScope?.(key, "others")}
+        >
+          Close others
+        </ContextMenuItem>
+        <ContextMenuItem
+          data-testid="tab-menu-close-right"
+          onSelect={() => onCloseScope?.(key, "right")}
+        >
+          Close to the right
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          data-testid="tab-menu-split"
+          onSelect={() => onSplit?.(key)}
+        >
+          Split the stage
+        </ContextMenuItem>
+        <ContextMenuItem
+          data-testid="tab-menu-copy-path"
+          onSelect={() => onCopyPath?.(key)}
+        >
+          Copy path
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function TabCloseButton({
+  label,
+  onClose,
+  testid,
+  title,
+}: {
+  label: string;
+  onClose: () => void;
+  testid: string;
+  title: string;
+}) {
+  return (
+    <button
+      aria-label={label}
+      className="rounded px-1 py-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100"
+      data-testid={testid}
+      onClick={onClose}
+      title={title}
+      type="button"
+    >
+      ×
+    </button>
   );
 }

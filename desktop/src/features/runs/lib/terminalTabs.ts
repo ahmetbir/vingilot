@@ -95,7 +95,12 @@ export type TabCommand =
   | { type: "close"; n: number }
   | { type: "select"; n: number }
   | { type: "step"; dir: -1 | 1 }
-  | { type: "move"; dir: -1 | 1 };
+  | { type: "move"; dir: -1 | 1 }
+  /** Drag-reorder: put tab `n` where `before` currently sits, or at the end of
+   * the strip when `before` is `null` (redesign P4.7, item 3). The keyboard's
+   * `move` walks one position at a time and is a different act; this one names
+   * a destination, because a pointer does. */
+  | { type: "reorder"; n: number; before: number | null };
 
 export function emptyLayout(): TabLayout {
   return {};
@@ -186,6 +191,30 @@ function moveActiveTab(wt: WorktreeTabs, dir: -1 | 1): WorktreeTabs {
   return { ...wt, tabs };
 }
 
+/** Put a tab where another one sits — the pointer's reorder.
+ *
+ * **Nothing about a session moves.** A tab is an ordinal and the ordinal is the
+ * name of a pty (`sessionIdFor`), so reordering rewrites a list of numbers and
+ * touches nothing else: no id changes, no tmux session is renamed, and the
+ * strip's labels stay with their shells rather than renumbering to match the
+ * new order (this file's header). The selection is untouched for the same
+ * reason — dragging a tab is arranging the strip, not choosing what to look at.
+ *
+ * `before` of `null` means the end of the strip. A `before` that names no tab,
+ * or the tab itself, changes nothing. */
+function reorderTab(
+  wt: WorktreeTabs,
+  n: number,
+  before: number | null,
+): WorktreeTabs {
+  const from = wt.tabs.indexOf(n);
+  if (from === -1 || n === before) return wt;
+  const rest = wt.tabs.filter((tab) => tab !== n);
+  const at = before === null ? rest.length : rest.indexOf(before);
+  if (at === -1) return wt;
+  return { ...wt, tabs: [...rest.slice(0, at), n, ...rest.slice(at)] };
+}
+
 /** Close one tab, and say which session that really ended.
  *
  * Unlike a worktree switch — which merely hides a terminal and must leave its
@@ -267,6 +296,18 @@ export function applyTabCommand(
         closed: [],
         layout: replace(layout, bindingId, moveActiveTab(wt, command.dir)),
       };
+    case "reorder": {
+      // The one command that routinely resolves to "nothing moved" — a tab
+      // dropped back where it started, or on itself. Returning the input
+      // layout rather than a fresh record with the same contents is what lets
+      // the caller skip the write and the store skip a save for a drag that
+      // changed nothing.
+      const next = reorderTab(wt, command.n, command.before);
+      return {
+        closed: [],
+        layout: next === wt ? layout : replace(layout, bindingId, next),
+      };
+    }
   }
 }
 

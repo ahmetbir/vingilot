@@ -3,7 +3,9 @@
 // ⌘1…9 switches worktrees (iTerm tab muscle memory), ⌘` focuses the
 // terminal, Esc leaves it, ⌘T opens a new task on the Deck's strip,
 // ⇧⌘W/⌥⌘←→ work the active task's terminal tabs, ⌘D/⇧⌘D split the active
-// terminal, and ⌥⌘T opens the scratch shell that keeps none of that
+// terminal, ⇧⌘\ puts two TABS side by side on the stage (P4.7's tab split —
+// a different act from ⌘D's, see `tabSplit.ts` for all three things this app
+// calls a split), and ⌥⌘T opens the scratch shell that keeps none of that
 // (`scratchTerminal.ts`). A pure `resolveKey`-style function so the map is
 // unit-testable
 // without mounting React or a real keyboard event — the caller
@@ -47,7 +49,8 @@ export type TerminalKeyAction =
   | { type: "step-terminal-tab"; dir: -1 | 1 }
   | { type: "move-terminal-tab"; dir: -1 | 1 }
   | { type: "open-scratch-terminal" }
-  | { type: "split-terminal"; direction: "right" | "down" };
+  | { type: "split-terminal"; direction: "right" | "down" }
+  | { type: "toggle-tab-split" };
 
 /** Which way an arrow points, or `null` for a key that is not one. */
 function arrowDirection(key: string): -1 | 1 | null {
@@ -154,22 +157,25 @@ export function resolveKey(input: KeyInput): TerminalKeyAction | null {
     return null;
   }
 
-  // ⇧⌘W closes a terminal tab, and ⌘W deliberately does not.
+  // ⇧⌘W closes a terminal tab, **and ⌘W now does too, from `closeKeys.ts`.**
   //
-  // ⌘W never reaches this app on macOS. Tauri installs its default
-  // application menu when the builder sets none (tauri 2.11.5 app.rs:2245;
-  // desktop/src-tauri/src/lib.rs calls neither `.menu(…)` nor
-  // `.enable_macos_default_menu(false)`), and that menu's Window submenu
-  // holds `close_window` at ⌘W (menu/menu.rs:163). macOS resolves menu key
-  // equivalents in `performKeyEquivalent:` before the webview sees the event,
-  // so a handler here never runs and `preventDefault()` never happens: the
-  // owner's window closes instead of their tab.
+  // For three releases this header said ⌘W could never reach the webview:
+  // Tauri installs its default application menu when the builder sets none,
+  // and that menu holds `close_window` at ⌘W, which macOS resolves in
+  // `performKeyEquivalent:` before any keydown is delivered. That stopped
+  // being true when `src-tauri/src/app_menu.rs` began building this app's menu
+  // by hand — `Menu::default()` minus both `close_window` items — and `lib.rs`
+  // began installing it. `closeKeys.ts` carries the whole re-run audit, what
+  // still closes the window, and the one-rule-two-doors argument.
   //
-  // Taking ⌘W back would mean replacing the whole default menu, which is also
-  // where ⌘Q, ⌘C, ⌘V and ⌘A live for a WKWebView — trading a tab shortcut for
-  // copy and paste, in an upstream file, for the whole app. ⇧⌘W is free (the
-  // default menu binds no ⇧⌘ chord, and upstream's own window handler claims
-  // ⇧⌘K/N/O/A only) and costs nothing but one modifier.
+  // **The two W chords are not the same act, which is why both stay.** ⌘W
+  // takes what is on TOP (a dialog, else the palette, else the sheet, else a
+  // scratch, else the focused tab — `closeRequest.ts`), and refuses to steal a
+  // keystroke from a text field. ⇧⌘W is narrower and unconditional: close this
+  // terminal tab, whatever is stacked over it. Folding the second onto the
+  // first would take away the only way to close a tab while the palette is
+  // open; folding the first onto the second would give the owner a ⌘W that
+  // kills a shell out from under a dialog he has not answered.
   if (input.primaryModifier && input.shiftKey === true) {
     // Case-insensitive for the same reason ⌘T is below: ⇧ reports "W", caps
     // lock can report it for the unshifted chord too.
@@ -177,6 +183,27 @@ export function resolveKey(input: KeyInput): TerminalKeyAction | null {
     if (shifted === "w") return { type: "close-terminal-tab" };
     // ⇧⌘D — iTerm's split-horizontally: the new shell goes BELOW the old.
     if (shifted === "d") return { direction: "down", type: "split-terminal" };
+    // ⇧⌘\ — the TAB SPLIT (redesign P4.7): two TABS side by side on the
+    // stage, which is neither of the other two things this app calls a split
+    // (`tabSplit.ts`'s header holds all three names). Both readings are
+    // accepted because macOS reports "|" for ⇧\ on a US layout and "\" on
+    // layouts where the backslash is not shifted; `chordOf` folds them onto
+    // one row.
+    //
+    // **Why this chord.** VS Code's own split-editor is ⌘\, and ⌘\ is taken
+    // here — it is the dock's float toggle, the mockup's own binding
+    // (vingilot.js:50, audited in `WorkSurface.tsx`). ⇧ is already this
+    // island's "the other half of that act" modifier (⌥⌘B against ⇧⌥⌘B), so
+    // the stage's divider sits one modifier from the dock's. Audited against
+    // the same six claimants as ⌘W (`closeKeys.ts`): no backslash of any kind
+    // appears in muda's predefined accelerator table, upstream's window
+    // handler resolves only letters, and this island's other maps end at ⌘/,
+    // ⌘`, letters, digits, arrows, Home/End/Enter/Escape/Tab. The one
+    // near-claimant is the dock's own ⌘\, which now refuses ⇧ explicitly so
+    // the two cannot both answer on a layout that reports "\" for both.
+    if (shifted === "\\" || shifted === "|") {
+      return { type: "toggle-tab-split" };
+    }
     return null;
   }
 

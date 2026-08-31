@@ -428,6 +428,22 @@ export const actionSource: PaletteSource = (ctx, query) => {
       label: "Close terminal split",
     },
     {
+      blocked:
+        ctx.selectedWorktreeId === null
+          ? "no worktree is open, so there is no stage to split."
+          : null,
+      chord: "⇧⌘\\",
+      command: { type: "toggle-tab-split" },
+      // Worded against the two rows above it on purpose: the strip holds
+      // shells and readings now, and "split" means three different things in
+      // this app. Nothing here may be called unified.
+      detail:
+        "two TABS side by side — a reading beside a shell, or two readings. Again to put the stage back",
+      id: "action:toggle-tab-split",
+      kind: "action",
+      label: "Split the stage between two tabs",
+    },
+    {
       // The same rule the chord uses, asked once (`scratchTerminal.ts`) — two
       // readings of "can this open" is one too many, and this is the one the
       // owner reads.

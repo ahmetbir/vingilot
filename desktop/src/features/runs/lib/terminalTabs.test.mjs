@@ -299,3 +299,67 @@ test("an empty removal list is a no-op, not a close-everything", () => {
   assert.equal(change.layout, layout);
   assert.deepEqual(change.closed, []);
 });
+
+test("a drag names a destination, and moves nothing but a list of numbers", () => {
+  // The keyboard's `move` walks one position; a pointer names where it landed
+  // (redesign P4.7, item 3). Nothing about a session moves either way: the
+  // ordinal IS the pty's name, so a reorder rewrites an order and no id.
+  let layout = withTabs("main:a", 3);
+  const before = layoutSessions(layout).map((s) =>
+    sessionIdFor(s.bindingId, s.n),
+  );
+  layout = applyTabCommand(layout, "main:a", {
+    before: 1,
+    n: 3,
+    type: "reorder",
+  }).layout;
+  assert.deepEqual(tabsOf(layout, "main:a"), [3, 1, 2]);
+  // Same three sessions, same three names.
+  assert.deepEqual(
+    layoutSessions(layout)
+      .map((s) => sessionIdFor(s.bindingId, s.n))
+      .sort(),
+    [...before].sort(),
+  );
+  // And the selection is untouched: dragging arranges the strip, it does not
+  // choose what to look at.
+  assert.equal(activeOf(layout, "main:a"), 1);
+});
+
+test("a drag to the end, onto itself, or onto nothing", () => {
+  const layout = withTabs("main:a", 3);
+  assert.deepEqual(
+    tabsOf(
+      applyTabCommand(layout, "main:a", { before: null, n: 1, type: "reorder" })
+        .layout,
+      "main:a",
+    ),
+    [2, 3, 1],
+  );
+  // A tab dropped on itself, and a drop naming a tab that is not there: both
+  // change nothing rather than guessing.
+  assert.equal(
+    applyTabCommand(layout, "main:a", { before: 2, n: 2, type: "reorder" })
+      .layout,
+    layout,
+  );
+  assert.equal(
+    applyTabCommand(layout, "main:a", { before: 9, n: 2, type: "reorder" })
+      .layout,
+    layout,
+  );
+  assert.equal(
+    applyTabCommand(layout, "main:a", { before: 1, n: 9, type: "reorder" })
+      .layout,
+    layout,
+  );
+});
+
+test("a reorder closes nothing", () => {
+  const change = applyTabCommand(withTabs("main:a", 3), "main:a", {
+    before: 1,
+    n: 2,
+    type: "reorder",
+  });
+  assert.deepEqual(change.closed, []);
+});

@@ -190,6 +190,7 @@ export default defineConfig({
         "**/selection-belongs-to-content.spec.ts",
         "**/history-and-diff-readable.spec.ts",
         "**/diff-tab.spec.ts",
+        "**/tab-split.spec.ts",
         "**/workspace-find.spec.ts",
         "**/workspace-places.spec.ts",
         "**/polish-shots.spec.ts",

@@ -38,6 +38,10 @@ export interface PaletteHandlers {
   splitTerminal: (direction: "right" | "down") => void;
   /** Close the active terminal's split half. */
   closeTerminalSplit: () => void;
+  /** Two TABS side by side on the stage, or the stage back (`tabSplit.ts`) —
+   * ⇧⌘\'s act. A different thing from `splitTerminal` above, which is two
+   * shells inside one tab. */
+  toggleTabSplit: () => void;
   openCheatsheet: () => void;
   openLanding: () => void;
   openPlanWorktree: () => void;
@@ -149,6 +153,12 @@ export function usePaletteCommands(
         return;
       case "close-terminal-split":
         on.closeTerminalSplit();
+        return;
+      case "toggle-tab-split":
+        // The one row here that toggles, and it may: the label says "split the
+        // stage" and the stage is what it acts on either way — unlike the
+        // scratch rows below, whose label names a thing to OPEN.
+        on.toggleTabSplit();
         return;
       case "open-scratch-terminal":
         // Opens, never toggles: a row called "Scratch terminal" that closed one

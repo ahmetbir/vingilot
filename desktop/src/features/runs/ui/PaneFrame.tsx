@@ -76,6 +76,17 @@ interface PaneFrameProps {
   /** Draw this frame as its own card on the gradient (mockup `.stage`) —
    * the workspace does, where the dock is a sibling card beside it. */
   card?: boolean;
+  /** Lay this pane's body as a ROW rather than a column — what a TAB SPLIT
+   * needs (redesign P4.7): two tabs side by side with a divider between them.
+   *
+   * A flag rather than a class the caller passes in, and the axis is the only
+   * thing it changes, because the body is where live terminals are mounted:
+   * every other property of this box — `relative`, `min-h-0`, `flex-1`,
+   * `overflow-hidden` — is load-bearing for something (the scratch overlay's
+   * anchor, the terminals' measurement, the strip's clipping), and a
+   * `bodyClassName` escape hatch would let a caller drop one of them without
+   * finding out. */
+  bodyRow?: boolean;
   hidden?: boolean;
   /** This side's own box, for a caller that has to ask whether something is
    * inside it — the work surface's key map does, since the terminal's tab
@@ -87,6 +98,7 @@ interface PaneFrameProps {
 export function PaneFrame({
   action,
   availability,
+  bodyRow = false,
   chooser,
   children,
   entry,
@@ -128,7 +140,12 @@ export function PaneFrame({
       {/* `relative` so a surface drawn OVER this pane's body (the scratch
        * shell) can anchor to exactly the body — leaving the header above it,
        * with its tabs, reachable. It costs the layout nothing. */}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={`relative flex min-h-0 flex-1 overflow-hidden ${
+          bodyRow ? "flex-row" : "flex-col"
+        }`}
+        data-pane-body={side}
+      >
         {availability.status === "available" ? (
           children
         ) : (

@@ -1,21 +1,19 @@
 // What a window close request means to the workspace
 // (vingilot/docs/plans/2026-08-09-keys-and-type.md, Task 1).
 //
-// ⌘W is not resolved here and cannot be: on macOS it is a key equivalent of
-// the default application menu's "Close Window", so it never reaches the
-// webview as a keydown at all — see
-// desktop/src-tauri/src/vingilot_window/mod.rs's header for the whole reading
-// and for why that menu is kept rather than replaced. What reaches this side
-// is the close request the menu item raises, forwarded over
-// `vingilot://close-requested` once the backend has already refused to close
-// or hide the window.
+// **Two gestures arrive here, and this module tells neither of them apart.**
+// ⌘W as an ordinary keydown (`closeKeys.ts`, since P4.7 — it reaches the
+// webview because `app_menu.rs` builds this app's menu without the
+// `close_window` item that used to own the accelerator), and the native close
+// request the red traffic-light button raises, forwarded over
+// `vingilot://close-requested` once the backend has refused to close or hide
+// the window. `useCloseRequest.ts` binds both onto this one resolution.
 //
 // So the question this module answers is not "what does this key mean" but
-// "what is on top". A close request over a stacked surface takes that surface,
-// which is what ⌘W over the scratch shell has to do; a close request over the
-// bare workspace is about the window, and the backend has already dealt with
-// it (it minimizes — the Dock thumbnail is the way back that hiding never
-// gave).
+// "what is on top". A close over a stacked surface takes that surface, which is
+// what ⌘W over the scratch shell has to do; a close over the bare workspace is
+// about the window, and the backend deals with that one (it minimizes — the
+// Dock thumbnail is the way back that hiding never gave).
 //
 // Pure: no React, no Tauri. `useCloseRequest.ts` is the wiring, and it is the
 // only caller.
@@ -42,13 +40,16 @@ export interface StackedSurfaces {
   scratchMarkdown: boolean;
   /** The scratch shell (⌥⌘T) — the surface the owner pressed ⌘W over. */
   scratch: boolean;
-  /** Whether the selected worktree's terminal strip has a tab that closing
-   * would merely *remove* — true only when there is more than one, because
-   * `terminalTabs.ts`'s `closeTab` answers a lone tab by ending its shell and
-   * spawning a fresh one, and a ⌘W that silently killed a tmux session to hand
-   * back an empty prompt would be destruction dressed as tidying. The last tab
-   * is the worktree's terminal itself, and a close request over it is about
-   * the window — VS Code's own reading of ⌘W on the last editor. */
+  /** Whether the tab in the FOCUSED half of the stage is one a close would
+   * merely *remove* (`useDeckLayers.ts`'s `focusedTabClosable`).
+   *
+   * A reading always is — it owns no session. A shell is only when the strip
+   * holds more than one, because `terminalTabs.ts`'s `closeTab` answers a lone
+   * tab by ending its shell and spawning a fresh one, and a ⌘W that silently
+   * killed a tmux session to hand back an empty prompt would be destruction
+   * dressed as tidying. The last shell IS the worktree's terminal, and a close
+   * over it is about the window — VS Code's own reading of ⌘W on the last
+   * editor. */
   closableTab: boolean;
 }
 
@@ -85,10 +86,11 @@ export function resolveCloseRequest(
   if (stacked.scratchMarkdown) return { type: "dismiss-scratchMarkdown" };
   if (stacked.scratch) return { type: "dismiss-scratch" };
   // The bottom rung, and the one that is not an overlay: with nothing stacked,
-  // ⌘W closes the active terminal tab the way ⇧⌘W always has — the VS Code hand
-  // the owner asked for by pressing it. Only past this does the backend
-  // minimize, so "⌘W closes the thing I am looking at, then the window" is one
-  // rule from the top of the stack to the Dock.
+  // ⌘W closes the tab in the focused half — a reading, or a shell with whatever
+  // confirmation that act already carries. The VS Code hand the owner asked for
+  // by pressing it. Only past this does the backend minimize, so "⌘W closes the
+  // thing I am looking at, then the window" is one rule from the top of the
+  // stack to the Dock.
   if (stacked.closableTab) return { type: "dismiss-closableTab" };
   return null;
 }

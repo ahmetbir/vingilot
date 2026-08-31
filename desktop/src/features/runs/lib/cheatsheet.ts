@@ -42,6 +42,7 @@
 // expressed as a build error.
 
 import { resolveCardKey } from "./cardKeys.ts";
+import { resolveCloseKey } from "./closeKeys.ts";
 import {
   resolveCheatsheetKey,
   resolveOpenCheatsheetKey,
@@ -82,6 +83,7 @@ interface KeyMap {
  * "shield". What the sheet has to say about those chords is what they do, which
  * is the row the map that owns them already generates. */
 const KEY_MAPS: readonly KeyMap[] = [
+  { module: "close", resolve: resolveCloseKey },
   { module: "sheet", resolve: resolveCheatsheetKey },
   { module: "sheet-open", resolve: resolveOpenCheatsheetKey },
   { module: "palette", resolve: resolvePaletteKey },
@@ -130,6 +132,11 @@ const KEY_SPACE: readonly string[] = [
   ...LETTERS.toUpperCase(),
   "`",
   "/",
+  // Both readings of the tab split's chord: macOS reports "|" for the shifted
+  // backslash on a US layout and "\\" where the backslash is not shifted.
+  // `GLYPH` folds the first onto the second so they print as one row.
+  "\\",
+  "|",
   "†",
   "∫",
   "ı",
@@ -195,6 +202,7 @@ const MOD_SPACE: readonly number[] = [
 /** How a key is written on a sheet. Anything absent is written as it arrives —
  * a digit, a letter, `Home`, `End`, a backtick. */
 const GLYPH: Record<string, string> = {
+  "|": "\\",
   ArrowDown: "↓",
   ArrowLeft: "←",
   ArrowRight: "→",
@@ -471,9 +479,17 @@ const WHAT: Record<string, { section: SectionId; what: string }> = {
     section: "workspace",
     what: "this sheet. Again to put it away",
   },
+  "close:close-top": {
+    section: "workspace",
+    what: "takes what is on top — a dialog, else the palette, else this sheet, else a scratch (markdown, then shell), else the tab in the focused half of the stage when it is not the worktree's last shell. Past all of that the window minimizes into the Dock: it never hides, and it never closes. A caret in a text field keeps its own ⌘W",
+  },
   "terminal:close-terminal-tab": {
     section: "terminal",
-    what: "close this terminal tab, and end its shell — ⌘W is the window's, below",
+    what: "close this terminal tab and end its shell, whatever is stacked over it — ⌘W is the one that takes the top of the stack first",
+  },
+  "terminal:toggle-tab-split": {
+    section: "terminal",
+    what: "put two TABS side by side on the stage — a reading beside a shell, or two readings — with a divider between them. Again to put the stage back. Not ⌘D, which is two shells inside one tab, and not the diff's own Split button, which is how one patch is drawn",
   },
   "terminal:focus-terminal": {
     section: "terminal",
@@ -527,18 +543,21 @@ export interface CheatSection {
   rows: readonly CheatRow[];
 }
 
-/** The default macOS application menu's accelerators, verbatim from muda 0.19.3
- * src/items/predefined.rs:301-341 — the whole table, nothing omitted. This app
- * installs that menu by setting none of its own and takes nothing out of it,
- * which is why these chords work at all inside a WKWebView and why replacing
- * the menu to reclaim ⌘W was priced and declined
- * (`desktop/src-tauri/src/vingilot_window/mod.rs`).
+/** **The macOS application menu's accelerators — the ones this app's menu still
+ * carries.** They come from muda 0.19.3 src/items/predefined.rs:301-341 by way
+ * of `desktop/src-tauri/src/app_menu.rs`, which builds `Menu::default()` minus
+ * both `close_window` items and is installed at `lib.rs:315`. That subtraction
+ * is why **⌘W is no longer on this list**: no accelerator named ⌘W survives in
+ * the menu, so the keystroke reaches the webview and the island resolves it
+ * (`closeKeys.ts`, which carries the re-run audit and names what still closes
+ * the window).
  *
  * Exported because it is also an assertion: no chord the island resolves may
  * be one of these, and `cheatsheet.test.mjs` says so. That is the ⌘W failure
- * turned into a build error. */
+ * turned into a build error — and correcting the list when the menu itself
+ * changed is the other half of keeping the assertion honest, since a stale
+ * entry fails a claim that is true rather than catching one that is not. */
 export const MENU_CHORDS: readonly string[] = [
-  "⌘W",
   "⌘Q",
   "⌘C",
   "⌘X",
@@ -582,10 +601,6 @@ export const MENU_CHORDS: readonly string[] = [
  * maps in an order nothing in this repository asserts. Printing them as
  * answers would be printing a guess. */
 const ELSEWHERE: readonly CheatRow[] = [
-  {
-    chords: ["⌘W"],
-    what: "takes what is on top — a dialog, else the palette, else this sheet, else a scratch (markdown, then shell), else the active terminal tab when it is not the last. Past all of that the window minimizes into the Dock: it never hides, and it never closes",
-  },
   {
     chords: ["⌘Q"],
     what: "quit — and every shell this app started ends with it, tmux's excepted",

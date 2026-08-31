@@ -87,6 +87,12 @@ export type PaletteCommand =
   /** Close the active terminal's split half, really ending its shell. The
    * way back that needs no chord — the half's own × is the other door. */
   | { type: "close-terminal-split" }
+  /** Put two TABS side by side on the stage, or put the stage back
+   * (`tabSplit.ts`). **Not the row above it and not the diff's own control**:
+   * that one is two shells inside one tab, the diff's is a rendering mode of
+   * one patch, and this one is two tabs sharing the stage. Three things, three
+   * rows, three names. */
+  | { type: "toggle-tab-split" }
   /** Open the scratch shell over the work surface. A different thing from the
    * row above it, and the reason both are here: one keeps everything, the
    * other keeps nothing (`scratchTerminal.ts`). */
