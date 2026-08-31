@@ -737,6 +737,11 @@ test.describe("the pictures the README shows", () => {
     await expect(thread).toContainText("Key a singleflight.Group by subject");
     await expect(thread).toContainText("Do deletes the key when the call");
     await expect(thread).not.toContainText("npub1mock");
+    // The overflow read below measures laid-out boxes, not text — settle the
+    // message list's own arrival animation first, or an in-flight reflow
+    // reads as a false overflow (seen once in the full-suite run, never in
+    // isolation).
+    await waitForAnimations(page);
     await expectReadablePane(page, "pane-team");
 
     await readToTheEnd(page);
