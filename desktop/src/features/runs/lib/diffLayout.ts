@@ -98,12 +98,20 @@ export const PATCH_MIN_PX = Math.ceil(
  * derivation.** Sixty columns is a floor against *horizontal scrolling* — read
  * its own paragraph: "under sixty columns every line of ordinary source ends in
  * a horizontal scroll, and a pane the owner has to scroll sideways to read one
- * line of is a pane he opens VS Code instead of." A split column does not
- * scroll sideways. It wraps, and the CSS grid it is drawn in keeps the two
- * sides aligned row for row whatever height a cell ends up taking
- * (`ui/PatchView.tsx`, split layout) — so wrapping in split costs none of the
- * grid that wrapping in unified costs. The 60 answers a question split does not
- * ask.
+ * line of is a pane he opens VS Code instead of." That paragraph is about a
+ * pane the LIST is competing with for width; split is a mode the reader chose
+ * for a surface already past 695px, and its two halves scroll sideways together
+ * inside one scroller, so a long line moves both columns and never
+ * de-aligns them (`ui/PatchSplit.tsx`). The 60 answers a question split does
+ * not ask.
+ *
+ * **P4.8 correction.** This paragraph used to read "a split column does not
+ * scroll sideways, it wraps" — which was true of the drawing and was the defect:
+ * split wrapped whatever the reader asked for, so at a wide pane one cell of a
+ * pair re-flowed to three lines and the other to one and the two columns stopped
+ * lining up. Split now honours the same `wraps` unified does, and when it does
+ * wrap, the grid is still what keeps a pair the same height on both sides. The
+ * number below did not move; the sentence under it was wrong about the drawing.
  *
  * What a split column *does* have to be wide enough for is the comparison: the
  * eye reads the head of both cells and sees where the two lines part.

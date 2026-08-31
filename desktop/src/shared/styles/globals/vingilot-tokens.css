@@ -318,6 +318,74 @@ select,
   color: hsl(var(--foreground));
 }
 
+/*
+ * ============================================================================
+ * Redesign P4.8 — the SPLIT layout's gutter, in the same vocabulary.
+ * ============================================================================
+ *
+ * One side of a split pair carries one file's number, so this is `.vingilot-
+ * dline` with one column instead of two — the same technique, the same colour,
+ * the same hanging indent, deliberately not a second drawing.
+ *
+ * **The technique is not a preference here, it is the P4.2 finding.** Split
+ * used to render its numbers as an inline `<span>` in a grid track of their
+ * own: an unselectable sibling at the start of a row, which is the exact shape
+ * that made a drag over the code select nothing at all in Chromium (bisected in
+ * the browser; see `.vingilot-dline` above). Generated content is the shape
+ * that works, and it keeps the owner's other rule for free — "dosya satir
+ * numaralari filan secilemez olmali": a number here is not selected, not
+ * copied, and not part of the text the pair is compared as.
+ *
+ * 6ch and not 14ch: five digits and one space, which is exactly the six
+ * characters `SPLIT_GUTTER_PX` budgets in `lib/diffLayout.ts` (6 × 7.225px =
+ * 43.35px inside its 48px), so the drawing spends the width the split
+ * precondition was computed with. There is no marker column — the COLUMN says
+ * which side a line is on, and `splitDiff.ts` strips the marker for that reason
+ * — so the 3ch unified spends on " + " is not spent twice here.
+ */
+.vingilot-dhalf {
+  display: block;
+  padding-left: 6ch;
+  text-indent: -6ch;
+}
+
+.vingilot-dhalf::before {
+  content: attr(data-diff-nos);
+  white-space: pre;
+  user-select: none;
+  color: hsl(var(--muted-foreground));
+}
+
+/*
+ * The gap opposite a deleted or an added block.
+ *
+ * **A band, not a hole.** It was a flat `bg-muted/30` fill, which at the scale
+ * of a real change block — a twelve-line addition puts a twelve-line void down
+ * the left of the diff — reads as damage rather than as "there is nothing on
+ * this side". The hatch is what makes it read as deliberately blank: the same
+ * convention every side-by-side diff uses, at an alpha low enough to skim past.
+ *
+ * Nothing is drawn in it, so no contrast floor applies — this is ground with no
+ * text on it. The strokes are the muted ink at 6% over a 3% wash, which
+ * composites on the card's #17171a to roughly (26,26,29) with (31,31,35)
+ * strokes: visible as a texture at a glance down the page, invisible as
+ * individual lines. `4px` between strokes rather than the mockup's absent
+ * number — a coarser pitch reads as stripes, a finer one as noise on a retina
+ * scale.
+ */
+.vingilot-dfill {
+  background-color: color-mix(
+    in srgb,
+    hsl(var(--muted-foreground)) 3%,
+    transparent
+  );
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, hsl(var(--muted-foreground)) 6%, transparent) 0 1px,
+    transparent 1px 4px
+  );
+}
+
 :root {
   /* Surfaces + ink (mockup: --content/--content2/--term/--ink/--mut/--bor) */
   --vingilot-content: #1a1a1a;

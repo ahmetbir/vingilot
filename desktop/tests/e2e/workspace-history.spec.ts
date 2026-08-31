@@ -512,11 +512,20 @@ test("the split toggle rides the patch onto the stage, on the same flag and the 
   // The fixture's block is one deletion against two additions, so the gap is on
   // the LEFT here — the mirror of the Diff pane's fixture, and the reading that
   // says the alignment is the model's rather than a property of one patch.
+  // P4.8: a split row is two cells, one per column, and each carries its own
+  // number as generated content the way a unified row always has — so the
+  // number is read off `data-diff-nos` (the attribute the CSS itself reads) and
+  // the code off the cell's text. The claims below are the ones this test made
+  // before that change; only where the numbers live moved.
   const rows = await box.locator("[data-split-row]").evaluateAll((nodes) =>
     nodes.map((node) => ({
-      cells: Array.from(node.querySelectorAll("span"), (cell) =>
-        (cell.textContent ?? "").trim(),
-      ),
+      cells: Array.from(node.querySelectorAll("[data-split-cell]"), (cell) => [
+        (cell.getAttribute("data-diff-nos") ?? "").trim(),
+        // The code only — the hover comment affordance is a `+` glyph living
+        // inside the cell, so the cell's own text would read as the button plus
+        // the line.
+        (cell.querySelector("[data-diff-code]")?.textContent ?? "").trim(),
+      ]).flat(),
       kind: node.getAttribute("data-split-row"),
     })),
   );

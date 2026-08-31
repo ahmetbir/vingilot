@@ -70,6 +70,16 @@ export type DiffRow =
       text: string;
     };
 
+/** One line of either file — the row both layouts decorate, and the only row
+ * kind that carries a number, a sign or code. Named since P4.8 because the
+ * pairing model (`splitDiff.ts`) and the row drawing (`ui/PatchRow.tsx`) both
+ * need to say "a line row" without re-deriving it from `DiffRow`. */
+export type LineRow = Extract<DiffRow, { kind: "line" }>;
+
+/** A hunk header's row — what the `.hunkbar` strip is drawn from, in both
+ * layouts. */
+export type HunkRow = Extract<DiffRow, { kind: "hunk" }>;
+
 /** `@@ -12,7 +30,9 @@`, and the forms with a count left off (`@@ -1 +1 @@`),
  * which git emits for a one-line range. */
 const HUNK = /^(@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@)(.*)$/;

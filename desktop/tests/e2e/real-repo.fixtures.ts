@@ -120,22 +120,6 @@ export const TRUNK: RealCommit[] = parseLog(
   ]),
 );
 
-/** The newest commit that changed TypeScript under the workspace feature —
- * located rather than pinned, so this stays a real code diff as the branch
- * moves. */
-function newestCodeCommit(): string {
-  const found = git([
-    "log",
-    "-1",
-    "--format=%H",
-    "--",
-    "desktop/src/features/runs",
-  ]).trim();
-  return found === "" ? git(["rev-parse", "HEAD"]).trim() : found;
-}
-
-export const CODE_COMMIT = newestCodeCommit();
-
 export interface RealDiffFile {
   path: string;
   oldPath: string | null;
@@ -202,7 +186,72 @@ function totals(files: RealDiffFile[]) {
   );
 }
 
-const CODE_FILES = filesOf(CODE_COMMIT);
+/** Does this commit's carried patch contain a line that was REWRITTEN — a
+ * removed line immediately followed by an added one that shares its opening?
+ *
+ * **This is `diff-tab.spec.ts`'s §4 precondition, stated here so the fixture
+ * can satisfy it rather than merely be tested by it.** A word-level highlight
+ * is a reading OF a rewrite; a commit whose first `MAX_FILES` files are
+ * addition-only has none, so that spec's `beforeAll` fails — not because the
+ * product is wrong but because the fixture picked a commit with nothing to
+ * mark. Which commit is newest is a fact about the branch, and the branch moves
+ * under this file every time the round lands: pinning the newest one made the
+ * spec a coin flip on the shape of the last commit. So the commit is now
+ * SEARCHED for instead of taken, and the search is for the property the spec
+ * needs. The predicate is deliberately the same shape the spec asserts — if the
+ * two ever disagree, the spec is the one that must go red. */
+function hasRewrittenLine(files: readonly RealDiffFile[]): boolean {
+  return files.some((file) => {
+    const lines = file.patch.split("\n");
+    return lines.some((line, at) => {
+      const next = lines[at + 1];
+      if (!line.startsWith("-") || next === undefined) return false;
+      if (!next.startsWith("+")) return false;
+      return (
+        line.slice(1, 9).trim() !== "" && next.slice(1, 9) === line.slice(1, 9)
+      );
+    });
+  });
+}
+
+/** How far back the search below is willing to walk. A dozen commits of this
+ * branch is a few hundred milliseconds of `git diff` and has always contained
+ * one; a search with no bound would be a fixture that can hang. */
+const CODE_COMMIT_SEARCH = 12;
+
+/** The newest commit under the workspace feature whose carried files really
+ * hold a rewritten line — located rather than pinned, so this stays a real code
+ * diff as the branch moves, and stays one with something to word-diff.
+ *
+ * The newest commit with a patch at all is the fallback, which is exactly what
+ * this used to answer unconditionally. Nothing here is invented: if no commit
+ * in range qualifies, the fixture is honestly the same one it always was and
+ * the spec's own precondition is what says so. */
+function pickCodeCommit(): { hash: string; files: RealDiffFile[] } {
+  const candidates = git([
+    "log",
+    "--format=%H",
+    `--max-count=${CODE_COMMIT_SEARCH}`,
+    "--",
+    "desktop/src/features/runs",
+  ])
+    .split("\n")
+    .filter((line) => line.trim() !== "");
+  let fallback: { hash: string; files: RealDiffFile[] } | null = null;
+  for (const hash of candidates) {
+    const files = filesOf(hash);
+    if (files.length === 0) continue;
+    if (fallback === null) fallback = { files, hash };
+    if (hasRewrittenLine(files)) return { files, hash };
+  }
+  return fallback ?? { files: [], hash: git(["rev-parse", "HEAD"]).trim() };
+}
+
+const PICKED = pickCodeCommit();
+
+export const CODE_COMMIT = PICKED.hash;
+
+const CODE_FILES = PICKED.files;
 
 export const REAL_DIFF = {
   ...totals(CODE_FILES),

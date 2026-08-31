@@ -1,22 +1,26 @@
-// A unified patch, re-shaped into the rows of a two-column diff
-// (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md, Task 2).
+// The rows of the unified rendering, PAIRED into the rows of a two-column one
+// (vingilot/docs/plans/2026-08-12-vscode-muscle-memory.md, Task 2; redesign
+// P4.8).
 //
 // **The screenshot he sent is VS Code's split diff, and the thing that makes it
 // readable is not the two columns — it is that they line up.** A deleted line
 // and the line that replaced it are on the same row of the page, so the eye
 // travels sideways rather than counting downwards. That alignment is the whole
 // content of this file, and it is arithmetic, which is why it is here and not
-// in the component: `ui/PatchView.tsx` draws rows, this decides what a row is.
+// in the component: `ui/PatchSplit.tsx` draws rows, this decides what a row is.
 //
-// **What is NOT here.** How a patch line is classified is still
-// `lib/runModel.ts`'s `diffView` — the same function the unified rendering
-// reads, called once here, so the two layouts cannot disagree about what a `+`
-// is. Whether split is offered at all is `lib/diffLayout.ts`'s `splitFitsAt`.
-// And there is **no word-diff engine**: Task 2 said "intraline emphasis if the
-// patch data already carries it — do not build a word-diff engine for this",
-// and a unified patch carries none, so no row here claims any. Where a line
-// changed within itself is a question this model does not answer and does not
-// pretend to.
+// **P4.8 changed what this takes in, and that is the round's whole fix.** Until
+// now it took the raw patch and re-derived everything from it — its own line
+// numbering, its own idea of what plumbing is, its own row vocabulary. Two
+// models of one patch is how a layout toggle came to change the CONTENT of the
+// diff: the word markup, the review threads and the comment affordance were all
+// keyed by a unified row index that this model had no notion of, so split could
+// not draw any of them; "ignore whitespace" filtered the unified rows and this
+// file never saw the filter, so the toggle did nothing in split. Now it takes
+// `unifiedRows`' own output and only PAIRS it. Every row here points back at
+// the index it came from, so anything keyed by a unified row index — markup,
+// focus, a thread anchor, a comment — reaches both layouts unchanged, and
+// neither layout can disagree with the other about what is in the patch.
 //
 // **The pairing rule, and why it is not "zip the hunk".** A unified hunk is a
 // run of context, then a block of `-` lines, then a block of `+` lines, then
@@ -26,146 +30,113 @@
 // deletions and one addition align — one paired row and two rows with an empty
 // right side — instead of the two sides sliding apart for the rest of the file.
 // A block ends at anything that is not a `+` or a `-`: context, the next hunk
-// header, a meta line, or the end of the patch.
+// header, a note, or the end of the patch.
+//
+// It is deliberately the same block shape `diffTab.ts`'s `wordMarkup` pairs on,
+// stated once in each file because one answers "which rows sit beside which"
+// and the other answers "which tokens changed between them". They agree by
+// construction: both walk `unifiedRows`' array, so the pair this file draws is
+// the pair that module marked up.
+//
+// **What is NOT here.** How a patch line is classified is `lib/runModel.ts`'s
+// `diffView`; what a row IS and what number it carries is
+// `lib/unifiedDiff.ts`'s; whether split is offered at all is
+// `lib/diffLayout.ts`'s `splitFitsAt`. And there is **no word-diff engine**
+// here: which tokens of a pair changed is `lib/wordDiff.ts`'s answer, arrived
+// at once for the whole patch and read by both layouts.
 
-import { diffView } from "@/features/runs/lib/runModel";
-import type { DiffLineKind } from "@/features/runs/lib/runModel";
+import type {
+  DiffRow,
+  HunkRow,
+  LineRow,
+} from "@/features/runs/lib/unifiedDiff";
 
-/** One side of one row: the line as it is in that side's file, and its number
- * there. `no` is `null` only for a patch whose hunk header this model could not
- * read — a number it cannot count from is never guessed at. */
-export interface SplitCell {
-  no: number | null;
-  text: string;
+/** One side of one paired row: the unified row itself, and **the index it has
+ * in the unified rows array**.
+ *
+ * The index is the load-bearing field. It is what the word markup is keyed by
+ * (`diffTab.ts`'s `WordMarkup`), what the keyboard's focus is (`DiffTab`'s
+ * `focus.row`), what a comment is opened on and what a review thread is
+ * anchored after — so carrying it here is what makes those four things
+ * available in split without a single one of them being reimplemented. */
+export interface PairSide {
+  at: number;
+  row: LineRow;
 }
 
 /** A row of the two-column rendering.
  *
- * - `span` — a line that belongs to neither side: a hunk header, a `+++`/`---`
- *   meta line, the backend's truncation marker, a `\ No newline at end of
- *   file`. It is drawn across both columns, because putting a hunk header in
- *   one of them would claim it is a fact about that side's file.
- * - `context` — an unchanged line, present in both files, numbered in both. A
- *   context row always carries numbers: a line this model could not count is
- *   preamble rather than context, and spans.
+ * - `hunk` — a hunk header. Drawn across both columns, because putting one in
+ *   a column would claim it is a fact about that side's file.
+ * - `note` — something git printed that is neither plumbing nor a line of
+ *   either file (`\ No newline at end of file`, the backend's truncation
+ *   marker). Also spans; also not a fact about one side.
+ * - `context` — an unchanged line, present in both files and numbered in both.
+ *   ONE unified row, drawn in two cells: the two sides are the same row, which
+ *   is why this carries a single `at` rather than a `PairSide` each. A thread
+ *   anchored to it is therefore anchored once.
  * - `change` — a deletion, an addition, or the two of them paired. Exactly one
  *   of `before`/`after` may be `null`, and that null is the row's whole point:
  *   it is the gap that keeps the other side aligned.
  */
-export type SplitRow =
-  | { kind: "span"; lineKind: DiffLineKind; text: string }
-  | { kind: "context"; before: SplitCell; after: SplitCell }
-  | { kind: "change"; before: SplitCell | null; after: SplitCell | null };
+export type PairedRow =
+  | { kind: "hunk"; at: number; row: HunkRow }
+  | { kind: "note"; at: number; text: string }
+  | { kind: "context"; at: number; row: LineRow }
+  | { kind: "change"; before: PairSide | null; after: PairSide | null };
 
-/** `@@ -12,7 +30,9 @@`, and the two forms with the count left off (`@@ -1 +1
- * @@`), which git emits for a one-line range. Anything else leaves the
- * numbering unknown rather than wrong. */
-const HUNK_RANGE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
-
-/** The line without its marker column.
+/** `rows` — the output of `unifiedRows`, optionally filtered — as the rows of
+ * the two-column rendering.
  *
- * Stripped because in split the *column* says which side a line is on, so a
- * leading `+` would be the same information twice — and worse, one character of
- * horizontal offset between the two sides, which is exactly the alignment this
- * file exists to keep. Stripped only when the marker is really there: a patch
- * whose context lines have had their leading space trimmed by some tool in the
- * middle is a patch whose first character is code, and eating it would be this
- * model quietly deleting source. */
-function body(text: string, marker: string): string {
-  return text.startsWith(marker) ? text.slice(marker.length) : text;
-}
-
-/** The rows of the two-column rendering of `patch`.
- *
- * Pure, total, and never throws: a patch this model cannot make sense of comes
- * back as span rows, which draw as the lines they are. The one thing it will
- * not do is answer with a number it did not count.
+ * Pure, total, and never throws. Every `at` is an index into the array that was
+ * passed in, so a caller that filtered its rows gets pairs over the filtered
+ * rows and indices that still address them.
  */
-export function splitRows(patch: string): SplitRow[] {
-  const lines = diffView(patch).lines;
-  const rows: SplitRow[] = [];
-  // `null` until a hunk header has been read. Every line before the first one
-  // is meta, so nothing is ever numbered from a count that was not stated.
-  let beforeNo: number | null = null;
-  let afterNo: number | null = null;
-  let dels: SplitCell[] = [];
-  let adds: SplitCell[] = [];
-
-  /** Close the change block: pair the two lists positionally and let the
-   * longer one run on into half-rows. */
-  function flush() {
+export function pairRows(rows: readonly DiffRow[]): PairedRow[] {
+  const out: PairedRow[] = [];
+  let at = 0;
+  while (at < rows.length) {
+    const row = rows[at];
+    if (row.kind === "hunk") {
+      out.push({ at, kind: "hunk", row });
+      at += 1;
+      continue;
+    }
+    if (row.kind === "note") {
+      out.push({ at, kind: "note", text: row.text });
+      at += 1;
+      continue;
+    }
+    if (row.sign === " ") {
+      out.push({ at, kind: "context", row });
+      at += 1;
+      continue;
+    }
+    // A change block: the run of deletions, then the run of additions that
+    // replaces them. Either run may be empty — a pure addition is a block whose
+    // deletions are none, and its rows are gaps on the left.
+    const dels: PairSide[] = [];
+    while (at < rows.length) {
+      const here = rows[at];
+      if (here.kind !== "line" || here.sign !== "-") break;
+      dels.push({ at, row: here });
+      at += 1;
+    }
+    const adds: PairSide[] = [];
+    while (at < rows.length) {
+      const here = rows[at];
+      if (here.kind !== "line" || here.sign !== "+") break;
+      adds.push({ at, row: here });
+      at += 1;
+    }
     const height = Math.max(dels.length, adds.length);
-    for (let i = 0; i < height; i += 1) {
-      rows.push({
-        after: adds[i] ?? null,
-        before: dels[i] ?? null,
+    for (let n = 0; n < height; n += 1) {
+      out.push({
+        after: adds[n] ?? null,
+        before: dels[n] ?? null,
         kind: "change",
       });
     }
-    dels = [];
-    adds = [];
   }
-
-  const last = lines.length - 1;
-  lines.forEach((line, at) => {
-    switch (line.kind) {
-      case "hunk": {
-        flush();
-        const range = HUNK_RANGE.exec(line.text);
-        beforeNo = range === null ? null : Number(range[1]);
-        afterNo = range === null ? null : Number(range[2]);
-        rows.push({ kind: "span", lineKind: "hunk", text: line.text });
-        return;
-      }
-      case "meta":
-        flush();
-        rows.push({ kind: "span", lineKind: "meta", text: line.text });
-        return;
-      case "del":
-        dels.push({ no: beforeNo, text: body(line.text, "-") });
-        if (beforeNo !== null) beforeNo += 1;
-        return;
-      case "add":
-        adds.push({ no: afterNo, text: body(line.text, "+") });
-        if (afterNo !== null) afterNo += 1;
-        return;
-      case "ctx": {
-        flush();
-        // `\ No newline at end of file` is a note about the line above, not a
-        // line of either file. It advances no counter and belongs to no column.
-        if (line.text.startsWith("\\")) {
-          rows.push({ kind: "span", lineKind: "ctx", text: line.text });
-          return;
-        }
-        // Before the first hunk header nothing is a line of either file yet.
-        // git's `diff --git a/x b/x`, `index ab12..cd34 100644` and `similarity
-        // index 96%` preamble has no marker column for `diffView` to classify it
-        // by, so it arrives here as context — and a context row numbered from
-        // counters that have not started is not a context row, it is preamble.
-        // It spans, which is also what it draws as in unified.
-        if (beforeNo === null && afterNo === null) {
-          rows.push({ kind: "span", lineKind: "meta", text: line.text });
-          return;
-        }
-        // A patch that ends in a newline splits into a trailing empty string,
-        // which `diffView` classifies as context because it has no marker to
-        // say otherwise. It is not a line of anybody's file: numbering it would
-        // put a phantom line at the end of the diff and shift nothing, but the
-        // number beside it would be a lie. The unified rendering shows it as a
-        // blank because it has no numbers to be wrong about.
-        if (line.text === "" && at === last) return;
-        const text = body(line.text, " ");
-        rows.push({
-          after: { no: afterNo, text },
-          before: { no: beforeNo, text },
-          kind: "context",
-        });
-        if (beforeNo !== null) beforeNo += 1;
-        if (afterNo !== null) afterNo += 1;
-        return;
-      }
-    }
-  });
-  flush();
-  return rows;
+  return out;
 }

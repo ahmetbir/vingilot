@@ -154,6 +154,11 @@ const DOCK_DEFAULT_W = 376;
  * and therefore the number worth measuring on the drawn columns. */
 const SPLIT_COLUMN_CODE_PX = 274;
 
+/** `SPLIT_GUTTER_PX` in `lib/diffLayout.ts` — what one split column's line
+ * numbers are budgeted, and therefore what comes off a measured cell before its
+ * code width is compared against the constant above. */
+const SPLIT_GUTTER_PX = 48;
+
 /** Long enough that a patch line is a real source line rather than a token —
  * the content the 32px scroller had 704px of. */
 const PATCH_LINE =
@@ -540,8 +545,20 @@ test("given the whole surface, the list comes back beside the patch", async ({
 // that is not, without being chosen twice.
 
 /** Everything about the split rendering that has to be read off the laid-out
- * boxes rather than out of the model: the rows in order, the resolved colour of
- * each side's code, and the geometry of the two columns. */
+ * boxes rather than out of the model: the rows in order, the resolved paint of
+ * each side, and the geometry of the two columns.
+ *
+ * **P4.8 moved where two of these are read from, and neither claim moved.** A
+ * row is no longer four `<span>`s (gutter, code, gutter, code) but two cells,
+ * one per column, each carrying its own number as GENERATED content — the same
+ * technique the unified layout has always used, adopted here so the two gutters
+ * are one drawing and so a drag over split's code selects the code and not the
+ * numbers (argued at `.vingilot-dhalf`). Generated content has no
+ * `textContent`, so a number is read off `data-diff-nos`, which is the attribute
+ * the CSS itself reads. And the hue of a change is now the row's TINT rather
+ * than the letters' colour, which is P4.4's vocabulary — "the +/− is the row's
+ * ground, never the code's own hue" — finally applied to both layouts instead
+ * of one. */
 async function splitReading(page: Page) {
   return page.evaluate(() => {
     const patch = document.querySelector('[data-testid="worktree-diff-patch"]');
@@ -549,30 +566,38 @@ async function splitReading(page: Page) {
     const rows = Array.from(
       patch.querySelectorAll("[data-split-row]"),
       (row) => {
-        const cells = Array.from(row.querySelectorAll("span"));
-        const cell = (at: number) => cells[at] ?? null;
-        const read = (at: number) => {
-          const element = cell(at);
+        const cells = Array.from(row.querySelectorAll("[data-split-cell]"));
+        const cell = (which: string) =>
+          cells.find((one) => one.getAttribute("data-split-cell") === which) ??
+          null;
+        const read = (which: string) => {
+          const element = cell(which);
           return element === null
             ? null
             : {
-                color: getComputedStyle(element).color,
+                // The row's ground, which is where an add and a del differ now.
+                tint: getComputedStyle(element).backgroundColor,
                 // Content against visible width, on the very element the text
                 // is in: this is what says "nothing is clipped" rather than
                 // "an element exists".
                 overflow: element.scrollWidth - element.clientWidth,
-                text: element.textContent ?? "",
+                // The code, and only the code: the comment affordance is a `+`
+                // glyph out of flow inside the cell, so the cell's own
+                // `textContent` would read as the button plus the line.
+                text:
+                  element.querySelector("[data-diff-code]")?.textContent ?? "",
                 width: Math.round(element.getBoundingClientRect().width),
               };
         };
+        const no = (which: string) =>
+          (cell(which)?.getAttribute("data-diff-nos") ?? "").trim();
         return {
-          // gutter, code, gutter, code — or one spanning cell.
-          after: read(3),
-          afterNo: cell(2)?.textContent ?? null,
-          before: read(1),
-          beforeNo: cell(0)?.textContent ?? null,
+          after: read("after"),
+          afterNo: no("after"),
+          before: read("before"),
+          beforeNo: no("before"),
           kind: row.getAttribute("data-split-row"),
-          span: cells.length === 1 ? read(0) : null,
+          span: cells.length === 0 ? (row.textContent ?? "") : null,
         };
       },
     );
@@ -682,26 +707,40 @@ test("given the whole surface, split draws two aligned columns and neither is cl
   expect(rows[4].afterNo).toBe("2");
 
   // **Colour is information, and it is the theme's own diff tokens.** Read as
-  // resolved colours rather than as class names: a class assertion says which
+  // resolved paint rather than as class names: a class assertion says which
   // paint was written, not which one the browser arrived at. Three distinct
-  // colours — deleted, added, context — is the claim.
-  const deleted = rows[2].before?.color;
-  const added = rows[1].after?.color;
-  const context = rows[4].before?.color;
+  // grounds — deleted, added, context — is the claim.
+  //
+  // P4.8: read off the row's TINT rather than off the letters. The claim is the
+  // one Task 2 made and the token is the same `--status-added` /
+  // `--status-deleted`; what changed is that split stopped painting its code
+  // flat green and red, which was the one thing keeping Shiki's colours out of
+  // half the app's diffs and the last place the two layouts spoke differently.
+  const deleted = rows[2].before?.tint;
+  const added = rows[1].after?.tint;
+  const context = rows[4].before?.tint;
   expect(new Set([deleted, added, context]).size).toBe(3);
   // And the deleted side of a change row is the same red as the deleted side of
   // any other, which is what makes it a token rather than a per-row decision.
-  expect(rows[3].before?.color).toBe(deleted);
+  expect(rows[3].before?.tint).toBe(deleted);
 
   // **Two halves, and nothing cut off.** The columns are the same width to
   // within a pixel, each has the code width the precondition promised, and no
   // cell has content wider than it can show — which is the whole reason the
   // layout is a grid and not two clipped boxes.
+  //
+  // The measured box is now the whole cell, gutter included, so the gutter's
+  // own budget comes off before the comparison: `SPLIT_GUTTER_PX` is what
+  // `SPLIT_MIN_PX` counts for it, and the drawing spends less than that (six
+  // monospace characters, 43.35px), so subtracting the budget is the
+  // conservative reading of the same claim.
   const code = rows[4];
   expect(
     Math.abs((code.before?.width ?? 0) - (code.after?.width ?? 0)),
   ).toBeLessThanOrEqual(1);
-  expect(code.before?.width ?? 0).toBeGreaterThanOrEqual(SPLIT_COLUMN_CODE_PX);
+  expect((code.before?.width ?? 0) - SPLIT_GUTTER_PX).toBeGreaterThanOrEqual(
+    SPLIT_COLUMN_CODE_PX,
+  );
   expect(columns).toBeGreaterThanOrEqual(SPLIT_MIN_PX - 32);
   const clipped = rows.flatMap((row) =>
     [row.before, row.after, row.span].filter(

@@ -35,7 +35,7 @@
 //                           line, and the three doors onto the tab.
 
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { waitForAnimations } from "../helpers/animations";
 import {
@@ -48,6 +48,10 @@ import {
 
 const SHOTS =
   "/private/tmp/claude-501/-Users-ahmetyusufbirinci/9a20f9f6-1102-43cb-8495-976fd565d0ea/scratchpad/p46-shots";
+
+/** P4.8's own evidence — the parity round, shot on the same real commit. */
+const SHOTS_48 =
+  "/private/tmp/claude-501/-Users-ahmetyusufbirinci/9a20f9f6-1102-43cb-8495-976fd565d0ea/scratchpad/p48-shots";
 
 /** The mockup's `line-height: 22px`. */
 const ROW_H = 22;
@@ -353,6 +357,246 @@ test("§2 the toolbar writes the app's own flags, and remembers two of them", as
   await expect(
     tab.locator('[data-testid^="history-patch-"]').first(),
   ).toHaveAttribute("data-wrapped", "true");
+});
+
+// ── P4.8 · the same diff, two shapes ────────────────────────────────────────
+//
+// > *"diff split te unified'dan farkli"* … *"ui olarak ta farkli"*
+//
+// **A rendering mode may change the shape of the information, never its content
+// — and never its vocabulary.** P4.6 shipped split as a lesser citizen: it drew
+// no word-level highlight, offered no comment affordance, rendered no review
+// thread, was never windowed, and drew its gutters, its wrapping and its filler
+// rows in a language of its own. Every claim below is that rule, read off the
+// page in both modes on the same real commit.
+
+/** Every line the patch bodies are showing, as `sign · code`, in order — the
+ * reading that says two layouts are showing the same diff and not merely two
+ * plausible diffs. Numbers come from `data-diff-nos` in both modes because in
+ * both modes they are generated content, which is the point of gap 6. */
+async function linesOnScreen(page: Page, mode: "split" | "unified") {
+  return page.evaluate((which) => {
+    const clean = (text: string) => text.replace(/ /g, " ");
+    if (which === "unified") {
+      return Array.from(
+        document.querySelectorAll("[data-diff-sign]"),
+        (row) => {
+          const code = row.querySelector("[data-diff-code]");
+          return `${row.getAttribute("data-diff-sign")}·${clean(code?.textContent ?? "")}`;
+        },
+      );
+    }
+    // In split one context row is drawn in TWO cells — the same line of the
+    // same file, once per column. Unified draws it once, so the right-hand copy
+    // is skipped: this compares what the reader is told, not how many boxes
+    // told him.
+    //
+    // `[data-diff-code]` and not the cell's own text, in BOTH branches: the
+    // comment affordance is a `+` glyph living inside the cell (out of flow,
+    // over the gutter), so a cell's `textContent` is the code with a `+` in
+    // front of it. It is `display:none` until hovered and therefore not in what
+    // a drag copies, but it is in what `textContent` reads — and a reading that
+    // included it would be comparing the button, not the line.
+    const out: string[] = [];
+    for (const row of document.querySelectorAll('[data-split-row="context"]')) {
+      const code = row.querySelector("[data-split-cell] [data-diff-code]");
+      out.push(`ctx·${clean(code?.textContent ?? "")}`);
+    }
+    return out;
+  }, mode);
+}
+
+/** A readable band of the card `target` sits in, centred on it.
+ *
+ * A whole file card is thousands of pixels tall — `locator.screenshot()` of one
+ * is a picture of mostly nothing with the subject somewhere in it, which is a
+ * screenshot nobody reads. The band is the card's own width (so both columns
+ * are in frame) and a few rows of height, clamped to the viewport. */
+async function band(page: Page, target: Locator, path: string) {
+  const HEIGHT = 300;
+  const spot = await target.boundingBox();
+  const card = await target
+    .locator("xpath=ancestor::*[@data-diff-card][1]")
+    .boundingBox();
+  const view = page.viewportSize();
+  expect(spot).not.toBeNull();
+  expect(card).not.toBeNull();
+  const box = spot as NonNullable<typeof spot>;
+  const outer = card as NonNullable<typeof card>;
+  const height = Math.min(HEIGHT, view?.height ?? HEIGHT);
+  const y = Math.max(
+    0,
+    Math.min(box.y - height / 3, (view?.height ?? height) - height),
+  );
+  await waitForAnimations(page);
+  await page.screenshot({
+    clip: { height, width: outer.width, x: outer.x, y },
+    path,
+  });
+}
+
+test("§4 · P4.8 split shows the SAME lines as unified, in the same vocabulary", async ({
+  page,
+}) => {
+  const tab = await openCommitTab(page);
+  await tab.getByTestId("diff-tab-expand-all").click();
+  const patch = tab.locator(`[data-testid="history-patch-${REAL_MIXED_PATH}"]`);
+  await expect(patch).toBeVisible();
+
+  // **Unified first**, and everything that is true of it is what split is then
+  // held to. A patch this size is not windowed in either mode, so both readings
+  // are of the whole file.
+  await expect(patch).toHaveAttribute("data-mode", "unified");
+  await expect(patch).toHaveAttribute("data-wrapped", "false");
+  const unifiedWords = await tab.locator(".vingilot-wd").count();
+  expect(unifiedWords).toBeGreaterThan(0);
+  const unifiedContext = await linesOnScreen(page, "unified");
+  await waitForAnimations(page);
+  await patch.screenshot({ path: `${SHOTS_48}/p48-unified-hunk.png` });
+
+  await tab.getByTestId("diff-tab-mode-split").click();
+  await expect(patch).toHaveAttribute("data-mode", "split");
+
+  // **Gap 5, and it is the one the two screenshots were of.** Split used to
+  // wrap whatever the pane's width said, so a long line re-flowed on one side
+  // and not the other and the pair stopped lining up. It now reads the same
+  // `wraps` unified does — above the floor, off in both.
+  await expect(patch).toHaveAttribute("data-wrapped", "false");
+
+  // **Content.** Every context line unified drew, split draws, in order.
+  const splitContext = await linesOnScreen(page, "split");
+  expect(splitContext).toEqual(
+    unifiedContext.filter((row) => row.startsWith("ctx·")),
+  );
+  expect(splitContext.length).toBeGreaterThan(0);
+
+  const read = await page.evaluate(() => {
+    const cells = Array.from(
+      document.querySelectorAll("[data-split-cell]:not([data-split-filler])"),
+    );
+    const rows = Array.from(
+      document.querySelectorAll('[data-split-row="change"]'),
+    );
+    const pair = rows.find(
+      (row) =>
+        row.querySelectorAll("[data-split-cell]").length === 2 &&
+        row.querySelectorAll("[data-split-filler]").length === 0,
+    );
+    const box = (el: Element | null | undefined) =>
+      el === null || el === undefined ? null : el.getBoundingClientRect();
+    const both =
+      pair === undefined
+        ? []
+        : Array.from(pair.querySelectorAll("[data-split-cell]"));
+    return {
+      // Gap 1: the word-level highlight, on the layout where comparing tokens
+      // is the entire point.
+      words: document.querySelectorAll(".vingilot-wd").length,
+      // Gap 6: the numbers are generated content in split too — nothing in the
+      // cell's own text is a line number, so a drag over the code copies code.
+      digitsInText: cells.filter((cell) =>
+        /^\s*\d/.test(
+          cell.querySelector("[data-diff-code]")?.textContent ?? "",
+        ),
+      ).length,
+      numbered: cells.filter(
+        (cell) => (cell.getAttribute("data-diff-nos") ?? "").trim() !== "",
+      ).length,
+      gutterColour:
+        cells[0] === undefined
+          ? null
+          : getComputedStyle(cells[0], "::before").color,
+      // Gap 8 / the alignment claim: the two cells of a pair start at the same
+      // y and are the same height, and that height is the mockup's 22px row.
+      pairTops: both.map((cell) => Math.round(box(cell)?.top ?? -1)),
+      pairHeights: both.map((cell) => Math.round(box(cell)?.height ?? -1)),
+      // Gap 7: a gap is a drawn band rather than an unpainted hole.
+      fillers: document.querySelectorAll("[data-split-filler]").length,
+      hatched: Array.from(
+        document.querySelectorAll("[data-split-filler]"),
+      ).every((cell) => getComputedStyle(cell).backgroundImage !== "none"),
+    };
+  });
+
+  expect(read.words).toBeGreaterThan(0);
+  expect(read.numbered).toBeGreaterThan(0);
+  expect(read.digitsInText).toBe(0);
+  // The same muted ink unified's numbers wear — one gutter drawing, not two.
+  expect(read.gutterColour).not.toBeNull();
+  expect(read.pairTops.length).toBe(2);
+  expect(read.pairTops[0]).toBe(read.pairTops[1]);
+  expect(read.pairHeights[0]).toBe(ROW_H);
+  expect(read.pairHeights[1]).toBe(ROW_H);
+  expect(read.fillers).toBeGreaterThan(0);
+  expect(read.hatched).toBe(true);
+
+  await waitForAnimations(page);
+  await patch.screenshot({ path: `${SHOTS_48}/p48-split-hunk.png` });
+  await page.getByTestId("work-surface").screenshot({
+    path: `${SHOTS_48}/p48-split-surface.png`,
+  });
+
+  // And the word highlight where it can actually be looked at: the first marked
+  // pair, scrolled to and shot in its own card. Aimed rather than cropped —
+  // "the first `.wd` on the page" is a different row in every commit, and a
+  // fixed clip would eventually photograph blank ground and still pass.
+  const marked = tab.locator(".vingilot-wd").first();
+  await marked.scrollIntoViewIfNeeded();
+  await band(page, marked, `${SHOTS_48}/p48-split-word-diff.png`);
+});
+
+test("§4 · P4.8 split offers the comment affordance and the same thread slot", async ({
+  page,
+}) => {
+  const tab = await openCommitTab(page);
+  await tab.getByTestId("diff-tab-expand-all").click();
+  await tab.getByTestId("diff-tab-mode-split").click();
+
+  // **Gap 2.** Hidden until hovered, over the gutter, on the side the reader is
+  // actually on — the same `.addbtn` the unified row has offered since P4.6.
+  const cell = tab
+    .locator(
+      '[data-split-row="change"] [data-split-cell]:not([data-split-filler])',
+    )
+    .first();
+  await expect(cell).toBeVisible();
+  const button = cell.locator("[data-diff-comment-button]");
+  await expect(button).toBeHidden();
+  await cell.hover();
+  await expect(button).toBeVisible();
+  await waitForAnimations(page);
+  // The row that is really hovered, not a fixed box: two shots of the same box
+  // in two states is how a screenshot set comes out byte-identical.
+  await band(page, cell, `${SHOTS_48}/p48-split-hover.png`);
+
+  // **Gap 3.** The slot a review thread renders into is `renderAfter`'s, and in
+  // split it now exists — spanning both columns, between the pair and the next
+  // one. This fixture's relay has no anchored note (§5 asserts exactly that, and
+  // a seeded one would be words no agent wrote), so what is read here is the
+  // other thing that lands in the same slot: the composer `⌥⏎` opens.
+  await page.keyboard.press("j");
+  await expect(tab.locator('[data-diff-focused="true"]')).toHaveCount(1);
+  await page.keyboard.press("Alt+Enter");
+  const composer = tab.getByTestId("diff-tab-composer");
+  await expect(composer).toBeVisible();
+  await expect(composer).toContainText(":");
+  // It spans the pair rather than sitting in one column: a note about a line is
+  // not a fact about one side's file.
+  const spans = await composer.evaluate((node) => {
+    const grid = node.closest("[data-select='text']");
+    const slot = node.parentElement;
+    if (grid === null || slot === null) return null;
+    return {
+      cell: Math.round(slot.getBoundingClientRect().width),
+      grid: Math.round(grid.getBoundingClientRect().width),
+    };
+  });
+  expect(spans).not.toBeNull();
+  const laid = spans as NonNullable<typeof spans>;
+  expect(Math.abs(laid.cell - laid.grid)).toBeLessThanOrEqual(1);
+
+  await composer.scrollIntoViewIfNeeded();
+  await band(page, composer, `${SHOTS_48}/p48-split-thread-slot.png`);
 });
 
 test("§2 Review… opens P4's reviewer popover, not a second one", async ({
