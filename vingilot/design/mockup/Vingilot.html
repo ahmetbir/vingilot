@@ -116,6 +116,7 @@
 <div class="ttab on" data-term="claude"><span class="d"></span>claude</div>
 <div class="ttab"><span class="d"></span>zsh</div>
 <div class="ttab"><span class="d" style="background:#7da97c"></span>dev · 5173</div>
+<div class="ttab" data-term="diff"><span class="d" style="background:#9fc6d6"></span>e8d628e · diff<span class="x" style="opacity:1;margin-left:3px">✕</span></div>
 <div class="ttab" id="tab-scratch" data-term="scratch" style="display:none"><span class="d" style="background:#d4b36a"></span>scratch<span class="x" style="opacity:1;margin-left:3px" data-act="scratch-close">✕</span></div>
 <div class="taskplus">+</div>
 <div class="tright"><span style="display:flex;align-items:center;gap:7px"><span class="spin"></span>Opus 4.6 · working 2m 14s</span></div>
@@ -144,6 +145,75 @@
 <div style="margin-top:4px"><span class="grn">➜</span> <span class="cy">buzz</span> swift test --filter CheckoutTests 2>&1 | tail -2</div>
 <div>Executed 12 tests, with 0 failures (0 unexpected) in 8.412s</div>
 <div class="grn">✔ suite green</div>
+</div>
+<div class="dv" id="tb-diff" style="display:none">
+<div class="dvh">
+<div class="dvtop">
+<div><div class="dvmsg">await payment stub before asserting</div>
+<div class="dvsub"><span class="gav" style="background:linear-gradient(140deg,#b3762e,#6b4318)">B</span><b>Bosun</b> committed 18m ago<span class="shac">e8d628e</span><span>on</span><span class="brchip">feature/surface-cards</span><span>·</span><span>3 files changed</span></div></div>
+<div class="dvstat"><span class="gplus">+214</span><span class="gmin">−38</span><span class="barmini"><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="r"></i></span></div>
+</div>
+</div>
+<div class="dvbar">
+<div class="dvseg"><button class="on" data-dvm="unified">Unified</button><button data-dvm="split">Split</button></div>
+<span class="dvghost act" data-act="toast" data-msg="Whitespace changes hidden">Ignore whitespace</span>
+<span class="dvghost" data-act="toast" data-msg="Soft wrap on">Wrap</span>
+<span class="dvghost" data-act="toast" data-msg="All files expanded">Expand all</span>
+<span class="dvghost" style="margin-left:auto" data-act="toast" data-msg="Jumped to next change"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7 12 3l4 4M8 17l4 4 4-4"></path></svg>Next change <span class="kbd">J</span></span>
+<span class="dvghost" data-act="review">Review…</span>
+</div>
+<div class="dvscroll">
+<div class="fcard">
+<div class="fch" data-fc><span class="chv">▾</span><span class="flogo swift">S</span><span class="fpath2">Tests/<b>CheckoutTests.swift</b></span><div class="fchr"><span class="fstat"><span class="gplus">+9</span> <span class="gmin">−4</span></span><span class="barmini"><i class="g"></i><i class="g"></i><i class="r"></i></span><span class="ficon" data-act="toast" data-msg="Path copied"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg></span><span class="ficon" data-act="toast" data-msg="Opened in editor"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 4h6v6M20 4 10 14M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"></path></svg></span></div></div>
+<div class="fbody">
+<div class="hunkbar">@@ −41,9 +41,11 @@<span class="ctx">func testCheckoutCompletes()</span><span class="expand" data-act="toast" data-msg="Expanded 20 lines of context"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7 12 3l4 4M8 17l4 4 4-4"></path></svg>Expand context</span></div>
+<div class="dl "><span class="gut">41</span><span class="gut">41</span><span class="sgn"></span><span class="src">  <span class="kw">let</span> cart = <span class="kw">try</span> <span class="fn">makeCart</span>(items: <span class="num">3</span>)</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl del"><span class="gut">42</span><span class="gut"></span><span class="sgn">−</span><span class="src">  <span class="ty">Thread</span>.<span class="fn">sleep</span>(forTimeInterval: <span class="num wd">0.3</span>)</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl del"><span class="gut">43</span><span class="gut"></span><span class="sgn">−</span><span class="src">  <span class="kw">let</span> receipt = checkout.<span class="fn">complete</span>(cart)</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">42</span><span class="sgn">+</span><span class="src">  <span class="kw">let</span> stub = <span class="kw wd">try await</span> paymentStub.<span class="fn">ready</span>(timeout: <span class="num">0.5</span>)</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">43</span><span class="sgn">+</span><span class="src">  <span class="kw">let</span> receipt = <span class="kw wd">try await</span> checkout.<span class="fn">complete</span>(</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">44</span><span class="sgn">+</span><span class="src">      cart, using: stub)</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl "><span class="gut">44</span><span class="gut">45</span><span class="sgn"></span><span class="src">  <span class="fn">XCTAssertEqual</span>(receipt.state, .paid)</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl "><span class="gut">45</span><span class="gut">46</span><span class="sgn"></span><span class="src">  <span class="fn">XCTAssertNil</span>(receipt.error)</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="rvw">
+<div class="rvwh"><span class="gav" style="background:linear-gradient(140deg,#3e7a8a,#1e4550)">L</span><b>Lookout</b> requested changes on line 42<span class="reqchg" style="margin-left:auto">changes requested</span></div>
+<div class="rvwt"><b style="color:var(--ink)">A bare 0.5s is a magic number here.</b> Pull it into <span class="bcode">AsyncFixtures.defaultReadyTimeout</span> so CI can tune it in one place — otherwise the next flaky test gets its own literal.</div>
+<div class="rvwa"><button class="pbtn pri" data-act="toast" data-msg="Bosun is applying the suggestion">Apply suggestion</button><button class="pbtn" data-act="toast" data-msg="Replying to Lookout">Reply</button><button class="pbtn" data-act="toast" data-msg="Comment resolved">Resolve</button></div>
+</div>
+<div class="hunkbar">@@ −88,4 +90,6 @@<span class="ctx">tearDown()</span><span class="expand" data-act="toast" data-msg="Expanded 20 lines of context"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7 12 3l4 4M8 17l4 4 4-4"></path></svg>Expand context</span></div>
+<div class="dl "><span class="gut">88</span><span class="gut">90</span><span class="sgn"></span><span class="src">  <span class="kw">override func</span> <span class="fn">tearDown</span>() <span class="kw">async throws</span> {</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">91</span><span class="sgn">+</span><span class="src">      <span class="kw">await</span> paymentStub.<span class="fn">reset</span>()</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl "><span class="gut">89</span><span class="gut">92</span><span class="sgn"></span><span class="src">      <span class="kw">try await</span> <span class="kw">super</span>.<span class="fn">tearDown</span>()</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl "><span class="gut">90</span><span class="gut">93</span><span class="sgn"></span><span class="src">  }</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+</div>
+</div>
+<div class="fcard">
+<div class="fch" data-fc><span class="chv">▾</span><span class="flogo swift">S</span><span class="fpath2">Sources/Checkout/<b>PaymentStub.swift</b></span><div class="fchr"><span class="prlabel" style="background:rgba(63,185,80,.14);color:#a9d9a0">added</span><span class="fstat"><span class="gplus">+188</span> <span class="gmin">−21</span></span><span class="barmini"><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="r"></i></span><span class="ficon" data-act="toast" data-msg="Path copied"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg></span><span class="ficon" data-act="toast" data-msg="Opened in editor"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 4h6v6M20 4 10 14M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"></path></svg></span></div></div>
+<div class="fbody">
+<div class="hunkbar">@@ −80,6 +80,14 @@<span class="ctx">actor PaymentStub</span><span class="expand" data-act="toast" data-msg="Expanded 20 lines of context"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7 12 3l4 4M8 17l4 4 4-4"></path></svg>Expand context</span></div>
+<div class="dl "><span class="gut">80</span><span class="gut">80</span><span class="sgn"></span><span class="src">  <span class="cmt">/// Resolves once the stub has a settled payment session.</span></span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">81</span><span class="sgn">+</span><span class="src">  <span class="kw">func</span> <span class="fn">ready</span>(timeout: <span class="ty">TimeInterval</span> = <span class="ty">Self</span>.defaultTimeout)</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">82</span><span class="sgn">+</span><span class="src">      <span class="kw">async throws</span> -> <span class="ty">Session</span> {</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">83</span><span class="sgn">+</span><span class="src">      <span class="kw">try await</span> withThrowingTaskGroup { group <span class="kw">in</span></span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">84</span><span class="sgn">+</span><span class="src">          group.<span class="fn">addTask</span> { <span class="kw">try await</span> <span class="kw">self</span>.settled() }</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">85</span><span class="sgn">+</span><span class="src">          group.<span class="fn">addTask</span> { <span class="kw">try await</span> <span class="ty">Task</span>.<span class="fn">sleep</span>(for: .seconds(timeout))</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">86</span><span class="sgn">+</span><span class="src">              <span class="kw">throw</span> <span class="ty">StubError</span>.<span class="fn">timedOut</span>(after: timeout) }</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">87</span><span class="sgn">+</span><span class="src">          <span class="kw">return try await</span> group.<span class="fn">next</span>()!</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">88</span><span class="sgn">+</span><span class="src">      }</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">89</span><span class="sgn">+</span><span class="src">  }</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl "><span class="gut">81</span><span class="gut">90</span><span class="sgn"></span><span class="src">  </span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl del"><span class="gut">82</span><span class="gut"></span><span class="sgn">−</span><span class="src">  <span class="kw">var</span> isSettled: <span class="ty">Bool</span> { state == .<span class="wd">settled</span> }</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">91</span><span class="sgn">+</span><span class="src">  <span class="kw">var</span> isSettled: <span class="ty">Bool</span> { <span class="kw">get async</span> { <span class="kw">await</span> state == .<span class="wd">settled</span> } }</span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+</div>
+</div>
+<div class="fcard closed">
+<div class="fch" data-fc><span class="chv">▾</span><span class="flogo swift">S</span><span class="fpath2">Tests/Support/<b>AsyncFixtures.swift</b></span><div class="fchr"><span class="fstat"><span class="gplus">+17</span> <span class="gmin">−13</span></span><span class="barmini"><i class="g"></i><i class="g"></i><i class="r"></i><i class="r"></i></span><span class="ficon" data-act="toast" data-msg="Path copied"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg></span><span class="ficon" data-act="toast" data-msg="Opened in editor"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 4h6v6M20 4 10 14M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"></path></svg></span></div></div>
+<div class="fbody"><div class="hunkbar">@@ −12,6 +12,10 @@<span class="ctx">extension AsyncFixtures</span></div>
+<div class="dl add"><span class="gut"></span><span class="gut">12</span><span class="sgn">+</span><span class="src">  <span class="kw">static let</span> defaultReadyTimeout: <span class="ty">TimeInterval</span> = <span class="num">0.5</span></span><span class="addbtn" data-act="toast" data-msg="Comment on this line">+</span></div>
+</div>
+</div>
+</div>
+<div class="dvfoot"><span>3 files · <span class="gplus">+214</span> <span class="gmin">−38</span></span><span>·</span><span>1 unresolved review comment</span><span style="margin-left:auto"><span class="kbd">J</span> / <span class="kbd">K</span> next change · <span class="kbd">⌥⏎</span> comment</span></div>
 </div>
 <div class="prompt"><span>❯</span><span class="car"></span></div>
 </div>

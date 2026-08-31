@@ -11,6 +11,10 @@ let toastT;function toast(msg){const t=$('#toast');t.textContent=msg;t.classList
 function palette(on){$('#palette').classList.toggle('on',on);$('#overlay').classList.toggle('on',on);if(on){$('#pinput').value='';$('#pinput').focus()}}
 function tray(on){$('#tray').classList.toggle('on',on===undefined?!$('#tray').classList.contains('on'):on);$('#btn-appearance').classList.toggle('on',$('#tray').classList.contains('on'))}
 document.addEventListener('click',e=>{
+const fcH=e.target.closest('.fch');
+if(fcH&&!e.target.closest('.ficon')){fcH.parentElement.classList.toggle('closed')}
+const dvm=e.target.closest('[data-dvm]');
+if(dvm){$$('[data-dvm]').forEach(b=>b.classList.toggle('on',b===dvm));toast(dvm.dataset.dvm==='split'?'Split view':'Unified view')}
 const t=e.target.closest('[data-side],[data-accent],[data-chatpos],[data-view],[data-dock],[data-act],[data-tf],[data-reviewer],[data-pr],[data-hm],[data-term],[data-dm]');
 if(!$('#tray').contains(e.target)&&!e.target.closest('#btn-appearance'))tray(false);
 const fr=e.target.closest('.trow:not([data-tf])');
@@ -28,9 +32,9 @@ if(t.dataset.dm){const d=t.dataset.dm,mate=d==='mate';$('#dmsheet').classList.ad
 if(a==='dm-min'){$('#dmsheet').classList.remove('on');$('#dmpill').classList.add('on')}
 if(a==='dm-close'){$('#dmsheet').classList.remove('on');$('#dmpill').classList.remove('on')}
 if(a==='dm-restore'){$('#dmpill').classList.remove('on');$('#dmsheet').classList.add('on')}
-if(t.dataset.term){$$('[data-term]').forEach(b=>b.classList.toggle('on',b.dataset.term===t.dataset.term));$('#tb-claude').style.display=t.dataset.term==='claude'?'':'none';$('#tb-scratch').style.display=t.dataset.term==='scratch'?'':'none'}
-if(a==='scratch-close'){$('#tab-scratch').style.display='none';$$('[data-term]').forEach(b=>b.classList.toggle('on',b.dataset.term==='claude'));$('#tb-claude').style.display='';$('#tb-scratch').style.display='none';toast('Scratch terminal closed — nothing kept');return}
-if(a==='scratch'){palette(false);$('#tab-scratch').style.display='';$$('[data-term]').forEach(b=>b.classList.toggle('on',b.dataset.term==='scratch'));$('#tb-claude').style.display='none';$('#tb-scratch').style.display='';toast('Scratch terminal — gone when you close it')}
+if(t.dataset.term){const k=t.dataset.term;$$('[data-term]').forEach(b=>b.classList.toggle('on',b.dataset.term===k));['claude','scratch','diff'].forEach(x=>{const el=$('#tb-'+x);if(el)el.style.display=x===k?'':'none'})}
+if(a==='scratch-close'){$('#tab-scratch').style.display='none';$$('[data-term]').forEach(b=>b.classList.toggle('on',b.dataset.term==='claude'));$('#tb-claude').style.display='';$('#tb-diff').style.display='none';$('#tb-scratch').style.display='none';toast('Scratch terminal closed — nothing kept');return}
+if(a==='scratch'){palette(false);$('#tab-scratch').style.display='';$$('[data-term]').forEach(b=>b.classList.toggle('on',b.dataset.term==='scratch'));$('#tb-claude').style.display='none';$('#tb-diff').style.display='none';$('#tb-scratch').style.display='';toast('Scratch terminal — gone when you close it')}
 if(a==='toggle-side'){palette(false);document.body.classList.toggle('noside');state.noside=document.body.classList.contains('noside');save()}
 if(a==='zen'){palette(false);document.body.classList.toggle('zen');state.zen=document.body.classList.contains('zen');save()}
 if(a==='close-palette'&&t.dataset.msg)toast(t.dataset.msg);
