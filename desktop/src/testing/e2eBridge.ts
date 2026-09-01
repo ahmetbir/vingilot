@@ -9,6 +9,11 @@ import {
   handleSaveCustomHarness,
   handleDeleteCustomHarness,
 } from "./e2eBridgeCustomHarnesses.ts";
+import {
+  type MockPulls,
+  mockPullsList,
+  mockPullsView,
+} from "./e2eBridgePulls.ts";
 
 import { relayClient } from "@/shared/api/relayClient";
 import {
@@ -226,6 +231,8 @@ type E2eConfig = {
     dictationStartError?: string;
     /** Home harbor (`vingilot_harbor`) command responses. See MockBridgeOptions. */
     harbor?: MockHarbor;
+    /** `vingilot_pulls` (`pulls_list`/`pulls_view`) answers. See MockPulls. */
+    pulls?: MockPulls;
     /** Advertised HEAD for the first mock project without adding that branch. */
     projectHeadBranch?: string;
     /** Builderlab account returned by hosted-community onboarding. Null/omitted = signed out. */
@@ -11214,6 +11221,14 @@ export function maybeInstallE2eTauriMocks() {
           },
         };
       }
+      // `vingilot_pulls`, mocked at the IPC for the reason e2eBridgePulls.ts
+      // gives: the real island is `git` + `gh` against github.com with this
+      // machine's own login, and the eight refusals cannot be produced there
+      // on demand.
+      case "pulls_list":
+        return await mockPullsList(activeConfig?.mock?.pulls, payload);
+      case "pulls_view":
+        return await mockPullsView(activeConfig?.mock?.pulls, payload);
       case "harbor_probe":
         return (
           activeConfig?.mock?.harbor?.probe ?? {

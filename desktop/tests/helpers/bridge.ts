@@ -172,6 +172,17 @@ type MockBridgeOptions = {
     startError?: string;
     stopError?: string;
   };
+  /** `vingilot_pulls` answers, keyed by the worktree path the pane asks with
+   *  (`list`) and by `${worktree}#${number}` (`view`). Each value is the
+   *  island's own wire shape — `{kind:"answer", …}` or one of its eight
+   *  refusals. A path with no entry answers `not-a-repo`, never an empty list.
+   *  See src/testing/e2eBridgePulls.ts. */
+  pulls?: {
+    list?: Record<string, unknown>;
+    view?: Record<string, unknown>;
+    error?: string;
+    delayMs?: number;
+  };
   /** Advertised HEAD for the first mock project without adding that branch. */
   projectHeadBranch?: string;
   /** Relay NIP-11 identity used to sign authoritative repository state. */

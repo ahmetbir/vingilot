@@ -20,17 +20,24 @@
 //   portalled in by `RunsScreen`, which owns all of its state; see the slot
 //   module's header for why the DOM moves and the state does not.
 //
-// - **agents / pulse / workflows / projects** — a named empty state. These
-//   views have no sidebar-shaped content yet, and before this component they
-//   showed the channel list instead — not "nothing", a wrong answer standing
-//   in for one. "No sidebar detail … yet" is strictly more honest, and it is a
-//   sentence rather than an empty box because an empty read must never look
-//   like "nothing there" (plan §1.4, §4). Building real trees for these four
-//   is explicitly not this component's job.
+// - **projects** — the Pull requests pane (`features/pulls/ui/PullsPane.tsx`),
+//   redesign P5. This row used to carry the placeholder sentence "your repos'
+//   real pull requests are on their way"; they have arrived, read with `gh`
+//   through `vingilot_pulls` for whichever checkout the workspace has
+//   selected.
+//
+// - **agents / pulse / workflows** — a named empty state. These views have no
+//   sidebar-shaped content yet, and before this component they showed the
+//   channel list instead — not "nothing", a wrong answer standing in for one.
+//   "No sidebar detail … yet" is strictly more honest, and it is a sentence
+//   rather than an empty box because an empty read must never look like
+//   "nothing there" (plan §1.4, §4). Building real trees for these three is
+//   explicitly not this component's job.
 
 import type * as React from "react";
 import { createPortal } from "react-dom";
 
+import { PullsPane } from "@/features/pulls/ui/PullsPane";
 import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
 import { useSidebarChatsSlot } from "@/shared/lib/sidebarChatsSlot";
 import { setSidebarNavSlot } from "@/shared/lib/sidebarNavSlot";
@@ -66,7 +73,6 @@ export function SidebarChatsHome({
  * primary menu's own labels, so the sentence names the row the owner clicked. */
 const EMPTY_VIEW_LABELS: Partial<Record<SelectedView, string>> = {
   agents: "Agents",
-  projects: "Pull requests",
   pulse: "Pulse",
   workflows: "Workflows",
 };
@@ -86,6 +92,8 @@ export function SidebarContextualPane({
     );
   }
 
+  if (selectedView === "projects") return <PullsPane />;
+
   const label = EMPTY_VIEW_LABELS[selectedView];
   // The channel views are AppSidebar's own branch, not this component's; a
   // view this component has no answer for renders nothing rather than a
@@ -97,12 +105,7 @@ export function SidebarContextualPane({
       className="select-none px-4 py-3 text-sm text-muted-foreground/80"
       data-testid="sidebar-contextual-empty"
     >
-      {/* P1.1 veto 3: the Pull requests row must not pretend — the real,
-       * gh-backed pull requests of the worktrees' repos arrive in a later
-       * phase, and until then the pane says exactly that. */}
-      {selectedView === "projects"
-        ? "No pull requests here yet — your repos' real pull requests are on their way."
-        : `No sidebar detail for ${label} yet.`}
+      {`No sidebar detail for ${label} yet.`}
     </p>
   );
 }

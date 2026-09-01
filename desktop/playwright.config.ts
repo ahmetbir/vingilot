@@ -200,6 +200,7 @@ export default defineConfig({
         "**/vingilot-shell.spec.ts",
         "**/onboarding-sea-backdrop.spec.ts",
         "**/home-harbor.spec.ts",
+        "**/pulls-pane.spec.ts",
         "**/agent-numeric-tuning.spec.ts",
         "**/needs-restart-screenshots.spec.ts",
       ],

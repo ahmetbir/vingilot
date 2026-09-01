@@ -81,6 +81,7 @@ import { useAskPending } from "@/features/runs/lib/useAskPending";
 import { useCheatsheet } from "@/features/runs/lib/useCheatsheet";
 import { useCrewMint } from "@/features/runs/lib/useCrewMint";
 import { useCrewReach } from "@/features/runs/lib/useCrewReach";
+import { usePublishWorktreeFocus } from "@/features/runs/lib/usePublishWorktreeFocus";
 import { useWorkspaceCloseRequest } from "@/features/runs/lib/useWorkspaceCloseRequest";
 import { useWorkspaceDialogs } from "@/features/runs/lib/useWorkspaceDialogs";
 import {
@@ -427,6 +428,18 @@ export function RunsScreen() {
     selectedRepo === null || selectedWorktree === null || worktreeRoot === null
       ? null
       : worktreeCwd(selectedRepo, selectedWorktree, worktreeRoot);
+
+  // Handed to the surfaces mounted while this screen is not — the sidebar's
+  // Pull requests pane on `/projects` (`shared/lib/worktreeFocus.ts`).
+  usePublishWorktreeFocus({
+    cwd: selectedWorktreeCwd,
+    label:
+      selectedWorktree === null
+        ? null
+        : worktreeSummary(selectedWorktree).label,
+    repoName: selectedRepo?.name ?? null,
+    settled: rootSettled,
+  });
 
   // The scratch shell and every door into it (`lib/useScratchTerminal.ts`).
   // Held here rather than in `WorkSurface` for the reason the tab layout is:

@@ -57,6 +57,7 @@ mod vingilot_harbor;
 mod vingilot_hooks;
 mod vingilot_projects;
 mod vingilot_pty;
+mod vingilot_pulls;
 mod vingilot_repo;
 mod vingilot_scratch;
 mod vingilot_search;

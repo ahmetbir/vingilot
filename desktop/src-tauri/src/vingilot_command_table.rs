@@ -132,6 +132,8 @@ macro_rules! table {
             vingilot_pty::pty_backing,
             vingilot_pty::pty_copy_mode,
             vingilot_pty::pty_copy_mode_exit,
+            vingilot_pulls::pulls_list,
+            vingilot_pulls::pulls_view,
             vingilot_repo::repo_probe,
             vingilot_scratch::scratch_read,
             vingilot_scratch::scratch_write,

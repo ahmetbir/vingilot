@@ -1,0 +1,74 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P5, a worktree's pull requests
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment (vingilot/docs/plans/2026-08-29-redesign.md, P5, owner
+# 2026-08-31):
+#
+#   "worktreelerdeki pull requestleri göstermek… gh ya da git kullanarak"
+#
+# The workspace half of this app already answers everything git can read off
+# the disk for a worktree — its branch, its diff, its log, its status. What it
+# cannot answer is the question the owner asks next: is there a pull request
+# open for this, and where has it got to. That answer lives on GitHub, and the
+# machine already holds the credential for it in `gh`'s keyring.
+#
+# The owner vetoed the other reading of this out loud. An earlier pass pointed
+# it at the relay-native `projects` feature and he corrected it: "experimentsteki
+# projects bambaska bir sey — git hostlamak gibi bisi o". So this island talks to
+# github.com through `gh`, and to nothing in the relay.
+#
+# **Two rounds, both declared here.** The first was Rust only: the two commands,
+# registered and tested, and the tagged union below as the contract. The second
+# is the surface that draws them — the sidebar's `/projects` pane, its wire
+# types, the worktree the list follows, and the spec that holds all nine states
+# still. The union is the seam between them: the pane matches on `kind` alone
+# and never on a message string, so a refusal reworded in Rust cannot silently
+# become "no pull requests" in the webview.
+#
+# Everything else this round touched is already declared whole by the registry:
+# desktop/src-tauri/src/lib.rs (vingilot/seams.yaml — one line, `mod
+# vingilot_pulls;`) and desktop/src-tauri/src/vingilot_command_table.rs
+# (vingilot/seams/home-harbor.yaml — two entries in the table, which is exactly
+# the headroom that file was split to buy).
+
+seams:
+  - path: "desktop/src-tauri/src/vingilot_pulls/**"
+    reason: "A fork-owned island: the open pull requests of the repository a worktree is a checkout of, read with `gh` (vingilot/docs/plans/2026-08-29-redesign.md, P5). remote.rs turns git's own `remote.<name>.url` dump into an owner/name slug; payload.rs holds every argument vector the island is willing to hand `gh` plus the parse of its `--json` output; mod.rs resolves a worktree to a repository, runs the child under a deadline, and exposes pulls_list and pulls_view; pulls_tests.rs is the out-of-line test module and never touches the network. Six decisions are load-bearing and argued in the files. (1) It is its OWN module rather than a function inside vingilot_repo: that module's header argues at length why 'is this a repository' is answered by stat-ing four names and never by running git, and this island does not change it — it CALLS it, first, so a path that is not a working tree is refused without a single fork. (2) The answer is one tagged union, PullsAnswer<T>, with eight refusals beside it — not-a-repo, git missing, git failed, no GitHub remote, gh missing, gh unauthenticated, request failed, timed out — because each has a different next action for the person reading it, and collapsing them into one error string would push the classification into the webview as a pile of stderr.includes(…), which is how a rate-limit message in a new `gh` release silently becomes 'you are not logged in'. It is generic over the payload so the eight are written once and both commands answer with the same discriminant. (3) 'Not logged in' is `gh auth status`'s EXIT CODE and never a substring of anybody's stderr, and that command is run for the code alone with both its streams discarded — `gh auth status --show-token` exists and is never passed here. Authentication stays gh's own keyring: no token is read, constructed, put in argv, put in an environment variable, or logged anywhere in this island, and a test asserts no vector contains one. (4) Every vector is a READ. There is no create, merge, close, comment or api verb in payload.rs, and a test walks the complete vector set to assert it. (5) A git remote URL may carry credentials in its userinfo (https://x-access-token:ghp_…@github.com/o/n.git is what `gh auth setup-git` and CI checkouts write, and it is sitting in real .git/config files), so the userinfo is stripped at the parse, nothing downstream is ever handed a URL, and the NoGitHubRemote refusal lists remote NAMES — a refusal that helpfully printed the URL would put a token on screen, in a screenshot, and in a bug report. (6) Both bounds are in the types rather than in a comment: the list is asked for PULL_CAP + 1 so `more` is something the module observed rather than inferred from a full page, and a `gh` that hangs is killed at a wall-clock deadline and reported as TimedOut rather than freezing a desktop app on a subprocess. `gh` is found by the same PATH-trap rule vingilot_harbor::child_path writes down — a Finder-launched app does not inherit a login shell's PATH, and a PATH-only probe would tell an owner with a working, logged-in `gh` to install what he already has; the child also gets a widened PATH because `gh` invokes `git` through it. The empty case is the honest one and is the fork's own: `gh pr list --repo ahmetbir/vingilot` answers `[]` today, and `[]` travels to the surface as an empty list to draw an empty state from — never a plausible-looking list stitched from local branches. Additive-only new directory under the upstream desktop/src-tauri/src tree; no existing file is renamed or deleted, so it cannot merge-conflict, mirroring vingilot_harbor and vingilot_repo."
+    owner: "vingilot/runs"
+    removable_when: "Never, while a worktree's pull requests are a thing the workspace shows. Replaceable only if upstream grows a GitHub reader the fork can use unmodified."
+    status: "permanent"
+    added: "2026-09-01"
+
+  - path: "desktop/src/features/pulls/**"
+    reason: "The surface for the island above: the pane the owner actually looks at, in the sidebar's `/projects` view (vingilot/docs/plans/2026-08-29-redesign.md, P5). lib/ is the webview half of the contract — pullsAnswer.ts restates the tagged union as TypeScript so the discriminant is checked at the boundary rather than trusted, pullsClient.ts is the only place these two commands are invoked, usePullsRead.ts holds the read as an explicit phase machine, and pullsCopy.ts is where every sentence the feature says out loud is written and reviewed. ui/ places them: PullsPane.tsx is the route branch, PullsList.tsx the mockup's `#pr-list`, PullDetailView.tsx its `#pr-detail`, PullsRefusalNotice.tsx the refusals, and pullsChips/pullsGlyphs the shared branch chips, diffstat and state glyphs. Four decisions carry the weight. (1) The pane matches on `kind` ALONE and never on a message string — the reason the island bothered to classify eight refusals is so this half can give each its own sentence, and a `stderr.includes(…)` here would have thrown that away and turned a rate-limit message in a future `gh` into 'you are not logged in'. (2) Nothing is drawn that was not fetched: the mockup's Open/Merged/All tab counts, its CI/comment/reviewer rail, and its Commits and Checks cards are ABSENT rather than empty, because an empty Checks card is itself a claim about CI that no request was made about. Each omission is argued in the file that omits it. (3) An empty list is drawn empty, in a sentence naming the repository — `pulls: []` is a true answer and this fork's own `ahmetbir/vingilot` really gives it, so it must never be a spinner, a placeholder row, or a silence that reads as failure. `more`/`cap` come off the answer for the same reason: the 'first N' line cannot disagree with the list above it. (4) Loading is a state, not a lie: `gh` is a subprocess over a network under a deadline, and for those seconds 'not answered yet' and 'no pull requests' are different facts, so the wait says it is a wait and a failure leaves a sentence where an empty list would have read as 'none'. Additive-only new feature directory under desktop/src/features; no upstream file is renamed or deleted."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the sidebar shows a worktree's pull requests. Replaceable only if upstream grows its own GitHub pull-request surface this fork can use unmodified."
+    status: "permanent"
+    added: "2026-09-01"
+
+  - path: "desktop/src/shared/lib/worktreeFocus.ts"
+    reason: "A published snapshot of the checkout the workspace has selected, so a surface mounted while `RunsScreen` is not can still know which repository the owner means (vingilot/docs/plans/2026-08-29-redesign.md, P5). This exists because of a fact about the app's shape rather than a preference: the `/projects` route does NOT mount `RunsScreen`, so the pulls pane cannot read the selection through React context, props or a hook of that tree — there is no tree. It is the same problem, and deliberately the same shape of answer, as `shared/lib/paletteWorld.ts`, which was written for it first. Kept a module-level store with an explicit publisher (`features/runs/lib/usePublishWorktreeFocus.ts`) rather than global mutable data: the snapshot is written through one function, read through one hook, and holds only what the pane needs — path, label, repo name and whether the workspace has settled. `settled` is load-bearing and is why the pane can tell 'no checkout has ever been selected' from 'the workspace has not finished loading yet' instead of flashing the wrong sentence on every start. Additive-only new file under desktop/src/shared/lib."
+    owner: "vingilot/runs"
+    removable_when: "When the pulls pane and the workspace share a mounted ancestor and the selection can be read through it directly, or when upstream publishes the selected worktree itself."
+    status: "permanent"
+    added: "2026-09-01"
+
+  - path: "desktop/src/testing/e2eBridgePulls.ts"
+    reason: "The mock answers for `pulls_list` and `pulls_view` at the E2E bridge, kept out of e2eBridge.ts so that file does not grow (vingilot/docs/plans/2026-08-29-redesign.md, P5). Mirrors the existing e2eBridgeCustomHarnesses.ts split. The mock is at the IPC and NOT at the network, and that is the whole point: the real island is `git` plus `gh` against github.com using THIS MACHINE's own login, so a spec that drove it would depend on the account, the network, and whatever pull requests happen to be open today — and could not produce `gh-missing`, `gh-unauthenticated` or `timed-out` on demand at all. Mocking one layer below the pane makes the eight refusals ordinary test inputs while leaving every line of the pane, its copy and its phase machine under test. Answers are keyed by the worktree path the pane asks with, so 'the list follows the selected worktree' is observable rather than asserted; a path with no entry answers `not-a-repo` rather than an empty list, because a silent empty list is exactly the failure this feature is written against. Additive-only new file under desktop/src/testing, which is not shipped in a production build."
+    owner: "vingilot/runs"
+    removable_when: "With the pulls pane, or if the bridge grows a general command-mock table these two can be expressed in."
+    status: "permanent"
+    added: "2026-09-01"
+
+  - path: "desktop/tests/e2e/pulls-pane.spec.ts"
+    reason: "The spec that proves the pane (vingilot/docs/plans/2026-08-29-redesign.md, P5). Holds the four behaviours the feature is for — the list follows the selected worktree, a row opens a detail and the back row returns to the list, an empty answer is drawn honestly empty, and EVERY refusal renders its OWN distinct sentence — plus loading being a state rather than a lie. The refusal coverage is the reason this file exists at its size: the failure mode the whole feature is written against is a refusal that renders as 'no pull requests', a false statement about the owner's repository, and the only way that stays fixed is a test that reads the actual sentence for each of the eight kinds and asserts they differ from each other. Drives the mock bridge (src/testing/e2eBridgePulls.ts), never the network and never this account's real pull requests. Registered in playwright.config.ts's smoke `testMatch`. Additive-only new spec under desktop/tests/e2e."
+    owner: "vingilot/runs"
+    removable_when: "With the pulls pane."
+    status: "permanent"
+    added: "2026-09-01"
