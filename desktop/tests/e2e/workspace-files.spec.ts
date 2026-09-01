@@ -199,6 +199,7 @@ const DIFF = {
         `--- a/${DIFF_FILE_PATH}`,
         `+++ b/${DIFF_FILE_PATH}`,
         `@@ -${GREET_HUNK_LINE},2 +${GREET_HUNK_LINE},3 @@`,
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: this is the FIXTURE FILE's own source text, not a placeholder of this spec's — the diff under test is a patch to a TypeScript file that itself contains a template literal
         "   return `hello ${name}`;",
         "+  // a change",
         " }",

@@ -127,6 +127,7 @@ const HITS = [
     column: 16,
     line: 3,
     path: "src/greet.ts",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: this is the FIXTURE FILE's own source text, not a placeholder of this spec's — the search hit under test is a line of a TypeScript file that itself contains a template literal
     text: "  return `hello ${needle}`;",
   },
   {

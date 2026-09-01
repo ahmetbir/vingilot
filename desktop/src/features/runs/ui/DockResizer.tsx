@@ -4,11 +4,13 @@
 // (vingilot.js:81-83).
 //
 // **Pixels, not a ratio.** The dock is a fixed-size card (`--dockw` /
-// `--dockh`), so unlike `PaneDivider` this rail reports the pointer's
-// distance from the dock's far edge and lets the caller clamp it
-// (`dockModel.ts`) — the same shape the mockup's own handler has. Keyboard:
-// the WAI-ARIA separator pattern `PaneDivider` established — arrows nudge,
-// with ⇧ coarse — so a resize is reachable without a pointer.
+// `--dockh`), so this rail reports the pointer's distance from the dock's far
+// edge and lets the caller clamp it (`dockModel.ts`) — the same shape the
+// mockup's own handler has. That is the difference from the ratio-reporting
+// `PaneDivider` this replaced; that file was deleted in P7, having had no
+// importer since the dock landed, so the contrast is history, not a pointer.
+// Keyboard: the WAI-ARIA separator pattern — arrows nudge, with ⇧ coarse — so
+// a resize is reachable without a pointer.
 
 import * as React from "react";
 
@@ -27,7 +29,7 @@ export function DockResizer({
   /** `x` resizes a right card's width; `y` a drawer's height. */
   axis: "x" | "y";
   /** Where focus lands when the split comes back — the work surface's
-   * keyboard-owner rule, inherited from `PaneDivider`. */
+   * keyboard-owner rule. */
   focusRef?: React.RefObject<HTMLDivElement | null>;
   /** The wanted size in px, raw — the caller clamps and stores. */
   onSize: (px: number) => void;
@@ -74,7 +76,7 @@ export function DockResizer({
   };
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: `PaneDivider`'s reason — the suggested <hr> is a static rule; a separator that moves is the WAI-ARIA window splitter, a focusable widget with a value, which <hr> cannot carry
+    // biome-ignore lint/a11y/useSemanticElements: the suggested <hr> is a static rule; a separator that moves is the WAI-ARIA window splitter, a focusable widget with a value, which <hr> cannot carry
     <div
       aria-label={
         axis === "x" ? "resize the dock's width" : "resize the drawer's height"

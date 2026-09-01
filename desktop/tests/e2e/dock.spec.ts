@@ -76,6 +76,7 @@ const DIFF = {
         "--- a/src/greet.ts",
         "+++ b/src/greet.ts",
         "@@ -2,2 +2,3 @@",
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: this is the FIXTURE FILE's own source text, not a placeholder of this spec's — the diff under test is a patch to a TypeScript file that itself contains a template literal
         "   return `hello ${name}`;",
         "+  // a change",
         " }",

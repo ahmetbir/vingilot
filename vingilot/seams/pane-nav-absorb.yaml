@@ -79,19 +79,20 @@ seams:
     status: "permanent"
     added: "2026-08-14"
 
-  - path: "desktop/src/features/runs/ui/SidebarFilesTree.tsx"
-    reason: "New, fork-owned (blanket seam; decision entry): FilesPane's tree half, moved not re-derived — resolveFileTreeKey, lazy readTree, role=tree/aria-activedescendant and the files-tree/files-row-* testids verbatim. Row activation fires the same onPaneAct show-file act Search and Diff already fire (grep-confirmed one act shape). Selection mirrors the pane's file-opened report; no second answer to 'which file is open' exists."
-    owner: "vingilot/runs"
-    removable_when: "With the accordion model."
-    status: "permanent"
-    added: "2026-08-14"
+  # RETIRED by the P7 sweep, 2026-09-01:
+  # "desktop/src/features/runs/ui/SidebarFilesTree.tsx". Deleted in a05183e95,
+  # alongside SidebarHistoryList.tsx below and for the same reason — the accordion
+  # model this fragment named as its removable_when is gone. Fork-created and
+  # fork-deleted, so the path is absent on both sides of every diff this gate
+  # reads. Still covered, as ground, by desktop/src/features/runs/**.
 
-  - path: "desktop/src/features/runs/ui/SidebarHistoryList.tsx"
-    reason: "New, fork-owned (blanket seam; decision entry): HistoryPane's status+commit lists, moved together as ONE member (the shared-PatchView rule holds, unmoved). Row picks file lib/historyTarget.ts then showPane('history') — show-file's two moves. j/k/Enter are a scoped onKeyDown on this element, the keystroke's SINGLE owner; status reads are stamped with a generation the pane's HEAD-diff cache is keyed by."
-    owner: "vingilot/runs"
-    removable_when: "With the accordion model."
-    status: "permanent"
-    added: "2026-08-14"
+  # RETIRED by the P7 sweep, 2026-09-01:
+  # "desktop/src/features/runs/ui/SidebarHistoryList.tsx". Deleted in a05183e95
+  # ("Reading gets its own tabs, the tree learns languages, and history gets real
+  # parents"), which is this fragment's own removable_when — "With the accordion
+  # model" — coming true. Fork-created and fork-deleted: absent from upstream/main
+  # and from the merge-base, so no diff can carry it. The ground it stood on is
+  # still declared by desktop/src/features/runs/** in vingilot/seams.yaml.
 
   - path: "desktop/src/features/runs/lib/historyTarget.ts"
     reason: "New, fork-owned (blanket seam; decision entry): filesTarget.ts's shape for History — request-not-state, bump for repeats, pending/take for a pane that mounts after the pick, historyShouldLand refusing other checkouts, statusGeneration carrying the old 'Reread retires the HEAD-diff cache' invariant across the component split. resetHistoryTargets registered in resetCommunityState beside resetFileTargets."

@@ -10,9 +10,9 @@
 // Deliberately not `TerminalSplitDivider`: that one belongs to a tab's own two
 // ptys and takes a `SplitDirection` this axis does not have — a tab split is
 // side by side, full stop, because the strip above it is a row and a stage cut
-// horizontally would put a tab's label a long way from its box. And
-// deliberately not `PaneDivider`, which is welded to the stage-versus-dock
-// model and its ⌥⌘B vocabulary.
+// horizontally would put a tab's label a long way from its box. (It was also
+// deliberately not `PaneDivider`, which was welded to the stage-versus-dock
+// model and its ⌥⌘B vocabulary; that file was deleted in P7, unimported.)
 //
 // The ratio is measured against this divider's own parent — the pane body that
 // also lays the two halves out — so the number handed up is the number the

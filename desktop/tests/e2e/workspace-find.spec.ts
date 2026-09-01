@@ -473,44 +473,54 @@ test("the walk scrolls the viewer, on the plain render path too", async ({
   expect(landed).toContain(`event ${NEEDLE_LINES[1] - 1}:`);
 });
 
-test("the ⌘F boundary: a field outside the pane keeps it, and the team thread keeps upstream's find", async ({
+test("the ⌘F boundary: a field outside the pane keeps it, and the team thread is not this pane's", async ({
   page,
 }) => {
-  // KNOWN RED, not P3's: upstream PR #5306 deleted `ChannelFindBar` /
-  // `useChannelFind` outright, and this assertion (and
-  // `workspace-search.spec.ts`'s "⇧⌘F arrives…") have been its red proofs
-  // since before this redesign — do not re-derive that finding, and do not
-  // spend a P3-scoped fix round chasing it.
+  // **P7 retired a claim here, with its subject.** This test used to end by
+  // asserting that ⌘F in the Team pane opened upstream's own find bar
+  // (`channel-find-bar`). Upstream PR #5306 deleted `ChannelFindBar` and
+  // `useChannelFind` outright; `git grep useChannelFind` finds no file on this
+  // branch and none on `upstream/main` either — only prose in eight of this
+  // island's own headers. A claim whose subject no longer exists cannot be
+  // fixed and must not be left red pretending otherwise, so it is gone rather
+  // than skipped. Nothing was deleted to make a failure quiet: the assertion
+  // below took its place and still fails the mutation the original was written
+  // for, which is the only reason the original earned its cost.
   //
-  // One observation worth keeping for whoever restores the bar: on the
-  // STANDALONE `/channels` case (`workspace-search.spec.ts:372`, which never
-  // touches the dock or the Team pane at all), the accessibility snapshot at
-  // the moment of failure collapses to almost nothing — `status` and a
-  // notifications region, none of the channel screen's own chrome. That
-  // reads as a crash on that route around the ⌘F keydown, not merely a
-  // missing component quietly doing nothing — start from that hypothesis
+  // What survives, and why it still has teeth. ⌘F was `useChannelFind`'s: a
+  // bubble-phase listener on the window, live wherever a channel screen was
+  // mounted — which inside the workspace means the Team pane, because
+  // `TeamThreadPane` hosts `ChannelRouteScreen` itself rather than copying it.
+  // This island's listener is capture-phase and calls `stopPropagation`, so a
+  // boundary drawn one element too wide would have taken find-in-this-channel
+  // away from the pane the owner talks to his agents in. That boundary is still
+  // the thing worth guarding — what changed is only that the far side of it is
+  // currently empty. So the reading is now the half of the claim that never
+  // depended on upstream's component: in the Team pane, ⌘F is NOT this pane's,
+  // and `files-find` does not open. The mutation that makes `ownsChord` answer
+  // `true` for the whole window still turns this test red, which is what makes
+  // it a guard rather than a description. When upstream restores a find bar,
+  // add the positive half back here.
+  //
+  // Still red elsewhere, and NOT this test's to fix: `workspace-search.spec.ts`
+  // asserts `channel-find-bar` at line 414 on the standalone `/channels` route.
+  // One observation worth keeping for whoever restores the bar: at the moment of
+  // that failure the accessibility snapshot collapses to almost nothing —
+  // `status` and a notifications region, none of the channel screen's own
+  // chrome. That reads as a crash on that route around the ⌘F keydown, not
+  // merely a missing component quietly doing nothing; start from that hypothesis
   // rather than re-deriving it from a bare "element not found".
-  //
-  // **The other half of taking a chord, and the half that fails silently.** ⌘F is
-  // `useChannelFind`'s: a bubble-phase listener on the window, live wherever a
-  // channel screen is mounted — which inside the workspace means the Team pane,
-  // because `TeamThreadPane` hosts `ChannelRouteScreen` itself rather than
-  // copying it. This island's listener is capture-phase and calls
-  // `stopPropagation`, so a boundary drawn one element too wide would take
-  // find-in-this-channel away from the pane the owner talks to his agents in, and
-  // no unit test could see it.
   //
   // Two readings, in one test because they are one claim:
   //
   // 1. **With the Files pane up and a file open, ⌘F in a text field elsewhere in
   //    the app is not this pane's.** That is the case that says the boundary is
-  //    drawn on `dock-files` and not on the window — the mutation that makes
-  //    `ownsChord` answer `true` turns exactly this red, which is what makes it a
-  //    guard rather than a description.
-  // 2. **In the Team pane, ⌘F opens upstream's own find bar.** Read here rather
-  //    than on `/channels/general` on purpose: `workspace-search.spec.ts` already
-  //    covers that screen for the shifted chord, and this is the screen inside the
-  //    workspace where both handlers are live at the same time.
+  //    drawn on `dock-files` and not on the window.
+  // 2. **In the Team pane — a hosted channel screen, the one surface inside the
+  //    workspace that is a text field belonging to somebody else — ⌘F is still
+  //    not this pane's.** Read here rather than on `/channels/general` on
+  //    purpose: this is the screen inside the workspace where the two would have
+  //    been live at the same time.
   await openWorkspace(page);
   await openFile(page, "src/greet.ts");
 
@@ -561,8 +571,13 @@ test("the ⌘F boundary: a field outside the pane keeps it, and the team thread 
     .click();
   await page.keyboard.press("ControlOrMeta+f");
 
-  await expect(page.getByTestId("channel-find-bar")).toBeVisible();
-  // And this island's bar is not on screen: the two must never both open, which
-  // is what "both handlers ran" would look like.
+  // This island's bar is not on screen. With upstream's find bar deleted there
+  // is no second bar to compare against any more, so this is read as an absence
+  // — but it is the same reading the pair was there for: the chord pressed in
+  // somebody else's text field does not reach `dock-files`.
   await expect(page.getByTestId("files-find")).toHaveCount(0);
+  // (That the pane has not simply gone deaf is already read above, before the
+  // pane was switched: same chord, inside `dock-files`, bar visible. Without
+  // that half, `ownsChord` returning `false` for everything would satisfy this
+  // assertion and leave the boundary unguarded.)
 });

@@ -1,0 +1,141 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P7, the sweep
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment (vingilot/docs/plans/2026-08-29-redesign.md, P7):
+# removing what the redesign replaced and paying the debts P0–P9 recorded.
+#
+# ------------------------------------------------------------------------------
+# This fragment declares NO new seam, and that is the finding
+# ------------------------------------------------------------------------------
+#
+# A sweep that had to open new ground to delete things would be deleting the
+# wrong things. Every path P7 touched was already declared:
+#
+#   desktop/src/features/runs/**            the four deleted components and the
+#                                           three divider headers that referred
+#                                           to one of them
+#   desktop/tests/e2e/{dock,workspace-files,workspace-search,workspace-find}
+#                                           .spec.ts        already declared
+#   desktop/package.json, pnpm-lock.yaml    already declared
+#
+# ------------------------------------------------------------------------------
+# What P7 deleted, and the test that decided what it would NOT delete
+# ------------------------------------------------------------------------------
+#
+# An import graph over desktop/src (entries: index.html, tests/e2e, scripts, the
+# vite/playwright configs, and every *.test.mjs) left 38 source files that no
+# entry can reach. The temptation is to delete all 38. The discriminator that
+# says otherwise is `git cat-file -e upstream/main:<path>`:
+#
+#   33 of the 38 still exist on upstream/main. The fork has merely stopped
+#      RENDERING them. Deleting one of those saves nothing — Vite never bundles
+#      a module no entry reaches, so the built JS is byte-identical either way —
+#      and costs a permanent divergence, a seam entry, and a conflict on every
+#      upstream sync. Under ADR-001 that trade is backwards, so all 33 stay.
+#      They are listed in the P7 report; the list is the deliverable, not the
+#      deletion.
+#
+#    5 do not exist on upstream/main. Four of those five are this island's own
+#      and were replaced during the redesign, so they are gone (below). The
+#      fifth, desktop/src/features/workflows/ui/CreateWorkflowDialog.tsx, is
+#      upstream's: upstream deleted it in 1934e83bf (#6248, the workflow editor)
+#      and this branch has not synced past that. It was deleted and then
+#      RESTORED during this round, deliberately. Pre-applying an upstream
+#      deletion would need a seam entry whose removable_when is "on the next
+#      upstream sync" — an entry born stale — to save a 23-line wrapper that
+#      costs nothing where it sits. Upstream removes it for free.
+#
+# Deleted, all under the desktop/src/features/runs/** blanket seam:
+#
+#   HistoryStatus.tsx (205 lines) and HistoryCommits.tsx (159) — replaced by
+#     DockHistoryPanel.tsx in P3. Proof beyond "nothing imports them":
+#     workspace-history.spec.ts, the spec that owns this behaviour, drives
+#     `dock-history-*` testids exclusively, and the `history-status-*`,
+#     `history-commits`, `history-log-*` and `history-section-*` testids these
+#     two rendered appear in no spec in the repository. The `history-patch-*`
+#     and `history-file-note-*` ids that DO appear in that spec belong to
+#     DiffFileCard.tsx, whose own header records that P4.4 kept the names.
+#   PaneSection.tsx (35 lines) — its only two importers were those two files.
+#   PaneDivider.tsx (158 lines) — replaced by DockResizer, TabSplitDivider and
+#     TerminalSplitDivider. Its `pane-divider` testid is in no spec. Its three
+#     replacements each explained themselves by contrast with it, so those three
+#     headers were edited in the same round: a comment that points at a file
+#     which no longer exists is a worse artifact than no comment.
+#
+# No colocated unit test was deleted with them, because none existed — the
+# "file kept alive only by the test that tests only it" case did not arise here.
+# The six that ARE in that shape (useBotRecents.ts, fileKinds.ts,
+# SidebarAccordionSection.tsx, fadeController.ts and two shared test harnesses)
+# are named in the P7 report and left alone: each is upstream's or is a harness
+# several tests share, so none is the dead-pair the sweep was told to look for.
+#
+# ------------------------------------------------------------------------------
+# Registry reconciliation (the part of P7 that is about this directory)
+# ------------------------------------------------------------------------------
+#
+# The registry had grown a fragment per phase and had stopped describing the
+# code. Of 398 entries, seven named an exact path that no longer exists on disk.
+# Five were retired in place, each with a comment where the entry was:
+#
+#   seams.yaml               desktop/src/app/routes/runs.tsx
+#   seams.yaml               desktop/src-tauri/src/managed_agents/spawn_hash.rs
+#   pane-nav-absorb.yaml     desktop/src/features/runs/ui/SidebarFilesTree.tsx
+#   pane-nav-absorb.yaml     desktop/src/features/runs/ui/SidebarHistoryList.tsx
+#   redesign-p1.yaml         desktop/src/app/VingilotAppearanceTray.tsx
+#
+# The test for retiring one is not "the file is gone" — it is that the path is
+# absent from upstream/main AND from this branch's merge-base with it, so it can
+# appear on neither side of any diff check-seams.sh reads and the entry could
+# never fire again. All five pass that test. (redesign-p1.yaml's entry asked for
+# this explicitly: its removable_when named the P7 sweep.)
+#
+# The other two exact-path entries that name a missing file were KEPT, and the
+# same test is why:
+#
+#   .github/workflows/docker.yml       (home-harbor.yaml)
+#   .github/workflows/sprig-image.yml  (upstream-sync.yaml)
+#
+# Both files are PRESENT on upstream/main and absent here. That absence IS the
+# seam — a deliberate fork deletion of an upstream publisher — and it shows up
+# in every diff the gate reads, forever. Retiring either because "the file isn't
+# there" would turn the gate red on the next run. Missing from disk and stale
+# are different things, and only one of them is drift.
+#
+# ------------------------------------------------------------------------------
+# The ratchet, and the warning comment that could not be written
+# ------------------------------------------------------------------------------
+#
+# P7 was asked to put a comment at the top of desktop/src-tauri/src/huddle/
+# models.rs saying the next change there must split the file. It is not there,
+# and the reason is the finding.
+#
+# scripts/check-file-sizes-core.mjs counts lines as `content.split(/\r?\n/)
+# .length`, which for a newline-terminated file is `wc -l` PLUS ONE. models.rs
+# is 999 by `wc -l` and therefore 1000 by the gate's own arithmetic: exactly at
+# the limit, with no room at all. A three-line warning comment would take it to
+# 1003 and fail `pnpm check:file-sizes` — the comment would break the gate it
+# was warning about, in the same commit. So the warning is recorded here, where
+# it costs nothing, instead.
+#
+# It is also not one file. FIVE are at gate-count exactly 1000 — the next line
+# added to any of them fails the ratchet, whatever that line is:
+#
+#   desktop/src-tauri/src/huddle/models.rs
+#   desktop/src-tauri/src/huddle/mod.rs
+#   desktop/src-tauri/src/events.rs
+#   desktop/src-tauri/src/commands/personas/card.rs
+#   desktop/src/features/profile/ui/AnimatedAvatarCapture.tsx
+#
+# The ratchet is relative, not absolute: it only reads files a diff touched, and
+# a file already over the limit is frozen at the size it had at the base ref
+# rather than being required to come down. So none of the five is red today and
+# none can be edited at all tomorrow without a split. The full 950–1000 census
+# (26 TS/TSX, 25 Rust) is in the P7 report.
+
+seams: []

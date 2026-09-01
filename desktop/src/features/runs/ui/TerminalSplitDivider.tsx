@@ -1,9 +1,10 @@
 // The divider between a split terminal's two shells (`lib/terminalSplit.ts`)
 // — the "suruklemeli" half of the owner's ask.
 //
-// Deliberately not `PaneDivider`: that component is welded to the work
+// Deliberately not `PaneDivider`: that component was welded to the work
 // surface's left/right pane model (its solo gestures, its `clampRatioAt`
 // floors, its ⌥⌘B vocabulary), none of which means anything inside one tab.
+// (P7 deleted it — nothing had imported it since the dock landed.)
 // This one knows exactly three things: which way it lies, where the pointer
 // is inside its parent, and that neither side may go below 20%
 // (`MIN_SPLIT_RATIO` — the model clamps too, so a caller that skips this

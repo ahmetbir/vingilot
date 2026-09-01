@@ -60,12 +60,14 @@ seams:
     status: "permanent"
     added: "2026-08-29"
 
-  - path: "desktop/src/app/VingilotAppearanceTray.tsx"
-    reason: "DELETED in P1.1 (owner veto 2, live-testing c59913461): the top bar's Appearance button and this tray are gone. The three controls (wash/accent/crew-position) moved verbatim into Settings → Appearance as VingilotAppearanceSettings.tsx, and the ⌘K palette's 'Appearance' row is the door there. Entry retained so the deletion itself is a declared seam."
-    owner: "vingilot/redesign"
-    removable_when: "P7 sweep may retire the entry once the deletion is upstream history."
-    status: "permanent"
-    added: "2026-08-29"
+  # RETIRED by the P7 sweep, 2026-09-01:
+  # "desktop/src/app/VingilotAppearanceTray.tsx". This entry asked for exactly
+  # this: its removable_when read "P7 sweep may retire the entry once the deletion
+  # is upstream history." It is — better than that. The file was created in P1 and
+  # deleted in P1.1 (owner veto 2), both inside this branch, so it exists neither
+  # on upstream/main nor at the merge-base and appears in no diff check-seams.sh
+  # reads. The three controls it held live in Settings; that is where they are
+  # declared.
 
   - path: "desktop/src/shared/theme/vingilot-crew-position.ts"
     reason: "New, fork-owned: the persisted crew-panel position (right/drawer/float, localStorage key vingilot-crew-position in the module-key-per-concern idiom). Write-side only in P1; P3's dock is the reader."
