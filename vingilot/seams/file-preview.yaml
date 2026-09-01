@@ -1,0 +1,47 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: looking AT a file, not only reading it
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: the owner asked for "html gosterme, dizayn gosterme,
+# artifact gosterme vs hepsi olsun" — when the work in a worktree produces an
+# HTML page, a design or an image, he wants to SEE the thing rather than its
+# source. The feature widens the Files viewer's existing Source⇄Preview toggle
+# (markdown-preview.yaml) from markdown alone to every file that has a
+# rendering, and it is almost entirely inside the fork-owned Runs island:
+#
+#   desktop/src/features/runs/lib/filePreview.ts   — what a file can be looked
+#       at as, the sandbox attribute, the CSP, the on-screen note
+#   desktop/src/features/runs/ui/HtmlPreview.tsx   — the sandboxed frame
+#   desktop/src/features/runs/ui/ImagePreview.tsx  — the <img> path (svg too)
+#   desktop/src/features/runs/ui/PreviewToggle.tsx — MarkdownPreviewToggle.tsx,
+#       widened and renamed; same word, same aria-pressed, one more noun
+#   desktop/src/features/runs/ui/ViewerHeader.tsx  — the header split out of
+#       FileViewer so a picture (which has no text) is named by the same line
+#
+# — all under desktop/src/features/runs/**, which seams.yaml already declares as
+# the island, and desktop/src-tauri/src/vingilot_files/**, likewise already
+# declared (the new bytes.rs / file_bytes command lives there). No shared
+# upstream file is edited; the markdown half still draws with the chat
+# pipeline's Markdown component, which is an import and not a touch.
+#
+# The only touches OUTSIDE those declarations are the two below: a new e2e spec,
+# and its one-line registration in the upstream playwright config's testMatch.
+# playwright.config.ts is already declared by another seam (it is the shared
+# test entry every fork spec is registered in); the spec file is new and is
+# declared here.
+#
+# No schema_version here: the root file carries it for the whole registry.
+# ------------------------------------------------------------------------------
+
+seams:
+  - path: "desktop/tests/e2e/file-preview.spec.ts"
+    reason: "The browser proof that a file with a rendering can be LOOKED AT, and that the frame a worktree's page is looked at inside is really a sandbox. filePreview.test.mjs already proves the pure half without a browser (which files have a rendering, that PREVIEW_SANDBOX is the empty string, that PREVIEW_CSP forbids every load that leaves the machine); what only a browser can say is that the posture holds against a page that attacks it. So this spec opens the real app and asserts: a real HTML page renders a genuine <h1> inside a frame whose contentDocument is null from the app's side; a page that reaches for the parent DOM, localStorage, the Tauri bridge and the network reaches none of them, each observed from OUTSIDE the frame (no postMessage beacon, no storage key, no bridge call, no request Playwright can see); the very same document re-run with scripts forcibly ON still has all five reaches come back blocked, so the CSP is not resting on the sandbox attribute alone; a PNG decodes to its real naturalWidth; an .svg goes through the <img> path with no <svg> node anywhere in the app's DOM and its embedded script inert; four different failures produce four different sentences; and toggling opens no second tab, renames none, and moves no pty. Lives at the upstream-owned desktop/tests/e2e/ path for the same reason every other fork spec does: that is where playwright.config.ts's testDir points, and a spec cannot be moved under vingilot/ without moving the whole test runner."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the Files viewer can show a file's rendering inside Buzz desktop; it shrinks to nothing only if upstream grows a test root under vingilot/."
+    status: "permanent"
+    added: "2026-09-01"

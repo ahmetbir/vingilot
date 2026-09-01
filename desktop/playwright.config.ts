@@ -181,6 +181,7 @@ export default defineConfig({
         "**/workspace-team-scope.spec.ts",
         "**/workspace-files.spec.ts",
         "**/markdown-preview.spec.ts",
+        "**/file-preview.spec.ts",
         "**/workspace-open-in-editor.spec.ts",
         "**/workspace-search.spec.ts",
         "**/workspace-history.spec.ts",

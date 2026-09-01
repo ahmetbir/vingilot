@@ -20,10 +20,28 @@
 // the viewer header (`OpenInEditor`), which is here because this is where the
 // open file is named, and a control about *this file* has to sit beside its
 // name.
+//
+// **A file that has a rendering can be LOOKED AT here, not only read**
+// (2026-09-01; owner ask: "html gosterme, dizayn gosterme, artifact gosterme vs
+// hepsi olsun"). That is one idea widened rather than a second feature: the
+// markdown Source⇄Preview toggle already established the vocabulary, and a
+// `.html`, an `.svg` and a `.png` now answer the same question in the same word.
+// Three things moved out of this file with it, each because it is a decision
+// this file should not also be holding — `filePreview.ts` says what a path can
+// be looked at as and what a sandboxed page is allowed to do, `HtmlPreview` and
+// `ImagePreview` draw the two new renderings, and `ViewerHeader` is the one line
+// naming the open file, which a picture needs too and cannot get from
+// `FileBody` (a raster file's text read is a refusal, so it never arrives
+// there).
 
 import * as React from "react";
 import type { ThemedToken } from "shiki";
 
+import {
+  type FileRendering,
+  fileRendering,
+  renderingNoun,
+} from "@/features/runs/lib/filePreview";
 import type { FileTextValue } from "@/features/runs/lib/filesClient";
 import {
   type FilesError,
@@ -31,11 +49,7 @@ import {
   humanCount,
   humanSize,
 } from "@/features/runs/lib/filesModel";
-import {
-  markedLineIndex,
-  previewableAsMarkdown,
-  viewerPlan,
-} from "@/features/runs/lib/fileViewer";
+import { markedLineIndex, viewerPlan } from "@/features/runs/lib/fileViewer";
 import {
   type FindLine,
   type FindMatch,
@@ -43,11 +57,12 @@ import {
   segmentSpan,
 } from "@/features/runs/lib/findInFile";
 import { useFindInFile } from "@/features/runs/lib/useFindInFile";
-import { labelParts } from "@/features/runs/lib/worktreeDiff";
 import { FindBar } from "@/features/runs/ui/FindBar";
-import { MarkdownPreviewToggle } from "@/features/runs/ui/MarkdownPreviewToggle";
-import { OpenInEditor } from "@/features/runs/ui/OpenInEditor";
+import { HtmlPreview } from "@/features/runs/ui/HtmlPreview";
+import { ImagePreview } from "@/features/runs/ui/ImagePreview";
 import { PaneEmpty } from "@/features/runs/ui/PaneEmpty";
+import { PreviewToggle } from "@/features/runs/ui/PreviewToggle";
+import { ViewerHeader } from "@/features/runs/ui/ViewerHeader";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { resolveShikiThemeName } from "@/shared/theme/theme-loader";
 import { Markdown } from "@/shared/ui/markdown";
@@ -64,6 +79,17 @@ export type ViewState =
 
 export const NOTHING_OPEN: ViewState = { status: "empty" };
 
+/** Which file the viewer is standing on, whatever the read made of it — `null`
+ * only when it is standing on nothing at all.
+ *
+ * Written out because the question "what CAN this file be looked at as" is
+ * asked of the path and is answerable before, during and after the read (and on
+ * a read that was refused, which is exactly what a picture's is). */
+function pathOf(state: ViewState): string | null {
+  if (state.status === "empty") return null;
+  return state.status === "read" ? state.file.path : state.path;
+}
+
 export function FileViewer({
   cwd,
   paneRef,
@@ -79,7 +105,7 @@ export function FileViewer({
   state: ViewState;
 }) {
   // **The Source⇄Preview choice, held here and nowhere else.** Per-pane, not a
-  // module singleton (`MarkdownPreviewToggle`'s header argues the difference from
+  // module singleton (`PreviewToggle`'s header argues the difference from
   // `useDiffMode`): this `FileViewer` is one Files pane's viewer, so its state is
   // that pane's, it survives the file changing under it and the pane losing
   // focus (the pane stays mounted), and it resets when a community switch
@@ -87,6 +113,48 @@ export function FileViewer({
   // Above the `status` branches so the hook is unconditional; the choice
   // outlives an empty→read transition (`FileBody` remounts, this does not).
   const [preview, setPreview] = React.useState(false);
+
+  // **A picture is looked at, never read, so it takes a different door.**
+  // `file_read` refuses a `.png` as binary and it is right to — a viewer that
+  // drew a JPEG's bytes as characters is the failure that refusal exists to
+  // prevent — so the text read's answer, whatever it is, is not the answer about
+  // this file. It is dropped here rather than argued with, and the picture asks
+  // its own command (`ImagePreview`).
+  //
+  // **And a picture gets NO toggle**, which is the same rule as everywhere else
+  // in this header read from the other side: a toggle needs two things to move
+  // between, and a raster file has no source form at all. Offering one whose
+  // other half is "there is no text here to show" would be a control onto an
+  // empty room. An `.svg` DOES have both and keeps its toggle — it is text.
+  const openPath = pathOf(state);
+  const rendering = openPath === null ? null : fileRendering(openPath);
+  if (
+    openPath !== null &&
+    rendering !== null &&
+    rendering.look === "image" &&
+    rendering.from === "bytes"
+  ) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-testid="files-viewer">
+        <ViewerHeader
+          control={null}
+          cwd={cwd}
+          line={null}
+          meta="picture"
+          path={openPath}
+        />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <ImagePreview
+            cwd={cwd}
+            path={openPath}
+            rendering={rendering}
+            text={null}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (state.status === "empty") {
     // The pane's one designed moment (`PaneEmpty`). The old single sentence
     // ("Pick a file on the left. Arrow keys move, Enter opens.") split into
@@ -346,12 +414,12 @@ function FileBody({
   preview: boolean;
 }) {
   const plan = viewerPlan(file.path, file.bytes);
-  // Only a `.md` is offered — and only actually shown as prose — as rendered
-  // markdown (`previewableAsMarkdown`). `showPreview` folds the pane's choice
-  // with what this file can do: a preview that survived onto a `.rs` the reader
-  // then opened would draw one span of source as if it were prose.
-  const canPreview = previewableAsMarkdown(file.path);
-  const showPreview = preview && canPreview;
+  // What this file can be looked AT as, or `null` for the files that can only
+  // be read (`fileRendering`). `showPreview` folds the pane's choice with what
+  // this file can do: a preview that survived onto a `.rs` the reader then
+  // opened would draw one span of source as if it were prose.
+  const rendering = fileRendering(file.path);
+  const showPreview = preview && rendering !== null;
 
   // **Task 0: the tokens arrive in the background, the text never waits.**
   // The file renders as plain `data-line` spans immediately — the pane must
@@ -474,60 +542,32 @@ function FileBody({
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [find.open, find.current, find.matches, tokens]);
 
-  const parts = labelParts(file.path);
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="files-viewer">
-      <div className="flex shrink-0 items-baseline gap-2 border-b border-border/60 px-2 py-1">
-        {/* The shared truncation rule: the directory dims and gives way, the
-            basename stays bright — the same `labelParts` arrangement the Diff
-            pane's header keeps, because this line is the only place the open
-            file is named at this width. */}
-        <span
-          className="flex min-w-0 items-baseline text-xs"
-          data-testid="files-viewer-path"
-          title={file.path}
-        >
-          {parts.lead === "" ? null : (
-            <span className="min-w-0 truncate text-muted-foreground">
-              {parts.lead}
-            </span>
-          )}
-          <span className="max-w-full shrink-0 truncate text-foreground">
-            {parts.name}
-          </span>
-        </span>
-        <span className="ml-auto shrink-0 text-2xs tabular-nums text-muted-foreground">
-          {humanCount(file.lines)} lines · {humanSize(file.bytes)}
-        </span>
-        {/* **Source⇄Preview, only for a `.md`.** Absent for every other file
-            rather than disabled — a `.rs` has no prose form, so a control that
-            explained its own uselessness would be the noise the plain-note is
-            careful not to add. A toolbar toggle only: no keyboard chord ships,
-            because ⇧⌘V is the one free corner and claiming it owes the full
-            five-claimant re-audit + the AppKit ⌥-synthesis check the island's
-            key maps carry (`scratchMarkdownKeys.ts`), and the header button
-            alone satisfies "markdown preview" honestly. */}
-        {canPreview ? (
-          <MarkdownPreviewToggle
-            onToggle={onTogglePreview}
-            preview={preview}
-            testid="files-preview-toggle"
-          />
-        ) : null}
-        {/* **The escape hatch, where the file is named.** Not hover-revealed
-            here: this is a header rather than a row, the file it acts on is the
-            one the whole pane is showing, and a control that appeared only
-            under the pointer would be a door he had to already know about.
-            `line` is the viewer's landing line, so "open in Cursor" from a
-            search hit arrives at the hit — which is the entire point of the
-            rung (ADR-005, rung 3), and the thing `open -a` cannot do. */}
-        <OpenInEditor
-          line={line}
-          path={file.path}
-          testid="files-open-in-editor"
-          worktree={cwd}
-        />
-      </div>
+      <ViewerHeader
+        // **Source⇄Preview, only for a file that has a rendering.** Absent for
+        // every other file rather than disabled — a `.rs` has no other form, so
+        // a control that explained its own uselessness would be the noise the
+        // plain-note is careful not to add. A toolbar toggle only: no keyboard
+        // chord ships, because ⇧⌘V is the one free corner and claiming it owes
+        // the full five-claimant re-audit + the AppKit ⌥-synthesis check the
+        // island's key maps carry (`scratchMarkdownKeys.ts`), and the header
+        // button alone satisfies the ask honestly.
+        control={
+          rendering === null ? null : (
+            <PreviewToggle
+              noun={renderingNoun(rendering)}
+              onToggle={onTogglePreview}
+              preview={preview}
+              testid="files-preview-toggle"
+            />
+          )
+        }
+        cwd={cwd}
+        line={line}
+        meta={`${humanCount(file.lines)} lines · ${humanSize(file.bytes)}`}
+        path={file.path}
+      />
       {plan.why === null || showPreview ? null : (
         // The honest half of the one remaining ceiling: a file the viewer will
         // not highlight says why, in words, with the numbers. A fallback he
@@ -547,30 +587,18 @@ function FileBody({
           a bar inside the scrolling box would slide off the top on the first
           PageDown. */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {showPreview ? (
-          // **The prose half, drawn by the app's own chat pipeline** — the same
-          // `Markdown` the README panel renders a repo's readme with
-          // (`ProjectReadmePanel`), `interactive={false}` so its mention,
-          // channel-link and link-preview machinery goes inert: an external link
-          // renders as plain text rather than an `<a>` that would navigate the
-          // webview, and nothing here reaches the relay. No new parser and no new
-          // cache — it rides `renderCachedMarkdown`/`clearMarkdownNodeCache`,
-          // which is already wired into `resetCommunityState()`.
-          //
-          // **Content is `file.text`, the buffer itself.** The Files viewer is
-          // read-only (there is no editor here to reconcile against), so the
-          // preview is the current buffer by construction — live, not a snapshot
-          // taken at toggle time.
-          <div
-            className="h-full overflow-auto p-3"
-            data-testid="files-viewer-preview"
-          >
-            <Markdown
-              className="text-sm"
-              content={file.text}
-              interactive={false}
-            />
-          </div>
+        {showPreview && rendering !== null ? (
+          // **The rendered half — three renderings, one buffer.** Whichever is
+          // up, its content is `file.text`, the buffer itself: the Files viewer
+          // is read-only (there is no editor here to reconcile against), so the
+          // rendering is the current buffer by construction — live, not a
+          // snapshot taken at toggle time. And the tab has not changed: this is
+          // the same tab, showing the same file, the other way round.
+          <PreviewBody
+            path={file.path}
+            rendering={rendering}
+            text={file.text}
+          />
         ) : (
           <>
             {/* **A focusable scroll region**, which it had to become for two
@@ -634,6 +662,58 @@ function FileBody({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The rendered half of the toggle, for the three renderings a file with text
+ * can have.
+ *
+ * **One component so the three cannot drift apart** — same box, same scroll
+ * behaviour, same place in the tree — and so the branch that chooses between
+ * them is one `switch` rather than three conditions spread through a header.
+ * The picture-from-bytes case is NOT here: it never reaches `FileBody` at all,
+ * because `file_read` refuses it and `FileViewer` sends it down its own door.
+ */
+function PreviewBody({
+  path,
+  rendering,
+  text,
+}: {
+  path: string;
+  rendering: FileRendering;
+  text: string;
+}) {
+  if (rendering.look === "html") {
+    // **A page from a worktree, framed rather than rendered.** Everything about
+    // the posture — why it is a sandbox, what the sandbox is, what it says on
+    // screen — is `HtmlPreview` and `filePreview.ts`. Nothing about it is
+    // decided here, so there is one place to read it and one place to change
+    // it.
+    return <HtmlPreview html={text} path={path} />;
+  }
+  if (rendering.look === "image") {
+    // An `.svg`: drawn from the very buffer the source view shows, through an
+    // `<img>` rather than as markup, which is what makes a script vector into
+    // just a picture. `cwd` is unused on this path — there is no second read.
+    return (
+      <ImagePreview cwd="" path={path} rendering={rendering} text={text} />
+    );
+  }
+  // **The prose half, drawn by the app's own chat pipeline** — the same
+  // `Markdown` the README panel renders a repo's readme with
+  // (`ProjectReadmePanel`), `interactive={false}` so its mention, channel-link
+  // and link-preview machinery goes inert: an external link renders as plain
+  // text rather than an `<a>` that would navigate the webview, and nothing here
+  // reaches the relay. No new parser and no new cache — it rides
+  // `renderCachedMarkdown`/`clearMarkdownNodeCache`, which is already wired
+  // into `resetCommunityState()`.
+  return (
+    <div
+      className="h-full overflow-auto p-3"
+      data-testid="files-viewer-preview"
+    >
+      <Markdown className="text-sm" content={text} interactive={false} />
     </div>
   );
 }

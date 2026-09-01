@@ -115,6 +115,7 @@ macro_rules! table {
             vingilot_drop::vingilot_drop_read,
             vingilot_editor::editor_open,
             vingilot_editor::editor_probe,
+            vingilot_files::bytes::file_bytes,
             vingilot_files::read::file_read,
             vingilot_files::tree::worktree_tree,
             vingilot_harbor::harbor_install_and_start,

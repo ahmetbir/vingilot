@@ -1,6 +1,18 @@
-// The one control that chooses between a markdown file's source and its
-// rendered prose — the Files viewer's Source⇄Preview toggle
-// (owner ask: "markdown preview"; recon 2026-08-13).
+// The one control that chooses between a file's source and its rendering — the
+// Files viewer's Source⇄Preview toggle
+// (owner ask: "markdown preview"; recon 2026-08-13. Widened 2026-09-01 from
+// markdown alone to every file that has a rendering — a page, a design, a
+// picture — for the owner's "html gosterme, dizayn gosterme, artifact gosterme
+// vs hepsi olsun"; renamed from `MarkdownPreviewToggle` with it, because a
+// component called "markdown" that a `.png` also uses is a lie in the import
+// list).
+//
+// **One control, one word, three kinds of file.** The label is *Preview* for a
+// `.md`, a `.html` and an `.svg` alike, and the only thing that changes between
+// them is the noun in the tooltip. That is deliberate: the owner learned this
+// control on markdown, and a second control with different words for the same
+// gesture would be a second thing to learn for no gain. `renderingNoun`
+// (`filePreview.ts`) supplies the noun; nothing here knows what an SVG is.
 //
 // **It lives in the viewer header, beside `OpenInEditor`, and it is the
 // `DiffModeToggle` idiom made concrete for one more pane.** That toggle sits in
@@ -25,13 +37,18 @@
 const BUTTON_CLASS =
   "shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-2xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
 
-export function MarkdownPreviewToggle({
+export function PreviewToggle({
+  noun,
   onToggle,
   preview,
   testid,
 }: {
+  /** What this file's rendering IS, as the phrase that follows "Show this file
+   * as" — `renderingNoun`'s answer, so the tooltip names the thing he is about
+   * to see rather than saying "preview" twice. */
+  noun: string;
   onToggle: () => void;
-  /** Whether the viewer is currently showing rendered prose. The pane owns this
+  /** Whether the viewer is currently showing the rendering. The pane owns this
    * bit; this component never stores it. */
   preview: boolean;
   testid: string;
@@ -47,9 +64,7 @@ export function MarkdownPreviewToggle({
       data-testid={testid}
       onClick={onToggle}
       title={
-        preview
-          ? "Show the markdown source again"
-          : "Render this markdown as prose"
+        preview ? "Show this file's source again" : `Show this file as ${noun}`
       }
       type="button"
     >

@@ -4,7 +4,10 @@
 //!
 //! > *"a file he cannot open is a file he leaves to find elsewhere."*
 //!
-//! **Two commands, and both of them read.** There is no write of any kind in
+//! **Three commands, and every one of them reads.** `worktree_tree` lists a
+//! directory, `file_read` gives a file's text, and `file_bytes` gives a file's
+//! bytes for the pane to look AT rather than read (the picture half, added
+//! 2026-09-01). There is no write of any kind in
 //! this module — no create, no rename, no removal, no temp file. The pane above
 //! it is a viewer and not an editor, because he has terminals and agents for
 //! changing things and an editor is a different promise (undo, saves, a
@@ -38,6 +41,7 @@
 //! this app should have — and would be subtly wrong on exactly the one repo
 //! that mattered.
 
+pub mod bytes;
 pub mod read;
 pub mod tree;
 

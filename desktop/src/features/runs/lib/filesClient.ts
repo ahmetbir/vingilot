@@ -64,6 +64,42 @@ export async function readFile(
   }
 }
 
+/** One file's bytes, base64'd, or the sentence saying why not — the picture
+ * half of the viewer (`filePreview.ts`).
+ *
+ * **A second command rather than a flag on `file_read`**, because they refuse
+ * different things and under different bounds: `file_read` turns a file with a
+ * NUL in it away (a viewer showing a JPEG's bytes as text is the failure it
+ * exists to prevent), and this one is asked precisely for those files. The two
+ * caps differ for the same reason and each says its own number when it is hit. */
+export async function readFileBytes(
+  worktree: string,
+  path: string,
+): Promise<FilesResult<FileBytesValue>> {
+  try {
+    const read = await invoke<FileBytesValue>("file_bytes", { path, worktree });
+    return { ok: true, value: read };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
+}
+
+/** What `vingilot_files::bytes::FileBytes` serialises to.
+ *
+ * **The ceiling is in the type, not in a truncation.** `cap` is the number the
+ * backend applied, echoed with every answer, so the pane can say what the bound
+ * was without holding a second copy of it that could drift; and a file past it
+ * comes back as a `too-large` refusal carrying the same number rather than as a
+ * half-picture. There is no path here that returns some of a file. */
+export interface FileBytesValue {
+  path: string;
+  /** Standard base64, no line breaks — the file's bytes exactly as they are on
+   * disk, ready to be the tail of a `data:` URL. */
+  base64: string;
+  bytes: number;
+  cap: number;
+}
+
 /** What `vingilot_files::read::FileText` serialises to. `path` is echoed back
  * by the backend so a caller can drop an answer that arrived after it moved on
  * — a viewer that rendered whichever read landed last would show the wrong file
