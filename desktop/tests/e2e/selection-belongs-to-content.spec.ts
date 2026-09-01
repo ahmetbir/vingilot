@@ -31,7 +31,7 @@
 // lines in it cannot be dragged across.
 
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { waitForAnimations } from "../helpers/animations";
 import {
@@ -57,6 +57,57 @@ async function drag(
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 24 });
   await page.mouse.up();
+}
+
+/** How far inside the pane's own edges the drag is allowed to end. Wide enough
+ * that the release is over a row rather than over the scroller's padding, and
+ * that nothing has to be revealed to reach it. */
+const PANE_EDGE_PX = 24;
+
+/** Where a drag over a patch may begin and end: the very start of its first
+ * code cell, and the far end of the last code cell **the pane is showing**.
+ *
+ * **Not the patch's last row, which is the arithmetic that went red.** The
+ * subject is this repository's own newest commit under the workspace feature
+ * (`real-repo.fixtures.ts` picks it rather than pinning it), so how tall the
+ * patch is moves with the branch. Measured at `b5b61a6`: the shown file is 62
+ * rows and its last code cell sits at y = 3,328 in a 1,117-tall window — two
+ * screens below anywhere a pointer can be. Chromium answers that drag the way
+ * it answers a hand dragged off the bottom of the screen: it autoscrolls the
+ * pane, and once the pointer is outside the window it hit-tests nothing and
+ * **collapses the range to a caret** — 679 characters selected at the last
+ * in-window step, 0 at the next one, `getSelection().type` going `Range` →
+ * `Caret`. Nothing about selection changed; the patch under the gesture got
+ * longer. So the end of the drag is measured against the pane's visible box,
+ * which is a real gesture at any patch length instead of one that happened to
+ * fit while the subject was short.
+ *
+ * `crossed` is how many code cells lie between the two ends, so the caller can
+ * say out loud that the drag really did cross rows — a drag inside one row
+ * crosses no gutter and would prove nothing. */
+async function dragEnds(patch: Locator): Promise<{
+  crossed: number;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+}> {
+  const ends = await patch.evaluate((box, edge) => {
+    const pane = box.getBoundingClientRect();
+    const inside = [...box.querySelectorAll("[data-diff-code]")]
+      .map((cell) => cell.getBoundingClientRect())
+      .filter(
+        (rect) => rect.top >= pane.top && rect.bottom <= pane.bottom - edge,
+      );
+    const head = inside.at(0);
+    const tail = inside.at(-1);
+    if (head === undefined || tail === undefined) return null;
+    return {
+      crossed: inside.length,
+      from: { x: head.left + 1, y: head.top + 4 },
+      to: { x: Math.min(tail.right, pane.right - edge), y: tail.bottom - 2 },
+    };
+  }, PANE_EDGE_PX);
+  if (ends === null) throw new Error("no diff code cell is on screen");
+  return ends;
 }
 
 async function selected(page: Page): Promise<string> {
@@ -169,24 +220,21 @@ test("a drag across a patch takes the code and leaves the gutter and the marker"
   const patch = page.getByTestId("worktree-diff-patch");
   await expect(patch).toBeVisible();
 
-  // From the very start of the first row's code to the end of the last row's,
-  // so the drag crosses both `.dno` columns and the marker column of every row
-  // in between. Starting ON the gutter is not a case that has to work — it is
-  // generated content, and a press there begins no selection at all, which is
-  // the rule rather than a gap.
+  // From the very start of the first row's code down to the end of the last
+  // row the pane is SHOWING, so the drag crosses both `.dno` columns and the
+  // marker column of every row in between. Starting ON the gutter is not a
+  // case that has to work — it is generated content, and a press there begins
+  // no selection at all, which is the rule rather than a gap.
   const rows = patch.locator("[data-diff-sign]");
   await expect(rows.first()).toBeVisible();
   const count = await rows.count();
   expect(count).toBeGreaterThan(2);
   const cells = patch.locator("[data-diff-code]");
-  const from = await cells.nth(0).boundingBox();
-  const to = await cells.nth(count - 1).boundingBox();
-  if (from === null || to === null) throw new Error("no diff code cells");
-  await drag(
-    page,
-    { x: from.x + 1, y: from.y + 4 },
-    { x: to.x + to.width, y: to.y + to.height - 2 },
-  );
+  await expect(cells).toHaveCount(count);
+  const ends = await dragEnds(patch);
+  // It has to cross rows, or it says nothing about the columns between them.
+  expect(ends.crossed).toBeGreaterThan(1);
+  await drag(page, ends.from, ends.to);
 
   const copied = await selected(page);
   expect(copied.length).toBeGreaterThan(20);
