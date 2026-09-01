@@ -1,13 +1,24 @@
 //! Standalone dictation pipeline — mic-to-draft speech recognition outside
 //! any huddle (vingilot/docs/plans/2026-08-13-voice.md, Task 3).
 //!
-//! **On-device only.** This module performs no network I/O of its own: it
-//! reuses `huddle::stt::SttPipeline` (sherpa-onnx, running locally) verbatim
-//! and reads its already-downloaded model files from disk. The only network
-//! call anywhere near this feature is the existing `download_voice_models`
-//! command (`huddle::mod`), invoked by the frontend when the model is
-//! missing — nothing in this module fetches or sends audio or text off the
-//! machine.
+//! **On-device only.** Recognition performs no network I/O: it reuses
+//! `huddle::stt::SttPipeline` (sherpa-onnx, running locally) verbatim and
+//! reads its already-downloaded model files from disk. The one network call in
+//! this module is `download_dictation_model`, which fetches model *weights*
+//! from a pinned URL and writes them to `~/.buzz/models/` — audio and
+//! transcript text never leave the machine, and there is no code path from a
+//! recorded sample or a produced string to any socket.
+//!
+//! ## Which model, and why not the huddle's
+//!
+//! The huddle transcribes with Parakeet TDT-CTC 110M, which is **English
+//! only**. Dictation loads the multilingual Whisper model managed by
+//! `huddle::models::whisper` instead (that file's header has the full
+//! reasoning): the owner dictates in Turkish, and on this surface an
+//! English-only model is not a slightly worse transcript, it is a wrong one.
+//! Nothing here falls back to the huddle's model when Whisper is missing —
+//! silently returning English-only results for Turkish speech would be worse
+//! than saying the model is not ready.
 //!
 //! Mental model, deliberately smaller than the huddle's:
 //!
@@ -38,9 +49,13 @@
 
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
-use tauri::Emitter;
+use tauri::{Emitter, State};
 
-use crate::huddle::{models, stt::SttPipeline};
+use crate::app_state::AppState;
+use crate::huddle::{
+    models::{whisper, ModelStatus},
+    stt::{SttLanguage, SttPipeline},
+};
 
 /// Maximum IPC audio batch size. Mirrors `huddle::mod`'s private constant of
 /// the same name and value — both bound the same AudioWorklet batch shape
@@ -62,6 +77,25 @@ struct DictationState {
 /// field is a plain `None`, so a bare `static` initializes for free.
 static DICTATION_STATE: Mutex<DictationState> = Mutex::new(DictationState { pipeline: None });
 
+/// The language hint handed to the multilingual model, read at session start.
+///
+/// **Auto by default**, and that default is the point: the owner mixes Turkish
+/// and English inside a single sentence, and Whisper detects the language of
+/// every flushed utterance on its own. A fixed hint is a preference for people
+/// who know they will speak one language for a whole session and want to spend
+/// no decoder budget on detection; whether it measurably improves accuracy has
+/// not been benchmarked here, so it is offered, not defaulted to.
+///
+/// A process-global next to the pipeline it configures, for the same reason
+/// the pipeline is one: there is one dictation session app-wide, so there is
+/// one language for it. Not persisted across launches yet — see
+/// `set_dictation_language`.
+static DICTATION_LANGUAGE: Mutex<SttLanguage> = Mutex::new(SttLanguage::Auto);
+
+fn dictation_language() -> SttLanguage {
+    *DICTATION_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// One finished utterance, delivered to the frontend as a Tauri event named
 /// `dictation-transcript`. See this module's header: there is no partial
 /// variant, so there is no `is_final` field to be honest about.
@@ -80,8 +114,10 @@ struct DictationTranscript {
 ///
 /// Returns `Err("STT model not ready")` — the same sentinel
 /// `huddle::start_stt_pipeline` uses for the same condition — when the
-/// Parakeet model hasn't finished downloading yet, so the frontend can offer
-/// the existing `download_voice_models` flow instead of failing silently.
+/// multilingual model hasn't finished downloading yet, so the frontend can
+/// offer `download_dictation_model` instead of failing silently. The sentence
+/// is matched by the frontend, so it is deliberately unchanged from when this
+/// surface used the huddle's model.
 #[tauri::command]
 pub async fn start_dictation(app: tauri::AppHandle) -> Result<(), String> {
     {
@@ -99,10 +135,11 @@ pub async fn start_dictation(app: tauri::AppHandle) -> Result<(), String> {
         }
     }
 
-    if !models::is_stt_ready() {
+    if !whisper::is_ready() {
         return Err("STT model not ready".to_string());
     }
-    let model_dir = models::stt_model_dir().ok_or("STT model directory not found")?;
+    let model_dir = whisper::model_dir().ok_or("STT model directory not found")?;
+    let language = dictation_language();
 
     // No TTS in dictation, ever — this flag exists only because
     // `SttPipeline::new` takes one; nothing in this module ever sets it.
@@ -110,10 +147,11 @@ pub async fn start_dictation(app: tauri::AppHandle) -> Result<(), String> {
     // the composer's mic button is "listen continuously while pressed", which
     // is exactly plain VAD-driven segmentation with neither gate attached.
     let tts_active = Arc::new(AtomicBool::new(false));
-    let constructed =
-        tokio::task::spawn_blocking(move || SttPipeline::new(model_dir, tts_active, None, None))
-            .await
-            .map_err(|e| format!("dictation pipeline task join failed: {e}"))??;
+    let constructed = tokio::task::spawn_blocking(move || {
+        SttPipeline::new_with_language(model_dir, language, tts_active, None, None)
+    })
+    .await
+    .map_err(|e| format!("dictation pipeline task join failed: {e}"))??;
     let (pipeline, mut text_rx) = constructed;
     let pipeline = Arc::new(pipeline);
 
@@ -152,6 +190,80 @@ pub fn stop_dictation() -> Result<(), String> {
     Ok(())
 }
 
+// ── Model: honest states, and the one network call ────────────────────────────
+
+/// Everything the mic button needs to say something true before it can record.
+///
+/// Carries the byte count as well as the state so the surface can offer a real
+/// number instead of a rounded guess that drifts when [`whisper`]'s pinned
+/// release moves — see `total_download_bytes`'s comment on that.
+#[derive(Clone, serde::Serialize)]
+pub struct DictationModelInfo {
+    /// Absent, downloading (with percent), ready, or failed — the four states,
+    /// each of which the button renders as its own sentence.
+    pub status: ModelStatus,
+    /// Exact bytes the download costs, summed from the pinned artifact sizes.
+    pub download_bytes: u64,
+    /// The language hint a session started now would use.
+    pub language: SttLanguage,
+}
+
+/// Report the dictation model's download state.
+///
+/// A separate command from `huddle::get_model_status` because it reports a
+/// separate model: the huddle's English Parakeet being `Ready` says nothing
+/// about whether this surface can transcribe Turkish. Pointing the mic at the
+/// huddle's status is precisely the bug this command exists to prevent — it
+/// would leave the button claiming readiness while `start_dictation` refuses.
+#[tauri::command]
+pub fn get_dictation_model_status() -> Result<DictationModelInfo, String> {
+    Ok(DictationModelInfo {
+        // `whisper::status` reports an error rather than `NotDownloaded` when
+        // the manager itself is missing, so this never says "not downloaded"
+        // for a condition downloading cannot fix.
+        status: whisper::status(),
+        download_bytes: whisper::total_download_bytes(),
+        language: dictation_language(),
+    })
+}
+
+/// Start fetching the multilingual dictation model in the background.
+///
+/// **This is the only network call in this module**, and it moves model
+/// weights in one direction: from a pinned URL onto this disk. No audio and no
+/// transcript is in scope here — see the module header, and the
+/// `nothing_in_the_capture_path_can_reach_the_network` test below, which
+/// enforces that rather than trusting the sentence.
+///
+/// Returns immediately; poll `get_dictation_model_status` for progress. Safe
+/// to call repeatedly — a download already in flight or already finished is a
+/// no-op.
+#[tauri::command]
+pub async fn download_dictation_model(state: State<'_, AppState>) -> Result<(), String> {
+    let model = whisper::global()
+        .ok_or("model manager unavailable (home directory could not be resolved)")?;
+    model.start_download(state.http_client.clone());
+    Ok(())
+}
+
+/// Set the language hint for the next dictation session.
+///
+/// **Takes effect on the next `start_dictation`, not the current session** —
+/// the hint is baked into the recognizer when it is constructed, and rebuilding
+/// it mid-utterance would drop audio the owner already spoke. Callers that want
+/// it applied now should stop and start.
+///
+/// Not persisted across launches: every launch starts at
+/// [`SttLanguage::Auto`], which is the setting that handles the sentence that
+/// switches languages halfway through. Persisting a *fixed* language would make
+/// the wrong answer sticky, so that wiring is deliberately not here yet.
+#[tauri::command]
+pub fn set_dictation_language(language: SttLanguage) -> Result<(), String> {
+    let mut current = DICTATION_LANGUAGE.lock().map_err(|e| e.to_string())?;
+    *current = language;
+    Ok(())
+}
+
 /// Receive raw PCM audio bytes from the dictation AudioWorklet and feed the
 /// pipeline.
 ///
@@ -187,11 +299,97 @@ pub fn push_dictation_audio_pcm(request: tauri::ipc::Request<'_>) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::DICTATION_STATE;
+    use super::{dictation_language, SttLanguage, DICTATION_LANGUAGE, DICTATION_STATE};
 
     #[test]
     fn global_slot_starts_with_no_pipeline() {
         let dictation = DICTATION_STATE.lock().unwrap();
         assert!(dictation.pipeline.is_none());
+    }
+
+    #[test]
+    fn the_default_language_is_auto_detect() {
+        // The owner mixes Turkish and English inside one sentence. Auto is the
+        // only setting that survives that, so it is what a fresh process has
+        // before anyone touches a preference.
+        assert_eq!(*DICTATION_LANGUAGE.lock().unwrap(), SttLanguage::Auto);
+        assert_eq!(dictation_language(), SttLanguage::Auto);
+    }
+
+    /// This module's header promises that audio and transcripts never leave the
+    /// machine. That promise is worth exactly as much as its enforcement, so
+    /// this reads the module's own source and checks it.
+    ///
+    /// The check is deliberately structural rather than behavioural: proving
+    /// "no packet was sent" at runtime would need a network sandbox the test
+    /// suite doesn't have, whereas "no code outside the model download can
+    /// reach a socket" is decidable by looking, and it is the property that
+    /// would actually be violated by a careless edit.
+    #[test]
+    fn nothing_in_the_capture_path_can_reach_the_network() {
+        const SOURCE: &str = include_str!("dictation.rs");
+
+        // Scan the shipping module only. Everything from `#[cfg(test)]` on is
+        // this test, which names every forbidden token in the list below and
+        // is compiled out of the binary anyway.
+        let shipping = SOURCE
+            .split_once("#[cfg(test)]")
+            .map(|(before, _)| before)
+            .expect("this test module marks the end of the shipping code");
+
+        // Comments cannot leak anything. Stripping them means a doc sentence
+        // that *names* the network — this module has several — is never
+        // mistaken for code that reaches it.
+        let code: String = shipping
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // The one sanctioned touch: handing the shared HTTP client to the model
+        // manager so it can fetch weights. Locate its function body; everything
+        // outside is the capture path.
+        const SANCTIONED: &str = "pub async fn download_dictation_model";
+        let start = code
+            .find(SANCTIONED)
+            .expect("the model download command should exist in this module");
+        // Functions here are top-level, so the body ends at the first closing
+        // brace in column zero after the signature.
+        let end = start
+            + code[start..]
+                .find("\n}")
+                .expect("the model download command should be a closed block")
+            + 2;
+
+        for token in [
+            "http_client",
+            "reqwest",
+            "TcpStream",
+            "UdpSocket",
+            "http://",
+            "https://",
+            "ws://",
+            "wss://",
+            // The huddle posts transcripts to the relay as kind:9 events. That
+            // path must never appear here: a dictation draft is not a message,
+            // and the whole reason this module exists separately is that it
+            // must not become one.
+            "RelayClient",
+            "publish",
+            "send_event",
+            "build_event",
+        ] {
+            let leaks: Vec<usize> = code
+                .match_indices(token)
+                .map(|(index, _)| index)
+                .filter(|index| !(start..end).contains(index))
+                .collect();
+            assert!(
+                leaks.is_empty(),
+                "`{token}` appears in the dictation capture path (byte offsets {leaks:?}); \
+                 audio and transcripts must stay on this machine — if this is a \
+                 legitimate new network call, it does not belong in this module"
+            );
+        }
     }
 }

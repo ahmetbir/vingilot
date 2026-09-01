@@ -339,6 +339,13 @@ macro_rules! table {
             dictation::start_dictation,
             dictation::stop_dictation,
             dictation::push_dictation_audio_pcm,
+            // Dictation loads the multilingual model, not the huddle's English
+            // one, so it needs its own status/download pair — `get_model_status`
+            // above answers about Parakeet and would let the mic claim it is
+            // ready when it cannot transcribe a word of Turkish.
+            dictation::get_dictation_model_status,
+            dictation::download_dictation_model,
+            dictation::set_dictation_language,
             huddle::tts_settings::get_tts_settings,
             huddle::tts_settings::list_voice_registry,
             huddle::tts_settings::set_pocket_voice,

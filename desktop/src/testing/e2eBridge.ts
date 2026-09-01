@@ -224,8 +224,9 @@ type E2eConfig = {
     };
     /** Native picker boundary result for Pocket voice import tests. */
     pocketVoiceImportResult?: "success" | "cancel" | "invalid";
-    /** `get_model_status`'s `stt` field, read by dictation's model-download
-     * offer (default "ready" — a spec sets "not_downloaded" to exercise it). */
+    /** `get_dictation_model_status`'s `status` field — the *multilingual*
+     * dictation model, not the huddle's English one (default "ready"; a spec
+     * sets "not_downloaded" to exercise the download offer). */
     dictationSttModelStatus?: "ready" | "not_downloaded";
     /** When set, `start_dictation` rejects with this message. */
     dictationStartError?: string;
@@ -10907,17 +10908,34 @@ export function maybeInstallE2eTauriMocks() {
           stt: activeConfig?.mock?.dictationSttModelStatus ?? "ready",
           tts: "ready",
         };
-      case "download_voice_models": {
-        // No real download in a mocked bridge — flips the mock STT status
-        // straight to "ready" so a spec proving the "absent model → offer the
-        // download flow" path doesn't need to wait out `useDictation`'s real
-        // 3-minute poll timeout.
+      case "download_voice_models":
+        // The huddle's own models. No real download in a mocked bridge, and
+        // deliberately no side effect on the dictation model below — they are
+        // different models and conflating them here is exactly the bug the
+        // separate commands exist to prevent.
+        return null;
+      // The dictation model is the multilingual one, managed separately from
+      // the huddle's English Parakeet (`dictation.rs`'s module header).
+      case "get_dictation_model_status":
+        return {
+          status: activeConfig?.mock?.dictationSttModelStatus ?? "ready",
+          // The real pinned total from `models_whisper.rs`, so a spec reading
+          // this number sees the same one the app would.
+          download_bytes: 375_485_327,
+          language: "auto",
+        };
+      case "download_dictation_model": {
+        // Flips the mock status straight to "ready" so a spec proving the
+        // "absent model → offer the download flow" path doesn't wait out
+        // `useDictation`'s real poll timeout.
         const mock = activeConfig?.mock;
         if (mock?.dictationSttModelStatus === "not_downloaded") {
           mock.dictationSttModelStatus = "ready";
         }
         return null;
       }
+      case "set_dictation_language":
+        return null;
       // Dictation (vingilot/docs/plans/2026-08-13-voice.md, Task 3): the
       // standalone mic-to-draft pipeline, kept deliberately separate from
       // huddle's STT commands (`dictation.rs`'s module header). No real
@@ -10927,6 +10945,13 @@ export function maybeInstallE2eTauriMocks() {
       case "start_dictation": {
         const error = activeConfig?.mock?.dictationStartError;
         if (error) throw new Error(error);
+        // Mirror the real command: an absent model is refused with the exact
+        // sentinel `dictation.rs` returns, which is what routes the frontend
+        // into the download offer. Without this the "model not downloaded"
+        // spec would go straight to listening and prove nothing.
+        if (activeConfig?.mock?.dictationSttModelStatus === "not_downloaded") {
+          throw new Error("STT model not ready");
+        }
         return null;
       }
       case "stop_dictation":

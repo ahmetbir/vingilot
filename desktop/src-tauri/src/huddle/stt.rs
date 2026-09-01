@@ -9,7 +9,7 @@
 //!   → stt_worker thread
 //!       rubato: 48 kHz → 16 kHz mono
 //!       earshot VAD: accumulate speech frames
-//!       sherpa-onnx Parakeet TDT-CTC 110M: transcribe on silence
+//!       sherpa-onnx offline recognizer: transcribe on silence
 //!   → text_rx  [mpsc channel]
 //!   → tokio task (start_stt_pipeline)
 //!       builds kind:9 event → relay
@@ -17,9 +17,33 @@
 //!
 //! The worker runs on a dedicated `std::thread` (not async) because
 //! sherpa-onnx is CPU-bound and not Send-safe across await points.
+//!
+//! ## Two model families, one pipeline
+//!
+//! `model_dir` decides which recognizer is built — the caller never says.
+//! [`detect_family`] looks at which files are on disk:
+//!
+//! * `model.int8.onnx` + `tokens.txt` → **NeMo CTC** (Parakeet TDT-CTC 110M,
+//!   English). What a huddle loads: CTC blank-token decoding cannot invent
+//!   words out of silence or a clipped chunk, which is what you want when a
+//!   roomful of open microphones is being written into a channel other people
+//!   read.
+//! * `encoder.int8.onnx` + `decoder.int8.onnx` + `tokens.txt` → **Whisper**
+//!   (multilingual encoder-decoder). What `crate::dictation` loads, because
+//!   Parakeet has no Turkish and the owner's drafts are Turkish. Whisper *can*
+//!   hallucinate on near-silence; `MIN_VOICED_FRAMES` below is the gate, and
+//!   the blast radius is a word to delete from your own draft rather than a
+//!   message already delivered.
+//!
+//! `SttPipeline::new`'s signature is unchanged by any of this, so
+//! `dictation.rs` and the huddle both just pass a directory. Callers that want
+//! a language hint for a multilingual model use
+//! [`SttPipeline::new_with_language`]; everything else gets
+//! [`SttLanguage::Auto`], which is Whisper's own per-utterance language
+//! detection.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
@@ -40,6 +64,87 @@ const AUDIO_QUEUE_DEPTH: usize = 50;
 /// Maximum speech buffer size: 30 seconds at 16 kHz.
 /// Prevents OOM if VAD stays in speech mode (noisy environment).
 const MAX_SPEECH_SAMPLES: usize = 16_000 * 30;
+
+// ── Language selection ────────────────────────────────────────────────────────
+
+/// Which language a **multilingual** model should be told to expect.
+///
+/// Ignored by the English CTC model — Parakeet has one language and no knob.
+///
+/// ## Why this is a closed set and not a `String`
+///
+/// sherpa-onnx does not reject an unknown Whisper language code; it logs and
+/// calls `SHERPA_ONNX_EXIT(-1)`, i.e. it **kills the process**
+/// (`csrc/offline-whisper-greedy-search-decoder.cc`, the `lang2id` lookup). A
+/// free-form preference string would put "user typos in a settings field" and
+/// "the desktop app disappears" one keystroke apart. An enum makes that
+/// unrepresentable, and adding a language later is one variant plus one arm.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SttLanguage {
+    /// Let the model detect the language of each utterance — the default, and
+    /// the only setting that survives a speaker who switches languages between
+    /// sentences.
+    #[default]
+    Auto,
+    /// Force Turkish (`tr`).
+    Turkish,
+    /// Force English (`en`).
+    English,
+}
+
+impl SttLanguage {
+    /// The Whisper language code, or `None` for auto-detect.
+    ///
+    /// `None` becomes an empty `language` in the sherpa-onnx config, which is
+    /// documented upstream as "If empty, we will infer it from the input audio
+    /// file when the model is multilingual"
+    /// (`csrc/offline-whisper-model-config.h`).
+    fn whisper_code(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => None,
+            // Both codes are in Whisper's own language table
+            // (openai/whisper, whisper/tokenizer.py).
+            Self::Turkish => Some("tr"),
+            Self::English => Some("en"),
+        }
+    }
+}
+
+// ── Model family ──────────────────────────────────────────────────────────────
+
+/// Which sherpa-onnx model family the files in a model directory belong to.
+///
+/// Resolved from the directory contents, never from a caller-supplied flag —
+/// that is what keeps `SttPipeline`'s signature the same for both surfaces.
+#[derive(Debug)]
+enum SttFamily {
+    /// Single-file CTC head (Parakeet TDT-CTC 110M, English).
+    NemoCtc { model: PathBuf },
+    /// Encoder-decoder (Whisper, multilingual).
+    Whisper { encoder: PathBuf, decoder: PathBuf },
+}
+
+/// Identify the model in `model_dir`, or `None` if neither layout is complete.
+///
+/// Whisper is checked first: its two-file layout is strictly more specific, so
+/// a directory that somehow held both would still be recognised as the model
+/// it was installed as rather than by accident of ordering.
+fn detect_family(model_dir: &Path) -> Option<SttFamily> {
+    if !model_dir.join("tokens.txt").is_file() {
+        return None;
+    }
+    let encoder = model_dir.join("encoder.int8.onnx");
+    let decoder = model_dir.join("decoder.int8.onnx");
+    if encoder.is_file() && decoder.is_file() {
+        return Some(SttFamily::Whisper { encoder, decoder });
+    }
+    let model = model_dir.join("model.int8.onnx");
+    if model.is_file() {
+        return Some(SttFamily::NemoCtc { model });
+    }
+    None
+}
 
 /// Handle to the running STT pipeline.
 ///
@@ -90,6 +195,28 @@ impl SttPipeline {
         ptt_active: Option<Arc<AtomicBool>>,
         manual_mic_unmuted: Option<Arc<AtomicBool>>,
     ) -> Result<(Self, tokio_mpsc::Receiver<String>), String> {
+        Self::new_with_language(
+            model_dir,
+            SttLanguage::Auto,
+            tts_active,
+            ptt_active,
+            manual_mic_unmuted,
+        )
+    }
+
+    /// Same as [`SttPipeline::new`], with an explicit language for a
+    /// multilingual model.
+    ///
+    /// Only Whisper reads `language`; the English CTC model ignores it (see
+    /// [`SttLanguage`]). `new` exists unchanged so the huddle — which has no
+    /// language preference to express — is not made to pass one.
+    pub fn new_with_language(
+        model_dir: PathBuf,
+        language: SttLanguage,
+        tts_active: Arc<AtomicBool>,
+        ptt_active: Option<Arc<AtomicBool>>,
+        manual_mic_unmuted: Option<Arc<AtomicBool>>,
+    ) -> Result<(Self, tokio_mpsc::Receiver<String>), String> {
         let (audio_tx, audio_rx) = mpsc::sync_channel::<Vec<u8>>(AUDIO_QUEUE_DEPTH);
         let (text_tx, text_rx) = tokio_mpsc::channel::<String>(64);
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -102,6 +229,7 @@ impl SttPipeline {
             .spawn(move || {
                 stt_worker(
                     model_dir,
+                    language,
                     audio_rx,
                     text_tx,
                     shutdown_worker,
@@ -200,8 +328,18 @@ const TTS_COOLDOWN: Duration = Duration::from_millis(150);
 /// shows it's safe on the minimum-spec target.
 const STT_NUM_THREADS: i32 = 1;
 
+/// Whisper tail padding frames. Upstream's own recommendation for a
+/// multilingual model (`csrc/offline-whisper-model-config.h`: "Recommended
+/// values: 50 for English models, 300 for multilingual models"). Set
+/// explicitly because the Rust binding's `Default` is `0`, not upstream's
+/// sentinel `-1` — leaving it at the derived default would silently mean "no
+/// tail padding" and clip the end of every utterance.
+const WHISPER_TAIL_PADDINGS: i32 = 300;
+
+#[allow(clippy::too_many_arguments)]
 fn stt_worker(
     model_dir: PathBuf,
+    language: SttLanguage,
     audio_rx: Receiver<Vec<u8>>,
     text_tx: tokio_mpsc::Sender<String>,
     shutdown: Arc<AtomicBool>,
@@ -227,26 +365,43 @@ fn stt_worker(
 
     // ── 3. Initialise sherpa-onnx recognizer ─────────────────────────────────
     //
-    // Parakeet TDT-CTC 110M ships as a single `model.int8.onnx` (CTC head) plus
-    // `tokens.txt`. sherpa-onnx infers the model family from which inner config
-    // has a `model` path set, so we don't need to set `model_type` explicitly.
+    // sherpa-onnx infers the model family from which inner config has its paths
+    // set, so no `model_type` is needed — but the two families need different
+    // fields filled in, and only the directory contents say which one is here.
     // (See rust-api-examples/parakeet_tdt_ctc_simulate_streaming_microphone.rs
-    // in k2-fsa/sherpa-onnx.)
+    // and the whisper examples in k2-fsa/sherpa-onnx.)
     use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig};
 
     let tokens_path = model_dir.join("tokens.txt");
-    let model_path = model_dir.join("model.int8.onnx");
-    if !tokens_path.exists() || !model_path.exists() {
+    let Some(family) = detect_family(&model_dir) else {
         eprintln!(
             "buzz-desktop: STT model not found at {} — STT disabled",
             model_dir.display()
         );
         drain_until_shutdown(audio_rx, &shutdown);
         return;
-    }
+    };
 
     let mut cfg = OfflineRecognizerConfig::default();
-    cfg.model_config.nemo_ctc.model = Some(model_path.to_string_lossy().into_owned());
+    match &family {
+        SttFamily::NemoCtc { model } => {
+            cfg.model_config.nemo_ctc.model = Some(model.to_string_lossy().into_owned());
+        }
+        SttFamily::Whisper { encoder, decoder } => {
+            cfg.model_config.whisper.encoder = Some(encoder.to_string_lossy().into_owned());
+            cfg.model_config.whisper.decoder = Some(decoder.to_string_lossy().into_owned());
+            // Empty (`None`) means auto-detect, per utterance. See
+            // `SttLanguage::whisper_code`.
+            cfg.model_config.whisper.language =
+                language.whisper_code().map(|code| code.to_string());
+            // Never "translate": dictation must give back the words that were
+            // said, in the language they were said in. Explicit because the
+            // Rust binding's `Default` leaves this empty rather than upstream's
+            // "transcribe".
+            cfg.model_config.whisper.task = Some("transcribe".to_string());
+            cfg.model_config.whisper.tail_paddings = WHISPER_TAIL_PADDINGS;
+        }
+    }
     cfg.model_config.tokens = Some(tokens_path.to_string_lossy().into_owned());
     cfg.model_config.num_threads = STT_NUM_THREADS;
     // Explicit — defaults are not part of the API contract, and noisy debug
@@ -553,12 +708,85 @@ use super::drain_until_shutdown;
 
 #[cfg(test)]
 mod tests {
-    use super::{has_enough_voiced_audio, MIN_VOICED_FRAMES};
+    use super::{
+        detect_family, has_enough_voiced_audio, SttFamily, SttLanguage, MIN_VOICED_FRAMES,
+    };
 
     #[test]
     fn short_vad_blips_do_not_reach_the_recognizer() {
         assert!(!has_enough_voiced_audio(1));
         assert!(!has_enough_voiced_audio(MIN_VOICED_FRAMES - 1));
         assert!(has_enough_voiced_audio(MIN_VOICED_FRAMES));
+    }
+
+    /// Build a throwaway directory holding the given (empty) filenames. The
+    /// family check is a layout check, so empty files are exactly right — no
+    /// model bytes, no network, no ONNX runtime.
+    fn model_dir_with(names: &[&str]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "buzz-stt-family-{}-{:?}-{}",
+            std::process::id(),
+            std::thread::current().id(),
+            names.join("+")
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp model dir");
+        for name in names {
+            std::fs::write(dir.join(name), b"").expect("write stub file");
+        }
+        dir
+    }
+
+    #[test]
+    fn a_single_ctc_head_is_the_english_huddle_model() {
+        let dir = model_dir_with(&["model.int8.onnx", "tokens.txt"]);
+        assert!(matches!(
+            detect_family(&dir),
+            Some(SttFamily::NemoCtc { .. })
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_encoder_decoder_pair_is_the_multilingual_dictation_model() {
+        let dir = model_dir_with(&["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt"]);
+        assert!(matches!(
+            detect_family(&dir),
+            Some(SttFamily::Whisper { .. })
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_half_installed_directory_is_no_model_at_all() {
+        // Whisper without its decoder must not be mistaken for a CTC model,
+        // and a model with no tokens table is not usable either. Both cases
+        // have to reach the "model not found" branch that drains and exits
+        // cleanly, rather than being handed to sherpa-onnx half-configured.
+        for names in [
+            &["encoder.int8.onnx", "tokens.txt"][..],
+            &["decoder.int8.onnx", "tokens.txt"][..],
+            &["model.int8.onnx"][..],
+            &[][..],
+        ] {
+            let dir = model_dir_with(names);
+            assert!(
+                detect_family(&dir).is_none(),
+                "{names:?} was accepted as a complete model"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
+    fn auto_is_the_default_language_and_means_no_hint_at_all() {
+        assert_eq!(SttLanguage::default(), SttLanguage::Auto);
+        assert_eq!(SttLanguage::Auto.whisper_code(), None);
+    }
+
+    #[test]
+    fn the_language_hints_are_whispers_own_codes() {
+        assert_eq!(SttLanguage::Turkish.whisper_code(), Some("tr"));
+        assert_eq!(SttLanguage::English.whisper_code(), Some("en"));
     }
 }

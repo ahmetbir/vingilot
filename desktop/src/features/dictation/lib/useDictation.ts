@@ -5,10 +5,15 @@
 // **On-device only.** Everything this hook drives is local: `getUserMedia` is
 // the browser's own mic API, `setupAudioWorklet` feeds raw PCM to a Rust
 // pipeline over Tauri IPC (never the network), and the only network call
-// anywhere in this feature is `download_voice_models` — the same command
-// `huddle`'s model manager already uses, invoked here only when the model
-// genuinely isn't downloaded yet. Nothing here posts audio or transcript text
-// anywhere but back into the caller's own draft.
+// anywhere in this feature is `download_dictation_model`, which pulls model
+// weights onto this disk and sends nothing. Nothing here posts audio or
+// transcript text anywhere but back into the caller's own draft.
+//
+// **The dictation model is not the huddle's model.** This hook deliberately
+// does not call `download_voice_models` / `get_model_status`: those manage the
+// huddle's English-only Parakeet, which cannot transcribe a word of Turkish.
+// Asking Parakeet whether it is ready would let the mic report itself ready
+// and then fail on every utterance. `dictation.rs` explains the split.
 //
 // **No partial transcript.** `dictation-transcript` events are one finished
 // utterance each (`dictation.rs`'s module header, `dictationFold.ts`'s
@@ -43,11 +48,16 @@ const IDLE_TIMEOUT_MS = 20_000;
  * rather than a `setTimeout` that needs rescheduling on every segment. */
 const IDLE_CHECK_INTERVAL_MS = 1_000;
 
-/** How long to wait for the STT model download before giving up and
- * reporting an error instead of listening forever. ~100MB (recon: Parakeet
- * TDT-CTC 110M, int8) on a slow connection can take a while; this is
- * generous rather than tight. */
-const MODEL_DOWNLOAD_TIMEOUT_MS = 180_000;
+/** How long to wait for the dictation model download before giving up and
+ * reporting an error instead of listening forever.
+ *
+ * The multilingual model is 358 MiB (375,485,327 bytes — the exact figure is
+ * pinned in `models_whisper.rs` and reported by `download_bytes` below), which
+ * is more than three times the huddle's English model this timeout was
+ * originally sized for. Fifteen minutes covers a ~0.4 MB/s connection; a tight
+ * timeout here does not fail faster, it just reports a download that is still
+ * healthy as broken. */
+const MODEL_DOWNLOAD_TIMEOUT_MS = 900_000;
 const MODEL_POLL_INTERVAL_MS = 1_000;
 
 export type DictationStatus =
@@ -60,6 +70,12 @@ export interface Dictation {
   status: DictationStatus;
   /** Set only when `status === "error"`. */
   error: string | null;
+  /** Download progress 0–100 while `status === "downloading-model"`, or
+   * `null` when no percentage is known yet (the manager reports one only once
+   * a response with a `Content-Length` is streaming). `null` means "no number
+   * to show", never "0%" — a progress bar pinned at zero for a download that
+   * is actually moving is the dishonest state this distinction avoids. */
+  modelProgress: number | null;
   /** Start (or, if already listening, no-op). Never auto-called. */
   start: () => void;
   /** Stop, if a session is running. Always safe to call — a no-op when
@@ -67,34 +83,65 @@ export interface Dictation {
   stop: () => void;
 }
 
-interface ModelStatusResponse {
-  stt: unknown;
+/** Mirrors `ModelStatus` in `huddle/models.rs`. serde renames to snake_case
+ * and writes unit variants as bare strings, data variants as a one-key
+ * object. */
+export type ModelStatus =
+  | "not_downloaded"
+  | "ready"
+  | { downloading: { progress_percent: number } }
+  | { error: string };
+
+/** Mirrors `DictationModelInfo` in `dictation.rs`. */
+interface DictationModelInfo {
+  status: ModelStatus;
+  /** Exact bytes the download costs — pinned in Rust, never guessed here. */
+  download_bytes: number;
+  language: string;
 }
 
-function isSttReady(status: ModelStatusResponse): boolean {
-  return status.stt === "ready";
-}
+/** What waiting on the model concluded. Four arms because the model really
+ * has four fates, and collapsing "the download reported an error" into "it
+ * didn't finish in time" is how a mic ends up silently doing nothing. */
+type ModelWait =
+  | { kind: "ready" }
+  | { kind: "failed"; message: string }
+  | { kind: "timeout" }
+  | { kind: "abandoned" };
 
-/** Poll `get_model_status` until the STT model is ready, `shouldContinue`
- * turns false (the session was stopped, or superseded by a newer one), or the
- * download timeout elapses. */
-async function waitForSttReady(
+/** Poll `get_dictation_model_status` until the multilingual model is ready,
+ * the download reports a failure, the session is superseded, or the download
+ * timeout elapses. Reports progress percent as it goes so the surface can say
+ * how far along it is rather than spinning indefinitely. */
+async function waitForDictationModel(
   shouldContinue: () => boolean,
-): Promise<boolean> {
+  onProgress: (percent: number | null) => void,
+): Promise<ModelWait> {
   const deadline = Date.now() + MODEL_DOWNLOAD_TIMEOUT_MS;
-  while (shouldContinue() && Date.now() < deadline) {
+  while (Date.now() < deadline) {
+    if (!shouldContinue()) return { kind: "abandoned" };
     try {
-      const status = await invokeTauri<ModelStatusResponse>("get_model_status");
-      if (isSttReady(status)) return true;
+      const { status } = await invokeTauri<DictationModelInfo>(
+        "get_dictation_model_status",
+      );
+      if (status === "ready") return { kind: "ready" };
+      // A reported error is terminal: the manager has already given up, so
+      // polling on would just burn the timeout before saying the same thing
+      // less usefully.
+      if (typeof status === "object" && "error" in status) {
+        return { kind: "failed", message: status.error };
+      }
+      onProgress(
+        typeof status === "object" && "downloading" in status
+          ? status.downloading.progress_percent
+          : null,
+      );
     } catch {
       // Transient — keep polling until the deadline.
     }
     await new Promise((resolve) => setTimeout(resolve, MODEL_POLL_INTERVAL_MS));
   }
-  // The loop above only exits without returning when `shouldContinue()` went
-  // false (superseded/stopped) or the deadline passed — either way, not
-  // ready.
-  return false;
+  return { kind: "timeout" };
 }
 
 export interface UseDictationOptions {
@@ -105,6 +152,7 @@ export interface UseDictationOptions {
 export function useDictation({ onSegment }: UseDictationOptions): Dictation {
   const [status, setStatus] = React.useState<DictationStatus>("idle");
   const [error, setError] = React.useState<string | null>(null);
+  const [modelProgress, setModelProgress] = React.useState<number | null>(null);
   const onSegmentRef = React.useRef(onSegment);
   onSegmentRef.current = onSegment;
   // True once THIS instance's `start()` has confirmed the backend pipeline
@@ -160,15 +208,34 @@ export function useDictation({ onSegment }: UseDictationOptions): Dictation {
         }
         if (!stillCurrent()) return;
         setStatus("downloading-model");
+        setModelProgress(null);
         try {
-          await invokeTauri("download_voice_models");
-        } catch {
-          // The download itself failing to *start* is reported by the poll
-          // below timing out — no separate error path needed.
+          await invokeTauri("download_dictation_model");
+        } catch (downloadError) {
+          // Refusing to *start* is a real, immediately-knowable failure (no
+          // home directory, say). Reporting it now beats polling for fifteen
+          // minutes to conclude the same thing.
+          if (!stillCurrent()) return;
+          setStatus("error");
+          setError(
+            downloadError instanceof Error
+              ? downloadError.message
+              : String(downloadError),
+          );
+          return;
         }
-        const ready = await waitForSttReady(stillCurrent);
+        const waited = await waitForDictationModel(
+          stillCurrent,
+          setModelProgress,
+        );
         if (!stillCurrent()) return;
-        if (!ready) {
+        if (waited.kind === "abandoned") return;
+        if (waited.kind === "failed") {
+          setStatus("error");
+          setError(`The speech model download failed: ${waited.message}`);
+          return;
+        }
+        if (waited.kind === "timeout") {
           setStatus("error");
           setError(
             "The speech model didn't finish downloading. Try again in a moment.",
@@ -294,5 +361,5 @@ export function useDictation({ onSegment }: UseDictationOptions): Dictation {
   // Never leave the mic open behind an unmounted surface.
   React.useEffect(() => () => stop(), [stop]);
 
-  return { error, start, status, stop };
+  return { error, modelProgress, start, status, stop };
 }

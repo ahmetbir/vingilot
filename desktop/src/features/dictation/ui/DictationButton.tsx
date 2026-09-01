@@ -12,6 +12,16 @@ import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import type { Dictation } from "@/features/dictation/lib/useDictation";
 
+/** The download sentence, with a percentage only when one is actually known.
+ * `null` is not rendered as "0%": the model manager reports a percentage only
+ * once a sized response is streaming, and a bar frozen at zero on a download
+ * that is moving fine reads as broken. */
+function downloadingLabel(progress: number | null): string {
+  return progress === null
+    ? "Downloading speech model…"
+    : `Downloading speech model… ${progress}%`;
+}
+
 /** The mic toggle. Pressing it while idle starts a session (prompting for a
  * model download first if one is needed); pressing it while listening stops.
  * Disabled, not hidden, while a model download is in flight — the tooltip
@@ -28,7 +38,7 @@ export function DictationButton({
   const label = listening
     ? "Stop dictation"
     : downloading
-      ? "Downloading speech model…"
+      ? downloadingLabel(dictation.modelProgress)
       : "Dictate";
   return (
     <Tooltip disableHoverableContent>
@@ -88,7 +98,9 @@ export function DictationStatusRow({ dictation }: { dictation: Dictation }) {
         data-testid="dictation-downloading-indicator"
       >
         <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
-        downloading speech model…
+        {dictation.modelProgress === null
+          ? "downloading speech model…"
+          : `downloading speech model… ${dictation.modelProgress}%`}
       </span>
     );
   }

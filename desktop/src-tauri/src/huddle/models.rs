@@ -32,6 +32,12 @@ use super::tts_voice_registry::POCKET_VOICES;
 #[path = "models_voice_upgrade.rs"]
 mod voice_upgrade;
 
+/// The multilingual dictation model (Whisper), managed beside — never instead
+/// of — the English huddle model above. See that file's header for why the two
+/// surfaces deliberately load different models.
+#[path = "models_whisper.rs"]
+pub mod whisper;
+
 // ── Integrity verification ────────────────────────────────────────────────────
 //
 // All model artifacts are verified against pinned SHA-256 hashes before

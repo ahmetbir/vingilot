@@ -1,0 +1,67 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: a multilingual dictation model (Whisper)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment: giving composer/Ask-box dictation a model that can
+# hear Turkish. The voice pipeline itself already shipped (see
+# vingilot/seams/voice-stt.yaml) and is NOT rebuilt here — mic capture, the
+# AudioWorklet reuse, the VAD gate, the on-device-only promise in
+# `dictation.rs`'s header and the "never a kind:9 relay post" rule are all
+# untouched. What was missing was only the model: the huddle's STT slot is
+# NVIDIA Parakeet TDT-CTC 110M, which is English-only, so the mic could
+# transcribe the owner's Turkish only as English-sounding nonsense.
+#
+# THE SHAPE OF THE CHANGE, and why it lands on these four paths:
+#
+#   * A SECOND model beside the first, never a swap. The huddle keeps Parakeet
+#     on purpose — CTC blank-token decoding cannot hallucinate words out of
+#     silence, which is what you want when a roomful of open microphones is
+#     being written into a channel other members read. Dictation is one person
+#     filling their own draft, so Whisper's encoder-decoder (which can
+#     hallucinate, and is gated by MIN_VOICED_FRAMES) is the right trade there.
+#     Each surface's choice is stated in the code, at the model that makes it.
+#   * ONE pipeline, not two. `SttPipeline`'s public signature is unchanged;
+#     the recognizer family is resolved from the files on disk, so
+#     `dictation.rs` still just passes a directory.
+#
+# PATHS THIS WORK TOUCHES THAT ARE ALREADY COVERED AND GET NO NEW ENTRY (the
+# way voice-stt.yaml handled the same situation): `desktop/src-tauri/src/
+# dictation.rs`, `desktop/src-tauri/src/vingilot_command_table.rs`,
+# `desktop/src/features/dictation/**` (useDictation.ts, DictationButton.tsx)
+# — all declared by vingilot/seams/voice-stt.yaml — plus
+# `desktop/src/testing/e2eBridge.ts` and `desktop/tests/e2e/**`, declared in
+# vingilot/seams.yaml itself.
+
+seams:
+  - path: "desktop/src-tauri/src/huddle/models_whisper.rs"
+    reason: "New, fork-owned: the download/readiness manager for the multilingual dictation model (OpenAI Whisper small, int8, sherpa-onnx ONNX export). It lives here, as a `#[path]` child module of huddle::models, rather than as a third slot inside models.rs, for two reasons that both matter. First, models.rs was already at 993 lines against the desktop file-size ratchet's 1000-line ceiling, and the house rule at a ceiling is split, never raise — models_voice_upgrade.rs is the existing precedent for exactly this submodule shape. Second, being that module's child is what lets the download reuse the manager's private machinery verbatim (ModelSlot's atomic install and interrupted-install recovery, the streaming size guard, fetch_url, sha256_file) instead of copying a second, drifting download path into the tree. Follows the same discipline as every other slot: pinned repo plus immutable revision in the URL (never resolve/main), a pinned SHA-256 and exact byte size per file checked before install, a per-file size ceiling enforced while streaming, an expected-files list, a version manifest, and the MODEL_LICENSE.txt sidecar written next to the bytes so attribution travels if the directory is copied. The sidecar carries OpenAI's MIT text for the weights and names k2-fsa/sherpa-onnx's Apache-2.0 for the ONNX conversion — deliberately NOT the CC-BY-4.0 notice that belongs to NVIDIA's Parakeet."
+    owner: "vingilot/runs"
+    removable_when: "Never, while dictation ships for a non-English speaker. Removable only if the huddle's own STT slot becomes multilingual and dictation can share it without reintroducing the hallucination trade-off that made the two surfaces pick different models."
+    status: "permanent"
+    added: "2026-09-01"
+
+  - path: "desktop/src-tauri/src/huddle/models_whisper_tests.rs"
+    reason: "New, fork-owned: the tests for the file above, split into a sibling `#[path]` test module the way huddle/models_tests.rs, huddle/tts_tests.rs and huddle/tts_voice_selection_tests.rs already are in this directory, so the ratchet sees test bulk separately from the module it exercises. Every test is offline by construction — they assert the manager's contract (pinned revision never `main`, hashes are 64 lowercase hex, the licence sidecar is in the expected-files list and names Whisper/MIT rather than Parakeet/CC-BY, the size ceiling is above the largest pinned artifact, the stated total equals the sum of the artifacts) rather than downloading anything. A gate that fetched 358 MB to prove a constant would be slower, flakier, and would still not be checking the thing that actually breaks, which is a constant edited without its hash."
+    owner: "vingilot/runs"
+    removable_when: "With models_whisper.rs."
+    status: "permanent"
+    added: "2026-09-01"
+
+  - path: "desktop/src-tauri/src/huddle/models.rs"
+    reason: "Six lines: a three-line doc comment and a two-line `#[path]` declaration of the `whisper` child module. Rust has no way to add a child module to huddle::models without a line in huddle::models, and being that module's child is the entire point (see models_whisper.rs's entry — it is what grants access to ModelSlot and the shared download helpers instead of forking them). The existing STT and TTS slots, their URLs, hashes and the Parakeet trade-off documented on STT_DOWNLOAD_URL are all byte-for-byte unchanged; nothing the huddle downloads or loads is different after this change. Six lines was also very close to the most this file could afford: it was 993 lines against the desktop file-size ratchet's 1000-line ceiling and is 999 after, so anything larger had to become a new file, which is why the new one exists — and the next change here has to split, not grow."
+    owner: "vingilot/runs"
+    removable_when: "When models_whisper.rs is removed, or when a future refactor moves the model registry out of huddle/ entirely and the dictation model can be declared beside the others without a line here."
+    status: "permanent"
+    added: "2026-09-01"
+
+  - path: "desktop/src-tauri/src/huddle/stt.rs"
+    reason: "Whisper is an encoder-decoder, not a CTC head, so it cannot be loaded through the single `cfg.model_config.nemo_ctc` assignment this file had — it needs its own branch setting encoder, decoder, language, task and tail_paddings. This is the only file that builds the sherpa-onnx OfflineRecognizer, so the branch has to be here; the alternative, a second recognizer-construction path inside dictation.rs, would have forked the VAD gate, the resampling and the drain-on-shutdown behaviour along with it. Both families stay working and the choice is made by `detect_family`, which reads which files are on disk (model.int8.onnx -> NeMo CTC; encoder+decoder -> Whisper) rather than taking a flag, precisely so `SttPipeline::new`'s public signature is unchanged and dictation.rs keeps passing nothing but a directory. `new_with_language` is added alongside `new` for the language hint, so the huddle — which has no language preference to express — is not made to pass one. The hint is a closed enum, not a string, for a safety reason worth stating: sherpa-onnx answers an unknown Whisper language code with SHERPA_ONNX_EXIT(-1), so a free-form settings field would put a user's typo one keystroke away from killing the app. Default is Auto (Whisper's own per-utterance detection), which is the only setting that survives a speaker who mixes Turkish and English inside one sentence."
+    owner: "vingilot/runs"
+    removable_when: "Never, while the two surfaces load different model families. Removable only if both converge on one family, at which point the branch and detect_family collapse back to a single assignment."
+    status: "permanent"
+    added: "2026-09-01"

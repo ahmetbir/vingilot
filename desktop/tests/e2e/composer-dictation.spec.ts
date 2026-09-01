@@ -174,8 +174,10 @@ test("an absent speech model offers the download flow instead of failing silentl
 
   // Never a silent failure: the button ends up listening once the (mocked,
   // instant) download completes — proving `start_dictation`'s "STT model not
-  // ready" error routed into `download_voice_models` + a retry rather than
-  // just failing.
+  // ready" error routed into `download_dictation_model` + a retry rather than
+  // just failing. The model here is the multilingual dictation one, not the
+  // huddle's English Parakeet; `download_voice_models` deliberately no longer
+  // affects it.
   await expect(micButton).toHaveAttribute(
     "data-dictation-status",
     "listening",
