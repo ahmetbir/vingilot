@@ -1,0 +1,38 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P6, the direct-message sheet
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment (vingilot/docs/plans/2026-08-29-redesign.md, P6, and
+# the owner's own mockup at vingilot/design/mockup): the mockup's `#dmsheet`
+# and `#dmpill` — a direct message arriving on the workspace as a sheet in the
+# bottom-right corner over the work, minimizable to a pill that keeps the
+# conversation's name and avatar, and closable as a separate act.
+#
+# Almost all of this round lands inside already-declared ground. The island's
+# three new modules (lib/dmSheet.ts, lib/useDmSheet.ts, ui/DmSheet.tsx) and the
+# unit test beside them are covered whole by `desktop/src/features/runs/**` in
+# vingilot/seams.yaml; desktop/src/app/AppShell.tsx and
+# desktop/playwright.config.ts are each declared there too. What is NOT covered
+# is a brand-new spec file under desktop/tests/e2e, and that is the one entry
+# below.
+#
+# The seam this fragment is really about is the one it does NOT need: the body
+# of the sheet is upstream's own `ChannelRouteScreen` on the DM's channel id,
+# under `HostedChannelProvider` + `MainInsetProvider`, exactly as
+# TeamThreadPane.tsx hosts a channel today. No upstream messaging file is
+# edited, no composer is forked, no second draft store is opened — the sheet's
+# draft key is the channel id, which is the key the route's own composer
+# already uses, so "what was typed is still there" is one store and not two.
+
+seams:
+  - path: "desktop/tests/e2e/dm-sheet.spec.ts"
+    reason: "The spec that proves the DM sheet (vingilot/docs/plans/2026-08-29-redesign.md, P6). Holds the behaviours the surface exists for and the ones it is most likely to lose: a workspace DM click opens the sheet over the work rather than routing away from it, minimize puts up the pill WITHOUT losing what was typed, restore brings both the sheet and that text back, close dismisses sheet and pill together and is a different button from minimize, a conversation with no messages says so instead of rendering blank, and the workspace strip's chords stay refused while the caret is in the sheet's composer (P4.5's typingTarget.ts predicate, reused not reinvented). The draft-survives-minimize assertion is the reason this file exists at all: minimizing is implemented as hiding a still-mounted subtree, an invariant that no type and no unit test can hold, and the day someone 'simplifies' it to an unmount the composer silently empties. Drives the E2E mock bridge like every other spec here — never a live relay. Registered in playwright.config.ts's smoke `testMatch`. Additive-only new spec under desktop/tests/e2e."
+    owner: "vingilot/runs"
+    removable_when: "With the DM sheet."
+    status: "permanent"
+    added: "2026-09-01"

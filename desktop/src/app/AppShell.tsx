@@ -69,6 +69,8 @@ import {
 } from "@/features/settings/ui/SettingsPanels";
 import { useDueReminderBadgeCount } from "@/features/reminders/hooks";
 import { useReminderNotifications } from "@/features/reminders/useReminderNotifications";
+import { useDmSheet } from "@/features/runs/lib/useDmSheet";
+import { DmSheet } from "@/features/runs/ui/DmSheet";
 import { AppSidebar } from "@/features/sidebar/ui/AppSidebar";
 import { requestFocusedThreadClose } from "@/features/channels/focusedThreadCloseRequest";
 import { CommunityRail } from "@/features/sidebar/ui/CommunityRail";
@@ -226,6 +228,13 @@ export function AppShell() {
   const feedItemState = useFeedItemState(identityQuery.data?.pubkey);
   const channelsQuery = useChannelsQuery();
   const channels = channelsQuery.data ?? [];
+  // Redesign P6: on the workspace a direct message arrives as a sheet over the
+  // work, not as a route away from it. Everywhere else the click is upstream's.
+  const dmSheet = useDmSheet({
+    channels,
+    isWorkspaceView: selectedView === "workspace",
+    onRoute: handleSidebarChannelSelect,
+  });
   useReminderNotifications(
     identityQuery.data?.pubkey,
     notificationSettings.settings,
@@ -854,7 +863,7 @@ export function AppShell() {
                           await goChannel(directMessage.id);
                         }}
                         onSelectAgents={() => void goAgents()}
-                        onSelectChannel={handleSidebarChannelSelect}
+                        onSelectChannel={dmSheet.onSelectChannel}
                         onOpenSearchResult={handleOpenSearchResult}
                         searchChannels={channels}
                         searchFocusRequests={[
@@ -913,6 +922,15 @@ export function AppShell() {
                     >
                       <Outlet />
                     </AppShellChannelSurface>
+                    <DmSheet
+                      controller={dmSheet}
+                      onOpenFullView={goChannel}
+                      unreadCount={
+                        unreadChannelCounts.get(
+                          dmSheet.state.channelId ?? "",
+                        ) ?? 0
+                      }
+                    />
                     {!isHuddleRoom ? (
                       <RelayConnectionOverlay
                         card={relayConnectionCard}

@@ -174,6 +174,7 @@ export default defineConfig({
         "**/terminal-scroll-live.spec.ts",
         "**/deck-tasks.spec.ts",
         "**/dock.spec.ts",
+        "**/dm-sheet.spec.ts",
         "**/diff-keeps-up.spec.ts",
         "**/workspace-diff-fits.spec.ts",
         "**/workspace-palette-over-thread.spec.ts",
