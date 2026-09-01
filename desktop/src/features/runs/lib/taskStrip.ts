@@ -27,6 +27,7 @@
 // `WorktreeTabs.tabs` order stops being shown anywhere once tasks exist, and
 // nothing here re-reads meaning into it.
 
+import { normalizeStripName } from "./stripName.ts";
 import {
   applyTabCommand,
   sessionIdFor,
@@ -63,7 +64,10 @@ export type TaskLayout = Readonly<Record<string, WorktreeTaskStrip>>;
 export type TaskCommand =
   | { type: "new-task" }
   | { type: "select-task"; id: number }
-  | { type: "close-task"; id: number };
+  | { type: "close-task"; id: number }
+  /** Call this chip something (P4.5). The field already existed — this is the
+   * act that writes it, and a whitespace-only name restores `task N`. */
+  | { type: "rename-task"; id: number; name: string };
 
 /** One deck transition: both layouts, and whatever it really ended — the same
  * travel-together rule `TabLayoutChange` states, over two layouts. */
@@ -79,7 +83,10 @@ export function emptyTasks(): TaskLayout {
   return {};
 }
 
-function defaultName(id: number): string {
+/** What a chip is called before the owner calls it anything, and what it goes
+ * back to when he clears the name. Exported so the strip can seed its editor
+ * with the same string the model would fall back to. */
+export function defaultTaskName(id: number): string {
   return `task ${id}`;
 }
 
@@ -132,7 +139,7 @@ export function reconcileTasks(
       groups.push({
         active: orphans.includes(wt.active) ? wt.active : orphans[0],
         id: nextId,
-        name: defaultName(nextId),
+        name: defaultTaskName(nextId),
         tabs: orphans,
       });
       nextId += 1;
@@ -159,7 +166,11 @@ export function stripView(
 ): WorktreeTabs {
   const group = taskOf(strip, wt.active);
   if (group === null) return wt;
-  return { active: wt.active, nextN: wt.nextN, tabs: group.tabs };
+  // Spread rather than rebuilt from three fields: the tab NAMES (P4.5) ride
+  // along with everything else the worktree's strip carries, so the tab bar
+  // draws what the owner called each shell rather than falling back to the
+  // ordinals every time a task is on screen.
+  return { ...wt, tabs: group.tabs };
 }
 
 function replaceStrip(
@@ -213,7 +224,8 @@ export function applyDeckTabCommand(
     | { type: "select"; n: number }
     | { type: "step"; dir: -1 | 1 }
     | { type: "move"; dir: -1 | 1 }
-    | { type: "reorder"; n: number; before: number | null },
+    | { type: "reorder"; n: number; before: number | null }
+    | { type: "rename"; n: number; name: string },
 ): DeckChange {
   const pair = pairFor(layout, tasks, bindingId);
   if (pair === null) return unchanged(layout, tasks);
@@ -235,6 +247,17 @@ export function applyDeckTabCommand(
         closed: applied.closed,
         layout: applied.layout,
         tasks: replaceStrip(tasks, bindingId, replaceGroup(strip, grown)),
+      };
+    }
+    // A tab's name is the tab model's, and the groups have nothing to say
+    // about it: no ordinal joins or leaves a task, so the strip is passed
+    // through reconciled and otherwise untouched.
+    case "rename": {
+      const applied = applyTabCommand(layout, bindingId, command);
+      return {
+        closed: [],
+        layout: applied.layout,
+        tasks: replaceStrip(tasks, bindingId, strip),
       };
     }
     case "select": {
@@ -416,7 +439,7 @@ export function applyTaskCommand(
       const group: TaskGroup = {
         active: fresh,
         id: strip.nextId,
-        name: defaultName(strip.nextId),
+        name: defaultTaskName(strip.nextId),
         tabs: [fresh],
       };
       return {
@@ -443,6 +466,29 @@ export function applyTaskCommand(
         tasks: replaceStrip(tasks, bindingId, strip),
       };
     }
+    // The chip's own name, written where it already lived. No tab moves, no
+    // session ends, and the layout is returned untouched — a rename is a
+    // label, and the strip that draws it is the only thing that changes.
+    case "rename-task": {
+      const group = strip.groups.find((g) => g.id === command.id);
+      if (group === undefined) {
+        return unchanged(layout, replaceStrip(tasks, bindingId, strip));
+      }
+      const typed = normalizeStripName(command.name);
+      const name = typed === "" ? defaultTaskName(group.id) : typed;
+      if (name === group.name) {
+        return unchanged(layout, replaceStrip(tasks, bindingId, strip));
+      }
+      return {
+        closed: [],
+        layout,
+        tasks: replaceStrip(
+          tasks,
+          bindingId,
+          replaceGroup(strip, { ...group, name }),
+        ),
+      };
+    }
     case "close-task": {
       const group = strip.groups.find((g) => g.id === command.id);
       if (group === undefined) {
@@ -459,7 +505,7 @@ export function applyTaskCommand(
         const freshGroup: TaskGroup = {
           active: fresh,
           id: strip.nextId,
-          name: defaultName(strip.nextId),
+          name: defaultTaskName(strip.nextId),
           tabs: [fresh],
         };
         return {

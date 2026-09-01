@@ -603,6 +603,10 @@ export function RunsScreen() {
   const paletteContext: PaletteContext = {
     channels: workspacePalette.channels,
     crew: crewReach.rows,
+    // What a rename row would act on — the deck's own reading of which tab has
+    // the stage, the same one ⌘W closes (`useDeckLayers.ts`). The row needs it
+    // to say why a reading cannot be renamed; nothing else here reads it.
+    focusedTab: deck.focusedStageTab,
     // The file the viewer reported, and only while that report is still a
     // reading of the pane on screen — the same `openedFile` the place switcher
     // reads, not a second answer to "which file is open".

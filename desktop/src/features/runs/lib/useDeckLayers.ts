@@ -273,7 +273,12 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
       );
       setTabLayout(change.layout);
       setTaskLayout(change.tasks);
-      showTerminals(selectedWorktreeId);
+      // **Except a rename** (P4.5). Every other command here means "I want the
+      // terminal", which is what earns the header's clear-the-view rule; a
+      // rename is a label written on a tab, and a reading that vanished off
+      // the stage because the owner named a shell behind it would be this
+      // rule applied to a gesture it was never about.
+      if (command.type !== "rename") showTerminals(selectedWorktreeId);
       endSessions(change.closed);
     },
     [tabLayout, taskLayout, selectedWorktreeId, endSessions, showTerminals],
@@ -290,7 +295,7 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
       );
       setTabLayout(change.layout);
       setTaskLayout(change.tasks);
-      showTerminals(selectedWorktreeId);
+      if (command.type !== "rename-task") showTerminals(selectedWorktreeId);
       endSessions(change.closed);
     },
     [tabLayout, taskLayout, selectedWorktreeId, endSessions, showTerminals],

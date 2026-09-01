@@ -23,6 +23,7 @@ import * as React from "react";
 
 import type { PaletteCommand } from "@/features/runs/lib/paletteModel";
 import type { Repo } from "@/features/runs/lib/projects";
+import { requestStripRename } from "@/features/runs/lib/stripRename";
 
 /** Everything the table needs to act. Facts and callbacks; no component, no
  * JSX, so this module can be read without a browser. */
@@ -147,6 +148,18 @@ export function usePaletteCommands(
         return;
       case "new-task":
         on.newTask();
+        return;
+      case "rename-terminal-tab":
+        // Straight to `stripRename.ts`, and not through a handler: there is no
+        // callback in this bag that could do it, because the thing being asked
+        // for is a caret in a component this screen does not own. The mounted
+        // work surface consumes the request; with none mounted it is dropped
+        // on the next check, which is the correct answer to "rename the tab"
+        // typed with no tabs on screen.
+        requestStripRename("terminal");
+        return;
+      case "rename-task":
+        requestStripRename("task");
         return;
       case "split-terminal":
         on.splitTerminal(command.direction);

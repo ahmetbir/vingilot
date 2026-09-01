@@ -1,6 +1,6 @@
 // What a tab's own context menu means (2026-08-29 redesign, P4.7, item 4:
 // "vscodedaki seyler lazim" — Close, Close others, Close to the right, Split,
-// Copy path).
+// Copy path; and P4.5's sixth row, Rename…, which only a shell tab gets).
 //
 // Pure, and separate from the menu that draws it, for the reason every `resolve*`
 // in this island is: the *rule* is what has to be right, and a rule that can
@@ -15,6 +15,7 @@
 // exactly the row the owner right-clicked in. Anything else would make "to the
 // right" mean something the row does not show.
 
+import type { StageTab } from "./tabSplit.ts";
 import type { ViewSubject } from "./viewTabs.ts";
 
 /** Which tabs a close item names. */
@@ -43,6 +44,32 @@ export function tabsToClose(
   if (scope === "this") return [target];
   if (scope === "others") return ordered.filter((key) => key !== target);
   return ordered.slice(at + 1);
+}
+
+/** The ordinal a rename would act on, or `null` for a tab that wears no name
+ * of its own (P4.5, item 2: the menu's sixth row).
+ *
+ * **Only a shell.** A reading's label is its subject's name — the file it
+ * shows, the commit it abbreviates — so a renameable one would be a tab whose
+ * label had stopped being true about its contents. The refusal is expressed by
+ * drawing no row (`TerminalTabStrip.tsx` renders the item only when this
+ * answers), never by a row that errors; the sentence below is for the palette,
+ * where the command is typed rather than pointed at and something has to say
+ * why nothing happened. */
+export function renamableOrdinal(tab: StageTab | null): number | null {
+  return tab !== null && tab.kind === "terminal" ? tab.n : null;
+}
+
+/** Why this tab cannot be renamed, or `null` when it can — the palette row's
+ * `blocked` sentence, in the same voice as every other one. */
+export function renameRefusal(tab: StageTab | null): string | null {
+  if (tab === null) {
+    return "no tab is focused, so there is nothing to rename.";
+  }
+  if (tab.kind === "view") {
+    return "this tab is a reading, and its name is what it shows — rename the file, not the tab.";
+  }
+  return null;
 }
 
 /** What "Copy path" copies.

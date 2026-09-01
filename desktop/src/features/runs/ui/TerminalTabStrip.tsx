@@ -19,6 +19,23 @@
 // through a reorder; a label that renumbered on every move would be naming
 // the strip instead of the terminal.
 //
+// **And a tab can be CALLED something** (P4.5; owner, pointing at a tab bar
+// reading "1 3 6": "suralari da rename edebilelim ya"). The name is kept
+// against that same ordinal (`terminalTabs.ts`), which is the whole reason
+// the property above still holds: it survives a reorder, the tab split, and a
+// drag between halves, because none of those move an ordinal. It is a label
+// and nothing more — same session id, same scrollback, same process — and a
+// tab with no name still wears its number, which is what the ordinal was
+// always for. Two doors open the editor: a double-click on the tab, and the
+// context menu's "Rename…" for anyone who never tries one.
+//
+// **Two tabs in this row refuse it, and both refuse by having no
+// affordance.** A view tab's label is its subject's name (`viewTabs.ts`) — a
+// renameable one would be a tab whose label had stopped being true about what
+// it shows, so it gets no menu row and no double-click. The scratch tab
+// refuses for the opposite reason: it keeps nothing by design, so a name it
+// would lose on close is a promise this app cannot keep.
+//
 // It draws no border or outer padding of its own: it lives inside the terminal
 // pane's header (`ui/PaneFrame.tsx`), which already has both, and a second set
 // would put a rule through the middle of one row.
@@ -54,7 +71,8 @@ import * as React from "react";
 import { fileIconId } from "@/features/runs/lib/fileIcons";
 import type { TabCloseScope } from "@/features/runs/lib/tabMenu";
 import { stageKey, type TabSplitHalf } from "@/features/runs/lib/tabSplit";
-import type { WorktreeTabs } from "@/features/runs/lib/terminalTabs";
+import { tabName, type WorktreeTabs } from "@/features/runs/lib/terminalTabs";
+import { StripNameEditor } from "@/features/runs/ui/StripNameEditor";
 import type { ViewTab } from "@/features/runs/lib/viewTabs";
 import { viewLabel, viewTitle } from "@/features/runs/lib/viewTabs";
 import { DraggableTab } from "@/features/runs/ui/TabDnd";
@@ -96,6 +114,13 @@ interface TerminalTabStripProps {
    * a mirror with a close button, never a second owner of the session. */
   scratchOpen?: boolean;
   onCloseScratch?: () => void;
+  /** The ordinal whose name is being typed, or `null`. Held by the surface —
+   * the context menu, a double-click and the palette all ask for the same one
+   * editor, and only the surface hears all three. */
+  renamingTab?: number | null;
+  onRenameStart?: (n: number) => void;
+  onRenameCommit?: (n: number, name: string) => void;
+  onRenameCancel?: () => void;
 }
 
 export function TerminalTabStrip({
@@ -106,9 +131,13 @@ export function TerminalTabStrip({
   onCloseView,
   onCopyPath,
   onNew,
+  onRenameCancel,
+  onRenameCommit,
+  onRenameStart,
   onSelect,
   onSelectView,
   onSplitTab,
+  renamingTab = null,
   scratchOpen = false,
   splitFocus = null,
   splitSecondary = null,
@@ -170,55 +199,77 @@ export function TerminalTabStrip({
         {tabs.tabs.map((n) => {
           const key = stageKey({ kind: "terminal", n });
           const state = tabState(key, focusedKey, primaryKey, splitSecondary);
+          // What the owner called this shell, or the ordinal it was born
+          // wearing. The `title` carries the whole of it — the strip may
+          // truncate, a tooltip has room.
+          const named = tabName(tabs, n);
+          const label = named ?? `Terminal ${n}`;
+          const title = named === null ? label : `${named} — terminal ${n}`;
           return (
             <TabShell
               activeRef={state.focused ? activeRef : null}
               key={n}
-              label={`Terminal ${n}`}
+              label={label}
               onClose={() => onClose(n)}
               onCloseScope={onCloseScope}
               onCopyPath={onCopyPath}
+              onRename={
+                onRenameStart === undefined ? undefined : () => onRenameStart(n)
+              }
               onSplit={onSplitTab}
               pad="pl-2.5 pr-1"
               stageKey={key}
               state={state}
               testid={`terminal-tab-shell-${n}`}
             >
-              <button
-                aria-selected={state.focused}
-                // Tabular figures so a strip that reaches double digits does
-                // not re-space itself as the ordinals grow.
-                className={`flex items-center gap-2 py-1.5 font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
-                  state.focused
-                    ? "font-semibold"
-                    : state.onStage
-                      ? "font-medium"
-                      : "font-normal"
-                }`}
-                data-testid={`terminal-tab-${n}`}
-                onClick={() => onSelect(n)}
-                role="tab"
-                title={`Terminal ${n}`}
-                type="button"
-              >
-                {/* The mockup's 5px state dot: accent-lit with a glow on the
-                 * showing tab, quiet on the rest. */}
-                <span
-                  aria-hidden="true"
-                  className={`h-[5px] w-[5px] shrink-0 rounded-full transition-colors ${
-                    state.onStage
-                      ? "bg-[var(--vingilot-accent)] shadow-[0_0_6px_var(--vingilot-accent)]"
-                      : "bg-foreground/25"
-                  }`}
+              {n === renamingTab ? (
+                <StripNameEditor
+                  className="my-1 w-[8.5rem] rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground outline-none ring-1 ring-inset ring-[var(--vingilot-accent)]"
+                  label={`rename ${label}`}
+                  onCancel={() => onRenameCancel?.()}
+                  onCommit={(name) => onRenameCommit?.(n, name)}
+                  seed={named ?? ""}
+                  testid={`terminal-tab-rename-${n}`}
                 />
-                {n}
-              </button>
-              <TabCloseButton
-                label={`close terminal ${n}`}
-                onClose={() => onClose(n)}
-                testid={`terminal-tab-close-${n}`}
-                title={`Close terminal ${n} (⌘W, or ⇧⌘W wherever you are)`}
-              />
+              ) : (
+                <>
+                  <button
+                    aria-selected={state.focused}
+                    // Tabular figures so a strip that reaches double digits
+                    // does not re-space itself as the ordinals grow.
+                    className={`flex items-center gap-2 py-1.5 font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
+                      state.focused
+                        ? "font-semibold"
+                        : state.onStage
+                          ? "font-medium"
+                          : "font-normal"
+                    }`}
+                    data-testid={`terminal-tab-${n}`}
+                    onClick={() => onSelect(n)}
+                    role="tab"
+                    title={title}
+                    type="button"
+                  >
+                    {/* The mockup's 5px state dot: accent-lit with a glow on
+                     * the showing tab, quiet on the rest. */}
+                    <span
+                      aria-hidden="true"
+                      className={`h-[5px] w-[5px] shrink-0 rounded-full transition-colors ${
+                        state.onStage
+                          ? "bg-[var(--vingilot-accent)] shadow-[0_0_6px_var(--vingilot-accent)]"
+                          : "bg-foreground/25"
+                      }`}
+                    />
+                    <span className="max-w-[9rem] truncate">{named ?? n}</span>
+                  </button>
+                  <TabCloseButton
+                    label={`close terminal ${n}`}
+                    onClose={() => onClose(n)}
+                    testid={`terminal-tab-close-${n}`}
+                    title={`Close terminal ${n} (⌘W, or ⇧⌘W wherever you are)`}
+                  />
+                </>
+              )}
             </TabShell>
           );
         })}
@@ -360,6 +411,7 @@ function TabShell({
   onClose,
   onCloseScope,
   onCopyPath,
+  onRename,
   onSplit,
   pad,
   stageKey: key,
@@ -372,6 +424,11 @@ function TabShell({
   onClose: () => void;
   onCloseScope?: (key: string, scope: TabCloseScope) => void;
   onCopyPath?: (key: string) => void;
+  /** Absent for a tab that wears no name of its own — a reading, whose label
+   * is its subject's (`tabMenu.ts`'s `renamableOrdinal`). Absent means no row
+   * and no double-click, which is the refusal: an item that opened an editor
+   * only to reject the name would be a door into a wall. */
+  onRename?: () => void;
   onSplit?: (key: string) => void;
   pad: string;
   stageKey: string;
@@ -395,6 +452,10 @@ function TabShell({
           event.preventDefault();
           onClose();
         }}
+        // The trigger is `display: contents`, so it is in the tree without a
+        // box of its own — which makes it the right place for a gesture that
+        // belongs to the whole tab rather than to the label inside it.
+        onDoubleClick={onRename}
         onMouseDown={(event) => {
           if (event.button === 1) event.preventDefault();
         }}
@@ -417,7 +478,17 @@ function TabShell({
           {children}
         </DraggableTab>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-60" data-testid={`tab-menu-${key}`}>
+      <ContextMenuContent
+        className="w-60"
+        data-testid={`tab-menu-${key}`}
+        // Radix returns focus to the trigger when the menu closes, and
+        // "Rename…" opens a field the owner is meant to type in immediately —
+        // the restore would land a moment after the editor's own focus and
+        // blur it, which commits. Refused for every row rather than for one:
+        // the other five either unmount the tab they were opened on or leave
+        // the strip exactly as it was, and neither wants the focus back.
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      >
         <ContextMenuItem
           data-testid="tab-menu-close"
           onSelect={() => onCloseScope?.(key, "this")}
@@ -437,6 +508,11 @@ function TabShell({
           Close to the right
         </ContextMenuItem>
         <ContextMenuSeparator />
+        {onRename === undefined ? null : (
+          <ContextMenuItem data-testid="tab-menu-rename" onSelect={onRename}>
+            Rename…
+          </ContextMenuItem>
+        )}
         <ContextMenuItem
           data-testid="tab-menu-split"
           onSelect={() => onSplit?.(key)}

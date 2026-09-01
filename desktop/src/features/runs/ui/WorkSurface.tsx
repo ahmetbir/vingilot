@@ -95,12 +95,21 @@ import {
   type WorktreeTaskStrip,
 } from "@/features/runs/lib/taskStrip";
 import {
+  renamableOrdinal,
   stageTabPath,
   type TabCloseScope,
   tabsToClose,
 } from "@/features/runs/lib/tabMenu";
 import { parseStageKey, stageKey } from "@/features/runs/lib/tabSplit";
-import { resolveKey } from "@/features/runs/lib/terminalKeys";
+import {
+  subscribeStripRename,
+  takeStripRenameRequest,
+} from "@/features/runs/lib/stripRename";
+import {
+  resolveKey,
+  type TerminalKeyAction,
+} from "@/features/runs/lib/terminalKeys";
+import { isTypingTarget } from "@/features/runs/lib/typingTarget";
 import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
 import type {
   SplitDirection,
@@ -207,6 +216,31 @@ interface WorkSurfaceProps {
    * out of what ⌥⌘T opened. */
   onToggleScratch: () => void;
   onCloseScratch: () => void;
+}
+
+/** Does this chord act ON a strip, rather than on where the owner is looking?
+ *
+ * The distinction is the whole of P4.5's key rule. While a rename editor holds
+ * the caret, a chord that CHANGES a strip has to be refused — otherwise naming
+ * a shell `w` closes it, `t` opens a task and `\` splits the stage, and the
+ * three doors this feature adds would each be a way to destroy what you are
+ * naming. A chord that merely moves the owner somewhere else needs no refusal:
+ * it takes the focus with it, the editor blurs, and a blur commits. So ⌘1…9
+ * (another worktree), ⌘` (into and out of the terminal) and ⌥⌘T (the scratch
+ * shell) are deliberately absent from this list — they are not exceptions that
+ * were forgotten, they are the other half of the rule. */
+function actsOnStrip(action: TerminalKeyAction): boolean {
+  switch (action.type) {
+    case "close-terminal-tab":
+    case "move-terminal-tab":
+    case "new-task":
+    case "split-terminal":
+    case "step-terminal-tab":
+    case "toggle-tab-split":
+      return true;
+    default:
+      return false;
+  }
 }
 
 export function WorkSurface({
@@ -327,8 +361,62 @@ export function WorkSurface({
     return () => observer.disconnect();
   }, []);
 
+  // ── Renaming, one caret at a time (P4.5) ────────────────────────────────
+  //
+  // Held here rather than inside either strip because three doors open the
+  // same editor — a double-click on the chip or tab, the tab menu's "Rename…",
+  // and the palette's two rows — and only this component hears all three. It
+  // is transient by design: a half-typed name is not layout and is never
+  // written anywhere until it is committed.
+  const [renaming, setRenaming] = React.useState<
+    { kind: "task"; id: number } | { kind: "terminal"; n: number } | null
+  >(null);
+  // A rename left open when the owner leaves for another worktree is not
+  // carried across to a strip it was never about.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the worktree id is the trigger; the body sets a constant
+  React.useEffect(() => {
+    setRenaming(null);
+  }, [selectedWorktreeId]);
+
+  // What the palette's two rows would act on, read at the moment the request
+  // arrives rather than closed over — the subscription below is bound once.
+  const renameTargets = React.useRef({ tab: 0, task: 0 });
+  renameTargets.current = {
+    tab: renamableOrdinal(stage.focusedStageTab) ?? 0,
+    task:
+      tabs === null || tasks === null
+        ? 0
+        : (taskOf(tasks, tabs.active)?.id ?? 0),
+  };
+  React.useEffect(() => {
+    function check() {
+      const request = takeStripRenameRequest();
+      if (request === null) return;
+      const { tab, task } = renameTargets.current;
+      if (request === "task") {
+        if (task !== 0) setRenaming({ id: task, kind: "task" });
+        return;
+      }
+      if (tab !== 0) setRenaming({ kind: "terminal", n: tab });
+    }
+    check();
+    return subscribeStripRename(check);
+  }, []);
+
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      // **A keystroke aimed at a text field belongs to the field** (P4.5).
+      // Until the strips gained editors this listener could not reach a caret
+      // that was not the terminal's: every field on screen was in the right
+      // pane, which the guard further down already refuses. The rename editor
+      // is in the tab bar, so ⌘T, ⇧⌘W, ⌥⌘←→, ⇧⌘\ and ⌘\ have to be refused by
+      // FOCUS as well as by pane, or naming a shell "w" would close it.
+      //
+      // Only the acts that change the strips or the stage; ⌘1…9, ⌘` and ⌥⌘T
+      // are about where the owner is looking rather than about the strip, and
+      // leaving the editor that way blurs it, which commits. `typingTarget.ts`
+      // holds the predicate and says why a terminal is not a text field here.
+      const typing = isTypingTarget(event.target);
       const input = {
         altKey: event.altKey,
         key: event.key,
@@ -349,6 +437,7 @@ export function WorkSurface({
         input.key === "\\" &&
         input.repeat !== true
       ) {
+        if (typing) return;
         event.preventDefault();
         setPosition(positionNow.current === "float" ? "right" : "float");
         return;
@@ -363,6 +452,7 @@ export function WorkSurface({
 
       const action = resolveKey(input);
       if (action === null) return;
+      if (typing && actsOnStrip(action)) return;
 
       if (action.type === "switch-worktree") {
         const target = worktrees[action.index];
@@ -596,7 +686,14 @@ export function WorkSurface({
             activeTaskId={taskOf(tasks, tabs.active)?.id ?? null}
             onClose={(id) => onTaskCommand({ id, type: "close-task" })}
             onNew={() => onTaskCommand({ type: "new-task" })}
+            onRenameCancel={() => setRenaming(null)}
+            onRenameCommit={(id, name) => {
+              setRenaming(null);
+              onTaskCommand({ id, name, type: "rename-task" });
+            }}
+            onRenameStart={(id) => setRenaming({ id, kind: "task" })}
             onSelect={(id) => onTaskCommand({ id, type: "select-task" })}
+            renamingId={renaming?.kind === "task" ? renaming.id : null}
             strip={tasks}
           />
         ) : null}
@@ -647,6 +744,12 @@ export function WorkSurface({
                   onCloseView={onCloseView}
                   onCopyPath={copyTabPath}
                   onNew={() => onTabCommand({ type: "new" })}
+                  onRenameCancel={() => setRenaming(null)}
+                  onRenameCommit={(n, name) => {
+                    setRenaming(null);
+                    onTabCommand({ n, name, type: "rename" });
+                  }}
+                  onRenameStart={(n) => setRenaming({ kind: "terminal", n })}
                   // Selection goes through the stage rather than straight to the
                   // tab models: which half the keyboard lands in is part of what
                   // clicking a tab means now, and only the stage knows.
@@ -657,6 +760,9 @@ export function WorkSurface({
                     stage.selectStageTab(stageKey({ id, kind: "view" }))
                   }
                   onSplitTab={stage.splitTabOut}
+                  renamingTab={
+                    renaming?.kind === "terminal" ? renaming.n : null
+                  }
                   scratchOpen={scratch !== null}
                   splitFocus={tabSplit?.focus ?? null}
                   splitSecondary={tabSplit?.secondary ?? null}

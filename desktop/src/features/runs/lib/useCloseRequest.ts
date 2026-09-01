@@ -37,6 +37,7 @@ import {
   type StackedSurfaces,
 } from "@/features/runs/lib/closeRequest";
 import { resolveCloseKey } from "@/features/runs/lib/closeKeys";
+import { isTypingTarget } from "@/features/runs/lib/typingTarget";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 
 /** Emitted by `vingilot_window` when a close request lands on a window that
@@ -145,12 +146,12 @@ export function useCloseRequest(
       // documented to take — the palette's own field and the scratch buffer's
       // textarea are *inside* those surfaces, so refusing there would make ⌘W
       // do nothing at all with the palette open. The tab close is the only arm
-      // that can reach past what has focus, and a caret in a composer or an
-      // objective field must keep its own ⌘W. A terminal is not a text field
-      // for this purpose even though xterm's input is a `<textarea>`: closing
-      // the tab from inside its own shell is exactly the iTerm hand the owner
-      // asked for.
-      if (next?.type === "dismiss-closableTab" && typingElsewhere(event.target))
+      // that can reach past what has focus, and a caret in a composer, an
+      // objective field or a strip's rename editor (P4.5) must keep its own
+      // ⌘W. The predicate — including why a terminal is not a text field for
+      // this purpose — is `typingTarget.ts`, shared since the strips gained
+      // editors of their own.
+      if (next?.type === "dismiss-closableTab" && isTypingTarget(event.target))
         return;
       // Only claimed once it resolves to something. A ⌘W with nothing to take
       // is the window's, and this app answers that in Rust — where the red
@@ -168,18 +169,4 @@ export function useCloseRequest(
     return () =>
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [take]);
-}
-
-/** True for a text-entry element that is not a terminal's.
- *
- * xterm's own hidden input is a `<textarea>` inside `.xterm`, and it is the one
- * "field" ⌘W must act over rather than defer to — see the guard above. */
-function typingElsewhere(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.closest(".xterm") !== null) return false;
-  return (
-    target.isContentEditable ||
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA"
-  );
 }

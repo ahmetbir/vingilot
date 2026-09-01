@@ -1,0 +1,29 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: redesign P4.5, naming a task and a tab
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope of this fragment (vingilot/docs/plans/2026-08-29-redesign.md, "P4.5 —
+# a task and a terminal can be named"):
+#
+#   A chip and a tab each become a field where they sit, by double-click, by
+#   the tab menu's Rename…, or by one of ⌘K's two rows. Enter commits, Escape
+#   reverts to the PREVIOUS name, blur commits, an empty commit puts the
+#   default back — and the name rides the ORDINAL, so it survives a reorder, a
+#   move across a split stage and a reload without a pty being asked anything.
+#
+# Everything this round touched is already declared whole by the root registry
+# — desktop/src/features/runs/** (the fork's workspace island) and
+# desktop/playwright.config.ts — except the one new file below.
+
+seams:
+  - path: "desktop/tests/e2e/strip-rename.spec.ts"
+    reason: "New, fork-owned spec: the two strips' rename editor over the real app, the real key path and a recorded pty bridge — the nine things no pure model can say. (1) A double-click on the chip and on the tab opens the SAME field and Enter keeps what was typed, with the ordinal demoted to the tooltip rather than lost. (2) Escape reverts to the PREVIOUS name and not to the default — the promise `StripNameEditor.tsx`'s `settled` ref exists for, since Escape's own blur arrives after the parent has already reverted and would otherwise commit the discarded text; blur commits; an empty (or all-whitespace) commit restores `task N` / the bare ordinal instead of leaving a label with nothing on it. (3) Both names survive a reload, which is the whole point of `terminalTabStore.ts` carrying them ADDITIVELY inside the existing `.v1` record. (4) The tab menu's Rename… and ⌘K's two rows land in that same field, which is what makes `stripRename.ts`'s one-slot mailbox a door rather than a second implementation. (5) The palette's terminal row is DRAWN and REFUSES over a focused reading, in `tabMenu.ts`'s own sentence — the rule stated at the top of `CommandPalette.tsx`, and the only test that can see it, because the refusal depends on the focused tab reaching `PaletteContext` from `useDeckLayers.ts`. (6) The scratch tab refuses entirely: no editor from a double-click, no context menu, therefore no Rename… row — a shell that keeps nothing cannot keep a name it would lose on close. (7) With the caret in the field, ⌘W, ⇧⌘W, ⌘T, ⌘\\ and ⇧⌘\\ close, open and split NOTHING and the pty lists are unchanged, then Escape and ⌘T works again — the two independent guards (`typingTarget.ts` at capture phase, `actsOnStrip` on the bubble-phase window listener) exercised as keystrokes, which is the only way to tell them apart from a stopped propagation that never mattered. (8) A 32-character name clips at the tab's own 9rem cap and leaves the strip's + inside the strip, in the viewport and still adding tabs. (9) The name rides the ORDINAL: it survives a @dnd-kit reorder and a drag into the other half of a split stage, with `pty_open`/`pty_close` asserted IDENTICAL across both — the same invariant `tab-split.spec.ts` pins for the split, now pinned for the label that travels with the shell. Screenshots behind P45_SHOTS: a chip mid-rename, a tab mid-rename, and both strips after the reload. Registered in playwright.config.ts's smoke testMatch (already a declared seam)."
+    owner: "vingilot/redesign"
+    removable_when: "With the strips' rename editor."
+    status: "permanent"
+    added: "2026-09-01"

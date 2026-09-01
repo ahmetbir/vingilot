@@ -17,6 +17,19 @@
 // This module knows nothing about repos, checkouts, or where a shell starts —
 // `terminalSessions.ts` resolves an id to a cwd, and only that module needs to
 // know how. Here a worktree is a string.
+//
+// **A tab can be CALLED something now (P4.5), and the name rides the
+// ordinal.** That is the one design decision in the rename, and it follows
+// from the paragraph above rather than being a taste: the ordinal is what
+// names the shell, so a name kept beside it survives everything that moves a
+// tab without moving its session — a reorder, the tab split, a drag between
+// halves. A name kept by POSITION would renumber on every drag, which is the
+// exact mistake the strip's label already refuses to make. It is still not a
+// title in the pty sense: nothing here is sent to the shell, no tmux session
+// is renamed, and a tab with no name is not a lesser tab — it wears its
+// ordinal, which is what every tab wore before this.
+
+import { normalizeStripName } from "./stripName.ts";
 
 /** Joins a worktree's binding id to a tab's ordinal.
  *
@@ -65,6 +78,15 @@ export interface WorktreeTabs {
    * scrollback, in the right worktree, from the shell they just closed. Rising
    * costs one integer and makes that unreachable. */
   readonly nextN: number;
+  /** What the owner called each tab, keyed by ordinal as a string (the key a
+   * JSON object round-trips). Absent, or missing an entry, for a tab wearing
+   * its ordinal — which is every tab until one is renamed, and is why this is
+   * optional rather than an empty record everywhere: the stored layout of a
+   * workspace that never renames anything is byte-for-byte what it was.
+   *
+   * An entry is never the empty string (`renameTab` deletes rather than
+   * blanks), so `names[key] ?? null` is the whole reading. */
+  readonly names?: Readonly<Record<string, string>>;
 }
 
 /** Every worktree the workspace is holding terminals for, keyed by binding id.
@@ -100,7 +122,10 @@ export type TabCommand =
    * the strip when `before` is `null` (redesign P4.7, item 3). The keyboard's
    * `move` walks one position at a time and is a different act; this one names
    * a destination, because a pointer does. */
-  | { type: "reorder"; n: number; before: number | null };
+  | { type: "reorder"; n: number; before: number | null }
+  /** Call this tab something (P4.5). A whitespace-only name is not a name and
+   * restores the ordinal; nothing about the session moves either way. */
+  | { type: "rename"; n: number; name: string };
 
 export function emptyLayout(): TabLayout {
   return {};
@@ -112,6 +137,43 @@ export function worktreeTabs(
   bindingId: string,
 ): WorktreeTabs | null {
   return Object.hasOwn(layout, bindingId) ? layout[bindingId] : null;
+}
+
+/** What one tab is called, or `null` for a tab wearing its ordinal. */
+export function tabName(wt: WorktreeTabs, n: number): string | null {
+  const name = wt.names?.[String(n)];
+  return name === undefined || name === "" ? null : name;
+}
+
+/** A strip with one ordinal's name forgotten, and no `names` key at all once
+ * the last one goes — so a worktree that ends up unnamed again stores what an
+ * unnamed worktree stores. */
+function dropName(wt: WorktreeTabs, n: number): WorktreeTabs {
+  if (wt.names === undefined || !Object.hasOwn(wt.names, String(n))) return wt;
+  const names: Record<string, string> = {};
+  for (const [key, name] of Object.entries(wt.names)) {
+    if (key !== String(n)) names[key] = name;
+  }
+  if (Object.keys(names).length === 0) {
+    return { active: wt.active, nextN: wt.nextN, tabs: wt.tabs };
+  }
+  return { ...wt, names };
+}
+
+/** Call a tab something, or take its name away.
+ *
+ * **Nothing about the session moves** — the same sentence `reorderTab` makes,
+ * for the same reason: the ordinal is the name of the pty (`sessionIdFor`) and
+ * this writes a string beside it. Same session id, same scrollback, same
+ * process. A name that normalises to nothing (empty, spaces) deletes the entry
+ * rather than storing a blank, so the tab goes back to wearing its ordinal —
+ * which is what "empty is not a name" means where the tab's default lives. */
+function renameTab(wt: WorktreeTabs, n: number, name: string): WorktreeTabs {
+  if (!wt.tabs.includes(n)) return wt;
+  const next = normalizeStripName(name);
+  if (next === (tabName(wt, n) ?? "")) return wt;
+  if (next === "") return dropName(wt, n);
+  return { ...wt, names: { ...wt.names, [String(n)]: next } };
 }
 
 /** Every open tab, as the pair that names its session.
@@ -258,9 +320,12 @@ function closeTab(
   // thing the owner uses behaves.
   const active =
     wt.active === n ? tabs[Math.min(index, tabs.length - 1)] : wt.active;
+  // The name goes with the tab. An ordinal is never reused, so a name left
+  // behind could never be shown again — it would only sit in storage growing
+  // by one entry per close, forever.
   return {
     closed,
-    layout: replace(layout, bindingId, { ...wt, active, tabs }),
+    layout: replace(layout, bindingId, { ...dropName(wt, n), active, tabs }),
   };
 }
 
@@ -296,6 +361,16 @@ export function applyTabCommand(
         closed: [],
         layout: replace(layout, bindingId, moveActiveTab(wt, command.dir)),
       };
+    case "rename": {
+      // The second command that routinely resolves to "nothing changed" — the
+      // editor commits on blur, so every rename the owner opens and leaves
+      // alone lands here with the name it started from.
+      const next = renameTab(wt, command.n, command.name);
+      return {
+        closed: [],
+        layout: next === wt ? layout : replace(layout, bindingId, next),
+      };
+    }
     case "reorder": {
       // The one command that routinely resolves to "nothing moved" — a tab
       // dropped back where it started, or on itself. Returning the input
@@ -314,6 +389,10 @@ export function applyTabCommand(
 /** Drop the worktrees that have left the workspace, and name every session
  * that went with them — the one event that means "really closed" for a whole
  * strip at once.
+ *
+ * A pruned worktree leaves no tab names behind, and that is structural rather
+ * than a second sweep to remember: the names live inside the `WorktreeTabs`
+ * this drops, so they leave with the strip they were names in.
  *
  * An empty `liveBindingIds` changes nothing. The worktree list is polled, not
  * pushed, so a single empty read is "the workspace has not answered yet", and

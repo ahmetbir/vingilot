@@ -17,6 +17,14 @@
 // comes back as a fresh shell in the right worktree — the normal path, not an
 // error path, which is why there is no liveness check to write here.
 //
+// **Tab names ride in the same record, and the key stays `.v1`** (P4.5).
+// `names` is additive: an older build reading a newer layout copies the three
+// fields it knows and drops the names, which costs labels rather than tabs, and
+// a newer build reading an older layout finds no names and draws ordinals —
+// which is what every tab drew before. A version bump would have been the
+// alternative, and it would have thrown away the owner's real tab strips to
+// protect a label.
+//
 // Storage is `localStorage`, injectable so plain `node --test` (no DOM) can
 // pass an in-memory shim — the same arrangement `deckLayout.ts` uses.
 // Deliberately not cleared on a community switch, unlike the singletons in
@@ -25,6 +33,7 @@
 // machine and pointing the app at a different relay is no reason to forget the
 // owner's shells.
 
+import { normalizeStripName } from "./stripName.ts";
 import {
   emptyLayout,
   type TabLayout,
@@ -79,6 +88,33 @@ function isWorktreeTabs(value: unknown): value is WorktreeTabs {
   return (v.nextN as number) > Math.max(...tabs);
 }
 
+/** The tab names that survive a read (P4.5), or `null` for a strip that has
+ * none worth keeping.
+ *
+ * **Checked, and repaired rather than refused** — the one place this file
+ * departs from the rule above it, and the difference is what is at stake. A
+ * bad `active` could point a tab at another shell's session; a bad NAME is a
+ * label. So a malformed entry costs its label and nothing else, and a strip is
+ * never thrown away over one. Names for ordinals the strip no longer holds are
+ * dropped for the same reason `closeTab` drops them: they can never be shown
+ * again, and kept they would only accumulate. */
+function readTabNames(
+  value: unknown,
+  tabs: readonly number[],
+): Readonly<Record<string, string>> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const live = new Set(tabs.map(String));
+  const names: Record<string, string> = {};
+  for (const [key, name] of Object.entries(value)) {
+    if (!live.has(key) || typeof name !== "string") continue;
+    const clean = normalizeStripName(name);
+    if (clean !== "") names[key] = clean;
+  }
+  return Object.keys(names).length === 0 ? null : names;
+}
+
 /** Read a stored layout, dropping any worktree whose strip does not survive
  * `isWorktreeTabs`. Missing, unparseable, or wrongly-shaped storage reads as
  * an empty layout — never a throw, because this is called during the render
@@ -97,11 +133,13 @@ export function parseTabLayout(raw: string | null): TabLayout {
   const layout: Record<string, WorktreeTabs> = {};
   for (const [bindingId, value] of Object.entries(parsed)) {
     if (bindingId === "" || !isWorktreeTabs(value)) continue;
-    layout[bindingId] = {
+    const strip: WorktreeTabs = {
       active: value.active,
       nextN: value.nextN,
       tabs: [...value.tabs],
     };
+    const names = readTabNames(value.names, strip.tabs);
+    layout[bindingId] = names === null ? strip : { ...strip, names };
   }
   return layout;
 }

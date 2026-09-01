@@ -303,16 +303,84 @@ test("a worktree carries the digit that already selects it, up to nine", () => {
   assert.equal(row(matches, "worktree:wt-9").chord, null);
 });
 
+test("both rename rows are drawn whatever the focused tab is, and the terminal one refuses in the reading's own words", () => {
+  // A blocked row is drawn and refuses; it never disappears
+  // (`CommandPalette.tsx`). So the three readings below are three sentences
+  // on the same row, not a row that comes and goes.
+  const drawn = (context) => ids(actionSource(context, ""));
+  const shell = { kind: "terminal", n: 2 };
+  const reading = { kind: "view", n: 1 };
+
+  for (const focusedTab of [null, shell, reading]) {
+    const listed = drawn(ctx({ focusedTab }));
+    assert.ok(listed.includes("action:rename-terminal-tab"));
+    assert.ok(listed.includes("action:rename-task"));
+  }
+
+  // The sentence is `tabMenu.ts`'s `renameRefusal`, read here rather than
+  // written again — the menu's silence and this row's refusal are one rule.
+  assert.equal(
+    row(
+      actionSource(ctx({ focusedTab: shell }), ""),
+      "action:rename-terminal-tab",
+    ).blocked,
+    null,
+  );
+  assert.equal(
+    row(
+      actionSource(ctx({ focusedTab: null }), ""),
+      "action:rename-terminal-tab",
+    ).blocked,
+    "no tab is focused, so there is nothing to rename.",
+  );
+  assert.equal(
+    row(
+      actionSource(ctx({ focusedTab: reading }), ""),
+      "action:rename-terminal-tab",
+    ).blocked,
+    "this tab is a reading, and its name is what it shows — rename the file, not the tab.",
+  );
+});
+
+test("with no worktree open there is nothing to rename, and both rows say so before they ask about tabs", () => {
+  const none = ctx({ focusedTab: null, selectedWorktreeId: null });
+  assert.equal(
+    row(actionSource(none, ""), "action:rename-terminal-tab").blocked,
+    "no worktree is open, so there is no terminal to rename.",
+  );
+  assert.equal(
+    row(actionSource(none, ""), "action:rename-task").blocked,
+    "no worktree is open, so there is no task to rename.",
+  );
+});
+
+test("neither rename row claims a chord, because a rename is not fired blind", () => {
+  const found = actionSource(
+    ctx({ focusedTab: { kind: "terminal", n: 1 } }),
+    "",
+  );
+  assert.equal(row(found, "action:rename-terminal-tab").chord, null);
+  assert.equal(row(found, "action:rename-task").chord, null);
+  assert.deepEqual(row(found, "action:rename-terminal-tab").command, {
+    type: "rename-terminal-tab",
+  });
+  assert.deepEqual(row(found, "action:rename-task").command, {
+    type: "rename-task",
+  });
+});
+
 test("a query filters every source through the same matcher", () => {
   const matched = paletteMatches(ctx(), "palette");
   // Two sources, one matcher: the `vingilot/palette` branch by its label, and
-  // two action rows because their prose happens to carry the letters in
-  // order ("cLose the sPlit hALf...The Tab..." and the sidebar toggle's
+  // three action rows because their prose happens to carry the letters in
+  // order ("Put a cAret on the chip hoLding this tErminal — the sTrip above
+  // the Tabs", "cLose the sPlit hALf...The Tab...", and the sidebar toggle's
   // detail). The extras are the subsequence matcher working, not a bug —
   // what is under test is that every source went through it, and a match
   // from two sources says that more plainly than a match from one.
   assert.deepEqual(ids(matched), [
     "worktree:wt-1",
+    "action:rename-task",
     "action:close-terminal-split",
     "action:toggle-sidebar",
   ]);

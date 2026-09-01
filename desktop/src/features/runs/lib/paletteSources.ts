@@ -40,6 +40,8 @@ import {
 } from "./paletteModel.ts";
 import { type Repo, type Worktree, worktreeSummary } from "./projects.ts";
 import { scratchBlocked } from "./scratchTerminal.ts";
+import { renameRefusal } from "./tabMenu.ts";
+import type { StageTab } from "./tabSplit.ts";
 
 /** One entry of the pane registry, reduced to what the palette needs. Built by
  * the host from `paneRegistry.tsx`, availability already asked with the same
@@ -135,6 +137,18 @@ export interface PaletteContext {
    * row either. What still earns a sentence is a minted member whose door is
    * shut (Lookout with no thread open), and `crewReach.ts` puts it on the row. */
   crew?: readonly CrewReachRow[];
+  /** The tab the stage has focused, or `null` when it has none — the one fact
+   * the rename rows need about the strips, and the only one this file is told
+   * (`useDeckLayers.ts`'s `focusedStageTab`).
+   *
+   * **Absent means "this host has no stage at all"**, which is not the same as
+   * `null` and is why nothing here turns the absence into a sentence: the
+   * scratch shell's palette (`ShellPalette.tsx`) runs over a window with no
+   * work surface in it, and both rename rows are already blocked there by
+   * having no worktree open. A host that grew a stage and forgot to pass this
+   * would read as "no tab is focused" — the honest reading of a stage nobody
+   * mentioned, and still a sentence rather than a guess. */
+  focusedTab?: StageTab | null;
   /** The files he has opened, most recent first — the MRU trail's file
    * entries (`placeMru.ts`), which is a list of what he *did* rather than a
    * listing of what exists. ⌘K's file rows, and only ⌘K's. */
@@ -390,6 +404,42 @@ export const actionSource: PaletteSource = (ctx, query) => {
       id: "action:new-terminal-tab",
       kind: "action",
       label: "New terminal tab",
+    },
+    {
+      // Two facts, asked in the order the owner would: is there a stage at all,
+      // and then is THIS tab a thing that wears a name of its own.
+      // `renameRefusal` writes the second sentence — the same function the tab
+      // menu asks before it draws its Rename… row, so the menu's silence and
+      // this row's refusal are one rule read twice rather than two rules that
+      // will drift.
+      blocked:
+        ctx.selectedWorktreeId === null
+          ? "no worktree is open, so there is no terminal to rename."
+          : renameRefusal(ctx.focusedTab ?? null),
+      // No chord: the double-click and the tab's own menu are this act's
+      // pointing doors, and a rename is not a thing to fire blind.
+      chord: null,
+      command: { type: "rename-terminal-tab" },
+      detail:
+        "put a caret on this tab's own name — Enter keeps it, Escape puts the old one back",
+      id: "action:rename-terminal-tab",
+      kind: "action",
+      label: "Rename this terminal",
+    },
+    {
+      blocked:
+        ctx.selectedWorktreeId === null
+          ? "no worktree is open, so there is no task to rename."
+          : null,
+      chord: null,
+      command: { type: "rename-task" },
+      // Says which strip, because the row above it says the other one and the
+      // two are a chip apart on screen.
+      detail:
+        "put a caret on the chip holding this terminal — the strip above the tabs",
+      id: "action:rename-task",
+      kind: "action",
+      label: "Rename this task",
     },
     {
       blocked:

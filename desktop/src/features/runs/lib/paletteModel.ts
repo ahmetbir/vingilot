@@ -81,6 +81,21 @@ export type PaletteCommand =
    * (`taskStrip.ts`). The row above adds a tab INSIDE the current task; this
    * one adds a task. ⌘T is this one's chord, per the mockup's own hint. */
   | { type: "new-task" }
+  /** Put a caret on the focused terminal tab's own name (P4.5, item 2).
+   *
+   * **It carries no name.** A palette that took the new name out of the query
+   * line would be a second rename path, with its own idea of what too long and
+   * what empty mean — and `stripName.ts` already holds one. So the command
+   * opens the strip's editor and the owner types into the same field the
+   * double-click and the tab menu's Rename… open; `stripRename.ts` carries the
+   * request to whichever work surface is mounted. */
+  | { type: "rename-terminal-tab" }
+  /** The same act on the task chip that HOLDS the focused tab — the strip
+   * above, the shell's group rather than the shell. Two rows because they
+   * rename two different things, and neither of the other two doors onto the
+   * tab's editor can reach the chip's. (Not `taskStrip.ts`'s `rename-task`,
+   * which is the change that lands *after* the caret; this one only opens.) */
+  | { type: "rename-task" }
   /** Split the active terminal — a second live shell beside (`right`) or
    * below (`down`) it, iTerm's ⌘D/⇧⌘D (`terminalSplit.ts`). */
   | { type: "split-terminal"; direction: "right" | "down" }
