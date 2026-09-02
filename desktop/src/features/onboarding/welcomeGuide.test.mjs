@@ -384,14 +384,14 @@ test("starter matching uses persona identity rather than display name", () => {
 });
 
 test("starter matching is relay scoped and normalizes trailing slashes", () => {
-  const bumble = WELCOME_TEAM_STARTERS[2];
+  const pollen = WELCOME_TEAM_STARTERS[2];
   const otherRelay = makeAgent({
-    personaId: bumble.personaId,
+    personaId: pollen.personaId,
     relayUrl: RELAY_B,
     status: "running",
   });
   const matchingRelay = makeAgent({
-    personaId: bumble.personaId,
+    personaId: pollen.personaId,
     relayUrl: `${RELAY_A}/`,
     pubkey: PUB_B,
   });
@@ -399,7 +399,7 @@ test("starter matching is relay scoped and normalizes trailing slashes", () => {
   assert.equal(
     pickWelcomeTeamStarterAgentForRelay(
       [otherRelay, matchingRelay],
-      bumble,
+      pollen,
       RELAY_A,
     ),
     matchingRelay,

@@ -23,7 +23,17 @@ const FIZZ_SYSTEM_PROMPT: &str = "You are Fizz, an energetic maker who turns ide
 
 const HONEY_SYSTEM_PROMPT: &str = "You are Honey, a warm and thoughtful communicator. Help users write clearly, organize ideas, brainstorm, summarize, and prepare for conversations. Be kind, creative, and concise. Add occasional bee wordplay or 🍯🐝—keep it sweet, never excessive.";
 
-const BUMBLE_SYSTEM_PROMPT: &str = "You are Bumble, a curious and adventurous researcher. Explore questions, compare options, check assumptions, and explain what you find clearly. Be candid when uncertain and favor useful evidence. Add occasional bee wordplay or 🐝🔎—keep it playful, never chaotic.";
+// Keep the published NIP-33 coordinate stable so existing Pollen agents and
+// references are upgraded in place instead of being orphaned by the rename.
+pub(crate) const POLLEN_PERSONA_ID: &str = "builtin:bumble";
+pub(crate) const POLLEN_DISPLAY_NAME: &str = "Pollen";
+pub(crate) const POLLEN_SYSTEM_PROMPT: &str = "You are Pollen, a curious and adventurous researcher. Explore questions, compare options, check assumptions, and explain what you find clearly. Be candid when uncertain and favor useful evidence. Add occasional bee wordplay or 🐝🔎—keep it playful, never chaotic.";
+pub(crate) const POLLEN_LEGACY_DISPLAY_NAME: &str = "Bumble";
+pub(crate) const POLLEN_LEGACY_SYSTEM_PROMPT: &str = "You are Bumble, a curious and adventurous researcher. Explore questions, compare options, check assumptions, and explain what you find clearly. Be candid when uncertain and favor useful evidence. Add occasional bee wordplay or 🐝🔎—keep it playful, never chaotic.";
+// The embedded bytes are unchanged by the display-name migration. Keep the
+// original storage symbol as the compatibility source and expose the current
+// product name everywhere it is consumed.
+const POLLEN_AVATAR: &str = BUMBLE_AVATAR;
 
 // The crew comes first: `sort_personas` orders built-ins by their position
 // here, so this is the order the catalog and "My Agents" present. Their prompts
@@ -93,7 +103,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         avatar_url: Some(FIZZ_AVATAR),
         system_prompt: FIZZ_SYSTEM_PROMPT,
         name_pool: &[
-            "Nectar", "Comet", "Bramble", "Clover", "Pollen", "Amber", "Daisy", "Mason", "Thistle",
+            "Nectar", "Comet", "Bramble", "Clover", "Amber", "Daisy", "Mason", "Thistle",
             "Waxwing", "Hive", "Meadow", "Juniper", "Aster", "Sage", "Willow", "Orchard", "Buzz",
         ],
         model: None,
@@ -111,11 +121,11 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         default_active: true,
     },
     BuiltInPersona {
-        id: "builtin:bumble",
-        display_name: "Bumble",
-        avatar_url: Some(BUMBLE_AVATAR),
-        system_prompt: BUMBLE_SYSTEM_PROMPT,
-        name_pool: &["Bumble"],
+        id: POLLEN_PERSONA_ID,
+        display_name: POLLEN_DISPLAY_NAME,
+        avatar_url: Some(POLLEN_AVATAR),
+        system_prompt: POLLEN_SYSTEM_PROMPT,
+        name_pool: &[POLLEN_DISPLAY_NAME],
         model: None,
         runtime: None,
         default_active: true,
@@ -182,6 +192,10 @@ fn built_in_persona_records(now: &str) -> Vec<AgentDefinition> {
             avatar_url: super::vingilot_crew::avatar_url(persona.id)
                 .or(persona.avatar_url)
                 .map(|s| s.to_string()),
+            // `description` arrived with the upstream sync; the crew packs
+            // carry none of their own, so it stays None here rather than being
+            // invented from the prompt.
+            description: None,
             // Crew prompts are `.persona.md` pack files, so the YAML
             // frontmatter is split off here (with `buzz-persona`'s own
             // splitter) before the prompt reaches an agent. A prompt without
@@ -197,6 +211,7 @@ fn built_in_persona_records(now: &str) -> Vec<AgentDefinition> {
             source_team: None,
             source_team_persona_slug: None,
             catalog_source: None,
+            team_catalog_source: None,
             env_vars: std::collections::BTreeMap::new(),
             respond_to: None,
             respond_to_allowlist: Vec::new(),
@@ -397,7 +412,9 @@ pub fn validate_persona_activation_change(
     Ok(())
 }
 
-pub fn load_personas(app: &AppHandle) -> Result<Vec<AgentDefinition>, String> {
+pub fn load_personas<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Vec<AgentDefinition>, String> {
     let now = now_iso();
 
     // Post-fold: definitions live in the unified agent store, presented in
@@ -504,7 +521,10 @@ pub(crate) fn load_personas_from_path(
         .map_err(|error| format!("failed to parse persona store: {error}"))
 }
 
-pub fn save_personas(app: &AppHandle, records: &[AgentDefinition]) -> Result<(), String> {
+pub fn save_personas<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    records: &[AgentDefinition],
+) -> Result<(), String> {
     let mut sorted = records.to_vec();
     sort_personas(&mut sorted);
 

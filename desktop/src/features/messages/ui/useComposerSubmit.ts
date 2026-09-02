@@ -51,7 +51,14 @@ export interface UseComposerSubmitOptions {
   >;
   mentions: Pick<
     UseMentionsResult,
-    "clearMentions" | "getDraftMentionRefs" | "restoreDraftMentionRefs"
+    // `revalidateMentionPubkeys` joined this list with the upstream sync, which
+    // made it required on `submitMessageEdit`. The Pick is deliberately narrow,
+    // so a new dependency has to be declared here rather than arriving by
+    // widening the whole result type.
+    | "clearMentions"
+    | "getDraftMentionRefs"
+    | "restoreDraftMentionRefs"
+    | "revalidateMentionPubkeys"
   >;
   mentionSendFlow: {
     isPreparingMentionSend: boolean;
@@ -164,6 +171,10 @@ export function useComposerSubmit({
         ownerPubkey: ownerPubkeyRef.current,
         editTarget: editTargetRef.current,
         getMentionRefs: mentions.getDraftMentionRefs,
+        // Required by `submitMessageEdit` since the upstream sync: an edit
+        // re-checks that the pubkeys it is about to keep are still the agents
+        // they were. `useMentions` already exposes it.
+        revalidateMentionPubkeys: mentions.revalidateMentionPubkeys,
         pendingImeta: media.pendingImetaRef.current,
         queuedAttachments: media.queuedAttachmentsRef.current,
         spoileredAttachmentUrls,
@@ -235,8 +246,10 @@ export function useComposerSubmit({
         recoveryDraftKey: effectiveDraftKey,
         spoileredAttachmentUrls,
         trimmed,
-        audienceGeneration: persistentAudience.generation,
-        audienceRevision: audienceScope ? persistentAudience.revision : null,
+        // `audienceGeneration`/`audienceRevision` are gone from this input.
+        // The persistent audience itself is not — upstream still has it, and
+        // still uses it in the composer; the sync moved where it is applied,
+        // so passing it here is no longer the way to carry it.
       });
     } finally {
       isSubmitLockedRef.current = false;

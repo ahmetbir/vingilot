@@ -647,7 +647,10 @@ export function AppShell() {
   useAppShellLifecycleEffects({
     desktopBadgeEnabled: !isHuddleRoom,
     homeBadgeCountExcludingHighPriority,
-    unreadChannelIds,
+    // Renamed by the sync, not removed: the hook now wants the TOP-LEVEL
+    // unread set rather than every unread channel, and `useUnreadChannels`
+    // already computes both.
+    topLevelUnreadChannelIds,
     unreadChannelNotificationCount,
   });
   // Dispatch `buzz://message` deep links only from the main window; the companion is dedicated to its active Huddle route.
@@ -657,6 +660,9 @@ export function AppShell() {
     [],
   );
   useAppShellKeyboardShortcuts({
+    // Required since the sync: the shortcut layer scopes to the open channel
+    // rather than asking the caller to have already decided.
+    activeChannelId: selectedView === "channel" ? (activeChannel?.id ?? null) : null,
     canSearchCurrentChannel:
       selectedView === "channel" && Boolean(activeChannel),
     disabled: settingsOpen || isHuddleRoom,
@@ -910,6 +916,7 @@ export function AppShell() {
                       />
                     ) : null}
                     <AppShellChannelSurface
+                      hasCommunityRail={hasCommunityRail}
                       isHuddleRoom={isHuddleRoom}
                       isHuddleRoomStarting={isHuddleRoomStarting}
                       mainInsetRef={mainInsetRef}

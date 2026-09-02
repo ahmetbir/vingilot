@@ -6,6 +6,7 @@ import {
   profilePanelViewFromSearch,
   type ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanelUtils";
+import type { ProfilePanelOpenOptions } from "@/shared/context/ProfilePanelContext";
 import { useIsHostedChannel } from "@/shared/context/HostedChannelContext";
 import {
   type HistorySearchSetterOptions,
@@ -116,6 +117,16 @@ export function useChannelPanelHistoryState() {
     [applyPatch],
   );
 
+  const openProfilePanel = React.useCallback(
+    (pubkey: string, options?: ProfilePanelOpenOptions) =>
+      applyPatch({
+        profile: pubkey,
+        profileTab: options?.tab === "info" ? null : (options?.tab ?? null),
+        profileView: null,
+      }),
+    [applyPatch],
+  );
+
   const setProfilePanelView = React.useCallback(
     (value: ProfilePanelView, options?: PanelSetterOptions) =>
       applyPatch({ profileView: value === "summary" ? null : value }, options),
@@ -173,6 +184,7 @@ export function useChannelPanelHistoryState() {
     clearMessageRouteTarget,
     openAgentSessionChannelId: values.agentSessionChannel,
     openAgentSessionPubkey: values.agentSession,
+    openProfilePanel,
     openThreadHeadId: values.thread,
     profilePanelPubkey: values.profile,
     profilePanelTab: profilePanelTabFromSearch(values.profileTab),

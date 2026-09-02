@@ -164,6 +164,11 @@ function decodeArchiveBatchResult(
  * Module-level notifier for subscription mutations (create/delete).
  * The archive sync manager subscribes to this to reload live subscriptions
  * without needing manager instances threaded through UI props.
+ *
+ * Restored by hand after the upstream sync, which replaced this file wholesale
+ * and took the notifier with it. `archiveSyncManager.ts` is fork-only and is
+ * this notifier's only subscriber, so losing it silently would have left the
+ * manager watching a subscription list that never told it anything.
  */
 const subscriptionChangeListeners = new Set<() => void>();
 
@@ -183,9 +188,12 @@ function notifySubscriptionChange(): void {
 /**
  * Module-level notifier for newly persisted agent turn metrics (kind 44200).
  * `useAgentUsageSeries` subscribes to this to invalidate its query without
- * polling. Fired only when the backend confirms `persistedAgentMetrics > 0`
- * for a successful `archiveEvents` call, or when a kind-44200 subscription
- * mutation succeeds (`collectionEnabled` is part of the usage query result).
+ * polling. Two producers: a kind-44200 subscription mutation succeeding here
+ * (`collectionEnabled` is part of the usage query result), and the native
+ * archive sync task persisting new metric rows — that one arrives as the
+ * `archive-agent-metrics-changed` Tauri event, bridged by
+ * `useArchiveAgentMetricsBridge`, since the batch it belongs to no longer
+ * passes through JS.
  */
 const agentMetricsChangeListeners = new Set<() => void>();
 
@@ -312,7 +320,71 @@ export async function createSaveSubscription(
     scopeValue,
     kinds,
   });
-  notifySubscriptionChange();
+}
+
+// ── Native archive sync lifecycle ────────────────────────────────────────────
+
+/**
+ * Monotonic lease counter for archive-sync lifecycle commands.
+ *
+ * Allocated synchronously in the renderer, before `invoke`, because effect
+ * execution order IS intent order and it is the only place that ordering is
+ * free. Tauri commands complete in an unconstrained order, so a token minted by
+ * the backend records which call reached the mutex first — not which the app
+ * actually wants. A remount whose `start` is delayed past the newer effect's
+ * would otherwise mint the newest token for the stalest caller, whose cleanup
+ * then holds a valid warrant to cancel the live task.
+ *
+ * This counter is realm-scoped: it resets to zero whenever the renderer
+ * reloads, while the backend's mark persists for the life of the Tauri
+ * process. The epoch below is what orders those successive realms.
+ */
+let archiveSyncLease = 0;
+
+/** Allocates the next lease. Call synchronously in effect order. */
+export function nextArchiveSyncLease(): number {
+  archiveSyncLease += 1;
+  return archiveSyncLease;
+}
+
+/**
+ * Announces this renderer realm and resolves its epoch.
+ *
+ * Must be awaited before any lifecycle command is issued: an unawaited
+ * announcement is just another racing `invoke`, which would order
+ * announcements rather than realms and reintroduce the arrival-order bug one
+ * level up.
+ *
+ * Only the main window announces. Archive sync is app-global and
+ * main-window-owned — the same rule that keeps the main window the owner of
+ * microphone capture. Epochs order realms in time; a companion window is a
+ * second realm in space, and a newest-wins clock cannot model two concurrent
+ * owners (the companion's cleanup would cancel the live main-window task).
+ */
+export async function announceArchiveSyncEpoch(): Promise<number> {
+  return await invokeTauri<number>("announce_archive_sync_epoch");
+}
+
+/**
+ * Start the backend archive sync task for the current identity.
+ *
+ * Idempotent per identity + relay. Must only be called after observer
+ * reconciliation resolves — see `useArchiveSync` for why the backend cannot
+ * gate itself. The backend ignores a mark older than the newest it has seen.
+ */
+export async function startArchiveSync(
+  epoch: number,
+  lease: number,
+): Promise<void> {
+  await invokeTauri("start_archive_sync", { epoch, lease });
+}
+
+/** Stop the backend archive sync task. Ignored if `(epoch, lease)` is stale. */
+export async function stopArchiveSync(
+  epoch: number,
+  lease: number,
+): Promise<void> {
+  await invokeTauri("stop_archive_sync", { epoch, lease });
 }
 
 /**
@@ -338,9 +410,6 @@ export async function deleteSaveSubscription(
     scopeType,
     scopeValue,
   });
-  if (removed) {
-    notifySubscriptionChange();
-  }
   return removed;
 }
 

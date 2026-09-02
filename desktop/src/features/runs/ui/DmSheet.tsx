@@ -257,6 +257,7 @@ function DmSheetSurface({
                 of: nothing deep-links into it, and a DM is never a forum. */}
             <ChannelRouteScreen
               autoSendDraftKey={null}
+              searchHighlight={null}
               channelId={channel.id}
               selectedPostId={null}
               targetMessageId={null}

@@ -141,14 +141,26 @@ pub async fn start_dictation(app: tauri::AppHandle) -> Result<(), String> {
     let model_dir = whisper::model_dir().ok_or("STT model directory not found")?;
     let language = dictation_language();
 
-    // No TTS in dictation, ever — this flag exists only because
-    // `SttPipeline::new` takes one; nothing in this module ever sets it.
     // `ptt_active`/`manual_mic_unmuted` are both `None`: the whole point of
     // the composer's mic button is "listen continuously while pressed", which
     // is exactly plain VAD-driven segmentation with neither gate attached.
-    let tts_active = Arc::new(AtomicBool::new(false));
+    //
+    // `human_floor` and `output_device` arrived with the upstream sync, which
+    // replaced the old `tts_active` flag this call used to pass. Both are about
+    // a huddle — one arbitrates who holds the floor among several speakers, the
+    // other names the route agent speech is playing out of so the mic can tell
+    // it apart from a person. A dictation session has neither: nobody else is
+    // in it and nothing is being spoken back. So it gets a floor of its own,
+    // shared with no one, and no output device to duck against.
     let constructed = tokio::task::spawn_blocking(move || {
-        SttPipeline::new_with_language(model_dir, language, tts_active, None, None)
+        SttPipeline::new_with_language(
+            model_dir,
+            language,
+            None,
+            None,
+            crate::huddle::human_floor::HumanFloor::new(),
+            None,
+        )
     })
     .await
     .map_err(|e| format!("dictation pipeline task join failed: {e}"))??;

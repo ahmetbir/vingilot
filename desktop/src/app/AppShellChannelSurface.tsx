@@ -4,10 +4,11 @@ import { HuddleRoomHeader, HuddleStartingView } from "@/features/huddle";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
-import { SidebarInset } from "@/shared/ui/sidebar";
+import { SidebarInset, useSidebar } from "@/shared/ui/sidebar";
 
 type AppShellChannelSurfaceProps = {
   children: React.ReactNode;
+  hasCommunityRail: boolean;
   isHuddleRoom: boolean;
   isHuddleRoomStarting: boolean;
   mainInsetRef: React.RefObject<HTMLElement | null>;
@@ -20,12 +21,19 @@ type AppShellChannelSurfaceProps = {
 
 export function AppShellChannelSurface({
   children,
+  hasCommunityRail,
   isHuddleRoom,
   isHuddleRoomStarting,
   mainInsetRef,
   ownCards = false,
   terminal,
 }: AppShellChannelSurfaceProps) {
+  const { isMobile, openMobile, state: sidebarState } = useSidebar();
+  const hasCollapsedSidebarGutter =
+    !isHuddleRoom &&
+    !hasCommunityRail &&
+    (isMobile ? !openMobile : sidebarState === "collapsed");
+
   return (
     <MainInsetProvider mainInsetRef={mainInsetRef}>
       <SidebarInset
@@ -43,6 +51,12 @@ export function AppShellChannelSurface({
         data-buzz-shadow-viewport
         style={chromeCssVarDefaults as React.CSSProperties}
       >
+        {hasCollapsedSidebarGutter ? (
+          <div
+            className="absolute inset-y-0 left-0 w-2 bg-sidebar"
+            data-collapsed-content-gutter
+          />
+        ) : null}
         {isHuddleRoom && !isHuddleRoomStarting ? <HuddleRoomHeader /> : null}
         <BuzzTheme.ContentSurface
           ownCards={ownCards}

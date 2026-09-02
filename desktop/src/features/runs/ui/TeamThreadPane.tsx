@@ -520,6 +520,7 @@ function Conversation({
                 never what a thread pane is pointed at. */}
             <ChannelRouteScreen
               autoSendDraftKey={null}
+              searchHighlight={null}
               channelId={channel.id}
               selectedPostId={null}
               targetMessageId={null}
