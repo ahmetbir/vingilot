@@ -569,6 +569,13 @@ function MessageComposerImpl({
     onToggle: toggleAlwaysAddressAgent,
   });
   const submitMessage = React.useCallback(async () => {
+    // Stop listening the moment a send begins, before any await. Dictation
+    // appends what it hears to the draft, so a session still running while the
+    // message goes out would type into a composer the owner has already sent —
+    // and dictation must never send on its own. This is the fork's rule and it
+    // used to live in `useComposerSubmit`, which the upstream sync replaced
+    // with the submit path inlined here.
+    dictation.stop();
     const trimmed = syncComposerContentFromEditor().trim();
     // Edit mode
     if (editTargetRef.current && onEditSaveRef.current) {
@@ -704,6 +711,7 @@ function MessageComposerImpl({
     mentions.restoreDraftMentionRefs,
     mentions.revalidateMentionPubkeys,
     voiceNote.statusRef,
+    dictation.stop,
   ]);
   submitMessageRef.current = submitMessage;
   // Draft auto-submit runs once after persisted editor state loads.

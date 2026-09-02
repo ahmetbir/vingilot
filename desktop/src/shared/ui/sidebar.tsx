@@ -28,11 +28,15 @@ import {
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH_STORAGE_KEY = "buzz-sidebar-width";
-const SIDEBAR_WIDTH_DEFAULT = 300;
+const SIDEBAR_WIDTH_DEFAULT = 244; // Vingilot P1: mockup 196-340/244 clamp.
 const SIDEBAR_WIDTH_DEFAULT_HAPTIC_THRESHOLD = 2;
 const SIDEBAR_WIDTH_DEFAULT_SNAP_DISTANCE = 8;
 const SIDEBAR_WIDTH_DEFAULT_MAGNET_DISTANCE = 28;
-const SIDEBAR_WIDTH_MAX = 420;
+// The mockup's own clamp (vingilot.js's resize: Math.min(340, Math.max(196, …))),
+// kept over upstream's 420. The minimum now lives in `shared/layout/
+// sidebarLayout.ts`, imported above — the sync moved it there and other
+// surfaces read it, so a second copy here would be a number that could drift.
+const SIDEBAR_WIDTH_MAX = 340;
 const SIDEBAR_WIDTH_MOBILE = "288px";
 const SIDEBAR_WIDTH_ICON = "48px";
 const SIDEBAR_KEYBOARD_SHORTCUT = "s";
