@@ -689,6 +689,20 @@ pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
             queue_navigation_deep_link(app, "message", &payload);
             let _ = app.emit("deep-link-message", payload);
         }
+        Some("repo" | "project" | "pr" | "issue") => {
+            // OS routing uses this build's scheme; frontend navigation consumes
+            // canonical buzz:// entity links rather than transport identity.
+            let Some(href) = canonical_entity_deep_link(
+                &url,
+                crate::build_identity::deep_link_scheme().as_ref(),
+            ) else {
+                eprintln!("buzz-desktop: malformed entity deep link: {url_str}");
+                return;
+            };
+            activate_main_window(app);
+            let pending = queue_entity_deep_link(app, href);
+            let _ = app.emit("deep-link-entity", pending);
+        }
         Some("open") => {
             // `buzz://open?arg=<path[:line]>&cwd=<dir>` — the `vingilot` shell
             // shim's one message (vingilot/docs/plans/2026-08-12-an-ide-of-a-kind.md,

@@ -194,7 +194,22 @@ impl SpawnConfigSnapshot {
             // than to nothing — otherwise a running agent shows no restart badge
             // even though a restart is exactly what gives it the reply path.
             mcp_command: effective_mcp_command(known_acp_runtime(&descriptor.command)).to_string(),
-            env: descriptor.env.clone(),
+            // Effort has ONE representation in the snapshot: `effort_level`
+            // below, always holding `effective_effort`. Stripping the env key
+            // here means a canonical/user-env authority handoff at the same
+            // value is a no-op (no phantom `env.BUZZ_ACP_EFFORT_LEVEL` add or
+            // remove) and an env-only effort edit surfaces as exactly one
+            // `effort_level` entry rather than a duplicate under `env.`.
+            //
+            // Upstream's, kept whole: the fork's line above is about which MCP
+            // command a snapshot names, which is a different question from
+            // where effort lives, and the two changes only collided by being
+            // neighbours in one struct literal.
+            env: {
+                let mut env = descriptor.env.clone();
+                env.remove(EFFORT_LEVEL_ENV_VAR);
+                env
+            },
             relay_url: relay_url.to_string(),
             team_instructions: team_instructions.map(str::to_string),
             system_prompt: system_prompt.map(str::to_string),

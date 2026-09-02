@@ -1282,20 +1282,30 @@ async fn create_session_and_apply_model(
     // its own `<core-memory>` boundary, and canvas carries its own
     // `<channel-canvas>` boundary; both are appended with a blank-line separator.
     let is_goose = agent.agent_name == "goose";
+    // Upstream's layering, with the fork's `with_reply_path` kept inside it.
+    // The merge had collapsed two of these: `with_huddle_instructions` was gone
+    // and `with_core` was being handed `channel.huddle_instructions` where its
+    // `agent_core` belongs — which compiled, because both are `Option<&str>`,
+    // and left the agent's memory core out of every prompt while labelling the
+    // huddle text as core. `agent_core` reading as an unused parameter is what
+    // exposed it.
     let combined_system_prompt = with_canvas(
-        with_core(
-            with_team(
-                with_reply_path(
-                    framed_system_prompt(
-                        &ctx.cwd,
+        with_huddle_instructions(
+            with_core(
+                with_team(
+                    with_reply_path(
+                        framed_system_prompt(
+                            &ctx.cwd,
+                            ctx.base_prompt.as_deref(),
+                            ctx.system_prompt.as_deref(),
+                        ),
                         ctx.base_prompt.as_deref(),
-                        ctx.system_prompt.as_deref(),
+                        &ctx.mcp_servers,
+                        ctx.broker_socket.as_deref(),
                     ),
-                    ctx.base_prompt.as_deref(),
-                    &ctx.mcp_servers,
-                    ctx.broker_socket.as_deref(),
+                    ctx.team_instructions.as_deref(),
                 ),
-                ctx.team_instructions.as_deref(),
+                agent_core,
             ),
             channel.huddle_instructions,
         ),

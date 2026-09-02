@@ -58,7 +58,10 @@ fn merge_personas_adds_missing_built_ins() {
             "Scribe",
             "Fizz",
             "Honey",
-            "Bumble"
+            // Renamed by the upstream sync. `Bumble` survives as
+            // `POLLEN_LEGACY_DISPLAY_NAME` so agents minted under the old name
+            // still resolve, but a freshly merged catalog publishes the new one.
+            "Pollen"
         ]
     );
     let active_ids: Vec<&str> = records

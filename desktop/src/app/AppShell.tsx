@@ -662,7 +662,8 @@ export function AppShell() {
   useAppShellKeyboardShortcuts({
     // Required since the sync: the shortcut layer scopes to the open channel
     // rather than asking the caller to have already decided.
-    activeChannelId: selectedView === "channel" ? (activeChannel?.id ?? null) : null,
+    activeChannelId:
+      selectedView === "channel" ? (activeChannel?.id ?? null) : null,
     canSearchCurrentChannel:
       selectedView === "channel" && Boolean(activeChannel),
     disabled: settingsOpen || isHuddleRoom,

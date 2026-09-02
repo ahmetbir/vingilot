@@ -384,6 +384,11 @@ fn crew_team_seed_excludes_mate() {
 fn migration_pristine_welcome_team_is_purged_for_the_crew() {
     let pristine = TeamRecord {
         id: "builtin-team:welcome".to_string(),
+        // Added to TeamRecord by the 2026-09 upstream sync: a team is not
+        // shared by default, and one that was never copied from someone
+        // else's catalog has no provenance to record.
+        shared: false,
+        catalog_source: None,
         name: "Welcome Team".to_string(),
         description: Some(
             "A friendly starter trio ready to help you plan, create, and ship.".to_string(),
@@ -416,6 +421,11 @@ fn migration_pristine_welcome_team_is_purged_for_the_crew() {
 fn migration_customized_welcome_team_is_demoted_not_deleted() {
     let customized = TeamRecord {
         id: "builtin-team:welcome".to_string(),
+        // Added to TeamRecord by the 2026-09 upstream sync: a team is not
+        // shared by default, and one that was never copied from someone
+        // else's catalog has no provenance to record.
+        shared: false,
+        catalog_source: None,
         name: "My Welcome Team".to_string(),
         description: Some("My customized starter team.".to_string()),
         instructions: None,

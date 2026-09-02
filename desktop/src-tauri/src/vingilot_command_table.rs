@@ -238,6 +238,11 @@ macro_rules! table {
             get_relay_self,
             resolve_oa_owner,
             list_relay_agents,
+            // Registered by the upstream sync beside its neighbour; the merge
+            // kept this fork's command table and dropped the new line, which
+            // clippy caught as an unused re-export rather than as a command
+            // the webview could never reach.
+            revalidate_relay_agents,
             list_managed_agents,
             list_managed_agent_runtimes,
             start_managed_agent_runtime,
@@ -432,6 +437,50 @@ macro_rules! table {
             fetch_link_preview_metadata,
             agent_access_owner_only,
             start_identity_recovery_pairing,
+            // ── Registered by the 2026-09 upstream sync ────────────────
+            //
+            // Twenty-one commands the sync added to upstream's own handler
+            // list. The merge kept this fork's table, so they arrived as
+            // functions nothing registered — the webview would have called
+            // them and been told the command does not exist. Clippy found
+            // the first three as unused re-exports; the rest came from
+            // diffing the two registries rather than waiting to be bitten
+            // one at a time.
+            acknowledge_pending_entity_deep_link,
+            acknowledge_pending_navigation_deep_link,
+            add_team_from_catalog,
+            cancel_media_fetch,
+            clear_pending_navigation_deep_links,
+            get_channel_reconnect_repair,
+            get_events,
+            get_open_channel_directory,
+            get_project_local_repo_file_content,
+            get_project_repo_file_content,
+            open_project_repository_folder,
+            persist_agent_effort_level,
+            publish_project_owner_announcement,
+            release_media_fetch,
+            release_media_upload,
+            set_team_shared,
+            set_thread_scoped_acp_sessions,
+            sign_project_issue_assignment,
+            sign_project_issue_unassignment,
+            take_pending_entity_deep_link,
+            take_pending_navigation_deep_link,
+            archive::sync::announce_archive_sync_epoch,
+            archive::archive_size_stats,
+            channel_head_cache::channel_head_cache_clear,
+            channel_head_cache::channel_head_cache_load,
+            channel_head_cache::channel_head_cache_store,
+            persona_catalog::fetch_persona_catalog,
+            team_catalog::fetch_team_catalog,
+            archive::get_observer_retention_days,
+            observed_unread::observed_unread_ingest,
+            observed_unread::observed_unread_open_scope,
+            archive::set_observer_retention_days,
+            archive::sync::start_archive_sync,
+            archive::sync::stop_archive_sync,
+            unread_catch_up::unread_catch_up,
         ]
     };
 }

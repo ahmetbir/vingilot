@@ -24,6 +24,14 @@ fn crew_record(persona_id: Option<&str>, avatar_url: Option<&str>) -> ManagedAge
         name: "agent".into(),
         persona_id: persona_id.map(|id| id.to_string()),
         private_key_nsec: "nsec1fake".into(),
+        // Four fields the 2026-09 upstream sync added to this record. The
+        // fixture's own comment says it holds every other field at the shape
+        // `create_managed_agent` leaves it in, so these take that function's
+        // own defaults rather than values invented to make a test pass.
+        description: None,
+        effort_level: None,
+        provider_policy_pending: false,
+        team_catalog_source: None,
         auth_tag: None,
         relay_url: "ws://localhost:3000".into(),
         avatar_url: avatar_url.map(|url| url.to_string()),

@@ -47,7 +47,7 @@
 //! `dictation-transcript` reflects that honestly: every event it carries is a
 //! finished segment to append, never a partial to replace.
 
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 
 use tauri::{Emitter, State};
 

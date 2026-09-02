@@ -840,7 +840,9 @@ test("names survive a worktree switch and back, and a pruned worktree leaves non
       async () =>
         await page.evaluate(() =>
           Object.keys(
-            JSON.parse(localStorage.getItem("vingilot-terminal-tabs.v1") ?? "{}"),
+            JSON.parse(
+              localStorage.getItem("vingilot-terminal-tabs.v1") ?? "{}",
+            ),
           ),
         ),
       { timeout: 8000 },

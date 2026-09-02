@@ -1,0 +1,39 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the 2026-09 upstream sync
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope: merging 295 upstream commits into a fork whose interface had been
+# rewritten underneath them (vingilot/docs/plans/2026-08-29-redesign.md, P10).
+#
+# The sync SHRANK this registry's work rather than growing it: 2,213 paths were
+# undeclared against the newly fetched upstream/main before the merge, and 3
+# after. Those three are the only places where the merge left fork code inside
+# a file upstream owns, and each is here because a strategy could not have
+# produced it — someone had to decide.
+
+entries:
+  - path: "desktop/src-tauri/src/huddle/mod.rs"
+    reason: "One word: `mod human_floor` became `pub(crate) mod human_floor`, with a comment saying why. The sync replaced `SttPipeline::new`'s `tts_active` flag with a `HumanFloor` plus an output device, and `dictation.rs` — which builds a pipeline of its own for the composer's mic — must now be able to name that type. Dictation's floor is its own and shared with nobody: a dictation session has no second speaker to arbitrate against and nothing playing back to duck, so it constructs a fresh one rather than joining the huddle's. The alternative was to widen the huddle's own API or to give dictation a parallel pipeline constructor, both of which cost more than a visibility keyword."
+    owner: "vingilot/runs"
+    removable_when: "When dictation stops building an SttPipeline directly — either because the huddle's pipeline becomes shareable across surfaces, or because dictation moves behind a facade that owns the floor for it."
+    status: "permanent"
+    added: "2026-09-02"
+
+  - path: "desktop/src/shared/api/tauriArchive.ts"
+    reason: "A subscription-change notifier — a listener set, `onSubscriptionChange`, and a `notifySubscriptionChange` fired where a save subscription is really created or removed. It is the fork's, it predates the sync, and the sync replaced this file wholesale and took it with it. Restoring it by hand rather than letting it go is deliberate: `archiveSyncManager.ts` is its only subscriber and is fork-only, so losing the notifier would not have failed a build — it would have left the manager watching a subscription list that never told it anything, which is the failure mode that looks like nothing at all. It lives in this file because this is where the mutations happen; a notifier that had to be fired from the caller would be a rule every future caller could forget."
+    owner: "vingilot/runs"
+    removable_when: "If upstream grows its own subscription-change signal, or if archiveSyncManager stops needing to reload live subscriptions without being handed a manager instance."
+    status: "permanent"
+    added: "2026-09-02"
+
+  - path: "desktop/src/features/local-archive/archiveSyncManager.ts"
+    reason: "Fork-only: the manager that keeps live relay subscriptions in step with the archive's saved ones, without a manager instance being threaded through UI props. It is the sole subscriber to the notifier above. Undeclared until now because it sat inside a directory the registry covered by glob before the sync moved the boundary; declared explicitly here so the pair is visible together rather than one of them being findable only by inference."
+    owner: "vingilot/runs"
+    removable_when: "If upstream's own archive sync grows the same capability, at which point both this and the notifier go together."
+    status: "permanent"
+    added: "2026-09-02"

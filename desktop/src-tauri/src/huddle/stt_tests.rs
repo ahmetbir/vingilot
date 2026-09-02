@@ -258,3 +258,84 @@ fn held_push_to_talk_never_silence_flushes() {
     // Manually open mic with the shortcut up: normal VAD behavior.
     assert!(vad_flush_allowed(true, true, false));
 }
+
+// ── The fork's own, moved here by the upstream sync ──────────────────────────
+//
+// These were inline in stt.rs; upstream moved its tests out to this file, so
+// keeping both left two `mod tests` in one module. They belong here, which is
+// also where the ratchet counts test bulk separately from the code it covers.
+// `has_enough_voiced_audio` is already imported at the top of this file by
+// upstream's own tests; only the names the fork's tests add are pulled in
+// here.
+use super::{detect_family, SttFamily, SttLanguage};
+
+/// Build a throwaway directory holding the given (empty) filenames. The
+/// family check is a layout check, so empty files are exactly right — no
+/// model bytes, no network, no ONNX runtime.
+fn model_dir_with(names: &[&str]) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "buzz-stt-family-{}-{:?}-{}",
+        std::process::id(),
+        std::thread::current().id(),
+        names.join("+")
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp model dir");
+    for name in names {
+        std::fs::write(dir.join(name), b"").expect("write stub file");
+    }
+    dir
+}
+
+#[test]
+fn a_single_ctc_head_is_the_english_huddle_model() {
+    let dir = model_dir_with(&["model.int8.onnx", "tokens.txt"]);
+    assert!(matches!(
+        detect_family(&dir),
+        Some(SttFamily::NemoCtc { .. })
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_encoder_decoder_pair_is_the_multilingual_dictation_model() {
+    let dir = model_dir_with(&["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt"]);
+    assert!(matches!(
+        detect_family(&dir),
+        Some(SttFamily::Whisper { .. })
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_half_installed_directory_is_no_model_at_all() {
+    // Whisper without its decoder must not be mistaken for a CTC model,
+    // and a model with no tokens table is not usable either. Both cases
+    // have to reach the "model not found" branch that drains and exits
+    // cleanly, rather than being handed to sherpa-onnx half-configured.
+    for names in [
+        &["encoder.int8.onnx", "tokens.txt"][..],
+        &["decoder.int8.onnx", "tokens.txt"][..],
+        &["model.int8.onnx"][..],
+        &[][..],
+    ] {
+        let dir = model_dir_with(names);
+        assert!(
+            detect_family(&dir).is_none(),
+            "{names:?} was accepted as a complete model"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[test]
+fn auto_is_the_default_language_and_means_no_hint_at_all() {
+    assert_eq!(SttLanguage::default(), SttLanguage::Auto);
+    assert_eq!(SttLanguage::Auto.whisper_code(), None);
+}
+
+#[test]
+fn the_language_hints_are_whispers_own_codes() {
+    assert_eq!(SttLanguage::Turkish.whisper_code(), Some("tr"));
+    assert_eq!(SttLanguage::English.whisper_code(), Some("en"));
+}
