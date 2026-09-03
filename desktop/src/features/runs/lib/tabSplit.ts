@@ -39,13 +39,19 @@
 // numbers on a box that never moves in the tree. Nothing is unmounted, nothing
 // is reparented, and no `pty_*` call is anywhere on the path.
 //
-// **Not persisted, deliberately, and for `viewTabs.ts`'s reason.** Half of what
-// a tab split can hold is a *reading* — a file as it is now, a patch as git
-// reports it now — and those are not written to disk because restoring one puts
-// last week's reading on screen wearing a live tab's chrome. A split whose
-// right half was such a reading would be restored pointing at nothing, so the
-// arrangement lives as long as the workspace does, which is the life of the
-// reading it can hold.
+// **Persisted only when both halves are shells** (`tabSplitStore.ts`). Half of
+// what a tab split can hold is a *reading* — a file as it is now, a patch as
+// git reports it now — and those are not written to disk, because restoring one
+// puts last week's reading on screen wearing a live tab's chrome and may name a
+// view id that no longer exists at all.
+//
+// That was first read as a reason to persist nothing, and the owner met the
+// cost: *"Ayrıca spliti de aklında tutmuyor."* The reason covers one of the two
+// cases. A split whose right half is a TERMINAL has nothing to go stale — the
+// pty outlives the window, the ordinal is its stable name, and the arrangement
+// is two CSS numbers over boxes that never move. So the rule is the reason
+// applied rather than rounded up: a terminal-terminal split is written and
+// restored, a split holding a reading is not written and is dropped on read.
 
 /** A tab on the stage, from either of the two lists that own tabs. */
 export type StageTab =
@@ -131,7 +137,10 @@ export function tabSplitOf(
   return Object.hasOwn(layout, bindingId) ? layout[bindingId] : null;
 }
 
-function clampRatio(ratio: number): number {
+/** The 0.2–0.8 clamp, exported so `tabSplitStore.ts` can apply the same
+ * bounds to a ratio read off disk instead of carrying a second copy of the
+ * numbers — a stored 0.99 must land where a dragged one would. */
+export function clampRatio(ratio: number): number {
   if (!Number.isFinite(ratio)) return 0.5;
   if (ratio < MIN_TAB_SPLIT_RATIO) return MIN_TAB_SPLIT_RATIO;
   if (ratio > 1 - MIN_TAB_SPLIT_RATIO) return 1 - MIN_TAB_SPLIT_RATIO;

@@ -50,7 +50,6 @@ import { ptyClose } from "./ptyClient.ts";
 import { readSplitLayout, writeSplitLayout } from "./splitStore.ts";
 import {
   closeTabSplit,
-  emptyTabSplits,
   focusTabSplit,
   neighbourKey,
   openTabSplit,
@@ -66,6 +65,7 @@ import {
   type TabSplitState,
   tabSplitOf,
 } from "./tabSplit.ts";
+import { readTabSplits, writeTabSplits } from "./tabSplitStore.ts";
 import {
   applyDeckTabCommand,
   applyTaskCommand,
@@ -222,12 +222,17 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
   // chrome. It lives as long as the workspace does, which is the life of the
   // reading.
   const [viewLayout, setViewLayout] = React.useState<ViewLayout>(emptyViews);
-  // The fifth layer, and the second with no store behind it — for the same
-  // reason, one step further out: half of what a tab split can hold IS a view,
-  // so an arrangement restored from disk could name a reading that no longer
-  // exists (`tabSplit.ts`'s header).
+  // The fifth layer, and the one whose persistence is conditional. Half of
+  // what a tab split can hold IS a view, and a reading restored from disk
+  // would name something that no longer exists — but a split whose right half
+  // is a TERMINAL has nothing to go stale, because the pty outlives the window
+  // and the ordinal is its stable name. So the store keeps the terminal ones
+  // and drops the rest, on write and again on read (`tabSplitStore.ts`).
   const [tabSplitLayout, setTabSplitLayout] =
-    React.useState<TabSplitLayout>(emptyTabSplits);
+    React.useState<TabSplitLayout>(readTabSplits);
+  React.useEffect(() => {
+    writeTabSplits(tabSplitLayout);
+  }, [tabSplitLayout]);
 
   // The repair `pruneSplits` documents: a stored split whose primary never
   // became a tab this run (a crash between the two layout writes,
