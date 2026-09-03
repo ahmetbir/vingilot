@@ -92,17 +92,33 @@ export function attentionOf(
 
 /** The worktrees in the order the column shows them, and the order the ⌘1…9
  * shortcuts therefore follow. Stable within a rank; the project's checkout is
- * pinned first regardless of its own state. */
+ * first regardless of its own state, then the worktrees he pinned in the
+ * order he pinned them (`pinnedWorktrees.ts`) — a digit that stays put —
+ * then the rest by attention. */
 export function orderWorktrees(
   worktrees: readonly Worktree[],
   stats: Readonly<Record<string, WorktreeStat>>,
+  pinned: readonly string[] = [],
 ): Worktree[] {
+  const pinRank = new Map(pinned.map((id, i) => [id, i]));
+  // Unpinned rows tie with each other and lose to any pinned row — spelled
+  // out rather than as Infinity minus Infinity, which is NaN and no order.
+  const byPin = (a: Worktree, b: Worktree): number => {
+    const pa = pinRank.get(a.binding_id);
+    const pb = pinRank.get(b.binding_id);
+    if (pa === pb) return 0;
+    if (pa === undefined) return 1;
+    if (pb === undefined) return -1;
+    return pa - pb;
+  };
   return [...worktrees]
     .map((worktree, index) => ({ index, worktree }))
     .sort((a, b) => {
-      const pinned =
+      const main =
         Number(isMainCheckout(b.worktree)) - Number(isMainCheckout(a.worktree));
-      if (pinned !== 0) return pinned;
+      if (main !== 0) return main;
+      const pin = byPin(a.worktree, b.worktree);
+      if (pin !== 0) return pin;
       const rank =
         RANK[
           attentionOf(a.worktree, usableStat(stats[a.worktree.binding_id]))

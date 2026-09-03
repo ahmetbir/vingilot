@@ -24,6 +24,7 @@ import { ChevronDown } from "lucide-react";
 import * as React from "react";
 
 import type { Worktree } from "@/features/runs/lib/projects";
+import { usePinnedWorktrees } from "@/features/runs/lib/pinnedWorktrees";
 import { recentToOffer } from "@/features/runs/lib/recentWorktrees";
 import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
 import { worktreeLabel } from "@/features/runs/lib/worktreeLabel";
@@ -75,10 +76,15 @@ export function WorktreeSwitcher({
   const q = query.trim().toLowerCase();
   const matches = (id: string) =>
     q === "" || labelOf(id).toLowerCase().includes(q);
+  const pinned = usePinnedWorktrees();
   const recentRows = recentToOffer(recent, selectedWorktreeId).filter(matches);
-  const projectRows = worktrees
+  const allRows = worktrees
     .map((wt, index) => ({ id: wt.binding_id, index }))
     .filter(({ id }) => matches(id));
+  // The one order, split for the eye: the rows he pinned wear their own
+  // heading, and everything keeps the digit the order gave it.
+  const pinnedRows = allRows.filter(({ id }) => pinned.includes(id));
+  const projectRows = allRows.filter(({ id }) => !pinned.includes(id));
 
   const choose = (id: string) => {
     setOpen(false);
@@ -137,6 +143,33 @@ export function WorktreeSwitcher({
                 type="button"
               >
                 <span className="truncate">{labelOf(id)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {pinnedRows.length === 0 ? null : (
+          <div className="mb-1" data-testid="worktree-switcher-pinned">
+            <div className="px-2 pb-0.5 text-2xs uppercase tracking-wide text-muted-foreground">
+              Pinned
+            </div>
+            {pinnedRows.map(({ id, index }) => (
+              <button
+                aria-current={id === selectedWorktreeId ? "true" : undefined}
+                className={ROW_CLASS}
+                data-testid={`worktree-switcher-row-${id}`}
+                disabled={id === selectedWorktreeId}
+                key={id}
+                onClick={() => choose(id)}
+                type="button"
+              >
+                <span className="truncate">{labelOf(id)}</span>
+                <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
+                  {id === selectedWorktreeId
+                    ? "open"
+                    : index < 9
+                      ? `⌘${index + 1}`
+                      : ""}
+                </span>
               </button>
             ))}
           </div>

@@ -74,6 +74,7 @@ import {
   type WorktreeStats,
   type WorktreeTarget,
 } from "@/features/runs/lib/useWorktreeStats";
+import { usePinnedWorktrees } from "@/features/runs/lib/pinnedWorktrees";
 import { orderWorktrees } from "@/features/runs/lib/worktreeAttention";
 import type { WorktreeOverlap } from "@/features/runs/lib/worktreeOverlap";
 import { overlapsByRepo } from "@/features/runs/lib/worktreeOverlapScope";
@@ -178,9 +179,10 @@ export function useWorktreeSignals(
 
   // One ordering, shared: the column renders it and the ⌘1…9 map is built from
   // it, so the digit beside a row is the digit that selects it.
+  const pinned = usePinnedWorktrees();
   const ordered = React.useMemo(
-    () => orderWorktrees(known, stats),
-    [known, stats],
+    () => orderWorktrees(known, stats, pinned),
+    [known, stats, pinned],
   );
 
   const triage = React.useMemo(

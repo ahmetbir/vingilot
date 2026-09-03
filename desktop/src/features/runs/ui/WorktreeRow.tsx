@@ -26,6 +26,11 @@
 //   nothing to draw. It is revealed on `group-hover` **and** `focus-visible`,
 //   and the second half is the keyboard's only way to see it.
 
+import { Pin } from "lucide-react";
+import {
+  togglePin,
+  usePinnedWorktrees,
+} from "@/features/runs/lib/pinnedWorktrees";
 import type { AttentionMark } from "@/features/runs/lib/attentionSignal";
 import type { Repo } from "@/features/runs/lib/projects";
 import { worktreeSummary } from "@/features/runs/lib/projects";
@@ -78,6 +83,7 @@ export function WorktreeRow({
 }: WorktreeRowProps) {
   const wt = row.worktree;
   const summary = worktreeSummary(wt);
+  const pinnedHere = usePinnedWorktrees().includes(wt.binding_id);
   const shortcutDigit = row.index < 9 ? row.index + 1 : null;
   const removable = removableWorktree(repo, wt, worktreeRoot);
   const detail = rowDetail(row);
@@ -133,6 +139,31 @@ export function WorktreeRow({
             </span>
           )}
         </span>
+      </button>
+      <button
+        aria-label={
+          pinnedHere
+            ? `unpin ${summary.label}`
+            : `pin ${summary.label} — it keeps its ⌘ digit`
+        }
+        aria-pressed={pinnedHere}
+        className={`mt-1 shrink-0 rounded px-1 py-0.5 text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 ${
+          pinnedHere ? "opacity-100" : "opacity-0"
+        }`}
+        data-testid={`worktree-pin-${wt.binding_id}`}
+        onClick={() => togglePin(wt.binding_id)}
+        title={
+          pinnedHere
+            ? "Unpin — back to its place by attention"
+            : "Pin — sits after the project's checkout and keeps its ⌘ digit"
+        }
+        type="button"
+      >
+        {pinnedHere ? (
+          <Pin aria-hidden="true" className="h-3 w-3 fill-current" />
+        ) : (
+          <Pin aria-hidden="true" className="h-3 w-3" />
+        )}
       </button>
       {removable === null ? null : (
         <button

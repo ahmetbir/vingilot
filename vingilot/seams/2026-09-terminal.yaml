@@ -46,3 +46,10 @@ entries:
     removable_when: "If upstream's history stops being the app's back/forward."
     status: "permanent"
     added: "2026-09-04"
+
+  - path: "desktop/tests/e2e/pinned-worktrees.spec.ts"
+    reason: "Pinned worktrees (2026-09-04; his brief's '⌘1–5: pinned worktree'lere doğrudan geç ... ziyaret edilen her worktree otomatik tab olmamalı'). A pin moves the worktree to right after the project's checkout, in pin order, whatever its attention state, so its ⌘ digit stays put — the one order (features/runs/lib/worktreeAttention.ts orderWorktrees, now taking the pins) feeds the nav, the digits, the switcher's Pinned group and ⌘K, so there is no second list. The store is features/runs/lib/pinnedWorktrees.ts (per machine, diffMode.ts's shape; parse and toggle unit-tested). This spec asserts the row's pin moves it and re-digits its neighbours, ⌘2 then opens it from the terminal, the switcher groups it under Pinned, the pin survives a reload, and unpinning restores the attention order. Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "If the nav's order stops being the ⌘-digit order."
+    status: "permanent"
+    added: "2026-09-04"

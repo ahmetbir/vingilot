@@ -490,3 +490,26 @@ test("prunable is git's own flag and nothing this app inferred", () => {
     [gone],
   );
 });
+
+test("pinned worktrees sit right after the project's checkout, in pin order, whatever their state", () => {
+  const a = task("a", "completed");
+  const b = task("b", "completed");
+  const c = task("c", "completed");
+  // b is dirty and would outrank a and c by attention; pinning c then a puts
+  // them ahead of it regardless, c before a because c was pinned first.
+  const ordered = orderWorktrees([a, b, c, main], statsFor([[b, dirty]]), [
+    c.binding_id,
+    a.binding_id,
+  ]);
+  assert.deepEqual(
+    ordered.map((wt) => wt.binding_id),
+    [main, c, a, b].map((wt) => wt.binding_id),
+  );
+  // With nothing pinned the order is what it was.
+  assert.deepEqual(
+    orderWorktrees([a, b, c, main], statsFor([[b, dirty]])).map(
+      (wt) => wt.binding_id,
+    ),
+    [main, b, a, c].map((wt) => wt.binding_id),
+  );
+});
