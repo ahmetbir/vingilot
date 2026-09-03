@@ -184,7 +184,7 @@ seams:
     added: "2026-08-03"
 
   - path: "desktop/src/app/routes/workspace.tsx"
-    reason: "New route file for \"/workspace\" (renamed from runs.tsx in Task 5, when the route moved off /runs). TanStack's virtual file-route generator requires the route component to live in this fixed upstream directory (desktop/src/app/routes/) alongside agents.tsx/workflows.tsx; it lazy-loads the island's RunsScreen and adds no other logic, matching the sibling route files' idiom."
+    reason: "Since 2026-09-04 the route also declares validateSearch admitting one key, wt — the selected worktree, mirrored there by features/runs/lib/useWorktreeUrlSync.ts so the app's own back/forward walks worktrees. New route file for \"/workspace\" (renamed from runs.tsx in Task 5, when the route moved off /runs). TanStack's virtual file-route generator requires the route component to live in this fixed upstream directory (desktop/src/app/routes/) alongside agents.tsx/workflows.tsx; it lazy-loads the island's RunsScreen and adds no other logic, matching the sibling route files' idiom."
     owner: "vingilot/runs"
     removable_when: "Never, while a /workspace route exists in Buzz desktop."
     status: "permanent"

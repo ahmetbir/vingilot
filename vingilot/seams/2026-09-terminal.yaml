@@ -39,3 +39,10 @@ entries:
     removable_when: "With the Diff pane."
     status: "permanent"
     added: "2026-09-04"
+
+  - path: "desktop/tests/e2e/worktree-history.spec.ts"
+    reason: "⌘[ / ⌘] walking worktrees (2026-09-04; his brief's 'önceki/sonraki worktree geçmişi'). Measured before building: those chords are upstream's app-wide history (app/navigation/backForwardChords.ts, useBackForwardControls.ts) and the top chrome's arrows press the same thing, so claiming them in the workspace would break upstream's navigation in silence. Instead the selected worktree is mirrored into /workspace?wt=… (features/runs/lib/useWorktreeUrlSync.ts; the route's validateSearch admits only wt) and going back through the one history lands on the worktree that was there — through upstream's listener, arrows and navigation guard. This spec asserts ⌘[ / ⌘] and both arrows walk worktrees, and that the first landing replaces rather than pushes so back from it does not land on a blank workspace. Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "If upstream's history stops being the app's back/forward."
+    status: "permanent"
+    added: "2026-09-04"

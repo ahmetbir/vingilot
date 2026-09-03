@@ -10,6 +10,11 @@ const RunsScreen = React.lazy(async () => {
 
 export const Route = createFileRoute("/workspace")({
   component: WorkspaceRouteComponent,
+  // `?wt=<binding id>`: the selected worktree, so the app's own back/forward
+  // walks worktrees (features/runs/lib/useWorktreeUrlSync.ts). Anything else
+  // in the search is dropped rather than carried.
+  validateSearch: (search: Record<string, unknown>): { wt?: string } =>
+    typeof search.wt === "string" && search.wt !== "" ? { wt: search.wt } : {},
 });
 
 function WorkspaceRouteComponent() {

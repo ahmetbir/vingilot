@@ -24,6 +24,7 @@ import * as React from "react";
 import { homeLanding, type LandingIndex } from "./homeLanding.ts";
 import type { Worktree } from "./projects.ts";
 import { readRecent } from "./recentWorktreesStore.ts";
+import { useWorktreeUrlSync } from "./useWorktreeUrlSync.ts";
 import { pendingLanding } from "./workspaceLanding.ts";
 
 export interface WorkspaceSelectionArgs {
@@ -112,6 +113,10 @@ export function useWorkspaceSelection({
     const home = homeLanding(readRecent(), index);
     if (home !== null) openWorktree(home.repoId, home.bindingId);
   }, [settled, selectedRepoId, selectedWorktreeId, index, openWorktree]);
+
+  // ⌘[ / ⌘] and the top chrome's arrows walk worktrees through the one
+  // history the app has (`useWorktreeUrlSync.ts`).
+  useWorktreeUrlSync({ index, openWorktree, selectedWorktreeId });
 
   return { openWorktree, selectLanding, selectRepo };
 }
