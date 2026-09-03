@@ -133,7 +133,6 @@ macro_rules! table {
             vingilot_pty::pty_backing,
             vingilot_pty::pty_copy_mode,
             vingilot_pty::pty_copy_mode_exit,
-            vingilot_pty::pty_wheel_needs_arrows,
             vingilot_pulls::pulls_list,
             vingilot_pulls::pulls_view,
             vingilot_repo::repo_probe,

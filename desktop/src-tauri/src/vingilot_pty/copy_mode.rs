@@ -67,61 +67,6 @@ pub(crate) fn pane_in_mode(session_id: &str) -> bool {
     String::from_utf8_lossy(&output.stdout).trim() == "1"
 }
 
-/// Ask whether this session's pane holds a full-screen program that grabbed the
-/// mouse and does not scroll on it.
-///
-/// **Measured against the real case.** With Claude Code running under tmux,
-/// `alternate_on` is 1 and `mouse_any_flag` is 1. The alternate screen has no
-/// tmux history to scroll, and because the program asked for mouse reporting
-/// the wheel is delivered to it — where nothing happens:
-///
-/// > *"Claude code ile calisirken bi sure sonra Claude code da scroll
-/// > yeteneğimi kaybediyorum. Sessioni kapatıp acmam gerekiyor."*
-///
-/// Ending the session leaves the alternate screen, which is why restarting
-/// looked like a fix.
-///
-/// **Why this has to be asked of tmux.** The webview cannot tell: under tmux
-/// EVERY pane is on the alternate screen as far as xterm is concerned, because
-/// the attach itself sends `1049` and the mouse modes (that is verbatim what
-/// `tests/e2e/tmux-attach-mouse-on.json` captured). Only tmux knows whether the
-/// program INSIDE the pane is the one holding them.
-///
-/// Same exact-target scoping as every other query here: the server is shared
-/// with sessions the owner started by hand, and this asks about ours.
-pub(crate) fn pane_args_wheel_needs_arrows(session_id: &str) -> [String; 5] {
-    [
-        "display-message".to_string(),
-        "-p".to_string(),
-        "-t".to_string(),
-        exact_target(session_id),
-        "#{&&:#{alternate_on},#{mouse_any_flag}}".to_string(),
-    ]
-}
-
-/// True while a wheel over this session's pane would otherwise go nowhere.
-///
-/// Every failure answers `false` for `pane_in_mode`'s reasons, and one more of
-/// its own: a wrong `true` would send arrow keys to a program that wanted a
-/// mouse report, which is worse than a wheel that does nothing.
-pub(crate) fn wheel_needs_arrows(session_id: &str) -> bool {
-    let Some(tmux) = path() else {
-        return false;
-    };
-    let Ok(output) = Command::new(tmux)
-        .args(pane_args_wheel_needs_arrows(session_id))
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-    else {
-        return false;
-    };
-    if !output.status.success() {
-        return false;
-    }
-    String::from_utf8_lossy(&output.stdout).trim() == "1"
-}
-
 /// The argument list for leaving copy-mode in one session, and no other.
 ///
 /// `send-keys -X cancel` runs copy-mode's own cancel command — the same act
@@ -156,26 +101,6 @@ pub(crate) fn exit_copy_mode(session_id: &str) {
 
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn the_wheel_question_is_asked_of_our_session_and_no_other() {
-        // Same guard as every other query here, and it is the reason this lives
-        // in tmux rather than in a key binding: `bind-key` has no per-session
-        // table, so the first attempt at this fix was server-wide and
-        // `tmux.rs`'s own `nothing_this_app_runs_can_reach_a_session_it_did_not
-        // _create` caught it. Asking instead of binding keeps the blast radius
-        // where the rest of this module keeps it.
-        let args = pane_args_wheel_needs_arrows("wt_7");
-        assert_eq!(args[2], "-t");
-        assert_eq!(args[3], "=vingilot_wt_7:");
-        assert!(!args.iter().any(|arg| arg == "-g"));
-        // Both halves, because either alone is the wrong question: the
-        // alternate screen without mouse reporting is `less`, which tmux
-        // already scrolls, and mouse reporting without the alternate screen is
-        // a shell that still has history to move.
-        assert!(args[4].contains("#{alternate_on}"));
-        assert!(args[4].contains("#{mouse_any_flag}"));
-    }
     use super::*;
 
     #[test]
