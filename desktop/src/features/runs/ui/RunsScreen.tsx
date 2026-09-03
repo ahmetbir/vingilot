@@ -104,6 +104,7 @@ import { usePaneProbes } from "@/features/runs/lib/usePaneProbes";
 import { useSearchChord } from "@/features/runs/lib/useSearchChord";
 import { useShowPane } from "@/features/runs/lib/useShowPane";
 import { useStopAll } from "@/features/runs/lib/useStopAll";
+import { useWorkspaceSelection } from "@/features/runs/lib/useWorkspaceSelection";
 import { useProjectDocuments } from "@/features/runs/lib/useDocument";
 import { usePanes } from "@/features/runs/lib/usePanes";
 import { usePolling } from "@/features/runs/lib/usePolling";
@@ -229,33 +230,6 @@ export function RunsScreen() {
   // STOP, split out at the 1000-line ratchet (lib/useStopAll.ts).
   const { engageStop, releaseStop, stopEngaged } = useStopAll(runs);
 
-  // **Idempotent, and that is the whole point.** Choosing a *different*
-  // project clears the worktree so the auto-select effect below lands on its
-  // primary checkout — that is why disclosing a project immediately shows a
-  // terminal. Choosing the project you are already standing in must do
-  // neither: this callback has three doors (the nav's project row, the
-  // collapsed rail's dot, the palette's `open-project`), all three of which
-  // the owner reaches *while inside* the project they name, and clearing the
-  // selection there would silently move him off the worktree he has open onto
-  // `main`. `ProjectRow.tsx` and the design's §2.1 both promise this is a
-  // no-op; the guard is what makes the promise true.
-  const selectRepo = React.useCallback(
-    (id: string) => {
-      if (id === selectedRepoId) return;
-      setSelectedRepoId(id);
-      setSelectedWorktreeId(null);
-    },
-    [selectedRepoId],
-  );
-  // Also clears any open run detail — clicking "Deck" while already on the
-  // landing view is the way back to the Deck from a RunDetail, since the
-  // old RunList's "+ New run" row (which used to do this) now lives inside
-  // WorkSurface's own Runs tab instead.
-  const selectLanding = React.useCallback(() => {
-    setSelectedRepoId(null);
-    setSelectedWorktreeId(null);
-    setSelectedRunId(null);
-  }, []);
   const openRun = React.useCallback((id: string) => setSelectedRunId(id), []);
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId) ?? null;
@@ -330,15 +304,18 @@ export function RunsScreen() {
     runs,
   );
   const repoWorktrees = signals.ordered;
-
-  // Where a notification lands. Both ids together, because `selectRepo` clears
-  // the worktree and the effect below would then put him on the project's
-  // primary checkout — the app's last state, which is what the notification
-  // existed to skip past.
-  const openWorktree = React.useCallback((repoId: string, id: string) => {
-    setSelectedRepoId(repoId);
-    setSelectedWorktreeId(id);
-  }, []);
+  // Selection and its three acts, plus the first landing — where he was last
+  // (`lib/useWorkspaceSelection.ts`, split out at the ratchet).
+  const { openWorktree, selectLanding, selectRepo } = useWorkspaceSelection({
+    index,
+    repoWorktrees,
+    selectedRepoId,
+    selectedWorktreeId,
+    setSelectedRepoId,
+    setSelectedRunId,
+    setSelectedWorktreeId,
+    settled: worktreeActions.settled,
+  });
 
   // The workspace speaking when he is not looking at it (lib/attentionNotice.ts
   // for what it will and will not say; this screen is the only place with both
@@ -350,16 +327,6 @@ export function RunsScreen() {
     selectedWorktreeId,
     worktreeRoot,
   });
-
-  // Entering a project with no worktree picked yet lands on its primary
-  // checkout (or the first worktree, if there's no primary) rather than an
-  // empty "select a worktree" state — the terminal that greets you.
-  React.useEffect(() => {
-    if (selectedRepoId === null || selectedWorktreeId !== null) return;
-    const first =
-      repoWorktrees.find((wt) => wt.role === "primary") ?? repoWorktrees[0];
-    if (first !== undefined) setSelectedWorktreeId(first.binding_id);
-  }, [selectedRepoId, selectedWorktreeId, repoWorktrees]);
 
   // Visiting a worktree gives it a terminal; nothing here opens a second one
   // on its own.

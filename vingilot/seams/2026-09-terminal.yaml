@@ -25,3 +25,10 @@ entries:
     removable_when: "If the terminal stops being per-worktree."
     status: "permanent"
     added: "2026-09-03"
+
+  - path: "desktop/tests/e2e/home-landing.spec.ts"
+    reason: "Where the workspace opens (2026-09-04; 'deck landing page kismi tam bi faia ... olmasa daha iyi olur'). With a remembered worktree the workspace still knows, /workspace opens on it — the terminal he left — and the Deck board is not drawn; with no memory, or a memory of a worktree that is gone, the board is the landing it always was and the Deck row still reaches it. The rule is desktop/src/features/runs/lib/homeLanding.ts (unit-tested) and it runs once, inside useWorkspaceSelection.ts, which is RunsScreen's selection cluster split out at the 1000-line ratchet. The memory is seeded through addInitScript before installMockBridge for the reason the repo's guide gives. Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "If the workspace stops remembering where he was."
+    status: "permanent"
+    added: "2026-09-04"
