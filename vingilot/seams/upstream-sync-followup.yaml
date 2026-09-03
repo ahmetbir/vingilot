@@ -1,0 +1,50 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: after the 2026-09 upstream sync
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope: the paths the sync's follow-up commits left divergent, declared after
+# the fact because the gate was re-run only at the end of the merge and these
+# four arrived in the repairs that came after it. Recorded rather than quietly
+# fixed, since "the gate was green when I looked" is exactly how an undeclared
+# seam survives.
+
+entries:
+  - path: "desktop/src/shared/layout/sidebarLayout.ts"
+    reason: "One number: SIDEBAR_WIDTH_MIN is 196 here, not upstream's 220. The sidebar is drawn to the owner's own mockup and its range is part of that drawing — vingilot.js resizes with `Math.min(340, Math.max(196, …))`, and `vingilot-shell`'s spec asserts both ends. The 2026-09 sync moved this constant out of `ui/sidebar.tsx` into this shared module, and other surfaces now read it, so the fork's value moved with it rather than being redeclared beside the import: two copies of a number are a number that drifts. The maximum stays in `ui/sidebar.tsx` because upstream keeps no shared constant for it."
+    owner: "vingilot/shell"
+    removable_when: "If the sidebar stops being drawn to the mockup, or if upstream adopts a configurable range and the fork can express 196–340 without changing the default."
+    status: "permanent"
+    added: "2026-09-03"
+
+  - path: "desktop/src/shared/styles/globals/terminal.css"
+    reason: "Fork-owned terminal typography and chrome, sized against `--buzz-type-rem` like the rest of the type scale. Undeclared until now because it predates this fragment and the gate only reads paths a diff touches; the sync moved the boundary and surfaced it."
+    owner: "vingilot/runs"
+    removable_when: "If the terminal surface is removed, or if its styling moves wholly into vingilot-tokens.css."
+    status: "permanent"
+    added: "2026-09-03"
+
+  - path: "desktop/src-tauri/src/huddle/stt_tests.rs"
+    reason: "Upstream's test file, plus the fork's own STT tests appended to it. The sync moved upstream's tests out of stt.rs into this sibling while the fork's were still inline, which left two `mod tests` in one module; the fork's moved here rather than into a third file, so the ratchet still sees test bulk separately from the code and there is one place to look for what stt.rs claims. The fork's copy of `short_vad_blips_do_not_reach_the_recognizer` was dropped in the move — upstream had adopted the same test."
+    owner: "vingilot/runs"
+    removable_when: "When the fork's Whisper branch in stt.rs is removed, or if upstream adopts the family-detection tests as its own."
+    status: "permanent"
+    added: "2026-09-03"
+
+  - path: "desktop/src/features/home/ui/inboxReopenNavigation.test.mjs"
+    reason: "Upstream's test, reformatted only: `biome check --write --unsafe` rewrote three string concatenations as template literals while clearing the repo-wide lint baseline after the sync. No claim moved and no assertion changed. Declared rather than reverted because reverting would put the file back below the lint gate it now passes, and the fork runs that gate."
+    owner: "vingilot/shell"
+    removable_when: "On the next upstream sync, if upstream's own formatting converges on the same shape — at which point this entry retires with the diff."
+    status: "temporary"
+    added: "2026-09-03"
+
+  - path: "desktop/src/features/agents/ui/AgentConfigPanelPresentation.test.mjs"
+    reason: "DELETED here, and this is a product decision rather than a merge artifact. Upstream's test greps the panel's SOURCE and requires that `provenanceSentence` does not appear in it — the sync removed the provenance concept, so a row shows only its effective value. This fork keeps provenance: `config-bridge-screenshots.spec.ts` asserts the sentence 'Set in Vingilot' on screen twice, because knowing whether a value came from Vingilot, a persona default or a runtime override is the question that panel exists to answer here. The two cannot both hold — one asserts the presence of what the other asserts the absence of — so the test is retired WITH its subject, the way P4.1 and P7 retired theirs. Reversible: taking upstream's panel restores these three tests and loses the sentence."
+    owner: "vingilot/agents"
+    removable_when: "If the owner decides the effective value alone is enough, at which point upstream's panel and this test come back together."
+    status: "permanent"
+    added: "2026-09-03"
