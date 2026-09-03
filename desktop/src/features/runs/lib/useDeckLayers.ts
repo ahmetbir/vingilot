@@ -96,6 +96,8 @@ import {
   type WorktreeTabs,
   worktreeTabs,
 } from "./terminalTabs.ts";
+import { neighbourOf, reconcileHeroOrder } from "./heroOrder.ts";
+import { readHeroOrder, writeHeroOrder } from "./heroOrderStore.ts";
 import { readTabLayout, writeTabLayout } from "./terminalTabStore.ts";
 import {
   activeView,
@@ -160,7 +162,18 @@ export interface StageTabs {
   reorderStageTab: (key: string, before: string | null) => void;
 }
 
-export interface DeckLayers extends StageTabs {
+/** The hero strip (`ui/HeroStrip.tsx`): one strip, every open worktree on
+ * it. The order is a memory over the tab model's keys (`heroOrder.ts`). */
+export interface HeroDeck {
+  /** Open worktrees in strip order — never a worktree without tabs. */
+  heroOrder: readonly string[];
+  /** Take a worktree off the strip: its shells end (`closeWorktrees`) and the
+   * chip to stand on next is answered — `null` when the strip is now empty.
+   * The caller moves the selection; this layer does not own it. */
+  leaveWorktree: (bindingId: string) => string | null;
+}
+
+export interface DeckLayers extends StageTabs, HeroDeck {
   /** Which worktrees have terminals open and which tabs each holds — the
    * layer `openTerminals` renders from and the sweep is reconciled against. */
   tabLayout: TabLayout;
@@ -343,6 +356,31 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
       endSessions(closed);
     },
     [tabLayout, endSessions],
+  );
+
+  // The hero strip's order: seeded from storage, reconciled against the tab
+  // model on every change to it — a worktree that gained a strip joins at the
+  // end (the selected one last), a worktree that lost its strip leaves — and
+  // written back whenever it moves. `reconcileHeroOrder` returns its input
+  // when nothing changes, so this settles rather than loops.
+  const [heroOrder, setHeroOrder] =
+    React.useState<readonly string[]>(readHeroOrder);
+  React.useEffect(() => {
+    setHeroOrder((prev) =>
+      reconcileHeroOrder(prev, Object.keys(tabLayout), selectedWorktreeId),
+    );
+  }, [tabLayout, selectedWorktreeId]);
+  React.useEffect(() => {
+    writeHeroOrder(heroOrder);
+  }, [heroOrder]);
+
+  const leaveWorktree = React.useCallback(
+    (bindingId: string): string | null => {
+      const next = neighbourOf(heroOrder, bindingId);
+      closeWorktreesFor([bindingId]);
+      return next;
+    },
+    [heroOrder, closeWorktreesFor],
   );
 
   const dropWorktreesTo = React.useCallback(
@@ -639,6 +677,8 @@ export function useDeckLayers(selectedWorktreeId: string | null): DeckLayers {
     closeViewTab,
     closeWorktreesFor,
     dropWorktreesTo,
+    heroOrder,
+    leaveWorktree,
     ensureSelected,
     openViewTab,
     runTabCommand,

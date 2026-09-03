@@ -18,3 +18,10 @@ entries:
     removable_when: "If the terminal moves off the tmux backing, or if xterm ships an OSC 52 handler of its own that refuses reads."
     status: "permanent"
     added: "2026-09-03"
+
+  - path: "desktop/tests/e2e/hero-strip.spec.ts"
+    reason: "The hero strip end to end (2026-09-03; the owner's 'terminali sabit tutup worktreeye basınca o worktree icin ... tab mi eklese sadece'). Pressing a worktree adds its chip at the end of the one strip and expands it while every other open worktree stays as a collapsed chip with its tab count; pressing a collapsed chip focuses it where it stands and its tabs come back with their names; the order survives a reload; the chip's × ends that worktree's shells (a real pty_close, asserted) and moves focus to the neighbour. The pure halves are desktop/src/features/runs/lib/heroOrder.test.mjs (the order rule) and heroOrderStore.test.mjs (the record). Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "If the strip goes back to one worktree at a time."
+    status: "permanent"
+    added: "2026-09-03"

@@ -119,7 +119,7 @@ import type {
   TabCommand,
   WorktreeTabs,
 } from "@/features/runs/lib/terminalTabs";
-import type { StageTabs } from "@/features/runs/lib/useDeckLayers";
+import type { HeroDeck, StageTabs } from "@/features/runs/lib/useDeckLayers";
 import type { ProjectDocuments } from "@/features/runs/lib/useDocument";
 import type { Panes } from "@/features/runs/lib/usePanes";
 import type { WorktreeViews } from "@/features/runs/lib/viewTabs";
@@ -134,6 +134,7 @@ import { PaneLabel } from "@/features/runs/ui/PanePicker";
 import { paneEntry } from "@/features/runs/ui/paneRegistry";
 import { TaskStrip } from "@/features/runs/ui/TaskStrip";
 import { TerminalAgentReadout } from "@/features/runs/ui/TerminalAgentReadout";
+import { HeroStrip } from "@/features/runs/ui/HeroStrip";
 import { TerminalTabStrip } from "@/features/runs/ui/TerminalTabStrip";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 import {
@@ -154,7 +155,7 @@ interface WorkSurfaceProps {
    * `WorktreeDisclosure` renders. */
   worktrees: Worktree[];
   selectedWorktreeId: string | null;
-  onSelectWorktree: (bindingId: string) => void;
+  onSelectWorktree: (bindingId: string | null) => void;
   /** Every open PTY session, in visit order, with its resolved cwd — owned
    * by `RunsScreen`. Includes sessions from other projects; only the
    * selected one is ever visible, and keeping the rest mounted is what
@@ -177,7 +178,7 @@ interface WorkSurfaceProps {
    * changes either. One prop because it is one subject — eleven would be
    * eleven chances for the screen and this surface to disagree about which tab
    * is focused. */
-  stage: StageTabs;
+  stage: StageTabs & HeroDeck;
   /** Every terminal split, keyed by primary session id — owned by
    * `RunsScreen` for the reason the tab layout is. */
   splits: SplitLayout;
@@ -277,6 +278,14 @@ export function WorkSurface({
   const tabSplit = stage.tabSplit;
   const [focusToken, setFocusToken] = React.useState(0);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
+  // Tabs per worktree for the collapsed chips, off the sessions already here.
+  const heroTabCounts = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of terminals) {
+      counts.set(t.bindingId, (counts.get(t.bindingId) ?? 0) + 1);
+    }
+    return counts;
+  }, [terminals]);
   const toggleSolo = panes.toggleSolo;
   const toggleTabSplit = stage.toggleTabSplit;
 
@@ -735,45 +744,59 @@ export function WorkSurface({
             chooser={<PaneLabel entry={leftEntry} />}
             entry={leftEntry}
             header={
-              tabs === null ? null : (
-                <TerminalTabStrip
-                  activeViewId={views.active}
-                  onClose={(n) => onTabCommand({ n, type: "close" })}
-                  onCloseScope={closeScope}
-                  onCloseScratch={onCloseScratch}
-                  onCloseView={onCloseView}
-                  onCopyPath={copyTabPath}
-                  onNew={() => onTabCommand({ type: "new" })}
-                  onRenameCancel={() => setRenaming(null)}
-                  onRenameCommit={(n, name) => {
-                    setRenaming(null);
-                    onTabCommand({ n, name, type: "rename" });
-                  }}
-                  onRenameStart={(n) => setRenaming({ kind: "terminal", n })}
-                  // Selection goes through the stage rather than straight to the
-                  // tab models: which half the keyboard lands in is part of what
-                  // clicking a tab means now, and only the stage knows.
-                  onSelect={(n) =>
-                    stage.selectStageTab(stageKey({ kind: "terminal", n }))
-                  }
-                  onSelectView={(id) =>
-                    stage.selectStageTab(stageKey({ id, kind: "view" }))
-                  }
-                  onSplitTab={stage.splitTabOut}
-                  renamingTab={
-                    renaming?.kind === "terminal" ? renaming.n : null
-                  }
-                  scratchOpen={scratch !== null}
-                  splitFocus={tabSplit?.focus ?? null}
-                  splitSecondary={tabSplit?.secondary ?? null}
-                  // The active task's tabs only (mockup: each task owns its
-                  // terminal set); the raw layout stays the model's business.
-                  tabs={tasks === null ? tabs : stripView(tabs, tasks)}
-                  // The readings, which belong to the worktree rather than to a
-                  // task: a file is not a shell and joins no group of them.
-                  views={views.tabs}
-                />
-              )
+              // One strip, every open worktree on it; the focused worktree's
+              // tabs are drawn after its chip (`HeroStrip.tsx`).
+              <HeroStrip
+                onLeave={(bindingId) => {
+                  const next = stage.leaveWorktree(bindingId);
+                  if (bindingId === selectedWorktreeId) onSelectWorktree(next);
+                }}
+                onSelect={onSelectWorktree}
+                order={stage.heroOrder}
+                selectedWorktreeId={selectedWorktreeId}
+                tabCounts={heroTabCounts}
+                worktrees={worktrees}
+              >
+                {tabs === null ? null : (
+                  <TerminalTabStrip
+                    activeViewId={views.active}
+                    onClose={(n) => onTabCommand({ n, type: "close" })}
+                    onCloseScope={closeScope}
+                    onCloseScratch={onCloseScratch}
+                    onCloseView={onCloseView}
+                    onCopyPath={copyTabPath}
+                    onNew={() => onTabCommand({ type: "new" })}
+                    onRenameCancel={() => setRenaming(null)}
+                    onRenameCommit={(n, name) => {
+                      setRenaming(null);
+                      onTabCommand({ n, name, type: "rename" });
+                    }}
+                    onRenameStart={(n) => setRenaming({ kind: "terminal", n })}
+                    // Selection goes through the stage rather than straight to the
+                    // tab models: which half the keyboard lands in is part of what
+                    // clicking a tab means now, and only the stage knows.
+                    onSelect={(n) =>
+                      stage.selectStageTab(stageKey({ kind: "terminal", n }))
+                    }
+                    onSelectView={(id) =>
+                      stage.selectStageTab(stageKey({ id, kind: "view" }))
+                    }
+                    onSplitTab={stage.splitTabOut}
+                    renamingTab={
+                      renaming?.kind === "terminal" ? renaming.n : null
+                    }
+                    scratchOpen={scratch !== null}
+                    splitFocus={tabSplit?.focus ?? null}
+                    splitSecondary={tabSplit?.secondary ?? null}
+                    // The active task's tabs only (mockup: each task owns its
+                    // terminal set); the raw layout stays the model's business.
+                    tabs={tasks === null ? tabs : stripView(tabs, tasks)}
+                    // The readings, which belong to the worktree rather than to a
+                    // task: a file is not a shell and joins no group of them.
+                    views={views.tabs}
+                  />
+                )}
+              </HeroStrip>
             }
             // Mounted, un-laid-out. Never unmounted: the xterm instances below
             // are attached to live ptys. A floating dock never takes the
