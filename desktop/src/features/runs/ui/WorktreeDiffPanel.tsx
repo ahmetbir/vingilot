@@ -83,6 +83,8 @@ import { ChangeSquare } from "@/features/runs/ui/ChangeSquare";
 import { OpenInEditor } from "@/features/runs/ui/OpenInEditor";
 import { PatchView } from "@/features/runs/ui/PatchView";
 import { gitWorktreeDiff } from "@/features/runs/lib/worktreeClient";
+import { readDiffBase, writeDiffBase } from "@/features/runs/lib/diffBasePrefs";
+import { DiffBasePicker } from "@/features/runs/ui/DiffBasePicker";
 import {
   changeLabel,
   changeMark,
@@ -182,7 +184,9 @@ export function WorktreeDiffPanel({
   onShowFile,
   worktree,
 }: Props) {
-  const suggested = defaultDiffBase(worktree);
+  // Remembered per worktree (`diffBasePrefs.ts`), else the model's default.
+  const suggested =
+    readDiffBase(worktree.binding_id) ?? defaultDiffBase(worktree);
   const [draft, setDraft] = React.useState(suggested);
   // One read, named. The nonce is what makes pressing Read with the same ref
   // in the box a *different* request: the ref has not changed, the worktree
@@ -427,12 +431,13 @@ export function WorktreeDiffPanel({
         className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2"
         onSubmit={(event) => {
           event.preventDefault();
-          setRequest((prev) => ({
+          setRequest((prev) => {
             // An empty box is not a request to diff against nothing; it keeps
             // the ref that is already being read.
-            base: draft.trim() === "" ? prev.base : draft.trim(),
-            nonce: prev.nonce + 1,
-          }));
+            const base = draft.trim() === "" ? prev.base : draft.trim();
+            writeDiffBase(worktree.binding_id, base);
+            return { base, nonce: prev.nonce + 1 };
+          });
         }}
       >
         <label
@@ -441,6 +446,17 @@ export function WorktreeDiffPanel({
         >
           against
         </label>
+        <DiffBasePicker
+          current={request.base}
+          cwd={cwd}
+          onChoose={(base) => {
+            // A row is a read, not a draft: it lands in the box AND is asked.
+            setDraft(base);
+            writeDiffBase(worktree.binding_id, base);
+            setRequest((prev) => ({ base, nonce: prev.nonce + 1 }));
+          }}
+          worktree={worktree}
+        />
         <input
           className="min-w-0 max-w-40 flex-1 rounded-md border border-border/60 bg-transparent px-2 py-1 font-mono text-sm"
           data-testid="worktree-diff-base"

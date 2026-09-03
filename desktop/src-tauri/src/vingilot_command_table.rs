@@ -151,6 +151,7 @@ macro_rules! table {
             vingilot_worktree::brief::worktree_add_with_brief,
             vingilot_worktree::worktree_remove,
             vingilot_worktree::diff::worktree_diff,
+            vingilot_worktree::refs::worktree_refs,
             vingilot_worktree::log::worktree_log,
             vingilot_worktree::commit_patch::commit_diff,
             vingilot_worktree::status::worktree_status,

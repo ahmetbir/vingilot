@@ -9,6 +9,7 @@
 // — so it is a value the caller renders, never an exception something has to
 // remember to catch.
 
+import { readWorktreeRefs, type WorktreeRefs } from "./diffBase.ts";
 import { invoke } from "@tauri-apps/api/core";
 
 import {
@@ -153,6 +154,20 @@ export async function gitWorktreeAddWithBrief(
  * A shape this build cannot read comes back as a refusal rather than as an
  * empty diff — "no changes" is a claim about the owner's work, and this is not
  * a place to make it on a guess. */
+/** Every ref this worktree's diff can be read against (`worktree_refs`). A
+ * shape this build cannot read is "git listed nothing", which the picker
+ * draws as no branch rows; a git failure is the refusal it names. */
+export async function gitWorktreeRefs(
+  path: string,
+): Promise<WorktreeResult<WorktreeRefs>> {
+  try {
+    const answered = await invoke<unknown>("worktree_refs", { path });
+    return { ok: true, value: readWorktreeRefs(answered) };
+  } catch (thrown) {
+    return { error: asError(thrown), ok: false };
+  }
+}
+
 export async function gitWorktreeDiff(
   path: string,
   base: string,

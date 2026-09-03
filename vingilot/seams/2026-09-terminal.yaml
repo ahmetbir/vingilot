@@ -32,3 +32,10 @@ entries:
     removable_when: "If the workspace stops remembering where he was."
     status: "permanent"
     added: "2026-09-04"
+
+  - path: "desktop/tests/e2e/diff-base-picker.spec.ts"
+    reason: "The Diff pane's base picker (2026-09-04; 'git ile commit diff yaptik, branch comparison filan da yapabilelim ... main ile worktree difi vs. configurable bisi istiyom'). The diff itself needed no new command — `git diff <base> --` already takes any revision expression, `main...HEAD` included — so what was built is the way to reach those spellings: src-tauri/src/vingilot_worktree/refs.rs lists the branches and the default (one read, nothing written), desktop/src/features/runs/lib/diffBase.ts turns them into rows (unit-tested), DiffBasePicker.tsx draws them beside the free box, and diffBasePrefs.ts remembers the choice per worktree. This spec asserts the rows git's refs make, that the branch he is on is not offered against itself, that a row reads at once in the merge-base spelling, that the choice survives a reload, that the filter narrows, and that the free box still takes anything. Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "With the Diff pane."
+    status: "permanent"
+    added: "2026-09-04"

@@ -38,6 +38,7 @@ pub mod diff;
 pub mod log;
 mod porcelain;
 pub mod prune;
+pub mod refs;
 pub mod stat;
 pub mod status;
 #[cfg(test)]
