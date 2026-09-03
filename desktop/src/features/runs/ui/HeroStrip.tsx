@@ -4,61 +4,76 @@
 // > acaba bi sekilde terminali sabit tutup worktreeye basınca o worktree icin
 // > o isimli tab mi eklese sadece?"*
 //
+// And his first report through the feedback drop, the same evening, on the
+// first cut of this: *"1.si kaydiramiyorum. 2. isimlendirmeler igrenc ... tab
+// group gibi bir gruba basinca o grup buyusun diger gruplar grup haline
+// kuculsun? grup isimleri de repo/worktree gibi olabilir ... cok uzun ise
+// ustune gelince kayabilir yazi."* Three things, all here now.
+//
 // **What it draws.** One chip per worktree that has tabs open, in the hero
 // order (`heroOrder.ts`). The focused worktree's chip is expanded: its own
-// `TerminalTabStrip` — the same component, the same tabs, tasks, views and
-// split it has always drawn — follows the chip. Every other chip is
-// collapsed to its branch and its tab count. Pressing a collapsed chip
-// focuses that worktree, which is the act the nav row performs too; the
-// strip does not move, the chip opens where it stands.
+// `TerminalTabStrip` follows the chip. Every other chip is collapsed to its
+// name and tab count. Pressing a collapsed chip focuses that worktree where
+// it stands.
 //
-// **Leaving is the chip's ×.** A worktree's tabs used to be unclosable in the
-// sense that closing the last one opened a fresh shell (`closeTab`); on one
-// strip that would mean worktrees accumulate forever. The × is the way off
-// the strip: it ends that worktree's shells and, if it was the focused one,
-// focus moves to its neighbour (`neighbourOf`). The tab model is not
-// changed for this — it is `closeWorktrees`, the same act the nav's remove
-// performs, reached from the strip.
+// **Names are `repo/worktree`** (`heroLabel.ts`), read off the checkout's
+// directory — never the binding id, which is what the first cut showed him.
+//
+// **The strip scrolls.** Eight worktrees do not fit in a header, and the
+// first cut clipped them. The row is one horizontal scroller with the
+// scrollbar hidden; a wheel over it moves it sideways, and the focused chip
+// is brought into view whenever focus moves.
+//
+// **A long name slides on hover.** The chip keeps its width; when the pointer
+// rests on it the text glides left by exactly its overflow and back on leave,
+// so the whole name is read without the strip reflowing.
+//
+// **Leaving is the chip's ×**: `closeWorktrees`, the act the nav's remove
+// performs, reached from the strip; focus moves to the neighbour.
 //
 // **Tasks stay per-worktree.** A task is the shells of one checkout; a strip
-// that spans checkouts does not change what a task is, so the chips under
-// the tab bar still belong to the focused worktree alone. Stated because it
-// was the open question in the plan, and this is the answer taken.
+// that spans checkouts does not change what a task is.
 
 import { X } from "lucide-react";
 import * as React from "react";
 
+import { heroChipLabel } from "@/features/runs/lib/heroLabel";
 import type { Worktree } from "@/features/runs/lib/projects";
+import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
 
 export interface HeroStripProps {
   /** Open worktrees in strip order — `heroOrder.ts`'s reconciled list. */
   order: readonly string[];
   selectedWorktreeId: string | null;
-  /** For chip labels; a worktree not found here is drawn by its id. */
+  /** Every open session: the counts and the cwd each chip is named from. */
+  terminals: readonly TerminalSession[];
+  /** The coordinator's rows, for the branch of a checkout it provisioned. */
   worktrees: readonly Worktree[];
-  /** Open tabs per worktree, for the collapsed chips' counts. */
-  tabCounts: ReadonlyMap<string, number>;
   onSelect: (bindingId: string) => void;
   onLeave: (bindingId: string) => void;
   /** The focused worktree's own strip, drawn after its chip. */
   children: React.ReactNode;
 }
 
-/** A chip's text: the branch, or what a checkout with no branch is called. */
-export function heroChipLabel(
-  bindingId: string,
-  worktrees: readonly Worktree[],
-): string {
-  const worktree = worktrees.find((w) => w.binding_id === bindingId);
-  if (worktree === undefined) return bindingId;
-  if (worktree.branch !== null && worktree.branch !== "") {
-    return worktree.branch;
-  }
-  return worktree.role === "main" ? "main" : bindingId;
-}
-
 const CHIP_CLASS =
-  "group flex h-[26px] max-w-[14rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
+  "flex h-[26px] max-w-[12rem] shrink-0 items-center gap-1.5 overflow-hidden rounded-md px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
+
+/** Glide the label left by its overflow while hovered — the measurement is
+ * taken on enter, so a name that fits does nothing at all. */
+function slideOnHover(event: React.MouseEvent<HTMLElement>) {
+  const label = event.currentTarget.querySelector<HTMLElement>("[data-label]");
+  if (label === null) return;
+  const overflow = label.scrollWidth - label.clientWidth;
+  if (overflow <= 0) return;
+  label.style.transition = `transform ${Math.max(600, overflow * 24)}ms linear`;
+  label.style.transform = `translateX(-${overflow}px)`;
+}
+function slideBack(event: React.MouseEvent<HTMLElement>) {
+  const label = event.currentTarget.querySelector<HTMLElement>("[data-label]");
+  if (label === null) return;
+  label.style.transition = "transform 300ms ease-out";
+  label.style.transform = "";
+}
 
 export function HeroStrip({
   children,
@@ -66,26 +81,63 @@ export function HeroStrip({
   onSelect,
   order,
   selectedWorktreeId,
-  tabCounts,
+  terminals,
   worktrees,
 }: HeroStripProps) {
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
+
+  const { counts, cwds } = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    const cwds = new Map<string, string>();
+    for (const t of terminals) {
+      counts.set(t.bindingId, (counts.get(t.bindingId) ?? 0) + 1);
+      if (t.cwd !== null && !cwds.has(t.bindingId))
+        cwds.set(t.bindingId, t.cwd);
+    }
+    return { counts, cwds };
+  }, [terminals]);
+
+  // The focused chip stays in view: on every change of focus, and once the
+  // order settles after a mount, scroll it into the row.
+  React.useEffect(() => {
+    if (selectedWorktreeId === null) return;
+    const chip = scrollerRef.current?.querySelector<HTMLElement>(
+      `[data-testid="hero-chip-${CSS.escape(selectedWorktreeId)}"]`,
+    );
+    chip?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [selectedWorktreeId]);
+
   return (
     <div
-      className="flex min-w-0 flex-1 items-center gap-1.5"
+      className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden"
       data-testid="hero-strip"
+      onWheel={(event) => {
+        // A vertical wheel is the gesture he has; the row is what moves.
+        const el = event.currentTarget;
+        if (el.scrollWidth <= el.clientWidth) return;
+        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+          el.scrollLeft += event.deltaY;
+          event.preventDefault();
+        }
+      }}
+      ref={scrollerRef}
     >
       {order.map((bindingId) => {
         const focused = bindingId === selectedWorktreeId;
-        const label = heroChipLabel(bindingId, worktrees);
-        const count = tabCounts.get(bindingId) ?? 0;
+        const label = heroChipLabel(
+          bindingId,
+          cwds.get(bindingId) ?? null,
+          worktrees.find((w) => w.binding_id === bindingId)?.branch ?? null,
+        );
+        const count = counts.get(bindingId) ?? 0;
         return (
           <React.Fragment key={bindingId}>
             <div
-              className={`flex min-w-0 items-center gap-1 ${
-                focused ? "" : "shrink-0"
-              }`}
+              className="group flex shrink-0 items-center gap-0.5"
               data-focused={focused ? "true" : "false"}
               data-testid={`hero-chip-${bindingId}`}
+              onMouseEnter={slideOnHover}
+              onMouseLeave={slideBack}
             >
               <button
                 aria-current={focused ? "true" : undefined}
@@ -106,16 +158,21 @@ export function HeroStrip({
                 title={label}
                 type="button"
               >
-                <span className="truncate">{label}</span>
+                <span
+                  className="inline-block whitespace-nowrap will-change-transform"
+                  data-label
+                >
+                  {label}
+                </span>
                 {focused ? null : (
-                  <span className="rounded bg-foreground/[.08] px-1 text-2xs tabular-nums">
+                  <span className="shrink-0 rounded bg-foreground/[.08] px-1 text-2xs tabular-nums">
                     {count}
                   </span>
                 )}
               </button>
               <button
                 aria-label={`Leave ${label}: close its shells`}
-                className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100 [div:hover>&]:opacity-100"
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100"
                 data-testid={`hero-chip-leave-${bindingId}`}
                 onClick={() => onLeave(bindingId)}
                 title="Leave this worktree — closes its shells"
@@ -124,7 +181,9 @@ export function HeroStrip({
                 <X className="h-3 w-3" />
               </button>
             </div>
-            {focused ? children : null}
+            {focused ? (
+              <div className="flex shrink-0 items-center">{children}</div>
+            ) : null}
           </React.Fragment>
         );
       })}

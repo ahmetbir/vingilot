@@ -278,14 +278,6 @@ export function WorkSurface({
   const tabSplit = stage.tabSplit;
   const [focusToken, setFocusToken] = React.useState(0);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
-  // Tabs per worktree for the collapsed chips, off the sessions already here.
-  const heroTabCounts = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const t of terminals) {
-      counts.set(t.bindingId, (counts.get(t.bindingId) ?? 0) + 1);
-    }
-    return counts;
-  }, [terminals]);
   const toggleSolo = panes.toggleSolo;
   const toggleTabSplit = stage.toggleTabSplit;
 
@@ -754,7 +746,7 @@ export function WorkSurface({
                 onSelect={onSelectWorktree}
                 order={stage.heroOrder}
                 selectedWorktreeId={selectedWorktreeId}
-                tabCounts={heroTabCounts}
+                terminals={terminals}
                 worktrees={worktrees}
               >
                 {tabs === null ? null : (
