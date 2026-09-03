@@ -4,6 +4,7 @@ import {
   ensureWorktree,
   emptyLayout,
   sessionIdFor,
+  tabName,
   worktreeTabs,
 } from "./terminalTabs.ts";
 import {
@@ -211,4 +212,23 @@ test("a command for a worktree with no strip is dropped", () => {
   });
   assert.deepEqual(change.layout, {});
   assert.deepEqual(change.closed, []);
+});
+
+test("closing a task keeps the names on the tabs that remain", () => {
+  // The same defect `addTab` had: this path rebuilt the worktree strip as a
+  // fresh literal from `wt`, so `names` — which is not one of the three fields
+  // it copied — left with every tab that was staying.
+  let state = opened();
+  state = applyDeckTabCommand(state.layout, state.tasks, WT, {
+    name: "cargo watch",
+    n: 1,
+    type: "rename",
+  });
+  state = applyTaskCommand(state.layout, state.tasks, WT, { type: "new-task" });
+  const doomed = strip(state).groups[1].id;
+  state = applyTaskCommand(state.layout, state.tasks, WT, {
+    id: doomed,
+    type: "close-task",
+  });
+  assert.equal(tabName(worktreeTabs(state.layout, WT), 1), "cargo watch");
 });

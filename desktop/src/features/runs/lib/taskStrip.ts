@@ -30,6 +30,7 @@
 import { normalizeStripName } from "./stripName.ts";
 import {
   applyTabCommand,
+  retainNames,
   sessionIdFor,
   type TabLayout,
   type WorktreeTabs,
@@ -537,7 +538,14 @@ export function applyTaskCommand(
         closed,
         layout: {
           ...layout,
-          [bindingId]: { active, nextN: wt.nextN, tabs: remainingTabs },
+          // `...retainNames(wt, …)` rather than a fresh literal, and that is
+          // the whole point: three named fields left `names` behind, so
+          // closing one task forgot the names on every tab that was staying.
+          [bindingId]: {
+            ...retainNames(wt, remainingTabs),
+            active,
+            tabs: remainingTabs,
+          },
         },
         tasks: replaceStrip(tasks, bindingId, { ...strip, groups }),
       };

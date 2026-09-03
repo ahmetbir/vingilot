@@ -894,3 +894,87 @@ test("a view tab has no rename affordance, and Escape-then-blur keeps the previo
   await view.click({ button: "right" });
   await expect(page.getByTestId("tab-menu-rename")).toHaveCount(0);
 });
+
+// ─────────────────── REPO SWITCH (his report, 2026-08-30) ───────────────────
+//
+// The worktree-switch test above passes and the owner still loses names, so
+// what it does not do is the subject: it holds ONE project. This one holds two
+// and crosses between them, because "repo degistirmede kalici degil" is a
+// different journey through `dropWorktreesTo` — the live worktree set is
+// rebuilt from a different project's listing.
+
+const REPO_B = {
+  id: "repo-striprename-2",
+  name: "second-project",
+  path: "/tmp/vingilot-striprename-2",
+};
+
+const WORKTREE_C = {
+  ...WORKTREE,
+  binding_id: "wt-striprename-c",
+  branch: "spike-c",
+  owner_run_id: "run-striprename-c",
+  repo_id: REPO_B.id,
+};
+
+async function openTwoRepos(page: Page) {
+  await page.setViewportSize(SIXTEEN_INCH);
+  await installTrap(page);
+  await installMockBridge(page);
+  await page.route(`${COORDINATOR_ORIGIN}/**`, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === `/v1/workspaces/${WORKSPACE_ID}`) {
+      return route.fulfill({
+        json: {
+          revision: 1,
+          state: { repos: [REPO, REPO_B] },
+          state_hash: "mock-state-hash",
+        },
+      });
+    }
+    if (url.pathname === `/v1/workspaces/${WORKSPACE_ID}/worktrees`) {
+      return route.fulfill({ json: { worktrees: [WORKTREE, WORKTREE_C] } });
+    }
+    if (url.pathname === `/v1/workspaces/${WORKSPACE_ID}/runs`) {
+      return route.fulfill({ json: { runs: [] } });
+    }
+    return route.fulfill({
+      json: { detail: `unmocked route: ${url.pathname}`, error: "not_found" },
+      status: 404,
+    });
+  });
+  await page.goto("/#/workspace");
+  await expect(page.getByTestId("runs-screen")).toBeVisible();
+}
+
+test("a name survives crossing to another project and back", async ({
+  page,
+}) => {
+  await openTwoRepos(page);
+
+  await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
+  await expect(page.getByTestId("work-surface")).toBeVisible();
+  await landOn(page, WORKTREE.binding_id);
+  await page.getByTestId("terminal-tab-shell-1").dblclick();
+  await typeName(page, "terminal-tab-rename-1", "alpha");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("terminal-tab-1")).toHaveText("alpha");
+
+  // Across to the other project, and stand in one of its worktrees so the
+  // crossing is a real visit rather than a click on a nav row.
+  await page.getByTestId(`projects-nav-repo-${REPO_B.id}`).click();
+  await expect(page.getByTestId("work-surface")).toBeVisible();
+  await landOn(page, WORKTREE_C.binding_id);
+  await expect(page.getByTestId("terminal-tab-1")).toHaveText("1");
+
+  // Back. The name is what this is about.
+  await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
+  await expect(page.getByTestId("work-surface")).toBeVisible();
+  await landOn(page, WORKTREE.binding_id);
+  await expect(page.getByTestId("terminal-tab-1")).toHaveText("alpha");
+
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("vingilot-terminal-tabs.v1") ?? "{}"),
+  );
+  expect(stored[WORKTREE.binding_id]?.names).toEqual({ "1": "alpha" });
+});

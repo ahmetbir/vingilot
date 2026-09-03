@@ -160,6 +160,33 @@ function dropName(wt: WorktreeTabs, n: number): WorktreeTabs {
   return { ...wt, names };
 }
 
+/** The strip with every name whose tab is not in `tabs` forgotten — `dropName`
+ * for a whole set at once, and the same rule for the same reason: an ordinal is
+ * never reused, so a name outliving its tab could never be shown again and
+ * would only accumulate.
+ *
+ * Exported because closing a TASK closes several tabs in one act, and the
+ * caller that does it has to rebuild the strip around the survivors
+ * (`taskStrip.ts`). Returns its input untouched when nothing drops, so a caller
+ * can lean on reference equality. */
+export function retainNames(
+  wt: WorktreeTabs,
+  tabs: readonly number[],
+): WorktreeTabs {
+  if (wt.names === undefined) return wt;
+  const live = new Set(tabs.map(String));
+  const names: Record<string, string> = {};
+  for (const [key, name] of Object.entries(wt.names)) {
+    if (live.has(key)) names[key] = name;
+  }
+  const kept = Object.keys(names).length;
+  if (kept === Object.keys(wt.names).length) return wt;
+  // No names left means no `names` key, so a strip that ends up unnamed stores
+  // what an unnamed strip stores — the shape `dropName` lands on too.
+  if (kept === 0) return { active: wt.active, nextN: wt.nextN, tabs: wt.tabs };
+  return { ...wt, names };
+}
+
 /** Call a tab something, or take its name away.
  *
  * **Nothing about the session moves** — the same sentence `reorderTab` makes,
