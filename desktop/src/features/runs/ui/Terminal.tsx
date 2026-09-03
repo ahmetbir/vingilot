@@ -100,6 +100,7 @@ import {
   ptyCopyModeExit,
   ptyOpen,
   ptyResize,
+  ptyWheelNeedsArrows,
   ptyWrite,
 } from "@/features/runs/lib/ptyClient";
 import {
@@ -288,6 +289,13 @@ export function Terminal({
   // re-running the effect.
   const inCopyModeRef = React.useRef(false);
   const copyModeInterestRef = React.useRef(0);
+  // Whether a wheel over this pane would otherwise go nowhere — a full-screen
+  // program holding both the alternate screen and mouse reporting. Answered by
+  // tmux (`pty_wheel_needs_arrows`) because the webview cannot tell: under tmux
+  // EVERY pane is on the alternate screen as far as xterm is concerned, since
+  // the attach itself sends it (`tests/e2e/tmux-attach-mouse-on.json` is that
+  // capture, verbatim). Read by the wheel handler, so it is a ref.
+  const wheelNeedsArrowsRef = React.useRef(false);
 
   // A wheel is the only way this app's panes enter tmux copy-mode, so it is
   // what arms the poll. A NATIVE capture listener on the pane's own box, not
@@ -296,14 +304,46 @@ export function Terminal({
   React.useEffect(() => {
     const root = rootRef.current;
     if (root === null) return;
-    const arm = () => {
+    const arm = (event: WheelEvent) => {
       copyModeInterestRef.current = 5;
+      // **The wheel becomes arrows for a program that grabbed the mouse and
+      // ignores it.** Measured against the real one: with Claude Code running,
+      // tmux reports `alternate_on=1` and `mouse_any_flag=1`. The alternate
+      // screen has no tmux history to scroll, and because the program asked for
+      // mouse reporting the wheel is delivered to it, where nothing happens —
+      //
+      // > *"Claude code ile calisirken bi sure sonra Claude code da scroll
+      // > yeteneğimi kaybediyorum. Sessioni kapatıp acmam gerekiyor."*
+      //
+      // Ending the session leaves the alternate screen, which is why restarting
+      // looked like a fix. Three notches per tick, the step a wheel means.
+      //
+      // Only when tmux has said so — an unanswered or unasked pane keeps the
+      // mouse report it has always sent, which is what `terminal-wheel.spec.ts`
+      // pins.
+      if (!wheelNeedsArrowsRef.current || event.deltaY === 0) return;
+      const term = termRef.current;
+      if (term === null) return;
+      // A full-screen UI usually has application cursor keys on; the wrong
+      // escape would put a literal `OA` where a selection should have moved.
+      const application = term.modes.applicationCursorKeysMode;
+      const key =
+        event.deltaY < 0
+          ? application
+            ? "\u001bOA"
+            : "\u001b[A"
+          : application
+            ? "\u001bOB"
+            : "\u001b[B";
+      event.preventDefault();
+      event.stopPropagation();
+      void ptyWrite(sessionId, key.repeat(3));
     };
-    root.addEventListener("wheel", arm, { capture: true, passive: true });
+    root.addEventListener("wheel", arm, { capture: true });
     return () => {
       root.removeEventListener("wheel", arm, { capture: true });
     };
-  }, []);
+  }, [sessionId]);
 
   // A dropped file inserts its shell-escaped absolute path at the cursor, iTerm
   // style — the same `pty_write` channel a keystroke uses, so it lands exactly
@@ -630,8 +670,12 @@ export function Terminal({
         return;
       }
       try {
-        const mode = await ptyCopyMode(sessionId);
+        const [mode, needsArrows] = await Promise.all([
+          ptyCopyMode(sessionId),
+          ptyWheelNeedsArrows(sessionId),
+        ]);
         if (!stopped) {
+          wheelNeedsArrowsRef.current = needsArrows;
           setInCopyMode(mode);
           inCopyModeRef.current = mode;
           if (mode) copyModeInterestRef.current = 5;
@@ -645,6 +689,9 @@ export function Terminal({
           setInCopyMode(false);
           inCopyModeRef.current = false;
           copyModeInterestRef.current = 0;
+          // A wrong `true` sends arrow keys to a program that wanted a mouse
+          // report, which is worse than a wheel that does nothing.
+          wheelNeedsArrowsRef.current = false;
         }
       }
       if (!stopped) handle = window.setTimeout(() => void tick(), 1_000);

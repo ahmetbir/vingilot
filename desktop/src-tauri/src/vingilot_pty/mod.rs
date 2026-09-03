@@ -470,6 +470,15 @@ pub fn pty_copy_mode(session: String) -> bool {
 /// a missing session, or a machine with no tmux all mean there is nothing to
 /// leave, and none of them is an error the owner can act on.
 #[tauri::command]
+/// Whether a wheel over this pane should become arrow keys — see
+/// `copy_mode::wheel_needs_arrows`. Polled beside `pty_copy_mode` rather than
+/// asked per notch: the answer changes when a program starts or exits, not
+/// between two ticks of a wheel.
+pub fn pty_wheel_needs_arrows(session: String) -> bool {
+    copy_mode::wheel_needs_arrows(&session)
+}
+
+#[tauri::command]
 pub fn pty_copy_mode_exit(session: String) {
     copy_mode::exit_copy_mode(&session);
 }

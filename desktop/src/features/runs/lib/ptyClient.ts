@@ -83,6 +83,16 @@ export function ptyCopyModeExit(session: string): Promise<void> {
   return invoke("pty_copy_mode_exit", { session });
 }
 
+/** Whether a wheel over this pane would otherwise go nowhere — a full-screen
+ * program holding both the alternate screen and mouse reporting.
+ *
+ * Asked of tmux because the webview cannot tell: under tmux every pane is on
+ * the alternate screen as far as xterm is concerned, since the attach itself
+ * sends it. Polled, not asked per notch. */
+export function ptyWheelNeedsArrows(session: string): Promise<boolean> {
+  return invoke("pty_wheel_needs_arrows", { session });
+}
+
 /** Subscribes to one session's output. Returns the unlisten function —
  * callers tear it down on unmount.
  *
