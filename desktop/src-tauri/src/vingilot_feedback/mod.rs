@@ -105,7 +105,34 @@ fn frame_in_points(x: i32, y: i32, width: u32, height: u32, scale: f64) -> Strin
     )
 }
 
+/// How a capture is asked for. `Window` is the frame it opened over; `Region`
+/// is macOS's own crosshair — drag a rectangle, Space for a window, Escape to
+/// keep what was there ("retake te de cropa izin ver ... bi crosshair olsun").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureMode {
+    Window,
+    Region,
+}
+
+/// The `screencapture` arguments for a mode, apart from the output path.
+fn capture_args(mode: CaptureMode, frame: &str) -> Vec<String> {
+    let mut args: Vec<String> = ["-x", "-t", "png"].iter().map(|s| s.to_string()).collect();
+    match mode {
+        CaptureMode::Window => {
+            args.push("-R".to_string());
+            args.push(frame.to_string());
+        }
+        CaptureMode::Region => args.push("-i".to_string()),
+    }
+    args
+}
+
 fn capture_region(region: &str) -> Result<Vec<u8>, String> {
+    capture_with(capture_args(CaptureMode::Window, region))
+}
+
+fn capture_with(args: Vec<String>) -> Result<Vec<u8>, String> {
     let path: PathBuf = std::env::temp_dir().join(format!(
         "vingilot-feedback-{}-{}.png",
         std::process::id(),
@@ -115,7 +142,7 @@ fn capture_region(region: &str) -> Result<Vec<u8>, String> {
             .unwrap_or(0)
     ));
     let status = Command::new("/usr/sbin/screencapture")
-        .args(["-x", "-t", "png", "-R", region])
+        .args(&args)
         .arg(&path)
         .status()
         .map_err(|e| format!("screencapture did not run: {e}"))?;
@@ -124,7 +151,9 @@ fn capture_region(region: &str) -> Result<Vec<u8>, String> {
     if !status.success() {
         return Err(format!("screencapture exited with {status}"));
     }
-    bytes.map_err(|e| format!("the capture was not written: {e}"))
+    // Escape in the crosshair exits 0 and writes nothing: that is "keep what
+    // was there", and the dialog reads it as such.
+    bytes.map_err(|_| "cancelled".to_string())
 }
 
 #[tauri::command]
@@ -157,9 +186,13 @@ pub async fn feedback_configure(url: String, key: String) -> Result<FeedbackStat
     .map_err(|e| format!("the feedback worker did not run: {e}"))?
 }
 
-/// The window as it is right now, as a PNG data URL.
+/// The window as it is right now — or a region he drags out — as a PNG data
+/// URL. `Err("cancelled")` when the crosshair is dismissed.
 #[tauri::command]
-pub async fn feedback_snapshot(window: tauri::Window) -> Result<String, String> {
+pub async fn feedback_snapshot(
+    window: tauri::Window,
+    mode: Option<CaptureMode>,
+) -> Result<String, String> {
     let pos = window
         .outer_position()
         .map_err(|e| format!("window position: {e}"))?;
@@ -168,8 +201,12 @@ pub async fn feedback_snapshot(window: tauri::Window) -> Result<String, String> 
         .map_err(|e| format!("window size: {e}"))?;
     let scale = window.scale_factor().map_err(|e| format!("scale: {e}"))?;
     let region = frame_in_points(pos.x, pos.y, size.width, size.height, scale);
+    let mode = mode.unwrap_or(CaptureMode::Window);
     tauri::async_runtime::spawn_blocking(move || {
-        let png = capture_region(&region)?;
+        let png = match mode {
+            CaptureMode::Window => capture_region(&region)?,
+            CaptureMode::Region => capture_with(capture_args(mode, &region))?,
+        };
         Ok(format!(
             "data:image/png;base64,{}",
             base64::engine::general_purpose::STANDARD.encode(png)
@@ -266,6 +303,18 @@ mod tests {
         assert_eq!(with["screenshot_png_base64"], "data:image/png;base64,AAAA");
         let without = body_json("x", &ctx, None);
         assert!(without.get("screenshot_png_base64").is_none());
+    }
+
+    #[test]
+    fn a_region_capture_is_the_crosshair_and_a_window_capture_is_the_frame() {
+        assert_eq!(
+            capture_args(CaptureMode::Window, "1,2,3,4"),
+            ["-x", "-t", "png", "-R", "1,2,3,4"]
+        );
+        assert_eq!(
+            capture_args(CaptureMode::Region, "1,2,3,4"),
+            ["-x", "-t", "png", "-i"]
+        );
     }
 
     #[test]

@@ -16,6 +16,8 @@ interface FeedbackProbe {
     hasShot: boolean;
   }>;
   snapshots: number;
+  /** The mode of every capture asked for, in order. */
+  modes: string[];
 }
 
 declare global {
@@ -38,6 +40,7 @@ async function trapFeedback(page: Page, alreadyConfigured: boolean) {
         configured: preset
           ? { key: "preset", url: "https://x.dev/feedback" }
           : null,
+        modes: [],
         sends: [],
         snapshots: 0,
       };
@@ -63,6 +66,7 @@ async function trapFeedback(page: Page, alreadyConfigured: boolean) {
         }
         if (name === "feedback_snapshot") {
           probe.snapshots += 1;
+          probe.modes.push(String(payload.mode));
           return Promise.resolve(png);
         }
         if (name === "feedback_send") {
@@ -178,4 +182,43 @@ test("once configured, ⌘K's row opens straight onto the report, and unticking 
   expect(sends).toEqual([
     expect.objectContaining({ hasShot: false, text: "sadece not" }),
   ]);
+});
+
+test("a picture pasted from anywhere becomes the report's picture, and the crosshair is asked for by name", async ({
+  page,
+}) => {
+  await openApp(page, true);
+  await page.getByTestId("top-chrome-feedback").click();
+  await expect(page.getByTestId("feedback-text")).toBeVisible();
+  expect(await page.evaluate(() => window.__FEEDBACK_PROBE__.modes)).toEqual([
+    "window",
+  ]);
+
+  // ⌘V with an image on the pasteboard: a 1×1 red PNG, distinct from the
+  // capture's, so the picture shown proves which one is there.
+  const RED =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+  await page.getByTestId("feedback-text").focus();
+  await page.evaluate((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const file = new File([bytes], "shot.png", { type: "image/png" });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: dt,
+    });
+    document.activeElement?.dispatchEvent(event);
+  }, RED);
+  await expect
+    .poll(() => page.getByTestId("feedback-shot").getAttribute("src"))
+    .toContain(RED);
+
+  // Retake with the crosshair asks the Rust side for a region, not the frame.
+  await page.getByTestId("feedback-select-region").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__FEEDBACK_PROBE__.modes))
+    .toEqual(["window", "region"]);
+  await expect(page.getByTestId("feedback-dialog")).toBeVisible();
 });

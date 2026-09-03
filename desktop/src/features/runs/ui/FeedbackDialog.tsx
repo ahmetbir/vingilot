@@ -20,11 +20,13 @@ import { getVersion } from "@tauri-apps/api/app";
 import * as React from "react";
 
 import {
+  type CaptureMode,
   type FeedbackStatus,
   feedbackConfigure,
   feedbackSend,
   feedbackSnapshot,
   feedbackStatus,
+  pastedImage,
   reportContext,
 } from "@/features/runs/lib/feedbackClient";
 import {
@@ -70,13 +72,16 @@ export function FeedbackDialog() {
   const [error, setError] = React.useState<string | null>(null);
   const [sentId, setSentId] = React.useState<string | null>(null);
 
-  const capture = React.useCallback(async () => {
+  const capture = React.useCallback(async (mode: CaptureMode) => {
     setBusy("capture");
     try {
-      setShot(await feedbackSnapshot());
+      setShot(await feedbackSnapshot(mode));
+      setAttach(true);
     } catch (cause) {
-      // No capture is a report without a picture, not no report.
-      setShot(null);
+      // Escape in the crosshair keeps what was there; anything else is a
+      // report without a picture, not no report.
+      if (String(cause).includes("cancelled")) return;
+      if (mode === "window") setShot(null);
       setError(`No screenshot: ${String(cause)}`);
     } finally {
       setBusy(null);
@@ -87,7 +92,7 @@ export function FeedbackDialog() {
     setError(null);
     setSentId(null);
     setEditing(false);
-    await capture();
+    await capture("window");
     setOpen(true);
     try {
       const current = await feedbackStatus();
@@ -107,11 +112,20 @@ export function FeedbackDialog() {
     return subscribeFeedbackRequest(check);
   }, [openFresh]);
 
-  const retake = async () => {
+  const retake = async (mode: CaptureMode) => {
     setOpen(false);
     await new Promise((resolve) => setTimeout(resolve, RETAKE_SETTLE_MS));
-    await capture();
+    await capture(mode);
     setOpen(true);
+  };
+
+  const onPaste = async (event: React.ClipboardEvent) => {
+    const image = await pastedImage(event.clipboardData);
+    if (image === null) return;
+    event.preventDefault();
+    setShot(image);
+    setAttach(true);
+    setError(null);
   };
 
   const save = async () => {
@@ -149,7 +163,11 @@ export function FeedbackDialog() {
 
   return (
     <Dialog onOpenChange={setOpen} open={open}>
-      <DialogContent className="sm:max-w-xl" data-testid="feedback-dialog">
+      <DialogContent
+        className="sm:max-w-xl"
+        data-testid="feedback-dialog"
+        onPaste={(event) => void onPaste(event)}
+      >
         <DialogHeader>
           <DialogTitle>
             {connecting ? "Where feedback goes" : "Send feedback"}
@@ -192,7 +210,7 @@ export function FeedbackDialog() {
               aria-label="Feedback"
               data-testid="feedback-text"
               onChange={(event) => setText(event.target.value)}
-              placeholder="What happened, or what should."
+              placeholder="What happened, or what should. ⌘V pastes a picture taken anywhere."
               rows={5}
               value={text}
             />
@@ -221,13 +239,23 @@ export function FeedbackDialog() {
               </label>
               <div className="flex items-center gap-3">
                 <Button
+                  data-testid="feedback-select-region"
+                  disabled={busy !== null}
+                  onClick={() => void retake("region")}
+                  size="sm"
+                  title="A crosshair: drag a rectangle, Space for a window, Escape keeps this one"
+                  variant="ghost"
+                >
+                  Select a region
+                </Button>
+                <Button
                   data-testid="feedback-retake"
                   disabled={busy !== null}
-                  onClick={() => void retake()}
+                  onClick={() => void retake("window")}
                   size="sm"
                   variant="ghost"
                 >
-                  Retake
+                  Retake window
                 </Button>
                 <Button
                   data-testid="feedback-change"
