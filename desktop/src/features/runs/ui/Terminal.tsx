@@ -50,13 +50,15 @@
 // composites *over* the background — the selection below, above all — then
 // lands on the right ground.
 //
-// **The type inside is still xterm's, deliberately.** No `fontFamily` is set
-// even though the stock stack (`courier-new, courier, monospace`) is not what
-// anyone would choose: `paneModel.ts`'s `CELL_PX` is a *measurement* of that
-// stack at xterm's default 15px, and the 80-column floor is built on it. A
-// nicer font is a different cell advance and therefore a floor that no longer
-// guarantees the columns it claims. Same for the horizontal padding below,
-// which `TERMINAL_CHROME_PX` counts.
+// **The type inside is the owner's iTerm font: Monaco 14** (2026-09-03, "fontu
+// direk itermden calabilirsek"). Read off his iTerm profile — `Normal Font =
+// "Monaco 14"`, spacing 1/1 — rather than chosen. Menlo is the fallback
+// because it is the same design with the same advance, and `monospace` after
+// it is only there so a machine without either still draws cells. iTerm's
+// separate non-ASCII font (Monaco 12) has no xterm equivalent and is not
+// carried. `paneModel.ts`'s `CELL_PX` is a *measurement* of this exact stack
+// at this size, and the 80-column floor is built on it — the two are changed
+// together or not at all, which is why the values here are named once.
 
 // **Copying goes through OSC 52, and ⌥-drag selects locally.** Under the tmux
 // backing a plain drag is a mouse report, not a selection (`tmux.rs`,
@@ -112,6 +114,10 @@ import { shellEscapePaths } from "@/features/runs/lib/shellEscape";
 import { useNativeFileDrop } from "@/features/runs/lib/useNativeFileDrop";
 import { FindBar } from "@/features/runs/ui/FindBar";
 import { copyTextToSystemClipboard } from "@/shared/api/tauriMedia";
+
+/** The owner's own terminal type, as his iTerm profile states it. */
+const TERMINAL_FONT_FAMILY = "Monaco, Menlo, monospace";
+const TERMINAL_FONT_SIZE = 14;
 import { wheelOwnerProps } from "@/shared/lib/wheelOwner";
 
 /** Said in the field's own title — the terminal's answer to `FileViewer.tsx`'s
@@ -345,6 +351,8 @@ export function Terminal({
       // knob: `allowProposedApi` is a constructor option, not per-addon.
       allowProposedApi: true,
       cursorBlink: true,
+      fontFamily: TERMINAL_FONT_FAMILY,
+      fontSize: TERMINAL_FONT_SIZE,
       // The Mac reflex for "select what the pointer covers, whatever the
       // program asked for". Shift already does this on every platform.
       macOptionClickForcesSelection: true,

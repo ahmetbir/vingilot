@@ -541,11 +541,13 @@ export const DEFAULT_RATIO = 0.6;
 export const MIN_RATIO = 0.2;
 export const MAX_RATIO = 0.8;
 
-/** One terminal cell's advance, in CSS pixels, for @xterm/xterm's stock 15px
- * monospace. Measured on the real surface rather than assumed: a 636px left
- * pane fits 68 columns, which is 9.1px a column once the pane's own padding
- * and xterm's scrollbar gutter are out of it. */
-const CELL_PX = 9;
+/** One terminal cell's advance, in CSS pixels, for the terminal's own type —
+ * Monaco 14 (`ui/Terminal.tsx`, `TERMINAL_FONT_FAMILY`). Measured on the real
+ * surface rather than assumed, the way the previous value was: xterm's own
+ * 32-character measure element rendered 268.84px wide in the e2e harness on
+ * 2026-09-03, which is 8.40px a column. The stock 15px stack this replaced
+ * measured 9.1. Changed together with the font or not at all. */
+const CELL_PX = 8.4;
 
 /** What a left pane spends on things that are not cells — its `px-2` and the
  * scrollbar gutter xterm reserves. Counted, because a floor derived from cell

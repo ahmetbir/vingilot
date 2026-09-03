@@ -222,12 +222,13 @@ function renderedLeftPx(ratio, surfaceWidth) {
   return Math.floor(exact * RENDERED_GRID_PER_PX) / RENDERED_GRID_PER_PX;
 }
 
-/** Columns of @xterm/xterm's stock 15px monospace that fit in a left pane of
- * `px`, both numbers measured on the real surface: a 636px pane fits 68
- * columns, which is 9.1px a column once the pane's `px-2` and xterm's
- * scrollbar gutter — 32px together — are out of it. */
+/** Columns of the terminal's type — Monaco 14 — that fit in a left pane of
+ * `px`, both numbers measured on the real surface: xterm's 32-character
+ * measure element rendered 268.84px, which is 8.40px a column, once the
+ * pane's `px-2` and xterm's scrollbar gutter — 32px together — are out of it.
+ * Stated here independently of `paneModel.ts` on purpose (see above). */
 function renderedColumns(px) {
-  return Math.floor((px - 32) / 9);
+  return Math.floor((px - 32) / 8.4);
 }
 
 test("no drag can take the terminal under 80 columns while the surface can hold it", () => {
@@ -318,16 +319,19 @@ test("an unmeasured surface invents no layout", () => {
 });
 
 test("at the width where the two floors just meet, the terminal's wins", () => {
-  // 992px of shared width is exactly MIN_LEFT_PX + MIN_RIGHT_PX, so the two
-  // floors meet with nothing between them — and the terminal's floor asks for
-  // one 1/64px grain more than its bare minimum, because a flex distribution
-  // lands at or below what it is asked for and MIN_LEFT_PX is exactly 80
-  // columns. Something has to give, and the ranking says which: the terminal
-  // keeps its 80 columns, the right pane is a grain under its floor.
+  // A shared width of exactly MIN_LEFT_PX + MIN_RIGHT_PX (944px with Monaco
+  // 14's 8.4px cell; it was 992 with the stock font) is where the two floors
+  // meet with nothing between them — and the terminal's floor asks for one
+  // 1/64px grain more than its bare minimum, because a flex distribution lands
+  // at or below what it is asked for and MIN_LEFT_PX is exactly 80 columns.
+  // Something has to give, and the ranking says which: the terminal keeps its
+  // 80 columns, the right pane is a grain under its floor.
   //
   // A grain is not a legibility problem; a column is. That is the whole reason
   // the ranking is written down rather than left to whichever clamp ran last.
-  const surface = 1000;
+  // Derived from the constants rather than written as a number, so the font
+  // can change and this still tests the meeting point and not a memory of it.
+  const surface = MIN_LEFT_PX + MIN_RIGHT_PX + RENDERED_DIVIDER_PX;
   const shared = surface - RENDERED_DIVIDER_PX;
   const left = renderedLeftPx(clampRatioAt(0.99, surface), surface);
   assert.ok(renderedColumns(left) >= 80, `${renderedColumns(left)} columns`);
@@ -345,13 +349,21 @@ test("the pointer aims at the divider's middle, which is where the boundary look
 });
 
 test("a surface too narrow for both floors still keeps the terminal's 80 columns", () => {
-  // The band where the two floors conflict starts at 992px of shared width and
-  // is not exotic: a 1280 window with the sidebar and the workspace nav open is
+  // The band where the two floors conflict starts at MIN_LEFT_PX + MIN_RIGHT_PX
+  // of shared width (944px with Monaco 14; 992 with the stock font) and is not
+  // exotic: a 1280 window with the sidebar and the workspace nav open is
   // already inside it — 747px of surface, and 549px before the two nav columns
   // became one. The taste cap used to bind here instead of the
   // floor — measured, a 900px surface gave the terminal 75 columns while the
   // comment above the clamp said the terminal's floor had won.
-  for (const surface of [990, 940, 900, 800, 770]) {
+  const meet = MIN_LEFT_PX + MIN_RIGHT_PX + RENDERED_DIVIDER_PX;
+  for (const surface of [
+    meet - 2,
+    meet - 52,
+    meet - 92,
+    meet - 192,
+    meet - 222,
+  ]) {
     assert.ok(
       surface - RENDERED_DIVIDER_PX < MIN_LEFT_PX + MIN_RIGHT_PX,
       `${surface}px should be inside the conflict band`,
@@ -389,10 +401,11 @@ test("a surface too narrow even for the terminal gives it everything there is", 
   assert.equal(clampRatioAt(0.99, narrow), 1);
   assert.equal(clampRatioAt(DEFAULT_RATIO, narrow), 1);
   // Still short of 80, and nothing in this file can conjure them — but it is
-  // 56 rather than the 45 the taste cap was handing out.
+  // 60 with Monaco 14 (56 with the stock font) rather than the 45 the taste
+  // cap was handing out.
   const left = renderedLeftPx(1, narrow);
   assert.equal(left, narrow - RENDERED_DIVIDER_PX);
-  assert.equal(renderedColumns(left), 56);
+  assert.equal(renderedColumns(left), 60);
 });
 
 test("a wide surface leaves the ratio alone — the floors are floors, not a layout", () => {
