@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 
-import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 
 const SHOTS = "test-results/config-bridge";
@@ -105,13 +104,8 @@ async function openAgentProfileFromChannel(
   agentName: string,
   {
     anchorText = "Model",
-    scrollToBottom = true,
     tab = "Info",
-  }: {
-    anchorText?: string;
-    scrollToBottom?: boolean;
-    tab?: "Info" | "Runtime";
-  } = {},
+  }: { anchorText?: string; tab?: "Info" | "Runtime" } = {},
 ) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await waitForInvokeBridge(page);
@@ -138,19 +132,17 @@ async function openAgentProfileFromChannel(
   // Scroll the panel's internal scroll container to the bottom so the
   // config section content is fully visible.
   await configAnchor.scrollIntoViewIfNeeded();
-  if (scrollToBottom) {
-    await panel.evaluate((el) => {
-      // The scrollable container is the profileBody div with overflow-y-auto.
-      // Find it by checking which child actually scrolls.
-      const scrollable =
-        el.querySelector("[data-radix-scroll-area-viewport]") ??
-        Array.from(el.querySelectorAll("*")).find(
-          (child) => child.scrollHeight > child.clientHeight + 10,
-        ) ??
-        el;
-      scrollable.scrollTop = scrollable.scrollHeight;
-    });
-  }
+  await panel.evaluate((el) => {
+    // The scrollable container is the profileBody div with overflow-y-auto.
+    // Find it by checking which child actually scrolls.
+    const scrollable =
+      el.querySelector("[data-radix-scroll-area-viewport]") ??
+      Array.from(el.querySelectorAll("*")).find(
+        (child) => child.scrollHeight > child.clientHeight + 10,
+      ) ??
+      el;
+    scrollable.scrollTop = scrollable.scrollHeight;
+  });
   await panel.page().waitForTimeout(200);
 
   return panel;
@@ -158,7 +150,9 @@ async function openAgentProfileFromChannel(
 
 // Settle any in-flight animations before capture.
 async function settleAnimations(panel: import("@playwright/test").Locator) {
-  await waitForAnimations(panel.page());
+  await panel.evaluate((el) =>
+    Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+  );
 }
 
 test.describe("config bridge screenshots", () => {
@@ -183,7 +177,6 @@ test.describe("config bridge screenshots", () => {
     await installMockBridge(page, { managedAgents: MANAGED_AGENTS });
 
     const panel = await openAgentProfileFromChannel(page, "Goose Agent", {
-      scrollToBottom: false,
       tab: "Runtime",
     });
 
@@ -203,14 +196,12 @@ test.describe("config bridge screenshots", () => {
       { tab: "Runtime" },
     );
 
-    // A runtime override shows only the effective live model.
-    await expect(
-      panel.getByText("claude-opus-4-20250514", { exact: true }),
-    ).toBeVisible();
-    await expect(panel.getByText("gpt-4o", { exact: true })).toHaveCount(0);
+    // A runtimeOverride model shows the live model, the persona baseline as a
+    // NON-struck secondary value, and the "Live override" sentence.
     await expect(
       panel.getByText("Live override (this session only)"),
-    ).toHaveCount(0);
+    ).toBeVisible();
+    await expect(panel.getByText("gpt-4o", { exact: true })).toBeVisible();
     await settleAnimations(panel);
 
     await panel.screenshot({
@@ -218,7 +209,7 @@ test.describe("config bridge screenshots", () => {
     });
   });
 
-  test("03 — effective values without provenance", async ({ page }) => {
+  test("03 — provenance sentences", async ({ page }) => {
     await installMockBridge(page, { managedAgents: MANAGED_AGENTS });
 
     const panel = await openAgentProfileFromChannel(
@@ -241,7 +232,7 @@ test.describe("config bridge screenshots", () => {
     await settleAnimations(panel);
 
     await panel.screenshot({
-      path: `${SHOTS}/03-effective-values.png`,
+      path: `${SHOTS}/03-provenance-sentences.png`,
     });
   });
 
@@ -252,11 +243,10 @@ test.describe("config bridge screenshots", () => {
       tab: "Runtime",
     });
 
-    // Unknown pre-start values stay empty rather than adding an explanatory row.
-    await expect(panel.getByText("Available after agent starts")).toHaveCount(
-      0,
-    );
-    await expect(panel.getByText("—", { exact: true })).toHaveCount(2);
+    // ACP-only fields show "Available after agent starts" before spawn.
+    await expect(
+      panel.getByText("Available after agent starts").first(),
+    ).toBeVisible();
     await settleAnimations(panel);
 
     await panel.screenshot({ path: `${SHOTS}/04-pre-spawn-state.png` });
@@ -362,7 +352,10 @@ test.describe("config bridge screenshots", () => {
     });
     await panel.page().waitForTimeout(200);
 
-    await settleAnimations(panel);
+    // Settle any in-flight animations before capture.
+    await panel.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
 
     await panel.screenshot({
       path: `${SHOTS}/06-profile-side-panel-config.png`,
