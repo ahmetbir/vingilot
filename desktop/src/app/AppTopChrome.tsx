@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Clock,
   Link2,
+  MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -22,6 +23,7 @@ import {
 
 import { copyChannelDeepLink } from "@/app/copyShellLink";
 import { useShellChords } from "@/app/useShellChords";
+import { requestFeedbackOpen } from "@/features/runs/lib/feedbackRequest";
 import { requestPaletteOpen } from "@/features/runs/lib/paletteRequest";
 import { isMacPlatform } from "@/shared/lib/platform";
 import { useIsFullscreen } from "@/shared/lib/useIsFullscreen";
@@ -212,6 +214,17 @@ export function AppTopChrome({
           variant="ghost"
         >
           <Link2 />
+        </Button>
+        <Button
+          aria-label="Send feedback"
+          className={TOP_CHROME_ICON_BUTTON_CLASS}
+          data-testid="top-chrome-feedback"
+          onClick={() => requestFeedbackOpen()}
+          size="icon"
+          title="Send feedback with a screenshot of this window"
+          variant="ghost"
+        >
+          <MessageSquarePlus />
         </Button>
         {/* No Appearance button (P1.1, owner veto 2): the tray is gone and the
          * wash/accent controls live in Settings → Appearance, reachable

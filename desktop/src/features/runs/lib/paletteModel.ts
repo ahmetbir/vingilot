@@ -154,6 +154,9 @@ export type PaletteCommand =
    * search box is gone, and this row is the palette's door to the dialog it
    * triggered — `searchRequest.ts` carries the click to the hidden mount). */
   | { type: "open-message-search" }
+  /** Open the feedback dialog — a note and a capture of this window, to the
+   * drop on the owner's own box (`feedbackRequest.ts`'s mailbox). */
+  | { type: "open-feedback" }
   /** Not a row: the ask mode's question, carried out the same door every other
    * command leaves by (`askMode.ts`). The host decides where it is asked — the
    * model never held a directory and is not about to start. */

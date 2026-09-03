@@ -1,0 +1,23 @@
+# Vingilot feedback drop on afk-prod. Follows the box's own pattern for a
+# service nginx proxies from another compose project: publish on the docker
+# bridge address and let afk.conf proxy_pass to it (buzz does the same on
+# 172.17.0.1:3010). The admin door is loopback only — read over ssh.
+services:
+  feedback:
+    build: .
+    image: vingilot-feedback:local
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    pids_limit: 32
+    environment:
+      FEEDBACK_KEY_FILE: /run/feedback/key
+      FEEDBACK_DIR: /data
+    volumes:
+      - ./data:/data
+      - ./key:/run/feedback/key:ro
+    ports:
+      - "172.17.0.1:3012:8080"
+      - "127.0.0.1:9871:9871"

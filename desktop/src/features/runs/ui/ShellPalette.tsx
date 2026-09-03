@@ -36,6 +36,7 @@ import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { requestFeedbackOpen } from "@/features/runs/lib/feedbackRequest";
 import { requestSearchOpen } from "@/features/search/lib/searchRequest";
 import { requestFile } from "@/features/runs/lib/filesTarget";
 import { subscribePaletteClaim } from "@/features/runs/lib/paletteClaim";
@@ -155,6 +156,9 @@ function ShellPaletteHost() {
         case "open-message-search":
           // The mailbox to the hidden search mount (P1.1, veto 1).
           requestSearchOpen();
+          return;
+        case "open-feedback":
+          requestFeedbackOpen();
           return;
         case "open-landing":
           void goWorkspace();

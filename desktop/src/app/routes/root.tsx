@@ -1,6 +1,7 @@
 import { createRootRoute } from "@tanstack/react-router";
 
 import { AppShell } from "@/app/AppShell";
+import { FeedbackDialog } from "@/features/runs/ui/FeedbackDialog";
 import { ShellPalette } from "@/features/runs/ui/ShellPalette";
 
 /**
@@ -17,12 +18,17 @@ import { ShellPalette } from "@/features/runs/ui/ShellPalette";
  * except ⌘K — whose channel list it hosts rather than replaces, and which it
  * hands back to the composer's link editor under upstream's own condition
  * (`features/runs/lib/composerClaim.ts`).
+ *
+ * `FeedbackDialog` is mounted beside it for the same reason (2026-09-03): the
+ * palette row and the top-chrome button that open it exist on every screen,
+ * so the dialog they open has to as well. It draws nothing until asked.
  */
 function Root() {
   return (
     <>
       <AppShell />
       <ShellPalette />
+      <FeedbackDialog />
     </>
   );
 }

@@ -332,6 +332,18 @@ export const appSource: PaletteSource = (_ctx, query) => {
       kind: "action",
       label: "Search messages",
     },
+    {
+      // His own reports, with a picture of the window (2026-09-03). Never
+      // blocked for the same reason as the rows above: the dialog is mounted
+      // at the root, so it is reachable from every screen.
+      blocked: null,
+      chord: null,
+      command: { type: "open-feedback" },
+      detail: "a note and a screenshot of this window, to your own drop",
+      id: "app:feedback",
+      kind: "action",
+      label: "Send feedback",
+    },
   ];
   return matchAll(candidates, query);
 };

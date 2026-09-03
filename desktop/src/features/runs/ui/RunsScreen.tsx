@@ -89,6 +89,7 @@ import {
   useControlPlane,
 } from "@/features/runs/lib/useControlPlane";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { requestFeedbackOpen } from "@/features/runs/lib/feedbackRequest";
 import { requestSearchOpen } from "@/features/search/lib/searchRequest";
 import { usePalette } from "@/features/runs/lib/usePalette";
 import { usePaletteCommands } from "@/features/runs/lib/usePaletteCommands";
@@ -667,6 +668,7 @@ export function RunsScreen() {
     toggleTabSplit: deck.toggleTabSplit,
     openAppearance: () => void goSettings("appearance"),
     openMessageSearch: requestSearchOpen,
+    openFeedback: requestFeedbackOpen,
     openChannel: (channelId) => void goChannel(channelId),
     openCheatsheet: sheet.show,
     // ⌘K's door onto the diff tab (P4.6) — the same act the dock's own "Open

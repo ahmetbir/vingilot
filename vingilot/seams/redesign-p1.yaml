@@ -26,7 +26,7 @@ seams:
     added: "2026-08-29"
 
   - path: "desktop/src/app/AppShell.tsx"
-    reason: "Four lines of wiring for the new top bar: AppTopChrome now receives activeChannelId (the Copy-link target, null off channel views) and isWorkspaceView (so useShellChords refuses ⌥⌘B where WorkSurface's pane-solo owns it). No structural change — the shell's render tree, providers and routing are untouched."
+    reason: "Four lines of wiring for the new top bar, plus (2026-09-03) one icon button beside Copy link that opens the feedback dialog through features/runs/lib/feedbackRequest.ts — a mailbox call, no state of its own. AppTopChrome now receives activeChannelId (the Copy-link target, null off channel views) and isWorkspaceView (so useShellChords refuses ⌥⌘B where WorkSurface's pane-solo owns it). No structural change — the shell's render tree, providers and routing are untouched."
     owner: "vingilot/redesign"
     removable_when: "With the AppTopChrome seam."
     status: "permanent"

@@ -60,6 +60,7 @@ mod vingilot_brand;
 mod vingilot_command_table;
 mod vingilot_drop;
 mod vingilot_editor;
+mod vingilot_feedback;
 mod vingilot_files;
 mod vingilot_harbor;
 mod vingilot_hooks;

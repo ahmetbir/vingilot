@@ -1,0 +1,28 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the feedback drop (2026-09-03)
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope: the owner's in-app feedback ("surekli kullanmaya basladim ve feedback
+# girmem lazim sana"). The island is desktop/src/features/runs/{lib,ui} and
+# desktop/src-tauri/src/vingilot_feedback; these are the places it has to
+# touch upstream-owned paths.
+
+entries:
+  - path: "desktop/src-tauri/src/vingilot_feedback/**"
+    reason: "The island's Rust half: feedback_status / feedback_configure / feedback_snapshot / feedback_send. The URL and the key he reads off the box are kept in the app's SecretStore (the same OS keyring the identity keys use) and nothing here deletes them; the capture is `screencapture -R` over the window's own frame in points, taken before the dialog is up; the POST goes out from this process with the bearer, so the key is entered once in the webview and never read back into it. Its own module rather than lines in an upstream file for the reason every vingilot_* module is: lib.rs spends one `mod` line and the command table four entries, and nothing else upstream owns is touched."
+    owner: "vingilot/runs"
+    removable_when: "If the feedback drop is retired."
+    status: "permanent"
+    added: "2026-09-03"
+
+  - path: "desktop/tests/e2e/feedback.spec.ts"
+    reason: "The dialog end to end over a mock bridge: the top-chrome button and the ⌘K row both open it, the first opening asks for the drop's URL and key and hands them to feedback_configure, and a report goes out as one feedback_send carrying the note, the capture taken BEFORE the dialog was up, and the route/version/viewport context. The pure halves are unit tests: feedbackContext.test (what a report carries) and the Rust island's own tests (URL/key validation, body shape, the frame in points). Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "With the feedback island."
+    status: "permanent"
+    added: "2026-09-03"
