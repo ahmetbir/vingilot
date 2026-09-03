@@ -19,9 +19,9 @@ entries:
     status: "permanent"
     added: "2026-09-03"
 
-  - path: "desktop/tests/e2e/hero-strip.spec.ts"
-    reason: "The hero strip end to end (2026-09-03; the owner's 'terminali sabit tutup worktreeye basınca o worktree icin ... tab mi eklese sadece'). Pressing a worktree adds its chip at the end of the one strip and expands it while every other open worktree stays as a collapsed chip with its tab count; pressing a collapsed chip focuses it where it stands and its tabs come back with their names; the order survives a reload; the chip's × ends that worktree's shells (a real pty_close, asserted) and moves focus to the neighbour. The pure halves are desktop/src/features/runs/lib/heroOrder.test.mjs (the order rule) and heroOrderStore.test.mjs (the record). Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+  - path: "desktop/tests/e2e/worktree-switcher.spec.ts"
+    reason: "The terminal's context header, end to end (2026-09-03; his second report through the feedback drop — 'Worktree bir tab değil, terminalin çalıştığı bağlam olmalı'). The first cut of the hero strip put every open worktree on the tab strip as a chip; the report said, correctly, that this duplicated the sidebar and mixed levels on one bar, and it was replaced the same evening. This spec asserts what replaced it: no worktree chips on the strip; the header reads the worktree's name (repo/worktree, or the branch of a provisioned checkout); the switcher lists Recent (where he was just before, the current one left out) then this project's worktrees with their ⌘-digit; choosing one switches the terminal to that worktree's sessions with their names intact; the filter narrows and Enter takes the first match; and ⌘K lists the most recent worktree first. The pure halves are desktop/src/features/runs/lib/recentWorktrees.test.mjs, recentWorktreesStore.test.mjs and worktreeLabel.test.mjs. Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
     owner: "vingilot/runs"
-    removable_when: "If the strip goes back to one worktree at a time."
+    removable_when: "If the terminal stops being per-worktree."
     status: "permanent"
     added: "2026-09-03"

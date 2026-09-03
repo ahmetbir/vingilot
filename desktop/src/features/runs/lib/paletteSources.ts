@@ -39,6 +39,8 @@ import {
   type PaletteMatch,
 } from "./paletteModel.ts";
 import { type Repo, type Worktree, worktreeSummary } from "./projects.ts";
+import { recentToOffer } from "./recentWorktrees.ts";
+import { readRecent } from "./recentWorktreesStore.ts";
 import { scratchBlocked } from "./scratchTerminal.ts";
 import { renameRefusal } from "./tabMenu.ts";
 import type { StageTab } from "./tabSplit.ts";
@@ -254,6 +256,25 @@ function worktreeChord(index: number): string | null {
   return index < 9 ? `⌘${index + 1}` : null;
 }
 
+/** Where he was just before, first — most recent first, the worktree he is
+ * IN left where the nav puts it (it is not somewhere to go) — then the rest
+ * in nav order. The chord is the nav index, so it is taken before the rows
+ * move (`recentWorktreesStore.ts`, `recentToOffer`). */
+function recentFirst(
+  candidates: Candidate[],
+  current: string | null,
+): Candidate[] {
+  const offered = recentToOffer(readRecent(), current, candidates.length);
+  const rank = new Map(offered.map((id, i) => [`worktree:${id}`, i]));
+  const stable = candidates.map((c, i) => ({ c, i }));
+  stable.sort((a, b) => {
+    const ra = rank.get(a.c.id) ?? Number.POSITIVE_INFINITY;
+    const rb = rank.get(b.c.id) ?? Number.POSITIVE_INFINITY;
+    return ra === rb ? a.i - b.i : ra - rb;
+  });
+  return stable.map(({ c }) => c);
+}
+
 export const worktreeSource: PaletteSource = (ctx, query) => {
   const candidates: Candidate[] = ctx.worktrees.map((wt, index) => ({
     blocked: null,
@@ -267,7 +288,7 @@ export const worktreeSource: PaletteSource = (ctx, query) => {
     kind: "worktree",
     label: worktreeSummary(wt).label,
   }));
-  return matchAll(candidates, query);
+  return matchAll(recentFirst(candidates, ctx.selectedWorktreeId), query);
 };
 
 /** Why a pane cannot be put on the right now, or `null`. The pane's own rule

@@ -1,15 +1,19 @@
-// Where the hero strip's order lives between app runs. The same arrangement
-// as `terminalTabStore.ts`: `localStorage`, injectable for `node --test`,
-// versioned key, and an unreadable record reads as no order — which costs the
-// arrangement and nothing else, because `reconcileHeroOrder` rebuilds one
-// from the tab model on the first render.
+// Where the recent-worktrees memory lives between app runs — the same
+// arrangement as `terminalTabStore.ts`: `localStorage`, injectable for
+// `node --test`, versioned key, and an unreadable record reads as no memory,
+// which costs the order and nothing else.
+//
+// Read by the deck (`useDeckLayers.ts`) and by the palette's worktree source,
+// which lists the most recent first. The palette reads the record directly
+// rather than being handed the list, because the shell palette has no deck to
+// be handed it by and the record is the same either way.
 
 export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 }
 
-const ORDER_KEY = "vingilot-hero-order.v1";
+const KEY = "vingilot-recent-worktrees.v1";
 
 const NO_STORAGE: StorageLike = {
   getItem: () => null,
@@ -22,7 +26,7 @@ function defaultStorage(): StorageLike {
   );
 }
 
-export function parseHeroOrder(raw: string | null): readonly string[] {
+export function parseRecent(raw: string | null): readonly string[] {
   if (raw === null || raw === "") return [];
   let parsed: unknown;
   try {
@@ -41,25 +45,23 @@ export function parseHeroOrder(raw: string | null): readonly string[] {
   return order;
 }
 
-export function readHeroOrder(
+export function readRecent(
   storage: StorageLike = defaultStorage(),
 ): readonly string[] {
-  let raw: string | null = null;
   try {
-    raw = storage.getItem(ORDER_KEY);
+    return parseRecent(storage.getItem(KEY));
   } catch {
     return [];
   }
-  return parseHeroOrder(raw);
 }
 
-export function writeHeroOrder(
+export function writeRecent(
   order: readonly string[],
   storage: StorageLike = defaultStorage(),
 ): void {
   try {
-    storage.setItem(ORDER_KEY, JSON.stringify(order));
+    storage.setItem(KEY, JSON.stringify(order));
   } catch {
-    // Losing the arrangement is survivable; failing the render is not.
+    // Losing the memory is survivable; failing the render is not.
   }
 }

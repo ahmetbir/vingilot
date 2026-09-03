@@ -1,8 +1,8 @@
-// The hero strip (2026-09-03): one tab strip, every open worktree on it as a
-// chip, the focused worktree's tabs drawn after its chip. Pressing a worktree
-// no longer swaps the strip; it focuses that chip, adding it at the end if it
-// was not there. The chip's × leaves the worktree — its shells end and focus
-// moves to the neighbour. The order survives a reload.
+// The terminal's context header (2026-09-03, his second report through the
+// drop: "Worktree'ler birikmez; worktree'ler arasında geçilir"). No worktree
+// chips on the strip; the header reads `repo/worktree ▾`, opens a switcher
+// with Recent first and this project's worktrees after, and choosing one is
+// the same act as the nav row. ⌘K lists the most recent worktree first.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -11,17 +11,21 @@ import { installMockBridge } from "../helpers/bridge";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 const COORDINATOR_ORIGIN = "http://127.0.0.1:7117";
-const GIT_HOME = "/tmp/vingilot-hero-home";
+const GIT_HOME = "/tmp/vingilot-switcher-home";
 
-const REPO = { id: "repo-hero", name: "vingilot", path: "/tmp/vingilot-hero" };
+const REPO = {
+  id: "repo-switcher",
+  name: "vingilot",
+  path: "/tmp/vingilot-switcher",
+};
 const worktree = (suffix: string, branch: string) => ({
   added: null,
   base_commit: "0".repeat(40),
-  binding_id: `wt-hero-${suffix}`,
+  binding_id: `wt-switcher-${suffix}`,
   branch,
   commit_sha: null,
   lifecycle: "active",
-  owner_run_id: `run-hero-${suffix}`,
+  owner_run_id: `run-switcher-${suffix}`,
   owner_run_objective: null,
   owner_run_status: null,
   removed: null,
@@ -30,20 +34,6 @@ const worktree = (suffix: string, branch: string) => ({
 });
 const A = worktree("a", "spike-a");
 const B = worktree("b", "spike-b");
-/** The repo's own checkout. Opening a project lands there, and landing is a
- * visit, so it is the first chip on the strip before any worktree is pressed
- * — `strip-rename.spec.ts` notes the same entry in the stored layout. */
-const MAIN = `main:${REPO.id}`;
-
-interface PtyProbe {
-  opens: string[];
-  closes: string[];
-}
-declare global {
-  interface Window {
-    __HERO_PROBE__: PtyProbe;
-  }
-}
 
 async function installTrap(page: Page) {
   await page.addInitScript(
@@ -51,8 +41,6 @@ async function installTrap(page: Page) {
       let fallback:
         | ((cmd: string, args?: unknown, opts?: unknown) => unknown)
         | null = null;
-      const probe: PtyProbe = { closes: [], opens: [] };
-      window.__HERO_PROBE__ = probe;
       const invoke = (cmd: string, args?: unknown, opts?: unknown): unknown => {
         const name = String(cmd);
         const payload = (args ?? {}) as Record<string, string>;
@@ -64,7 +52,6 @@ async function installTrap(page: Page) {
         if (name === "pty_backing") return Promise.resolve("tmux");
         if (name === "pty_copy_mode") return Promise.resolve(false);
         if (name === "pty_open") {
-          probe.opens.push(payload.session);
           queueMicrotask(() => {
             void fallback?.("plugin:event|emit", {
               event: "vingilot://pty",
@@ -76,10 +63,6 @@ async function installTrap(page: Page) {
               },
             });
           });
-          return Promise.resolve(null);
-        }
-        if (name === "pty_close") {
-          probe.closes.push(payload.session);
           return Promise.resolve(null);
         }
         if (name.startsWith("pty_")) return Promise.resolve(null);
@@ -132,87 +115,78 @@ async function openProject(page: Page) {
   await expect(page.getByTestId("work-surface")).toBeVisible();
 }
 
-async function visit(page: Page, bindingId: string) {
+async function visit(page: Page, bindingId: string, label: string) {
   await page.getByTestId(`worktree-row-${bindingId}`).click();
-  await expect(page.getByTestId(`hero-chip-${bindingId}`)).toHaveAttribute(
-    "data-focused",
-    "true",
-  );
+  await expect(page.getByTestId("worktree-switcher")).toContainText(label);
 }
 
-const chipIds = (page: Page) =>
-  page.evaluate(() =>
-    Array.from(
-      document.querySelectorAll("[data-testid^='hero-chip-select-']"),
-    ).map((el) =>
-      el.getAttribute("data-testid")?.replace("hero-chip-select-", ""),
-    ),
-  );
-
-test("pressing a worktree adds its chip at the end and expands it; the strip does not swap", async ({
+test("the header names the worktree, and the switcher goes to a recent one with its names intact", async ({
   page,
 }) => {
   await openProject(page);
-  await visit(page, A.binding_id);
-  expect(await chipIds(page)).toEqual([MAIN, A.binding_id]);
-  // A's own tab strip is drawn after A's chip, with the names it will carry.
-  await expect(page.getByTestId("terminal-tab-strip")).toBeVisible();
+  await visit(page, A.binding_id, "spike-a");
+  // No worktree chips anywhere on the strip — a worktree is not a tab.
+  await expect(page.locator("[data-testid^='hero-chip-']")).toHaveCount(0);
   await page.getByTestId("terminal-tab-shell-1").dblclick();
   await page.getByTestId("terminal-tab-rename-1").fill("alpha");
   await page.keyboard.press("Enter");
 
-  await visit(page, B.binding_id);
-  // A is still on the strip — collapsed, with its one tab counted — and B
-  // joined at the end, expanded.
-  expect(await chipIds(page)).toEqual([MAIN, A.binding_id, B.binding_id]);
-  await expect(page.getByTestId(`hero-chip-${A.binding_id}`)).toHaveAttribute(
-    "data-focused",
-    "false",
-  );
-  await expect(
-    page.getByTestId(`hero-chip-select-${A.binding_id}`),
-  ).toContainText("spike-a");
-  await expect(
-    page.getByTestId(`hero-chip-select-${A.binding_id}`),
-  ).toContainText("1");
+  await visit(page, B.binding_id, "spike-b");
   await expect(page.getByTestId("terminal-tab-1")).toHaveText("1");
 
-  // Pressing A's chip focuses A where it stands: same order, A's tabs back
-  // with their name.
-  await page.getByTestId(`hero-chip-select-${A.binding_id}`).click();
-  await expect(page.getByTestId(`hero-chip-${A.binding_id}`)).toHaveAttribute(
-    "data-focused",
-    "true",
-  );
-  expect(await chipIds(page)).toEqual([MAIN, A.binding_id, B.binding_id]);
-  await expect(page.getByTestId("terminal-tab-1")).toHaveText("alpha");
+  await page.getByTestId("worktree-switcher").click();
+  const list = page.getByTestId("worktree-switcher-list");
+  await expect(list).toBeVisible();
+  // Recent: where he was just before, and not where he is.
+  await expect(
+    page.getByTestId(`worktree-switcher-recent-${A.binding_id}`),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId(`worktree-switcher-recent-${B.binding_id}`),
+  ).toHaveCount(0);
+  // This project: both, the open one marked and not a button to press.
+  await expect(
+    page.getByTestId(`worktree-switcher-row-${B.binding_id}`),
+  ).toContainText("open");
+  await expect(
+    page.getByTestId(`worktree-switcher-row-${A.binding_id}`),
+  ).toContainText("⌘2");
 
-  // The order survives a reload.
-  await page.reload();
-  await expect(page.getByTestId("runs-screen")).toBeVisible();
-  await page.getByTestId(`projects-nav-repo-${REPO.id}`).click();
-  await expect(page.getByTestId("work-surface")).toBeVisible();
-  await expect.poll(() => chipIds(page)).toEqual([MAIN, A.binding_id, B.binding_id]);
+  await page.getByTestId(`worktree-switcher-recent-${A.binding_id}`).click();
+  await expect(list).toBeHidden();
+  await expect(page.getByTestId("worktree-switcher")).toContainText("spike-a");
+  await expect(page.getByTestId("terminal-tab-1")).toHaveText("alpha");
 });
 
-test("the chip's × leaves the worktree: its shells end and focus moves to the neighbour", async ({
+test("the filter narrows both lists, and Enter takes the first match", async ({
   page,
 }) => {
   await openProject(page);
-  await visit(page, A.binding_id);
-  await visit(page, B.binding_id);
-  const before = await page.evaluate(() => window.__HERO_PROBE__.closes.length);
+  await visit(page, A.binding_id, "spike-a");
+  await visit(page, B.binding_id, "spike-b");
+  await page.getByTestId("worktree-switcher").click();
+  const filter = page.getByTestId("worktree-switcher-filter");
+  await expect(filter).toBeFocused();
+  await filter.fill("spike-a");
+  await expect(
+    page.getByTestId(`worktree-switcher-row-${B.binding_id}`),
+  ).toHaveCount(0);
+  await filter.press("Enter");
+  await expect(page.getByTestId("worktree-switcher")).toContainText("spike-a");
+});
 
-  await page.getByTestId(`hero-chip-${B.binding_id}`).hover();
-  await page.getByTestId(`hero-chip-leave-${B.binding_id}`).click();
-
-  await expect.poll(() => chipIds(page)).toEqual([MAIN, A.binding_id]);
-  await expect(page.getByTestId(`hero-chip-${A.binding_id}`)).toHaveAttribute(
-    "data-focused",
-    "true",
+test("⌘K lists the most recent worktree first", async ({ page }) => {
+  await openProject(page);
+  await visit(page, A.binding_id, "spike-a");
+  await visit(page, B.binding_id, "spike-b");
+  await visit(page, A.binding_id, "spike-a");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("palette-input")).toBeVisible();
+  const first = page.locator("[data-testid^='palette-row-worktree:']").first();
+  // The nav order is main, A, B; where he was just before is B, and A — where
+  // he IS — stays where the nav puts it rather than jumping the queue.
+  await expect(first).toHaveAttribute(
+    "data-testid",
+    `palette-row-worktree:${B.binding_id}`,
   );
-  // B's one shell was closed — the leave is real, not a hide.
-  const closes = await page.evaluate(() => window.__HERO_PROBE__.closes);
-  expect(closes.length).toBe(before + 1);
-  expect(closes[closes.length - 1]).toContain(B.binding_id);
 });
