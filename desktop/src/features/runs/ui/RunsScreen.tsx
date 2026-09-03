@@ -883,6 +883,7 @@ export function RunsScreen() {
               terminals={terminals}
               views={deck.selectedViews}
               worktrees={repoWorktrees}
+              worktreeMarks={signals.byWorktree}
               workspaceId={WORKSPACE_ID}
             />
           )}

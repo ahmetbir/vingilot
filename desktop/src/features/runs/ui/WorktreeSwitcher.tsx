@@ -23,11 +23,16 @@
 import { ChevronDown } from "lucide-react";
 import * as React from "react";
 
+import {
+  type AttentionMark,
+  NO_MARK,
+} from "@/features/runs/lib/attentionSignal";
 import type { Worktree } from "@/features/runs/lib/projects";
 import { usePinnedWorktrees } from "@/features/runs/lib/pinnedWorktrees";
 import { recentToOffer } from "@/features/runs/lib/recentWorktrees";
 import type { TerminalSession } from "@/features/runs/lib/terminalSessions";
 import { worktreeLabel } from "@/features/runs/lib/worktreeLabel";
+import { AttentionDot } from "@/features/runs/ui/AttentionDot";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 
@@ -39,6 +44,8 @@ export interface WorktreeSwitcherProps {
   worktrees: readonly Worktree[];
   /** Every open session, for the cwd a label is read from. */
   terminals: readonly TerminalSession[];
+  /** The dot beside each row — the same mark the nav row wears. */
+  marks: ReadonlyMap<string, AttentionMark>;
   onSelect: (bindingId: string) => void;
 }
 
@@ -61,12 +68,20 @@ const ROW_CLASS =
   "flex w-full items-center justify-between gap-3 rounded px-2 py-1 text-left text-sm hover:bg-foreground/[.06] focus-visible:outline-none focus-visible:bg-foreground/[.08] disabled:opacity-60";
 
 export function WorktreeSwitcher({
+  marks,
   onSelect,
   recent,
   selectedWorktreeId,
   terminals,
   worktrees,
 }: WorktreeSwitcherProps) {
+  const dot = (id: string) => (
+    <AttentionDot
+      className="mr-1.5"
+      idleWhenNone
+      mark={marks.get(id) ?? NO_MARK}
+    />
+  );
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const labelOf = useLabels(worktrees, terminals);
@@ -142,7 +157,10 @@ export function WorktreeSwitcher({
                 onClick={() => choose(id)}
                 type="button"
               >
-                <span className="truncate">{labelOf(id)}</span>
+                <span className="flex min-w-0 items-center">
+                  {dot(id)}
+                  <span className="truncate">{labelOf(id)}</span>
+                </span>
               </button>
             ))}
           </div>
@@ -162,7 +180,10 @@ export function WorktreeSwitcher({
                 onClick={() => choose(id)}
                 type="button"
               >
-                <span className="truncate">{labelOf(id)}</span>
+                <span className="flex min-w-0 items-center">
+                  {dot(id)}
+                  <span className="truncate">{labelOf(id)}</span>
+                </span>
                 <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
                   {id === selectedWorktreeId
                     ? "open"
@@ -193,7 +214,10 @@ export function WorktreeSwitcher({
                 onClick={() => choose(id)}
                 type="button"
               >
-                <span className="truncate">{labelOf(id)}</span>
+                <span className="flex min-w-0 items-center">
+                  {dot(id)}
+                  <span className="truncate">{labelOf(id)}</span>
+                </span>
                 <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
                   {id === selectedWorktreeId
                     ? "open"

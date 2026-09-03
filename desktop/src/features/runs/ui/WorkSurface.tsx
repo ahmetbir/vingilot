@@ -68,6 +68,7 @@
 
 import * as React from "react";
 
+import type { AttentionMark } from "@/features/runs/lib/attentionSignal";
 import type { Worktree } from "@/features/runs/lib/projects";
 import {
   clampDockHeight,
@@ -153,6 +154,8 @@ interface WorkSurfaceProps {
   /** Ordered — index N backs the ⌘(N+1) shortcut for N < 9; the same order
    * `WorktreeDisclosure` renders. */
   worktrees: Worktree[];
+  /** The dot for each worktree, for the switcher's rows (`useWorktreeSignals`). */
+  worktreeMarks: ReadonlyMap<string, AttentionMark>;
   selectedWorktreeId: string | null;
   onSelectWorktree: (bindingId: string | null) => void;
   /** Every open PTY session, in visit order, with its resolved cwd — owned
@@ -270,6 +273,7 @@ export function WorkSurface({
   terminals,
   views,
   worktrees,
+  worktreeMarks,
   workspaceId,
 }: WorkSurfaceProps) {
   // The reading on screen, or `null` while a shell is. Read once: it gates the
@@ -740,6 +744,7 @@ export function WorkSurface({
                 onSelect={onSelectWorktree}
                 recent={stage.recentWorktrees}
                 selectedWorktreeId={selectedWorktreeId}
+                marks={worktreeMarks}
                 terminals={terminals}
                 worktrees={worktrees}
               />

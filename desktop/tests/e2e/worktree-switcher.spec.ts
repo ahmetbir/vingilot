@@ -47,7 +47,28 @@ async function installTrap(page: Page) {
         if (name.startsWith("plugin:path|")) return Promise.resolve(`${home}/`);
         if (name === "hook_liveness")
           return Promise.resolve({ byBinding: {}, unattributed: null });
-        if (name === "worktree_stats") return Promise.resolve([]);
+        if (name === "worktree_stats") {
+          // git says B is dirty; the dot the nav row wears must reach the
+          // switcher's row too.
+          const paths = Array.isArray(payload.paths)
+            ? (payload.paths as string[])
+            : [];
+          return Promise.resolve(
+            paths
+              .filter((p) => p.includes("switcher-b"))
+              .map((path) => ({
+                additions: 2,
+                changedFiles: 1,
+                deletions: 0,
+                dirty: true,
+                path,
+                paths: ["src/x.rs"],
+                pathsTruncated: false,
+                unreadable: false,
+                untracked: 0,
+              })),
+          );
+        }
         if (name === "worktree_list") return Promise.resolve([]);
         if (name === "pty_backing") return Promise.resolve("tmux");
         if (name === "pty_copy_mode") return Promise.resolve(false);
@@ -148,9 +169,15 @@ test("the header names the worktree, and the switcher goes to a recent one with 
   await expect(
     page.getByTestId(`worktree-switcher-row-${B.binding_id}`),
   ).toContainText("open");
+  // The dot: B is dirty in git, and the switcher says so the way the nav does.
+  await expect(
+    page
+      .getByTestId(`worktree-switcher-row-${B.binding_id}`)
+      .locator("[data-attention]"),
+  ).not.toHaveAttribute("data-attention", /^(idle|none)$/);
   await expect(
     page.getByTestId(`worktree-switcher-row-${A.binding_id}`),
-  ).toContainText("⌘2");
+  ).toContainText("⌘3");
 
   await page.getByTestId(`worktree-switcher-recent-${A.binding_id}`).click();
   await expect(list).toBeHidden();
