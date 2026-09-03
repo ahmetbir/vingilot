@@ -8,6 +8,7 @@ import {
   ensureWorktree,
   layoutSessions,
   sessionIdFor,
+  tabName,
   worktreeTabs,
 } from "./terminalTabs.ts";
 
@@ -362,4 +363,30 @@ test("a reorder closes nothing", () => {
     type: "reorder",
   });
   assert.deepEqual(change.closed, []);
+});
+
+test("a new tab does not forget the names the other tabs were given", () => {
+  // The bug this pins: `addTab` returned a fresh literal instead of spreading
+  // the strip, so `names` went with it — one new tab, and every name in that
+  // worktree was gone. It cost nothing and logged nothing; the labels were
+  // simply not there at the next render, which is why the owner reported it as
+  // names disappearing "sometimes".
+  //
+  // Opening a task goes through this same path, which is why one defect
+  // answered for both halves of the report.
+  let layout = ensureWorktree({}, "wt");
+  layout = applyTabCommand(layout, "wt", {
+    n: 1,
+    name: "cargo watch",
+    type: "rename",
+  }).layout;
+  assert.equal(tabName(worktreeTabs(layout, "wt"), 1), "cargo watch");
+
+  const after = applyTabCommand(layout, "wt", { type: "new" }).layout;
+  const wt = worktreeTabs(after, "wt");
+
+  assert.equal(tabName(wt, 1), "cargo watch");
+  // And the new ordinal is nameless, wearing its number as the strip's header
+  // says it should.
+  assert.equal(tabName(wt, wt.active), null);
 });

@@ -446,6 +446,12 @@ export function applyTaskCommand(
         closed: applied.closed,
         layout: applied.layout,
         tasks: replaceStrip(tasks, bindingId, {
+          // `...strip` first: the two fields below are all this type has today,
+          // so the literal happened to be complete — but `addTab` had exactly
+          // this shape and silently dropped `names` the moment one was added
+          // to its record. Spreading costs nothing and makes the next field
+          // safe by default rather than by inspection.
+          ...strip,
           groups: [...strip.groups, group],
           nextId: strip.nextId + 1,
         }),

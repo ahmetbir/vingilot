@@ -215,7 +215,13 @@ function replace(
  * ordinal, so appending keeps the common case (never reordered) reading
  * 1, 2, 3 in the order the owner opened them. */
 function addTab(wt: WorktreeTabs): WorktreeTabs {
+  // `...wt` first, and it is the whole point: this returned a fresh literal,
+  // which silently dropped `names` — so opening one new tab forgot every name
+  // in that worktree. Nothing failed and nothing was logged; the labels were
+  // simply gone at the next render, which is why it read as "sometimes".
+  // The new ordinal has no name of its own, so nothing is added here.
   return {
+    ...wt,
     active: wt.nextN,
     nextN: wt.nextN + 1,
     tabs: [...wt.tabs, wt.nextN],
