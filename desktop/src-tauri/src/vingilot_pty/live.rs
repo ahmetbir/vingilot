@@ -52,6 +52,9 @@ mod wheel;
 /// reason and on the same terms.
 mod scratch;
 
+/// Section 8 — the clipboard — lives in `live/clipboard.rs`, on the same terms.
+mod clipboard;
+
 /// A geometry wide enough that a temp-directory path prints on one line. The
 /// assertions look for a path in the stream, and a pty wraps at its width.
 const COLS: u16 = 200;

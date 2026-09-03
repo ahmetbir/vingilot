@@ -1,0 +1,20 @@
+# ==============================================================================
+# Vingilot seam inventory — fragment: the terminal, after v1.2.1
+# ==============================================================================
+#
+# A fragment of vingilot/seams.yaml, not a file with rules of its own. The
+# format, the meaning of a pattern, and the reason any of this exists are all
+# documented in the header of vingilot/seams.yaml — read that first; this file
+# only holds entries.
+#
+# Scope: the owner's reports on the terminal after using v1.2.1 daily —
+# "cmd c calismiyor", and the type — where the proof has to live at an
+# upstream-owned path.
+
+entries:
+  - path: "desktop/tests/e2e/terminal-clipboard.spec.ts"
+    reason: "The xterm half of the copy fix (2026-09-03, 'cmd c calismiyor. kopyalayamiyorum'). Under the tmux backing a drag is a mouse report, tmux copies the text itself and announces it as OSC 52, and the app's xterm had no handler for it — so the bytes arrived and were dropped. desktop/src/features/runs/lib/osc52.ts decodes the sequence (pure, unit-tested there, reads refused), ui/Terminal.tsx registers the handler and hands the text to upstream's own copy_text_to_clipboard command. This spec feeds the sequence over the mock pty and asserts that command was invoked with the decoded text, that the sequence was consumed rather than drawn, and that a read request ('?') produces neither a copy nor a write back to the shell. The tmux half — that tmux really sends the sequence, for a program inside it and for its own drag-end under set-clipboard on — is src-tauri/src/vingilot_pty/live/clipboard.rs against a real tmux 3.6a. Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "If the terminal moves off the tmux backing, or if xterm ships an OSC 52 handler of its own that refuses reads."
+    status: "permanent"
+    added: "2026-09-03"

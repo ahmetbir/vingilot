@@ -41,42 +41,14 @@
 //
 // **The workspace type scale stops at this container** (vingilot/docs/workbench.md,
 // "The type scale"). The type inside is xterm's own, and it is never inherited:
-// this file constructs XTerm with no `fontSize`, so xterm falls back to its own
-// default of 15 and then writes that out explicitly wherever it counts — onto
-// the element it measures a cell from, and onto `.xterm-rows` through a
-// stylesheet it appends itself (@xterm/xterm 5.5.0 lib/xterm.js; its
-// css/xterm.css carries no font rule at all). So a text size on this host would
-// change nothing today. The scale stops here to keep it that way: app styling
-// never begins creeping onto the element xterm owns, so the day something
-// inside does read an inherited font is a day nobody has to find
-// (lib/typeScale.test.mjs). The chrome around it — the tab strip, the scratch
-// header, the notice below — is not exempt.
-//
-// **Its colours are the app's, and they are asked for rather than written
-// down.** xterm's stock palette is `#ffffff` on `#000000`
-// (@xterm/xterm 5.5.0 browser/services/ThemeService.ts, `DEFAULT_FOREGROUND` /
-// `DEFAULT_CURSOR`), which is white text on a black rectangle — legible on the
-// dark themes this was built against, and on a light one a black hole in the
-// pane with invisible text in it (Catppuccin Latte's `--background` is 94.9%
-// lightness). So the background, foreground, cursor and selection are read off
-// the app's own tokens, through a probe element wearing the same Tailwind
-// classes the rest of the app uses. Read rather than duplicated: a copy of the
-// palette here is a copy that goes stale the first time a theme is added, and
-// what the terminal must match is what the app actually paints. Only these
-// five; the 16 ANSI colours stay xterm's, because those are the shell's own
-// vocabulary and an app that recoloured them would be lying about what a
-// program printed.
-//
-// **The background is named, not left transparent.** Asking for `transparent`
-// reads like "let the pane show through" and is not what happens: xterm parses
-// a theme colour with `css.toColor`, whose last resort is a 1×1 canvas that
-// throws on anything not fully opaque, so `transparent` is swallowed and the
-// slot falls back to `#000000` — which `Viewport._handleThemeChange` then
-// writes onto `.xterm-viewport`, an element stretched over the whole terminal.
-// Measured: `background: "transparent"` produced a computed `rgb(0, 0, 0)`
-// there. Handing over the pane's own surface paints the same pixels the pane
-// would have, and every colour xterm composites *over* the background —
-// the selection below, above all — then lands on the right ground.
+// xterm writes its font out explicitly wherever it counts — onto the element it
+// measures a cell from, and onto `.xterm-rows` through a stylesheet it appends
+// itself (@xterm/xterm 5.5.0 lib/xterm.js; its css/xterm.css carries no font
+// rule at all). So a text size on this host would change nothing. The scale
+// stops here to keep it that way: app styling never begins creeping onto the
+// element xterm owns, so the day something would have, and every colour xterm
+// composites *over* the background — the selection below, above all — then
+// lands on the right ground.
 //
 // **The type inside is still xterm's, deliberately.** No `fontFamily` is set
 // even though the stock stack (`courier-new, courier, monospace`) is not what
@@ -85,6 +57,15 @@
 // nicer font is a different cell advance and therefore a floor that no longer
 // guarantees the columns it claims. Same for the horizontal padding below,
 // which `TERMINAL_CHROME_PX` counts.
+
+// **Copying goes through OSC 52, and ⌥-drag selects locally.** Under the tmux
+// backing a plain drag is a mouse report, not a selection (`tmux.rs`,
+// `mouse_on_args`); tmux copies the dragged text itself and — with the
+// owner's `set-clipboard on` — announces it as OSC 52, which xterm drops unless
+// a handler is registered. `osc52.ts` decodes it and the app's own clipboard
+// command lands it on the pasteboard; reads (`?`) are refused there. For a
+// selection xterm draws itself, ⌥-drag joins Shift-drag as the bypass, because
+// ⌥ is the modifier every Mac terminal he has used gives that gesture.
 
 import "@xterm/xterm/css/xterm.css";
 
@@ -120,6 +101,7 @@ import {
   translucent,
   usableColor,
 } from "@/features/runs/lib/terminalPalette";
+import { osc52Text } from "@/features/runs/lib/osc52";
 import { useTerminalFind } from "@/features/runs/lib/useTerminalFind";
 import {
   copyModeNotice,
@@ -129,6 +111,7 @@ import {
 import { shellEscapePaths } from "@/features/runs/lib/shellEscape";
 import { useNativeFileDrop } from "@/features/runs/lib/useNativeFileDrop";
 import { FindBar } from "@/features/runs/ui/FindBar";
+import { copyTextToSystemClipboard } from "@/shared/api/tauriMedia";
 import { wheelOwnerProps } from "@/shared/lib/wheelOwner";
 
 /** Said in the field's own title — the terminal's answer to `FileViewer.tsx`'s
@@ -362,7 +345,18 @@ export function Terminal({
       // knob: `allowProposedApi` is a constructor option, not per-addon.
       allowProposedApi: true,
       cursorBlink: true,
+      // The Mac reflex for "select what the pointer covers, whatever the
+      // program asked for". Shift already does this on every platform.
+      macOptionClickForcesSelection: true,
       theme: applied ?? undefined,
+    });
+    // See the header: what tmux and every program inside it say when they
+    // copy. Returning `true` marks the sequence handled so xterm neither
+    // echoes it nor tries a handler of its own.
+    const osc52 = term.parser.registerOscHandler(52, (data) => {
+      const text = osc52Text(data);
+      if (text !== null) void copyTextToSystemClipboard(text);
+      return true;
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -584,6 +578,7 @@ export function Terminal({
       resizeObserver.disconnect();
       themeObserver?.disconnect();
       detachFind();
+      osc52.dispose();
       term.dispose();
       termRef.current = null;
       // A reattachment replays the session's screen and lands at the bottom of
