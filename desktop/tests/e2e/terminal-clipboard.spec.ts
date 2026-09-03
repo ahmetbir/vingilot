@@ -154,10 +154,12 @@ test("an OSC 52 write from the pty lands on the pasteboard", async ({
   await expect
     .poll(() => page.evaluate(() => window.__CLIP_PROBE__.copies))
     .toEqual(["Hello"]);
-  // And the sequence itself was consumed, not drawn.
-  const screen = await page.locator(".xterm-rows").first().innerText();
-  expect(screen).not.toContain("52;");
-  expect(screen).toContain("done");
+  // And the sequence itself was consumed, not drawn. Polled: the DOM renderer
+  // paints a frame after the parser has run, and reading the rows on the
+  // same tick as the copy sees a screen that is still blank.
+  const rows = page.locator(".xterm-rows").first();
+  await expect(rows).toContainText("done");
+  expect(await rows.innerText()).not.toContain("52;");
 });
 
 test("the ST terminator is accepted too, and UTF-8 survives", async ({
