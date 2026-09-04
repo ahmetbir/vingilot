@@ -345,8 +345,18 @@ export function RunsScreen() {
   //
   // Nor for a project git answered a refusal for — an unmounted volume is not
   // a removed worktree, and `unlistedWorktrees` is what keeps the two apart.
+  //
+  // Nor before the coordinator has said what worktrees IT holds. Its list
+  // arrives on its own poll; git's on another; and in the gap between git
+  // settling and the coordinator answering the index holds only the project's
+  // checkout and the git-listed worktrees — so every coordinator worktree
+  // with a strip read as "left the workspace", its shells ended and its tabs
+  // and names dropped. On a relay a continent away that gap is real on every
+  // start; the mocks never showed it because a route answers in microseconds
+  // (`worktree-list-lag.spec.ts` makes it late). This is the owner's
+  // "worktree değiştirince isimler gidiyor", or one real instance of it.
   React.useEffect(() => {
-    if (!worktreeActions.settled) return;
+    if (!worktreeActions.settled || worktreesData === null) return;
     deck.dropWorktreesTo([
       ...index.keys(),
       ...unlistedWorktrees(
@@ -360,6 +370,7 @@ export function RunsScreen() {
     index,
     worktreeActions.settled,
     worktreeActions.unreadable,
+    worktreesData,
   ]);
 
   // A project the owner just forgot. Its worktrees are unreachable now, so

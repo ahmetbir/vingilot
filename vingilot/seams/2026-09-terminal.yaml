@@ -60,3 +60,10 @@ entries:
     removable_when: "When the report is closed either way and the journey is covered elsewhere."
     status: "permanent"
     added: "2026-09-04"
+
+  - path: "desktop/tests/e2e/worktree-list-lag.spec.ts"
+    reason: "The owner's report, reproduced (2026-09-04): 'worktree degistirince isimler gidiyor'. The coordinator's worktree list arrives on its own poll and git's listing on another; between git settling and the coordinator answering, the index held only the project's checkout and the git-listed worktrees, so RunsScreen's reconcile effect read every coordinator worktree with a strip as 'left the workspace' — closed its shells, dropped its tabs and names. Every mock answered the route in microseconds, which is why no earlier spec saw it; his relay is on another continent. This spec makes the list arrive late over a restored, named strip and asserts the name is still there, the shell was never closed, and the record is intact. Red before the one-line guard in RunsScreen (wait for the coordinator's first answer), green after. Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do."
+    owner: "vingilot/runs"
+    removable_when: "Never while strips are reconciled against a polled list."
+    status: "permanent"
+    added: "2026-09-04"
