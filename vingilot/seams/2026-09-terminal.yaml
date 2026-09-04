@@ -53,3 +53,10 @@ entries:
     removable_when: "If the nav's order stops being the ⌘-digit order."
     status: "permanent"
     added: "2026-09-04"
+
+  - path: "desktop/tests/e2e/local-worktree-names.spec.ts"
+    reason: "His still-open report ('task degistirmede kalici ama worktree degistirme repo degistirmede kalici degil'), aimed at the one place every earlier spec differed from his machine: worktree_list answered empty, so no git-listed worktree — binding id local:<hex path>, made by withLocalWorktrees — ever stood on the strip. This spec lists one, names its tab, switches worktree and project and back, and reads the stored record. Lives at the upstream-owned desktop/tests/e2e/ path for the reason the other fork specs do: that is where playwright.config.ts's testDir points."
+    owner: "vingilot/runs"
+    removable_when: "When the report is closed either way and the journey is covered elsewhere."
+    status: "permanent"
+    added: "2026-09-04"
