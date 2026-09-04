@@ -373,10 +373,10 @@ async function openSearchPane(page: Page) {
 test("⇧⌘F arrives, and ⌘F is still upstream's find-in-this-channel", async ({
   page,
 }) => {
-  // KNOWN RED, not P3's: upstream PR #5306 deleted `ChannelFindBar` /
-  // `useChannelFind` outright, and this test (and `workspace-find.spec.ts`'s
-  // "the ⌘F boundary…") have been its red proofs since before this redesign
-  // — do not spend a P3-scoped fix round chasing it.
+  // Was a KNOWN RED from before the redesign: upstream PR #5306 deleted
+  // `ChannelFindBar` / `useChannelFind` outright and the tail of this test
+  // kept asserting the bar. The tail is retired below; the note that follows
+  // is kept because its crash hypothesis is still the lead if the bar returns.
   //
   // Worth keeping for whoever restores the bar: this test never touches the
   // dock or the Team pane at all — the ⌘F below is pressed on the STANDALONE
@@ -408,10 +408,21 @@ test("⇧⌘F arrives, and ⌘F is still upstream's find-in-this-channel", async
   // P1.1 the channel rows render inline on the Deck's first screen (owner
   // veto 4 removed the "Chats" fold — `sidebar-deck-accordion.spec.ts` is the
   // living idiom), so no header opens first.
+  //
+  // **Retired with its subject, the way `workspace-find.spec.ts` did
+  // (2026-09-04).** This used to end by asserting upstream's `channel-find-bar`
+  // opened; upstream PR #5306 deleted `ChannelFindBar` and `useChannelFind`
+  // outright, and a claim whose subject no longer exists must not be left red
+  // pretending otherwise. What survives is the half that never depended on
+  // their component: on the channel screen, ⌘F is NOT the workspace's — the
+  // Search pane does not open — and the screen is still standing afterwards,
+  // which is the crash hypothesis the note above recorded.
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("message-input").first()).toBeVisible();
   await page.keyboard.press("ControlOrMeta+f");
-  await expect(page.getByTestId("channel-find-bar")).toBeVisible();
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId("pane-search")).toHaveCount(0);
+  await expect(page.getByTestId("message-input").first()).toBeVisible();
 });
 
 test("the Search pane is on the registry — the palette offers it, named where a tab would light, with its chord", async ({

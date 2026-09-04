@@ -524,19 +524,14 @@ test("the ⌘F boundary: a field outside the pane keeps it, and the team thread 
   await openWorkspace(page);
   await openFile(page, "src/greet.ts");
 
-  // Focus onto the terminal column beside the pane — its tab strip, which is on
-  // screen at the same time as the open file and is not inside `dock-files`. The
-  // precondition is read as `activeElement` rather than as `toBeFocused` on the
-  // tab, because selecting a tab may hand the keyboard on to the shell, and
-  // either way what this test needs is "focus is somewhere that is not this
-  // pane".
-  //
-  // (xterm's own helper textarea would have been the obvious choice and cannot be
-  // used: with the pty commands stubbed the terminal mounts but never paints, so
-  // the textarea is not visible and will not take focus. The claim is the same
-  // claim either way — the same `ownsChord`, the same `contains` — and this is
-  // where it can actually be read.)
-  await page.getByTestId("terminal-tab-1").click();
+  // Focus onto something beside the viewer that is not inside the pane. Since
+  // P4.1 an opened file is a VIEW TAB on the stage, sharing the stage with
+  // the terminal tabs, so clicking a terminal tab would take the viewer off
+  // screen and prove nothing about the boundary — the test did exactly that
+  // for a while and timed out waiting for a viewer that was not mounted. The
+  // terminal's context header (`worktree-switcher`, 2026-09-03) is on screen
+  // beside the open file, takes focus, and is nobody's text field.
+  await page.getByTestId("worktree-switcher").focus();
   expect(
     await page.evaluate(
       () =>
