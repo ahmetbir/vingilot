@@ -10,10 +10,9 @@
 
 import * as React from "react";
 
-import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 import type { UseRichTextEditorResult } from "@/features/messages/lib/useRichTextEditor";
 import { dictationCaretInsertionText } from "./dictationFold";
-import { resolveDictationKey } from "./dictationKeys";
+import { resolveDictationHold } from "./dictationKeys";
 import { type Dictation, useDictation } from "./useDictation";
 
 /** Positional, matching this island's other few-argument composer hooks
@@ -56,39 +55,56 @@ export function useComposerDictation(
   const dictationRef = React.useRef(dictation);
   dictationRef.current = dictation;
 
-  // ⌃⌘D toggles dictation (scoped to this composer having focus — see
-  // `dictationKeys.ts`'s header for the six-claimant audit that cleared the
-  // chord itself), and plain Escape stops an active session — the second
-  // half of "press again / Esc stops". Both live in one listener rather than
-  // adding a second effect for one `if`.
+  // Hold the right ⌥ to talk (scoped to this composer having focus — see
+  // `dictationKeys.ts`'s header for why it is a modifier alone), and plain
+  // Escape stops an active session. A window that loses focus with the key
+  // held stops too: the keyup would arrive somewhere else.
   React.useEffect(() => {
     if (composerDisabled) return;
+    const inScope = () => scopeRef.current?.contains(document.activeElement);
     function handleKeyDown(event: KeyboardEvent) {
-      const action = resolveDictationKey({
-        altKey: event.altKey,
-        ctrlKey: event.ctrlKey,
-        key: event.key,
-        primaryModifier: hasPrimaryShortcutModifier(event),
-        repeat: event.repeat,
-        shiftKey: event.shiftKey,
-      });
-      const isEscapeStop =
-        action === null &&
-        event.key === "Escape" &&
-        dictationRef.current.status === "listening";
-      if (action === null && !isEscapeStop) return;
-      if (!scopeRef.current?.contains(document.activeElement)) return;
-      event.preventDefault();
-      if (isEscapeStop) {
-        dictationRef.current.stop();
+      const current = dictationRef.current;
+      if (event.key === "Escape" && current.status === "listening") {
+        if (!inScope()) return;
+        event.preventDefault();
+        current.stop();
         return;
       }
+      const action = resolveDictationHold({
+        code: event.code,
+        key: event.key,
+        kind: "down",
+        location: event.location,
+        repeat: event.repeat,
+      });
+      if (action === null || !inScope()) return;
+      event.preventDefault();
+      if (current.status === "idle") current.start();
+    }
+    function handleKeyUp(event: KeyboardEvent) {
+      const action = resolveDictationHold({
+        code: event.code,
+        key: event.key,
+        kind: "up",
+        location: event.location,
+        repeat: false,
+      });
+      if (action === null) return;
       const current = dictationRef.current;
-      if (current.status === "listening") current.stop();
-      else current.start();
+      if (current.status !== "idle") current.stop();
+    }
+    function handleBlur() {
+      const current = dictationRef.current;
+      if (current.status !== "idle") current.stop();
     }
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
   }, [composerDisabled, scopeRef]);
 
   // Auto-stop on navigation away.

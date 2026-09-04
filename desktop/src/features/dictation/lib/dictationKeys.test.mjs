@@ -1,58 +1,51 @@
-// ⌃⌘D resolves to toggle-dictation and nothing else does.
+// Hold the right ⌥ to talk: down starts, up ends, nothing else resolves.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { resolveDictationKey } from "./dictationKeys.ts";
+import { resolveDictationHold } from "./dictationKeys.ts";
 
-const TOGGLE = { type: "toggle-dictation" };
+const START = { type: "hold-start" };
+const END = { type: "hold-end" };
 
-function press({
-  alt = false,
-  ctrl = true,
-  key = "d",
-  primary = true,
+function ev({
+  code = "AltRight",
+  key = "Alt",
+  kind = "down",
+  location = 2,
   repeat = false,
-  shift = false,
 } = {}) {
-  return {
-    altKey: alt,
-    ctrlKey: ctrl,
-    key,
-    primaryModifier: primary,
-    repeat,
-    shiftKey: shift,
-  };
+  return { code, key, kind, location, repeat };
 }
 
-test("⌃⌘D resolves to toggle-dictation", () => {
-  assert.deepEqual(resolveDictationKey(press()), TOGGLE);
+test("right ⌥ down starts, up ends", () => {
+  assert.deepEqual(resolveDictationHold(ev()), START);
+  assert.deepEqual(resolveDictationHold(ev({ kind: "up" })), END);
 });
 
-test("case-insensitive: caps lock reporting 'D' still resolves", () => {
-  assert.deepEqual(resolveDictationKey(press({ key: "D" })), TOGGLE);
+test("a browser that reports only the location still resolves", () => {
+  assert.deepEqual(resolveDictationHold(ev({ code: "" })), START);
 });
 
-test("without Control (plain ⌘D) resolves to nothing — that chord belongs to terminalKeys' deliberate absence", () => {
-  assert.equal(resolveDictationKey(press({ ctrl: false })), null);
+test("the left ⌥ is the text's and resolves to nothing", () => {
+  assert.equal(
+    resolveDictationHold(ev({ code: "AltLeft", location: 1 })),
+    null,
+  );
+  assert.equal(resolveDictationHold(ev({ code: "", location: 1 })), null);
 });
 
-test("without the primary modifier (plain ⌃D) resolves to nothing", () => {
-  assert.equal(resolveDictationKey(press({ primary: false })), null);
+test("auto-repeat of a held key is not a second start", () => {
+  assert.equal(resolveDictationHold(ev({ repeat: true })), null);
 });
 
-test("⌥ added (⌃⌥⌘D) resolves to nothing", () => {
-  assert.equal(resolveDictationKey(press({ alt: true })), null);
-});
-
-test("⇧ added (⌃⇧⌘D) resolves to nothing", () => {
-  assert.equal(resolveDictationKey(press({ shift: true })), null);
-});
-
-test("a different letter resolves to nothing", () => {
-  assert.equal(resolveDictationKey(press({ key: "e" })), null);
-});
-
-test("auto-repeat is not a second press", () => {
-  assert.equal(resolveDictationKey(press({ repeat: true })), null);
+test("the old chord, and every other key, resolves to nothing", () => {
+  assert.equal(
+    resolveDictationHold(ev({ code: "KeyD", key: "d", location: 0 })),
+    null,
+  );
+  assert.equal(
+    resolveDictationHold(ev({ code: "Space", key: " ", location: 0 })),
+    null,
+  );
 });

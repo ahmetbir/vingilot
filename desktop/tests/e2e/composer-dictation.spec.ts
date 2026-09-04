@@ -187,3 +187,30 @@ test("an absent speech model offers the download flow instead of failing silentl
   );
   await expect(page.getByTestId("dictation-error")).toHaveCount(0);
 });
+
+test("holding the right ⌥ talks; letting go stops; the left ⌥ types", async ({
+  page,
+}) => {
+  await installFakeDictationMicrophone(page);
+  await installMockBridge(page);
+  await openGeneral(page);
+  await page
+    .getByTestId("message-composer")
+    .locator("[contenteditable='true']")
+    .first()
+    .click();
+
+  await page.keyboard.down("AltRight");
+  await expect(page.getByTestId("dictation-listening-indicator")).toBeVisible();
+  await page.keyboard.up("AltRight");
+  await expect(page.getByTestId("dictation-listening-indicator")).toHaveCount(
+    0,
+  );
+  // The left ⌥ is the text's: nothing starts.
+  await page.keyboard.down("AltLeft");
+  await page.waitForTimeout(150);
+  await expect(page.getByTestId("dictation-listening-indicator")).toHaveCount(
+    0,
+  );
+  await page.keyboard.up("AltLeft");
+});

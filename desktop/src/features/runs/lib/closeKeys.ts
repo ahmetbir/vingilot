@@ -48,7 +48,7 @@
 //    ⇧⌘D, ⌥⌘←→, ⌥⌘T, and P4.7's ⇧⌘\), `paletteKeys.ts` (⌘K/⌘P/⇧⌘P),
 //    `paneKeys.ts` (⌥⌘B/⇧⌥⌘B), `columnKeys.ts` (⌘B), `cheatsheetKeys.ts` (⌘/),
 //    `searchKeys.ts` (⇧⌘F), `scratchMarkdownKeys.ts` (⇧⌘M), `placeKeys.ts`
-//    (⌃⇥), `diffKeys.ts` (j/k/⏎/⌥⏎), `dictationKeys.ts` (⌃⌘D). **⇧⌘W is the
+//    (⌃⇥), `diffKeys.ts` (j/k/⏎/⌥⏎), `dictationKeys.ts` (hold right ⌥). **⇧⌘W is the
 //    only W in the island and it keeps its meaning**: it closes a terminal tab
 //    with no reference to the stack, which is why it still works with the
 //    palette open and ⌘W does not.

@@ -35,9 +35,9 @@
 // are ⌘,/⌘±/⌘0/⌘R/⌘[]/⌃⌘←→/⌘F/Esc; `useShellChords` claims ⌘B and ⌥⌘B;
 // this island's own maps end at ⌘1…9, ⌘`, ⌘T, ⇧⌘W, ⌥⌘←→, ⌥⌘T, ⌘K,
 // ⌘B/⇧⌘B, ⌥⌘B/⇧⌥⌘B. One near-claimant sits outside that grep scope and is
-// worth naming: `dictationKeys.ts` resolves "d" — but only under ⌃⌘, and
-// `hasPrimaryShortcutModifier` is `metaKey && !ctrlKey` on macOS, so ⌃⌘D
-// never reaches the split map (probed live by the P2 verify). Nothing else
+// worth naming: `dictationKeys.ts` resolved "d" under ⌃⌘ for one release
+// and now resolves no letter at all — its key is the held right ⌥ (its
+// header says why), so nothing there can reach the split map. Nothing else
 // resolves "d" with ⌘ held, shifted or not — grep re-run 2026-08-30.
 
 export type TerminalKeyAction =

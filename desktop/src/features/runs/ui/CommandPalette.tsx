@@ -260,7 +260,7 @@ export function CommandPalette({ palette }: { palette: Palette }) {
   // most of the keyboard in a capture-phase `window` listener while open
   // (this file's header), and a second global chord fighting for the same
   // keys inside a modal is a worse trade than one click — see
-  // `dictationKeys.ts`'s header, which binds ⌃⌘D to the message composer
+  // `dictationKeys.ts`'s header, which gives the message composer hold-right-⌥
   // instead. Query includes its leading `?`; folding onto the whole string
   // (not just the question) keeps this the same "append to what's typed"
   // behavior the composer's fold has.
